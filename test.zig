@@ -187,7 +187,7 @@ test "post eq symbols" {
 }
 
 test "functions" {
-    const code1 = "fn [T: Rectangle | Car] name(param: T) {}";
+    const code1 = "fn [T: Rectangle | Car, K: string[]] name(param: T) {}";
     const tokensArr1 = [_]Token{
         Token{ .type = TokenType.Fn, .string = null },
         Token{ .type = TokenType.LBracket, .string = null },
@@ -196,6 +196,12 @@ test "functions" {
         Token{ .type = TokenType.Identifier, .string = try toArr(u8, "Rectangle") },
         Token{ .type = TokenType.Union, .string = null },
         Token{ .type = TokenType.Identifier, .string = try toArr(u8, "Car") },
+        Token{ .type = TokenType.Comma, .string = null },
+        Token{ .type = TokenType.Identifier, .string = try toArr(u8, "K") },
+        Token{ .type = TokenType.Colon, .string = null },
+        Token{ .type = TokenType.String, .string = null },
+        Token{ .type = TokenType.LBracket, .string = null },
+        Token{ .type = TokenType.RBracket, .string = null },
         Token{ .type = TokenType.RBracket, .string = null },
         Token{ .type = TokenType.Identifier, .string = try toArr(u8, "name") },
         Token{ .type = TokenType.LParen, .string = null },

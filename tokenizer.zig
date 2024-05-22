@@ -39,6 +39,7 @@ pub const TokenType = enum {
     Period,
     SingleQuote,
     DoubleQuote,
+    Comma,
 
     // datatypes
     Char,
@@ -335,6 +336,7 @@ fn isSymbol(char: u8) ?TokenType {
         SymbolMap{ .symbol = '\'', .token = TokenType.SingleQuote },
         SymbolMap{ .symbol = '"', .token = TokenType.DoubleQuote },
         SymbolMap{ .symbol = '.', .token = TokenType.Period },
+        SymbolMap{ .symbol = ',', .token = TokenType.Comma },
     };
 
     for (symbols) |symbol| {
