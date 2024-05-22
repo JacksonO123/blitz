@@ -1,0 +1,38 @@
+// type inference
+// generics, bounded by a union of structs
+// bind (derive) structs
+
+// constant + variable type inferred
+const abc = 12349;
+var abc = 2359;
+
+// no pointers, references
+&abc
+
+// struct union type annotated
+const data: Rectangle | Car = ...;
+
+// if statement
+if (a == 2) {}
+
+// base function
+fn name() {}
+
+// function with parameters
+fn name(param1: u32, param2: string) {}
+
+// function with return
+fn name(): string {}
+
+// function with generic argument
+fn [T] name(param: T) {}
+
+// bind generics with struct unions
+fn [T: Rectangle | Car] name(param: T) {}
+
+// reference type parameter
+fn name(param: &u32) {}
+
+// modules by files
+// export function from modules
+exp fn name() {}
