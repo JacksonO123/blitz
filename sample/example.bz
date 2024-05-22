@@ -15,6 +15,10 @@ const data: Rectangle | Car = ...;
 // if statement
 if (a == 2) {}
 
+// for and while loops
+for (var i = 0; i < 10; i++) {}
+while (a < 10) { a++; }
+
 // base function
 fn name() {}
 
