@@ -1,6 +1,7 @@
 // type inference
 // generics, bounded by a union of structs
 // bind (derive) structs
+// no function overloading
 
 // constant + variable type inferred
 const abc = 12349;
@@ -40,3 +41,21 @@ fn name(param: &u32) {}
 // modules by files
 // export function from modules
 exp fn name() {}
+
+// structs
+struct [T: Rectangle | Car] name {
+  value1: bool;
+  pub value2: T;
+  pub static fn create(val1: bool, val2: T): name {
+    return name {
+      val1 = !val1,
+      val2
+    };
+  }
+  prot someFunc(): u32 {}
+}
+
+// inheriting from name (single inheritance)
+struct something : name {
+  // ...
+}

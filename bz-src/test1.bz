@@ -1,0 +1,11 @@
+struct [T: Rectangle | Car] name {
+  value1: bool;
+  pub value2: T;
+  pub static fn create(val1: bool, val2: T): name {
+    return name {
+      val1 = !val1,
+      val2
+    };
+  }
+  prot someFunc(): u32 {}
+}
