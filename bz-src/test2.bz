@@ -1,1 +1,6 @@
-const thing = "this string";
+const thing: u32[5] = 2;
+
+/* u32[] */
+// u32[][][]
+// ?u32
+// Custom<?u32[][]>

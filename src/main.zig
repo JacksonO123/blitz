@@ -1,7 +1,11 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
+const astUtils = @import("ast.zig");
+const createAst = astUtils.createAst;
 const tokenize = tokenizer.tokenize;
 const freeTokens = tokenizer.freeTokens;
+const Ast = astUtils.Ast;
+const freeAst = astUtils.freeAst;
 
 const RuntimeError = error{NoInputFile};
 
@@ -28,6 +32,14 @@ pub fn main() !void {
     defer allocator.free(code);
 
     const tokens = try tokenize(allocator, code);
+    defer freeTokens(allocator, tokens);
+
+    var ast = Ast().init(allocator);
+    defer ast.deinit();
+    try ast.fromTokens(tokens);
+
+    std.debug.print("{s}", .{code});
+    std.debug.print("@@ {any}\n", .{ast.root.nodes[0].VarDec.annotation});
 
     file.close();
 
@@ -42,6 +54,4 @@ pub fn main() !void {
             std.debug.print("\n", .{});
         }
     }
-
-    freeTokens(allocator, tokens);
 }

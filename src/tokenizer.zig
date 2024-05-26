@@ -1,6 +1,7 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
+const findChar = @import("utils.zig").findChar;
 
 pub const TokenizeError = error{
     IdentifierWithStartingNumber,
@@ -44,6 +45,7 @@ pub const TokenType = enum {
     SingleQuote,
     DoubleQuote,
     Comma,
+    QuestionMark,
 
     // datatypes
     Char,
@@ -66,6 +68,62 @@ pub const TokenType = enum {
     DivEq,
     Inc,
     Dec,
+
+    pub fn toString(self: *const TokenType) []const u8 {
+        return switch (self.*) {
+            .Const => "const",
+            .Var => "var",
+            .Fn => "fn",
+            .Struct => "struct",
+            .If => "if",
+            .For => "for",
+            .While => "while",
+            .Continue => "continue",
+            .Break => "break",
+            .Colon => ":",
+            .Semicolon => ";",
+            .LParen => "(",
+            .RParen => ")",
+            .LBracket => "[",
+            .RBracket => "]",
+            .LBrace => "{",
+            .RBrace => "}",
+            .LAngle => "<",
+            .RAngle => ">",
+            .Ampersand => "&",
+            .Union => "|",
+            .EqSet => "=",
+            .Sub => "-",
+            .Add => "+",
+            .Mult => "*",
+            .Div => "/",
+            .Mod => "%",
+            .Bang => "!",
+            .Period => ".",
+            .SingleQuote => "'",
+            .DoubleQuote => "\"",
+            .Comma => ",",
+            .Char => "char",
+            .U16 => "u16",
+            .U32 => "u32",
+            .U64 => "u64",
+            .U128 => "u128",
+            .String => "string",
+            .Bool => "bool",
+            .Identifier => "identifier",
+            .Number => "number",
+            .EqComp => "==",
+            .LAngleEq => "<=",
+            .RAngleEq => ">=",
+            .SubEq => "-=",
+            .AddEq => "+=",
+            .MultEq => "*=",
+            .DivEq => "/=",
+            .Inc => "++",
+            .Dec => "--",
+            .QuestionMark => "?",
+        };
+    }
 };
 
 const TokenTypeMap = struct {
@@ -96,7 +154,7 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
     defer tokens.deinit();
 
     var i: usize = 0;
-    while (i < input.len) : (i += 1) {
+    outer: while (i < input.len) : (i += 1) {
         const char = input[i];
 
         if (char == '"' or char == '\'') {
@@ -122,7 +180,8 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
                 if (index == null) {
                     break;
                 } else {
-                    i = index.? + 1;
+                    i = index.?;
+                    continue;
                 }
             } else if (next == '*') {
                 var index = findChar(input, i, '/');
@@ -130,9 +189,11 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
 
                 while (input[index.? - 1] != '*') {
                     index = findChar(input, index.? + 1, '/');
-                    if (index == null) continue;
+                    if (index == null) continue :outer;
                     i = index.?;
                 }
+
+                continue;
             }
         }
 
@@ -246,16 +307,6 @@ fn isPostEqSymbol(chars: []const u8, start: usize) ?Token {
     return null;
 }
 
-fn findChar(chars: []const u8, start: usize, char: u8) ?usize {
-    var i = start;
-
-    while (i < chars.len) : (i += 1) {
-        if (chars[i] == char) return i;
-    }
-
-    return null;
-}
-
 fn isNumber(chars: []u8) bool {
     for (chars) |char| {
         if (!std.ascii.isDigit(char) and char != '.') return false;
@@ -358,6 +409,7 @@ fn isSymbol(char: u8) ?TokenType {
         SymbolMap{ .symbol = '"', .token = TokenType.DoubleQuote },
         SymbolMap{ .symbol = '.', .token = TokenType.Period },
         SymbolMap{ .symbol = ',', .token = TokenType.Comma },
+        SymbolMap{ .symbol = '?', .token = TokenType.QuestionMark },
     };
 
     for (symbols) |symbol| {
@@ -377,4 +429,12 @@ pub fn freeTokens(allocator: Allocator, tokens: anytype) void {
     }
 
     allocator.free(tokens);
+}
+
+pub fn freeTokenArr(allocator: Allocator, tokens: anytype) void {
+    for (tokens.*) |token| {
+        if (token.string != null) {
+            allocator.free(token.string.?);
+        }
+    }
 }
