@@ -1,5 +1,6 @@
 const std = @import("std");
 const tokenizer = @import("./tokenizer.zig");
+const utils = @import("utils.zig");
 const expect = std.testing.expect;
 const expectEqualDeep = std.testing.expectEqualDeep;
 const tokenize = tokenizer.tokenize;
@@ -10,18 +11,10 @@ const ArrayList = std.ArrayList;
 const allocator = std.testing.allocator;
 const freeTokens = tokenizer.freeTokens;
 const freeTokenArr = tokenizer.freeTokenArr;
+const toSlice = utils.toSlice;
 
 // const verbose = true;
 const verbose = false;
-
-fn toArr(comptime T: type, data: anytype) ![]T {
-    var list = ArrayList(T).init(allocator);
-    defer list.deinit();
-    try list.resize(data.len);
-    std.mem.copyForwards(T, list.items, data);
-    const res = try allocator.dupe(T, list.items);
-    return res;
-}
 
 fn printTokens(tokens: anytype) void {
     for (tokens) |token| {
@@ -35,7 +28,7 @@ fn printTokens(tokens: anytype) void {
 }
 
 fn testTokens(code: []const u8, tokens: anytype) !void {
-    const expectedTokens = try toArr(Token, &tokens);
+    const expectedTokens = try toSlice(Token, allocator, &tokens);
     defer allocator.free(expectedTokens);
 
     const resTokens = try tokenize(allocator, code);
@@ -54,7 +47,7 @@ fn testTokens(code: []const u8, tokens: anytype) !void {
 
 test "numbers" {
     const number1 = "1235321;";
-    const numStr1 = try toArr(u8, "1235321");
+    const numStr1 = try toSlice(u8, allocator, "1235321");
     defer allocator.free(numStr1);
     const tokensArr1 = [_]Token{
         Token{ .type = TokenType.Number, .string = numStr1 },
@@ -63,7 +56,7 @@ test "numbers" {
     try testTokens(number1, tokensArr1);
 
     const number2 = "1235.321;";
-    const numStr2 = try toArr(u8, "1235.321");
+    const numStr2 = try toSlice(u8, allocator, "1235.321");
     defer allocator.free(numStr2);
     const tokensArr2 = [_]Token{
         Token{ .type = TokenType.Number, .string = numStr2 },
@@ -82,9 +75,9 @@ test "numbers" {
 
 test "variables" {
     const code1 = "const thing = 2;";
-    const str1 = try toArr(u8, "thing");
+    const str1 = try toSlice(u8, allocator, "thing");
     defer allocator.free(str1);
-    const str2 = try toArr(u8, "2");
+    const str2 = try toSlice(u8, allocator, "2");
     defer allocator.free(str2);
     const tokensArr1 = [_]Token{
         Token{ .type = TokenType.Const, .string = null },
@@ -96,9 +89,9 @@ test "variables" {
     try testTokens(code1, tokensArr1);
 
     const code2 = "var thing: string = \"something\";";
-    const str3 = try toArr(u8, "thing");
+    const str3 = try toSlice(u8, allocator, "thing");
     defer allocator.free(str3);
-    const str4 = try toArr(u8, "\"something\"");
+    const str4 = try toSlice(u8, allocator, "\"something\"");
     defer allocator.free(str4);
     const tokensArr2 = [_]Token{
         Token{ .type = TokenType.Var, .string = null },
@@ -114,9 +107,9 @@ test "variables" {
 
 test "if statements" {
     const code1 = "if (a == 2) {}";
-    const str1 = try toArr(u8, "a");
+    const str1 = try toSlice(u8, allocator, "a");
     defer allocator.free(str1);
-    const str2 = try toArr(u8, "2");
+    const str2 = try toSlice(u8, allocator, "2");
     defer allocator.free(str2);
     const tokensArr1 = [_]Token{
         Token{ .type = TokenType.If, .string = null },
@@ -133,11 +126,11 @@ test "if statements" {
 
 test "loops" {
     const code1 = "for (var i = 0; i < 10; i++) {}";
-    const iStr = try toArr(u8, "i");
+    const iStr = try toSlice(u8, allocator, "i");
     defer allocator.free(iStr);
-    const str1 = try toArr(u8, "0");
+    const str1 = try toSlice(u8, allocator, "0");
     defer allocator.free(str1);
-    const str2 = try toArr(u8, "10");
+    const str2 = try toSlice(u8, allocator, "10");
     defer allocator.free(str2);
     const tokensArr1 = [_]Token{
         Token{ .type = TokenType.For, .string = null },
@@ -208,19 +201,19 @@ test "post eq symbols" {
 
 test "functions" {
     const code1 = "fn [T: Rectangle | Car, K: string[]] name(param: T) {}";
-    const str1 = try toArr(u8, "T");
+    const str1 = try toSlice(u8, allocator, "T");
     defer allocator.free(str1);
-    const str2 = try toArr(u8, "Rectangle");
+    const str2 = try toSlice(u8, allocator, "Rectangle");
     defer allocator.free(str2);
-    const str3 = try toArr(u8, "Car");
+    const str3 = try toSlice(u8, allocator, "Car");
     defer allocator.free(str3);
-    const str4 = try toArr(u8, "K");
+    const str4 = try toSlice(u8, allocator, "K");
     defer allocator.free(str4);
-    const str5 = try toArr(u8, "name");
+    const str5 = try toSlice(u8, allocator, "name");
     defer allocator.free(str5);
-    const str6 = try toArr(u8, "param");
+    const str6 = try toSlice(u8, allocator, "param");
     defer allocator.free(str6);
-    const str7 = try toArr(u8, "T");
+    const str7 = try toSlice(u8, allocator, "T");
     defer allocator.free(str7);
     const tokensArr1 = [_]Token{
         Token{ .type = TokenType.Fn, .string = null },

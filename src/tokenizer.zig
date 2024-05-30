@@ -52,7 +52,15 @@ pub const TokenType = enum {
     U16,
     U32,
     U64,
-    U128, //possibly add bigger numbers
+    U128,
+    I16,
+    I32,
+    I64,
+    I128,
+    F16,
+    F32,
+    F64,
+    F128,
     String,
     Bool,
 
@@ -108,6 +116,14 @@ pub const TokenType = enum {
             .U32 => "u32",
             .U64 => "u64",
             .U128 => "u128",
+            .I16 => "i16",
+            .I32 => "i32",
+            .I64 => "i64",
+            .I128 => "i128",
+            .F16 => "f16",
+            .F32 => "f32",
+            .F64 => "f64",
+            .F128 => "f128",
             .String => "string",
             .Bool => "bool",
             .Identifier => "identifier",
@@ -347,12 +363,21 @@ fn charsToToken(chars: []u8, allocator: Allocator) !?Token {
 fn isDatatype(chars: []const u8) ?TokenType {
     const datatypes = [_]TokenTypeMap{
         TokenTypeMap{ .string = "char", .token = TokenType.Char },
+        TokenTypeMap{ .string = "string", .token = TokenType.String },
+        TokenTypeMap{ .string = "bool", .token = TokenType.Bool },
+        // numbers
         TokenTypeMap{ .string = "u16", .token = TokenType.U16 },
         TokenTypeMap{ .string = "u32", .token = TokenType.U32 },
         TokenTypeMap{ .string = "u64", .token = TokenType.U64 },
         TokenTypeMap{ .string = "u128", .token = TokenType.U128 },
-        TokenTypeMap{ .string = "string", .token = TokenType.String },
-        TokenTypeMap{ .string = "bool", .token = TokenType.Bool },
+        TokenTypeMap{ .string = "i16", .token = TokenType.I16 },
+        TokenTypeMap{ .string = "i32", .token = TokenType.I32 },
+        TokenTypeMap{ .string = "i64", .token = TokenType.I64 },
+        TokenTypeMap{ .string = "i128", .token = TokenType.I128 },
+        TokenTypeMap{ .string = "f16", .token = TokenType.F16 },
+        TokenTypeMap{ .string = "f32", .token = TokenType.F32 },
+        TokenTypeMap{ .string = "f64", .token = TokenType.F64 },
+        TokenTypeMap{ .string = "f128", .token = TokenType.F128 },
     };
 
     return getTypeFromMap(chars, datatypes);

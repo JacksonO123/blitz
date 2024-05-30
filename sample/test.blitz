@@ -1,0 +1,5 @@
+bad:
+Type<something _
+
+allowed stuff:
+|, <, >, (identifier), (comma: ,)

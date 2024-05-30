@@ -59,3 +59,8 @@ struct [T: Rectangle | Car] name {
 struct something : name {
   // ...
 }
+
+// access member
+// mutable if not defined with const
+thing.size
+thing.size = 3;
