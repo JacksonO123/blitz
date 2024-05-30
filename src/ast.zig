@@ -75,7 +75,7 @@ pub const AstValues = union(StaticTypes) {
     Bool: bool,
     Char: u8,
     Number: AstNumber,
-    StaticArray: []AstValues,
+    StaticArray: []*const AstNode,
 };
 
 const VarDecNode = struct {
@@ -183,11 +183,32 @@ pub fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, 
             };
         },
         .LBracket => {
+            var nodeItems = ArrayList(*const AstNode).init(allocator);
+            defer nodeItems.deinit();
+
             const end = tokenDelimiterIndex(tokens, compInfo, start + 1, TokenType.RBracket) catch |e| return astError(e, "]");
+            var prev = start + 1;
+            var comma = tokenDelimiterIndex(tokens, compInfo, start + 1, TokenType.Comma) catch end;
 
-            std.debug.print("end: {d}", .{end});
+            while (prev < end) {
+                const tempTokens = tokens[prev..comma];
+                const node = try createAstNode(allocator, compInfo, tempTokens, 0);
+                try nodeItems.append(node.node);
 
-            return AstError.UnexpectedToken;
+                prev = comma + 1;
+                comma = tokenDelimiterIndex(tokens, compInfo, comma + 1, TokenType.Comma) catch end;
+            }
+
+            const itemsSlice = try allocator.dupe(*const AstNode, nodeItems.items);
+
+            return .{
+                .node = try create(AstNode, allocator, .{
+                    .Value = .{
+                        .StaticArray = itemsSlice,
+                    },
+                }),
+                .offset = end - start + 1,
+            };
         },
         .Struct => {
             // TODO: litterally the rest of this
@@ -234,6 +255,7 @@ fn tokenDelimiterIndex(tokens: []Token, compInfo: CompInfo, start: usize, delimi
                 parens += 1;
             },
             .RParen, .RBrace, .RBracket => {
+                if (parens == 0) return AstError.TokenNotFound;
                 parens -= 1;
             },
             else => {},
@@ -404,11 +426,14 @@ fn astError(errorType: AstError, str: []const u8) AstError {
 // |-----------------|
 
 pub fn freeAst(allocator: Allocator, ast: Ast) void {
-    for (ast.root.nodes) |node| {
+    freeNodes(allocator, ast.root.nodes);
+    allocator.free(ast.root.nodes);
+}
+
+fn freeNodes(allocator: Allocator, nodes: []*const AstNode) void {
+    for (nodes) |node| {
         freeNode(allocator, node);
     }
-
-    allocator.free(ast.root.nodes);
 }
 
 fn freeType(allocator: Allocator, node: *const AstTypes) void {
@@ -429,6 +454,16 @@ fn freeType(allocator: Allocator, node: *const AstTypes) void {
     allocator.destroy(node);
 }
 
+fn freeValueNode(allocator: Allocator, node: *const AstValues) void {
+    switch (node.*) {
+        .StaticArray => |arr| {
+            freeNodes(allocator, arr);
+            allocator.free(arr);
+        },
+        else => {},
+    }
+}
+
 pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
     switch (node.*) {
         .VarDec => |*dec| {
@@ -445,7 +480,9 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
         .Type => |*t| {
             freeType(allocator, t);
         },
-        .Value => {},
+        .Value => |*n| {
+            freeValueNode(allocator, n);
+        },
     }
 
     allocator.destroy(node);

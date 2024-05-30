@@ -63,7 +63,19 @@ fn numberTypeToString(numType: AstNumberVariants) [*:0]const u8 {
 
 fn printValue(value: *const AstValues) void {
     switch (value.*) {
-        .StaticArray => {},
+        .StaticArray => |arr| {
+            std.debug.print("([", .{});
+
+            for (arr, 0..) |val, index| {
+                printNode(val);
+
+                if (index < arr.len - 1) {
+                    std.debug.print(", ", .{});
+                }
+            }
+
+            std.debug.print("])", .{});
+        },
         .Number => |*n| {
             std.debug.print("[{s}]({s})", .{ numberTypeToString(n.type), n.value });
         },
