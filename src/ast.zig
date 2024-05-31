@@ -8,6 +8,7 @@ const Token = tokenizer.Token;
 const TokenType = tokenizer.TokenType;
 const ArrayList = std.ArrayList;
 const TokenizeError = tokenizer.TokenizeError;
+const cloneString = utils.cloneString;
 
 pub const RegisteredStruct = struct {
     name: []u8,
@@ -207,7 +208,7 @@ pub fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, 
                 .Value = .{
                     .Number = .{
                         .type = numType,
-                        .value = token.string.?,
+                        .value = try cloneString(allocator, token.string.?),
                     },
                 },
             });
@@ -279,8 +280,8 @@ pub fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, 
             return .{
                 .offset = 1,
                 .node = try create(AstNode, allocator, .{
-                    .Variable = VariableNode{
-                        .name = token.string.?,
+                    .Variable = .{
+                        .name = try cloneString(allocator, token.string.?),
                     },
                 }),
             };
@@ -411,7 +412,7 @@ fn createVarDecNode(
     if (name.type != TokenType.Identifier) return AstError.UnexpectedToken;
     const node = try create(AstNode, allocator, .{
         .VarDec = VarDecNode{
-            .name = name.string.?,
+            .name = try cloneString(allocator, name.string.?),
             .isConst = isConst,
             .setNode = setNode.node,
             .annotation = annotation,
@@ -444,8 +445,6 @@ fn createTypeNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, sta
                 var typeEnd = smartDelimiterIndex(tokens, compInfo, current + 2, TokenType.Comma) catch tokensToRAngle;
                 var prev = current + 2;
 
-                std.debug.print("{d} < {d}", .{ prev, tokensToRAngle });
-
                 while (prev < tokensToRAngle) {
                     const typeTokens = tokens[prev..typeEnd];
                     const typeNode = try createTypeNode(allocator, compInfo, typeTokens, 0);
@@ -465,7 +464,7 @@ fn createTypeNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, sta
             .Custom = CustomType{
                 .generics = typeGenerics,
                 .structCode = registeredStruct.?.typeCode,
-                .name = registeredStruct.?.name,
+                .name = try cloneString(allocator, registeredStruct.?.name),
             },
         });
     } else {
@@ -545,11 +544,10 @@ pub fn registerStructs(allocator: Allocator, tokens: []Token) ![]RegisteredStruc
         }
 
         if (tokens[i].type != TokenType.Identifier) return AstError.UnexpectedToken;
-        const name = tokens[i].string.?;
 
         const registeredStruct = RegisteredStruct{
             .numGenerics = numGenerics,
-            .name = name,
+            .name = try cloneString(allocator, tokens[i].string.?),
             .typeCode = typeCode,
         };
 
@@ -558,7 +556,7 @@ pub fn registerStructs(allocator: Allocator, tokens: []Token) ![]RegisteredStruc
         try arr.append(registeredStruct);
     }
 
-    const slice = allocator.dupe(RegisteredStruct, arr.items);
+    const slice = try allocator.dupe(RegisteredStruct, arr.items);
     return slice;
 }
 
@@ -615,6 +613,7 @@ fn freeType(allocator: Allocator, node: *const AstTypes) void {
             }
 
             allocator.free(custom.generics);
+            allocator.free(custom.name);
         },
         else => {},
     }
@@ -628,6 +627,12 @@ fn freeValueNode(allocator: Allocator, node: *const AstValues) void {
             freeNodes(allocator, arr);
             allocator.free(arr);
         },
+        .Number => |*num| {
+            allocator.free(num.value);
+        },
+        .String => |string| {
+            allocator.free(string);
+        },
         else => {},
     }
 }
@@ -636,9 +641,12 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
     switch (node.*) {
         .VarDec => |*dec| {
             freeNode(allocator, dec.setNode);
+
             if (dec.annotation != null) {
                 freeType(allocator, dec.annotation.?);
             }
+
+            allocator.free(dec.name);
         },
         .Seq => |*seq| {
             for (seq.nodes) |seqNode| {
@@ -655,12 +663,18 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
             freeNode(allocator, cast.node);
             freeType(allocator, cast.toType);
         },
-        .Variable => {},
+        .Variable => |*variable| {
+            allocator.free(variable.name);
+        },
     }
 
     allocator.destroy(node);
 }
 
 pub fn freeRegisteredStructs(allocator: Allocator, structs: []RegisteredStruct) void {
+    for (structs) |s| {
+        allocator.free(s.name);
+    }
+
     allocator.free(structs);
 }

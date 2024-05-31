@@ -29,3 +29,7 @@ pub fn toSlice(comptime T: type, allocator: Allocator, data: anytype) ![]T {
     const res = try allocator.dupe(T, list.items);
     return res;
 }
+
+pub fn cloneString(allocator: Allocator, string: []u8) ![]u8 {
+    return try allocator.dupe(u8, string);
+}
