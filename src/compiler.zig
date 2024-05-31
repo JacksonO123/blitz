@@ -1,16 +1,18 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
 const astUtils = @import("ast.zig");
-const debug = @import("debug.zig");
 const Allocator = std.mem.Allocator;
 const tokenize = tokenizer.tokenize;
 const freeTokens = tokenizer.freeTokens;
-const registerStructNames = astUtils.registerStructNames;
+const registerStructs = astUtils.registerStructs;
 const freeRegisteredStructs = astUtils.freeRegisteredStructs;
-const printRegisteredStructs = debug.printRegisteredStructs;
 const CompInfo = astUtils.CompInfo;
 const createAst = astUtils.createAst;
 const freeAst = astUtils.freeAst;
+
+// debug
+const debug = @import("debug.zig");
+const printRegisteredStructs = debug.printRegisteredStructs;
 const printAst = debug.printAst;
 
 pub fn compile(allocator: Allocator, path: []const u8) !void {
@@ -23,7 +25,7 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
     const tokens = try tokenize(allocator, code);
     defer freeTokens(allocator, tokens);
 
-    const structs = try registerStructNames(allocator, tokens);
+    const structs = try registerStructs(allocator, tokens);
     defer freeRegisteredStructs(allocator, structs);
 
     printRegisteredStructs(structs);
@@ -35,16 +37,6 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
     const ast = try createAst(allocator, compInfo, tokens);
     defer freeAst(allocator, ast);
 
-    std.debug.print("{s}\n--------------\n", .{code});
+    std.debug.print("--- code ---\n{s}\n------------\n", .{code});
     printAst(ast);
-
-    // for (tokens) |token| {
-    //     std.debug.print("{}", .{token.type});
-    //     if (token.string != null) {
-    //         std.debug.print(" : ", .{});
-    //         tokenizer.printChars(token.string.?);
-    //     } else {
-    //         std.debug.print("\n", .{});
-    //     }
-    // }
 }

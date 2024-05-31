@@ -64,3 +64,7 @@ struct something : name {
 // mutable if not defined with const
 thing.size
 thing.size = 3;
+
+// type casting
+const a: u32 = 4;
+const b: f32 = f32(a);

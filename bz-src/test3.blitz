@@ -1,0 +1,6 @@
+struct [T, K] Rectangle {}
+struct Car {}
+struct House {}
+
+const a: u32 = 5;
+const b: Rectangle<Car, House> = Rectangle<Car, House>(a);

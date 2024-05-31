@@ -41,6 +41,25 @@ fn printType(typeNode: *const AstTypes) void {
         .Number => |*num| {
             std.debug.print("{s}", .{numberTypeToString(num.*)});
         },
+        .Custom => |*custom| {
+            std.debug.print("{s}", .{custom.name});
+            if (custom.generics.len > 0) {
+                std.debug.print("<", .{});
+            }
+
+            // std.debug.print("{any}", .{custom.generics});
+            for (custom.generics, 0..) |generic, index| {
+                printType(generic);
+
+                if (index < custom.generics.len - 1) {
+                    std.debug.print(", ", .{});
+                }
+            }
+
+            if (custom.generics.len > 0) {
+                std.debug.print(">", .{});
+            }
+        },
     };
 }
 
@@ -98,9 +117,11 @@ fn printNode(node: *const AstNode) void {
                 if (dec.isConst) "const" else "mutable",
                 dec.name,
             });
+
             printNode(dec.setNode);
+
             if (dec.annotation != null) {
-                std.debug.print(" with type: ", .{});
+                std.debug.print(" with annotation: ", .{});
                 printType(dec.annotation.?);
             }
         },
@@ -113,6 +134,15 @@ fn printNode(node: *const AstNode) void {
         .Seq => |*seq| {
             printNodes(seq.nodes);
         },
+        .Cast => |*cast| {
+            std.debug.print("cast ", .{});
+            printNode(cast.node);
+            std.debug.print(" to ", .{});
+            printType(cast.toType);
+        },
+        .Variable => |*variable| {
+            std.debug.print("[variable: ({s})]", .{variable.name});
+        },
     }
 }
 
@@ -124,9 +154,8 @@ fn printNodes(nodes: []*const AstNode) void {
 }
 
 pub fn printRegisteredStructs(structs: []RegisteredStruct) void {
-    std.debug.print("registered structs:\n", .{});
+    std.debug.print("--- structs ---\n", .{});
     for (structs) |s| {
-        std.debug.print("{s}{s}\n", .{ s.name, if (s.isGeneric) " : (generic)" else "" });
+        std.debug.print("{s}{s}\n", .{ s.name, if (s.numGenerics > 0) " : (generic)" else "" });
     }
-    std.debug.print("--- end ---\n", .{});
 }
