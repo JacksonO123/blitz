@@ -140,6 +140,24 @@ pub const TokenType = enum {
             .QuestionMark => "?",
         };
     }
+
+    pub fn isOpenToken(tokenType: TokenType, includeAngle: bool) bool {
+        const temp = switch (tokenType) {
+            .LParen, .LBrace, .LBracket => true,
+            else => false,
+        };
+
+        return if (includeAngle) temp and tokenType == TokenType.LAngle else temp;
+    }
+
+    pub fn isCloseToken(tokenType: TokenType, includeAngle: bool) bool {
+        const temp = switch (tokenType) {
+            .RParen, .RBrace, .RBracket => true,
+            else => false,
+        };
+
+        return if (includeAngle) temp and tokenType == TokenType.RAngle else temp;
+    }
 };
 
 const TokenTypeMap = struct {

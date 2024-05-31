@@ -223,8 +223,8 @@ pub fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, 
             defer nodeItems.deinit();
 
             const end = smartDelimiterIndex(tokens, compInfo, start + 1, TokenType.RBracket) catch |e| return astError(e, "]");
-            var prev = start + 1;
             var comma = smartDelimiterIndex(tokens, compInfo, start + 1, TokenType.Comma) catch end;
+            var prev = start + 1;
 
             while (prev < end) {
                 const tempTokens = tokens[prev..comma];
@@ -300,9 +300,9 @@ fn delimiterIndex(tokens: []Token, start: usize, delimiter: TokenType) !usize {
     while (i < tokens.len) : (i += 1) {
         if (tokens[i].type == delimiter and parens == 0) return i;
 
-        if (isOpenToken(tokens[i].type, true)) {
+        if (TokenType.isOpenToken(tokens[i].type, true)) {
             parens += 1;
-        } else if (isCloseToken(tokens[i].type, true)) {
+        } else if (TokenType.isCloseToken(tokens[i].type, true)) {
             parens -= 1;
         }
     }
@@ -341,33 +341,15 @@ fn smartDelimiterIndex(tokens: []Token, compInfo: CompInfo, start: usize, delimi
             }
         }
 
-        if (isOpenToken(tokens[current].type, false)) {
+        if (TokenType.isOpenToken(tokens[current].type, false)) {
             parens += 1;
-        } else if (isCloseToken(tokens[current].type, false)) {
+        } else if (TokenType.isCloseToken(tokens[current].type, false)) {
             if (parens == 0) return AstError.TokenNotFound;
             parens -= 1;
         }
     }
 
     return AstError.TokenNotFound;
-}
-
-fn isOpenToken(tokenType: TokenType, includeAngle: bool) bool {
-    const temp = switch (tokenType) {
-        .LParen, .LBrace, .LBracket => true,
-        else => false,
-    };
-
-    return if (includeAngle) temp and tokenType == TokenType.LAngle else temp;
-}
-
-fn isCloseToken(tokenType: TokenType, includeAngle: bool) bool {
-    const temp = switch (tokenType) {
-        .RParen, .RBrace, .RBracket => true,
-        else => false,
-    };
-
-    return if (includeAngle) temp and tokenType == TokenType.RAngle else temp;
 }
 
 fn nextTokenOccurrence(tokens: []Token, start: usize, tokenType: TokenType) !usize {
@@ -422,6 +404,32 @@ fn createVarDecNode(
     return .{ .node = node, .offset = tokenOffset };
 }
 
+fn parseGenericArgs(allocator: Allocator, compInfo: CompInfo, tokens: []Token, start: usize) ![]*const AstTypes {
+    var typeGenericsArr = ArrayList(*const AstTypes).init(allocator);
+    defer typeGenericsArr.deinit();
+
+    // min tokens: some_generic_type, <, some_type, >
+    const minTokensForGeneric = 4;
+    if (start + minTokensForGeneric < tokens.len and tokens[start + 1].type == TokenType.LAngle) {
+        const tokensToRAngle = smartDelimiterIndex(tokens, compInfo, start + 2, TokenType.RAngle) catch |e| return astError(e, ">");
+        var typeEnd = smartDelimiterIndex(tokens, compInfo, start + 2, TokenType.Comma) catch tokensToRAngle;
+        var prev = start + 2;
+
+        while (prev < tokensToRAngle) {
+            const typeTokens = tokens[prev..typeEnd];
+            const typeNode = try createTypeNode(allocator, compInfo, typeTokens, 0);
+            try typeGenericsArr.append(typeNode);
+
+            prev = typeEnd + 1;
+            typeEnd = smartDelimiterIndex(tokens, compInfo, typeEnd + 1, TokenType.Comma) catch tokensToRAngle;
+        }
+    } else {
+        return AstError.ExpectedGenericArgument;
+    }
+
+    return try allocator.dupe(*const AstTypes, typeGenericsArr.items);
+}
+
 fn createTypeNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, start: usize) (AstError || Allocator.Error)!*const AstTypes {
     if (tokens.len == 0) return AstError.InvalidType;
 
@@ -432,41 +440,19 @@ fn createTypeNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, sta
 
     if (tokens[current].type == TokenType.Identifier) {
         const registeredStruct = compInfo.getRegisteredStruct(tokens[current].string.?);
-        if (registeredStruct == null) return AstError.UnknownType;
+        if (registeredStruct == null) return astError(AstError.UnknownType, tokens[current].string.?);
 
-        var typeGenericsArr = ArrayList(*const AstTypes).init(allocator);
-        defer typeGenericsArr.deinit();
+        var customType = CustomType{
+            .generics = &[_]*const AstTypes{},
+            .structCode = registeredStruct.?.typeCode,
+            .name = try cloneString(allocator, registeredStruct.?.name),
+        };
 
         if (registeredStruct.?.numGenerics > 0) {
-            // min tokens: some_generic_type, <, some_type, >
-            const minTokensForGeneric = 4;
-            if (current + minTokensForGeneric < tokens.len and tokens[current + 1].type == TokenType.LAngle) {
-                const tokensToRAngle = smartDelimiterIndex(tokens, compInfo, current + 2, TokenType.RAngle) catch |e| return astError(e, ">");
-                var typeEnd = smartDelimiterIndex(tokens, compInfo, current + 2, TokenType.Comma) catch tokensToRAngle;
-                var prev = current + 2;
-
-                while (prev < tokensToRAngle) {
-                    const typeTokens = tokens[prev..typeEnd];
-                    const typeNode = try createTypeNode(allocator, compInfo, typeTokens, 0);
-                    try typeGenericsArr.append(typeNode);
-
-                    prev = typeEnd + 1;
-                    typeEnd = smartDelimiterIndex(tokens, compInfo, typeEnd + 1, TokenType.Comma) catch tokensToRAngle;
-                }
-            } else {
-                return AstError.ExpectedGenericArgument;
-            }
+            customType.generics = try parseGenericArgs(allocator, compInfo, tokens, current);
         }
 
-        const typeGenerics = try allocator.dupe(*const AstTypes, typeGenericsArr.items);
-
-        res = try create(AstTypes, allocator, AstTypes{
-            .Custom = CustomType{
-                .generics = typeGenerics,
-                .structCode = registeredStruct.?.typeCode,
-                .name = try cloneString(allocator, registeredStruct.?.name),
-            },
-        });
+        res = try create(AstTypes, allocator, .{ .Custom = customType });
     } else {
         res = try createAstType(allocator, tokens[current]);
     }
