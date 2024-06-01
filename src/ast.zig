@@ -605,6 +605,7 @@ pub fn registerStructs(allocator: Allocator, tokens: []Token) ![]RegisteredStruc
                 numGenerics += 1;
             }
 
+            numGenerics += 1;
             i = pos + 1;
         } else {
             i += 1;
