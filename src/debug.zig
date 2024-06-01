@@ -143,6 +143,31 @@ fn printNode(node: *const AstNode) void {
         .Variable => |*variable| {
             std.debug.print("[variable: ({s})]", .{variable.name});
         },
+        .StructDec => |*dec| {
+            std.debug.print("declare struct ({s})", .{dec.name});
+
+            if (dec.generics.len > 0) {
+                std.debug.print(" with generics [", .{});
+
+                for (dec.generics, 0..) |generic, index| {
+                    std.debug.print("[", .{});
+
+                    if (generic.restriction == null) {
+                        std.debug.print("any", .{});
+                    } else {
+                        printType(generic.restriction.?);
+                    }
+
+                    std.debug.print("]({s})", .{generic.name});
+
+                    if (index < dec.generics.len - 1) {
+                        std.debug.print(", ", .{});
+                    }
+                }
+
+                std.debug.print("]", .{});
+            }
+        },
     }
 }
 

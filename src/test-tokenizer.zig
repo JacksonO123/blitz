@@ -73,6 +73,54 @@ test "numbers" {
     try expect(tokens4 == TokenizeError.IdentifierWithStartingNumber);
 }
 
+test "methods" {
+    const token1 = Token{
+        .type = TokenType.LBracket,
+        .string = null,
+    };
+    const token2 = Token{
+        .type = TokenType.LParen,
+        .string = null,
+    };
+    const token3 = Token{
+        .type = TokenType.LBrace,
+        .string = null,
+    };
+    const token4 = Token{
+        .type = TokenType.LAngle,
+        .string = null,
+    };
+
+    try expect(token1.type.isOpenToken(false) == true);
+    try expect(token2.type.isOpenToken(false) == true);
+    try expect(token3.type.isOpenToken(false) == true);
+    try expect(token4.type.isOpenToken(false) == false);
+    try expect(token4.type.isOpenToken(true) == true);
+
+    const token5 = Token{
+        .type = TokenType.RBracket,
+        .string = null,
+    };
+    const token6 = Token{
+        .type = TokenType.RParen,
+        .string = null,
+    };
+    const token7 = Token{
+        .type = TokenType.RBrace,
+        .string = null,
+    };
+    const token8 = Token{
+        .type = TokenType.RAngle,
+        .string = null,
+    };
+
+    try expect(token5.type.isCloseToken(false) == true);
+    try expect(token6.type.isCloseToken(false) == true);
+    try expect(token7.type.isCloseToken(false) == true);
+    try expect(token8.type.isCloseToken(false) == false);
+    try expect(token8.type.isCloseToken(true) == true);
+}
+
 test "variables" {
     const code1 = "const thing = 2;";
     const str1 = try toSlice(u8, allocator, "thing");

@@ -1,6 +1,6 @@
 struct [T, K] Rectangle {}
-struct Car {}
+struct [G: u32[]] Car {}
 struct House {}
 
 const a: u32 = 5;
-var b: Rectangle<Car, House> = Rectangle<Car, House>(a);
+var b: Rectangle<Car<i32>, House> = Rectangle<Car<i32>, House>(a);

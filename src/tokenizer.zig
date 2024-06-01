@@ -141,22 +141,22 @@ pub const TokenType = enum {
         };
     }
 
-    pub fn isOpenToken(tokenType: TokenType, includeAngle: bool) bool {
-        const temp = switch (tokenType) {
+    pub fn isOpenToken(self: @This(), includeAngle: bool) bool {
+        const temp = switch (self) {
             .LParen, .LBrace, .LBracket => true,
             else => false,
         };
 
-        return if (includeAngle) temp and tokenType == TokenType.LAngle else temp;
+        return if (includeAngle) temp or self == TokenType.LAngle else temp;
     }
 
-    pub fn isCloseToken(tokenType: TokenType, includeAngle: bool) bool {
-        const temp = switch (tokenType) {
+    pub fn isCloseToken(self: @This(), includeAngle: bool) bool {
+        const temp = switch (self) {
             .RParen, .RBrace, .RBracket => true,
             else => false,
         };
 
-        return if (includeAngle) temp and tokenType == TokenType.RAngle else temp;
+        return if (includeAngle) temp or self == TokenType.RAngle else temp;
     }
 };
 

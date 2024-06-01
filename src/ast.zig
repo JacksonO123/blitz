@@ -108,6 +108,17 @@ const VariableNode = struct {
     name: []u8,
 };
 
+const StructDecNode = struct {
+    typeCode: usize,
+    name: []u8,
+    generics: []StructGeneric,
+};
+
+const StructGeneric = struct {
+    name: []u8,
+    restriction: ?*const AstTypes,
+};
+
 const AstNodeVariants = enum {
     Seq,
     VarDec,
@@ -115,6 +126,7 @@ const AstNodeVariants = enum {
     Value,
     Cast,
     Variable,
+    StructDec,
 };
 pub const AstNode = union(AstNodeVariants) {
     Seq: SeqNode,
@@ -123,6 +135,7 @@ pub const AstNode = union(AstNodeVariants) {
     Value: AstValues,
     Cast: CastNode,
     Variable: VariableNode,
+    StructDec: StructDecNode,
 };
 
 const AstError = error{
@@ -247,13 +260,34 @@ pub fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, 
             };
         },
         .Struct => {
-            // TODO: litterally the rest of this
-            const end = try nextTokenOccurrence(tokens, start + 3, TokenType.RBrace);
+            const isGeneric = tokens[start + 1].type == TokenType.LBracket;
+            const nameIndex = (if (isGeneric) try delimiterIndex(tokens, start + 1, TokenType.RBracket) else start) + 1;
+            const end = try smartDelimiterIndex(tokens, compInfo, nameIndex + 2, TokenType.RBrace);
+
+            if (tokens[nameIndex].type != TokenType.Identifier) {
+                return astError(AstError.TokenNotFound, "struct name");
+            }
+
+            const name = try cloneString(allocator, tokens[nameIndex].string.?);
+            const registeredStruct = compInfo.getRegisteredStruct(name);
+
+            var structDecNode = StructDecNode{
+                .typeCode = registeredStruct.?.typeCode,
+                .name = name,
+                .generics = &[_]StructGeneric{},
+            };
+
+            if (isGeneric) {
+                const genericsTokens = tokens[start + 2 .. nameIndex - 1];
+                const genericTypes = try parseStructGenerics(allocator, compInfo, genericsTokens);
+                structDecNode.generics = genericTypes;
+            }
+
+            const structNode = try create(AstNode, allocator, .{ .StructDec = structDecNode });
+
             return .{
                 .offset = end - start + 1,
-                .node = try create(AstNode, allocator, .{
-                    .Value = .{ .Char = 'i' },
-                }),
+                .node = structNode,
             };
         },
         .Identifier => {
@@ -293,18 +327,67 @@ pub fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, 
     }
 }
 
+fn parseStructGenerics(allocator: Allocator, compInfo: CompInfo, tokens: []Token) ![]StructGeneric {
+    var genericList = ArrayList(StructGeneric).init(allocator);
+    defer genericList.deinit();
+
+    var to = delimiterIndex(tokens, 0, TokenType.Comma) catch tokens.len;
+    var prev: usize = 0;
+
+    while (prev < tokens.len) {
+        const typeTokens = tokens[prev..to];
+        var hasRestriction = true;
+        const colonIndex: usize = delimiterIndex(typeTokens, 1, TokenType.Colon) catch blk: {
+            hasRestriction = false;
+            break :blk to;
+        };
+
+        var structGeneric = StructGeneric{
+            .name = &[_]u8{},
+            .restriction = null,
+        };
+
+        const tokenDiff = colonIndex - prev;
+        if (tokenDiff == 0) {
+            return astError(AstError.TokenNotFound, "name for generic argument in struct");
+        } else if (tokenDiff > 1) {
+            return astError(AstError.UnexpectedToken, typeTokens[1].type.toString());
+        } else if (typeTokens[0].type != TokenType.Identifier) {
+            return astError(AstError.UnexpectedToken, typeTokens[0].type.toString());
+        } else {
+            structGeneric.name = try cloneString(allocator, typeTokens[0].string.?);
+        }
+
+        if (hasRestriction) {
+            const restrictionTokens = tokens[colonIndex + 1 .. to];
+            const typeNode = try createTypeNode(allocator, compInfo, restrictionTokens, 0);
+            structGeneric.restriction = typeNode;
+        }
+
+        try genericList.append(structGeneric);
+
+        prev = to + 1;
+        to = delimiterIndex(tokens, to + 1, TokenType.Comma) catch tokens.len;
+    }
+
+    const slice = allocator.dupe(StructGeneric, genericList.items);
+    return slice;
+}
+
 fn delimiterIndex(tokens: []Token, start: usize, delimiter: TokenType) !usize {
     var parens: u32 = 0;
 
     var i = start;
     while (i < tokens.len) : (i += 1) {
-        if (tokens[i].type == delimiter and parens == 0) return i;
-
-        if (TokenType.isOpenToken(tokens[i].type, true)) {
+        if (tokens[i].type.isOpenToken(true)) {
             parens += 1;
-        } else if (TokenType.isCloseToken(tokens[i].type, true)) {
-            parens -= 1;
+        } else if (tokens[i].type.isCloseToken(true)) {
+            if (parens > 0) {
+                parens -= 1;
+            } else if (tokens[i].type != delimiter) return AstError.TokenNotFound;
         }
+
+        if (parens == 0 and tokens[i].type == delimiter) return i;
     }
 
     return AstError.TokenNotFound;
@@ -408,9 +491,7 @@ fn parseGenericArgs(allocator: Allocator, compInfo: CompInfo, tokens: []Token, s
     var typeGenericsArr = ArrayList(*const AstTypes).init(allocator);
     defer typeGenericsArr.deinit();
 
-    // min tokens: some_generic_type, <, some_type, >
-    const minTokensForGeneric = 4;
-    if (start + minTokensForGeneric < tokens.len and tokens[start + 1].type == TokenType.LAngle) {
+    if (start + 2 < tokens.len) {
         const tokensToRAngle = smartDelimiterIndex(tokens, compInfo, start + 2, TokenType.RAngle) catch |e| return astError(e, ">");
         var typeEnd = smartDelimiterIndex(tokens, compInfo, start + 2, TokenType.Comma) catch tokensToRAngle;
         var prev = start + 2;
@@ -514,7 +595,7 @@ pub fn registerStructs(allocator: Allocator, tokens: []Token) ![]RegisteredStruc
         var numGenerics: u32 = 0;
 
         if (isGeneric) {
-            const pos = nextTokenOccurrence(tokens, i, TokenType.RBracket) catch |e| return astError(e, "]");
+            const pos = delimiterIndex(tokens, i + 1, TokenType.RBracket) catch |e| return astError(e, "]");
 
             var currentIndex = i + 2;
             while (currentIndex < pos) {
@@ -651,6 +732,18 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
         },
         .Variable => |*variable| {
             allocator.free(variable.name);
+        },
+        .StructDec => |*dec| {
+            allocator.free(dec.name);
+
+            for (dec.generics) |generic| {
+                if (generic.restriction != null) {
+                    freeType(allocator, generic.restriction.?);
+                }
+                allocator.free(generic.name);
+            }
+
+            allocator.free(dec.generics);
         },
     }
 
