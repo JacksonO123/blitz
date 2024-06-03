@@ -1,5 +1,5 @@
 struct [T, K] Rectangle {}
-struct [G: u32[]] Car {}
+struct [G: ?u32[]] Car {}
 struct House {}
 
 const a: u32 = 5;

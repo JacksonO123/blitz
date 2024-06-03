@@ -34,9 +34,9 @@ fn printType(typeNode: *const AstTypes) void {
             printType(arr.type);
             std.debug.print(">", .{});
         },
-        .Nullable => |*n| {
+        .Nullable => |n| {
             std.debug.print("?", .{});
-            printType(n.type);
+            printType(n);
         },
         .Number => |*num| {
             std.debug.print("{s}", .{numberTypeToString(num.*)});
@@ -132,7 +132,11 @@ fn printNode(node: *const AstNode) void {
             printType(t);
         },
         .Seq => |*seq| {
-            printNodes(seq.nodes);
+            if (seq.nodes.len == 0) {
+                std.debug.print("(empty seq)", .{});
+            } else {
+                printNodes(seq.nodes);
+            }
         },
         .Cast => |*cast| {
             std.debug.print("cast ", .{});
@@ -167,6 +171,16 @@ fn printNode(node: *const AstNode) void {
 
                 std.debug.print("]", .{});
             }
+        },
+        .IfStatement => |*statement| {
+            std.debug.print("if ", .{});
+            printNode(statement.condition);
+            std.debug.print(" then -- body --\n", .{});
+            printNode(statement.body);
+            std.debug.print("-- body end --\n", .{});
+        },
+        .NoOp => {
+            std.debug.print("(noop)", .{});
         },
     }
 }

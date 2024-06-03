@@ -47,10 +47,6 @@ const AstStaticArrayType = struct {
     size: *const AstNode,
 };
 
-const AstNullableType = struct {
-    type: *const AstTypes,
-};
-
 const CustomType = struct {
     structCode: usize,
     name: []u8,
@@ -74,7 +70,7 @@ pub const AstTypes = union(Types) {
     Number: AstNumberVariants,
     DynamicArray: AstDynamicArrayType,
     StaticArray: AstStaticArrayType,
-    Nullable: AstNullableType,
+    Nullable: *const AstTypes,
     Custom: CustomType,
 };
 const StaticTypes = enum {
@@ -119,6 +115,11 @@ const StructGeneric = struct {
     restriction: ?*const AstTypes,
 };
 
+const IfStatementNode = struct {
+    condition: *const AstNode,
+    body: *const AstNode,
+};
+
 const AstNodeVariants = enum {
     Seq,
     VarDec,
@@ -127,6 +128,8 @@ const AstNodeVariants = enum {
     Cast,
     Variable,
     StructDec,
+    IfStatement,
+    NoOp,
 };
 pub const AstNode = union(AstNodeVariants) {
     Seq: SeqNode,
@@ -136,6 +139,8 @@ pub const AstNode = union(AstNodeVariants) {
     Cast: CastNode,
     Variable: VariableNode,
     StructDec: StructDecNode,
+    IfStatement: IfStatementNode,
+    NoOp,
 };
 
 const AstError = error{
@@ -183,6 +188,17 @@ pub const CompInfo = struct {
 };
 
 pub fn createAst(allocator: Allocator, compInfo: CompInfo, tokens: []Token) !Ast {
+    const seq = try createSeqNode(allocator, compInfo, tokens);
+    return Ast{ .root = seq };
+}
+
+fn createSeqAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token) !*const AstNode {
+    const seq = try createSeqNode(allocator, compInfo, tokens);
+    const node = try create(AstNode, allocator, .{ .Seq = seq });
+    return node;
+}
+
+fn createSeqNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token) !SeqNode {
     var currentToken: usize = 0;
     var seq = ArrayList(*const AstNode).init(allocator);
     defer seq.deinit();
@@ -199,13 +215,17 @@ pub fn createAst(allocator: Allocator, compInfo: CompInfo, tokens: []Token) !Ast
     }
 
     const astNodes = try allocator.dupe(*const AstNode, seq.items);
-
-    return Ast{
-        .root = SeqNode{ .nodes = astNodes },
-    };
+    return SeqNode{ .nodes = astNodes };
 }
 
-pub fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, start: usize) !AstNodeOffsetData {
+fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, start: usize) (AstError || Allocator.Error)!AstNodeOffsetData {
+    if (tokens.len == 0) {
+        return .{
+            .offset = 0,
+            .node = try create(AstNode, allocator, @as(AstNode, AstNode.NoOp)),
+        };
+    }
+
     const token = tokens[start];
 
     switch (token.type) {
@@ -261,7 +281,7 @@ pub fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, 
         },
         .Struct => {
             const isGeneric = tokens[start + 1].type == TokenType.LBracket;
-            const nameIndex = (if (isGeneric) try delimiterIndex(tokens, start + 1, TokenType.RBracket) else start) + 1;
+            const nameIndex = (if (isGeneric) try delimiterIndex(tokens, start + 2, TokenType.RBracket) else start) + 1;
             const end = try smartDelimiterIndex(tokens, compInfo, nameIndex + 2, TokenType.RBrace);
 
             if (tokens[nameIndex].type != TokenType.Identifier) {
@@ -318,6 +338,27 @@ pub fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, 
                         .name = try cloneString(allocator, token.string.?),
                     },
                 }),
+            };
+        },
+        .If => {
+            const closeParen = smartDelimiterIndex(tokens, compInfo, start + 2, TokenType.RParen) catch |e| return astError(e, ")");
+            const conditionTokens = tokens[start + 2 .. closeParen];
+            const conditionNode = try createAstNode(allocator, compInfo, conditionTokens, 0);
+
+            const endBrace = smartDelimiterIndex(tokens, compInfo, closeParen + 2, TokenType.RBrace) catch |e| return astError(e, "]");
+            const bodyTokens = tokens[closeParen + 2 .. endBrace];
+            const bodyNode = try createSeqAstNode(allocator, compInfo, bodyTokens);
+
+            const ifStatement = try create(AstNode, allocator, .{
+                .IfStatement = .{
+                    .condition = conditionNode.node,
+                    .body = bodyNode,
+                },
+            });
+
+            return .{
+                .offset = endBrace - start + 1,
+                .node = ifStatement,
             };
         },
         else => {
@@ -379,6 +420,8 @@ fn delimiterIndex(tokens: []Token, start: usize, delimiter: TokenType) !usize {
 
     var i = start;
     while (i < tokens.len) : (i += 1) {
+        if (parens == 0 and tokens[i].type == delimiter) return i;
+
         if (tokens[i].type.isOpenToken(true)) {
             parens += 1;
         } else if (tokens[i].type.isCloseToken(true)) {
@@ -386,8 +429,6 @@ fn delimiterIndex(tokens: []Token, start: usize, delimiter: TokenType) !usize {
                 parens -= 1;
             } else if (tokens[i].type != delimiter) return AstError.TokenNotFound;
         }
-
-        if (parens == 0 and tokens[i].type == delimiter) return i;
     }
 
     return AstError.TokenNotFound;
@@ -556,6 +597,10 @@ fn createTypeNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, sta
         }
     }
 
+    if (nullable) {
+        res = try create(AstTypes, allocator, .{ .Nullable = res });
+    }
+
     return res;
 }
 
@@ -595,7 +640,7 @@ pub fn registerStructs(allocator: Allocator, tokens: []Token) ![]RegisteredStruc
         var numGenerics: u32 = 0;
 
         if (isGeneric) {
-            const pos = delimiterIndex(tokens, i + 1, TokenType.RBracket) catch |e| return astError(e, "]");
+            const pos = delimiterIndex(tokens, i + 2, TokenType.RBracket) catch |e| return astError(e, "]");
 
             var currentIndex = i + 2;
             while (currentIndex < pos) {
@@ -672,8 +717,8 @@ fn freeType(allocator: Allocator, node: *const AstTypes) void {
             freeType(allocator, arr.type);
             freeNode(allocator, arr.size);
         },
-        .Nullable => |*nullable| {
-            freeType(allocator, nullable.type);
+        .Nullable => |nullable| {
+            freeType(allocator, nullable);
         },
         .Custom => |*custom| {
             for (custom.generics) |generic| {
@@ -720,6 +765,7 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
             for (seq.nodes) |seqNode| {
                 freeNode(allocator, seqNode);
             }
+            allocator.free(seq.nodes);
         },
         .Type => |*t| {
             freeType(allocator, t);
@@ -746,6 +792,11 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
 
             allocator.free(dec.generics);
         },
+        .IfStatement => |*statement| {
+            freeNode(allocator, statement.condition);
+            freeNode(allocator, statement.body);
+        },
+        .NoOp => {},
     }
 
     allocator.destroy(node);
