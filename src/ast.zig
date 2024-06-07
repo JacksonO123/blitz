@@ -251,6 +251,20 @@ fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, star
                 .offset = 1,
             };
         },
+        .True => {
+            const node = try createBoolNode(allocator, true);
+            return .{
+                .node = node,
+                .offset = 1,
+            };
+        },
+        .False => {
+            const node = try createBoolNode(allocator, false);
+            return .{
+                .node = node,
+                .offset = 1,
+            };
+        },
         .LBracket => {
             var nodeItems = ArrayList(*const AstNode).init(allocator);
             defer nodeItems.deinit();
@@ -366,6 +380,13 @@ fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, star
             return AstError.UnexpectedToken;
         },
     }
+}
+
+fn createBoolNode(allocator: Allocator, value: bool) !*const AstNode {
+    const node = try create(AstNode, allocator, .{
+        .Value = .{ .Bool = value },
+    });
+    return node;
 }
 
 fn parseStructGenerics(allocator: Allocator, compInfo: CompInfo, tokens: []Token) ![]StructGeneric {

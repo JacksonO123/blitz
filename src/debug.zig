@@ -104,8 +104,8 @@ fn printValue(value: *const AstValues) void {
         .Char => |*c| {
             std.debug.print("[char]({c})", .{c});
         },
-        .Bool => |*b| {
-            std.debug.print("[bool]({b})", .{b});
+        .Bool => |b| {
+            std.debug.print("[bool]({s})", .{if (b) "true" else "false"});
         },
     }
 }

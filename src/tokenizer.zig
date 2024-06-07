@@ -33,7 +33,6 @@ pub const TokenType = enum {
     LAngle,
     RAngle,
     Ampersand,
-    Union,
     EqSet,
     Sub,
     Add,
@@ -46,6 +45,8 @@ pub const TokenType = enum {
     DoubleQuote,
     Comma,
     QuestionMark,
+    True,
+    False,
 
     // datatypes
     Char,
@@ -99,7 +100,6 @@ pub const TokenType = enum {
             .LAngle => "<",
             .RAngle => ">",
             .Ampersand => "&",
-            .Union => "|",
             .EqSet => "=",
             .Sub => "-",
             .Add => "+",
@@ -138,6 +138,8 @@ pub const TokenType = enum {
             .Inc => "++",
             .Dec => "--",
             .QuestionMark => "?",
+            .True => "true",
+            .False => "false",
         };
     }
 
@@ -412,6 +414,8 @@ fn isKeyword(chars: []const u8) ?TokenType {
         TokenTypeMap{ .string = "while", .token = TokenType.While },
         TokenTypeMap{ .string = "continue", .token = TokenType.Continue },
         TokenTypeMap{ .string = "break", .token = TokenType.Break },
+        TokenTypeMap{ .string = "true", .token = TokenType.True },
+        TokenTypeMap{ .string = "false", .token = TokenType.False },
     };
 
     return getTypeFromMap(chars, keywords);
@@ -440,7 +444,6 @@ fn isSymbol(char: u8) ?TokenType {
         SymbolMap{ .symbol = '<', .token = TokenType.LAngle },
         SymbolMap{ .symbol = '>', .token = TokenType.RAngle },
         SymbolMap{ .symbol = '&', .token = TokenType.Ampersand },
-        SymbolMap{ .symbol = '|', .token = TokenType.Union },
         SymbolMap{ .symbol = '=', .token = TokenType.EqSet },
         SymbolMap{ .symbol = '-', .token = TokenType.Sub },
         SymbolMap{ .symbol = '+', .token = TokenType.Add },

@@ -121,6 +121,22 @@ test "methods" {
     try expect(token8.type.isCloseToken(true) == true);
 }
 
+test "booleans" {
+    const code1 = "true;";
+    const tokens1 = [_]Token{
+        Token{ .type = TokenType.True, .string = null },
+        Token{ .type = TokenType.Semicolon, .string = null },
+    };
+    try testTokens(code1, tokens1);
+
+    const code2 = "false;";
+    const tokens2 = [_]Token{
+        Token{ .type = TokenType.False, .string = null },
+        Token{ .type = TokenType.Semicolon, .string = null },
+    };
+    try testTokens(code2, tokens2);
+}
+
 test "variables" {
     const code1 = "const thing = 2;";
     const str1 = try toSlice(u8, allocator, "thing");

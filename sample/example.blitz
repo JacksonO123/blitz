@@ -2,12 +2,13 @@
 // generics, bounded by a union of structs
 // bind (derive) structs
 // no function overloading
+// maybe garbace collector idk
 
 // constant + variable type inferred
 const abc = 12349;
 var abc = 2359;
 
-// no pointers, references
+// no pointers, references -- undecided
 &abc
 
 // struct union type annotated
@@ -35,9 +36,6 @@ fn [T] name(param: T) {}
 // bind generics with struct unions
 fn [T: Rectangle | Car] name(param: T) {}
 
-// reference type parameter
-fn name(param: &u32) {}
-
 // modules by files
 // export function from modules
 exp fn name() {}
@@ -46,10 +44,10 @@ exp fn name() {}
 struct [T: Rectangle | Car] name {
   value1: bool;
   pub value2: T;
-  pub static fn create(val1: bool, val2: T): name {
+  pub static fn create(val1: bool, value2: T): name {
     return name {
-      val1 = !val1,
-      val2
+      value1 = !val1,
+      value2
     };
   }
   prot someFunc(): u32 {}
