@@ -62,6 +62,7 @@ const Types = enum {
     StaticArray,
     Nullable,
     Custom,
+    Union,
 };
 pub const AstTypes = union(Types) {
     String,
@@ -72,6 +73,7 @@ pub const AstTypes = union(Types) {
     StaticArray: AstStaticArrayType,
     Nullable: *const AstTypes,
     Custom: CustomType,
+    Union: []*const AstTypes,
 };
 const StaticTypes = enum {
     String,
@@ -325,6 +327,7 @@ fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, star
             };
         },
         .Identifier => {
+            // type cast to struct
             if (compInfo.hasRegisteredStruct(token.string.?)) {
                 const lParenIndex = try smartDelimiterIndex(tokens, compInfo, start + 1, TokenType.LParen);
                 const typeTokens = tokens[start..lParenIndex];
@@ -376,7 +379,6 @@ fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, star
             };
         },
         else => {
-            std.debug.print("\n## {any} {s}\n", .{ token.type, if (token.string != null) token.string.? else "" });
             return AstError.UnexpectedToken;
         },
     }
@@ -573,7 +575,7 @@ fn parseGenericArgs(allocator: Allocator, compInfo: CompInfo, tokens: []Token, s
     return try allocator.dupe(*const AstTypes, typeGenericsArr.items);
 }
 
-fn createTypeNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, start: usize) (AstError || Allocator.Error)!*const AstTypes {
+fn createTypeNodeItem(allocator: Allocator, compInfo: CompInfo, tokens: []Token, start: usize) (AstError || Allocator.Error)!AstTypeOffsetData {
     if (tokens.len == 0) return AstError.InvalidType;
 
     const nullable = tokens[0].type == TokenType.QuestionMark;
@@ -622,7 +624,41 @@ fn createTypeNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, sta
         res = try create(AstTypes, allocator, .{ .Nullable = res });
     }
 
-    return res;
+    return .{
+        .type = res,
+        .offset = current - start,
+    };
+}
+
+fn createTypeNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, start: usize) (AstError || Allocator.Error)!*const AstTypes {
+    var unionTypes = ArrayList(*const AstTypes).init(allocator);
+    defer unionTypes.deinit();
+
+    var isUnion = false;
+    const data = try createTypeNodeItem(allocator, compInfo, tokens, start);
+    var offset = data.offset;
+    var node = data.type;
+
+    while (start + offset + 1 < tokens.len and tokens[start + offset + 1].type == TokenType.Union) {
+        if (!isUnion) {
+            try unionTypes.append(node);
+            isUnion = true;
+        }
+
+        const newNode = try createTypeNodeItem(allocator, compInfo, tokens, start + offset + 2);
+        try unionTypes.append(newNode.type);
+
+        offset += newNode.offset + 1;
+    }
+
+    if (isUnion) {
+        const copy = try allocator.dupe(*const AstTypes, unionTypes.items);
+        node = try create(AstTypes, allocator, .{
+            .Union = copy,
+        });
+    }
+
+    return node;
 }
 
 fn createAstType(allocator: Allocator, token: Token) !*const AstTypes {
@@ -748,6 +784,13 @@ fn freeType(allocator: Allocator, node: *const AstTypes) void {
 
             allocator.free(custom.generics);
             allocator.free(custom.name);
+        },
+        .Union => |typeUnion| {
+            for (typeUnion) |t| {
+                freeType(allocator, t);
+            }
+
+            allocator.free(typeUnion);
         },
         else => {},
     }

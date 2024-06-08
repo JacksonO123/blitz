@@ -1,9 +1,5 @@
-struct ThisStructName {}
-
-struct [T: ThisStructName] ThisGenericStruct {}
-
 const thing: u32[5] = [true, 3, 5, 2, 1];
-const thing: f32 = 2.01;
+const thing: u32 | f32 = 2.01;
 
 /* u32[] */
 // u32[][][]

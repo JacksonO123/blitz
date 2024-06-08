@@ -60,6 +60,19 @@ fn printType(typeNode: *const AstTypes) void {
                 std.debug.print(">", .{});
             }
         },
+        .Union => |typeUnion| {
+            std.debug.print("(", .{});
+
+            for (typeUnion, 0..) |t, index| {
+                printType(t);
+
+                if (index < typeUnion.len - 1) {
+                    std.debug.print(" | ", .{});
+                }
+            }
+
+            std.debug.print(")", .{});
+        },
     };
 }
 

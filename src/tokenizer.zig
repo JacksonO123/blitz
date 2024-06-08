@@ -41,6 +41,7 @@ pub const TokenType = enum {
     Mod,
     Bang,
     Period,
+    Union,
     SingleQuote,
     DoubleQuote,
     Comma,
@@ -140,6 +141,7 @@ pub const TokenType = enum {
             .QuestionMark => "?",
             .True => "true",
             .False => "false",
+            .Union => "|",
         };
     }
 
@@ -456,6 +458,7 @@ fn isSymbol(char: u8) ?TokenType {
         SymbolMap{ .symbol = '.', .token = TokenType.Period },
         SymbolMap{ .symbol = ',', .token = TokenType.Comma },
         SymbolMap{ .symbol = '?', .token = TokenType.QuestionMark },
+        SymbolMap{ .symbol = '|', .token = TokenType.Union },
     };
 
     for (symbols) |symbol| {
