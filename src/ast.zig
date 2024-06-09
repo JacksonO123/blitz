@@ -109,10 +109,10 @@ const VariableNode = struct {
 const StructDecNode = struct {
     typeCode: usize,
     name: []u8,
-    generics: []StructGeneric,
+    generics: []GenericType,
 };
 
-const StructGeneric = struct {
+pub const GenericType = struct {
     name: []u8,
     restriction: ?*const AstTypes,
 };
@@ -122,7 +122,20 @@ const IfStatementNode = struct {
     body: *const AstNode,
 };
 
+pub const Parameter = struct {
+    name: []u8,
+    type: *const AstTypes,
+};
+
+const FuncDecNode = struct {
+    name: []u8,
+    generics: ?[]GenericType,
+    params: []Parameter,
+    body: *const AstNode,
+};
+
 const AstNodeVariants = enum {
+    NoOp,
     Seq,
     VarDec,
     Type,
@@ -131,9 +144,10 @@ const AstNodeVariants = enum {
     Variable,
     StructDec,
     IfStatement,
-    NoOp,
+    FuncDec,
 };
 pub const AstNode = union(AstNodeVariants) {
+    NoOp,
     Seq: SeqNode,
     VarDec: VarDecNode,
     Type: AstTypes,
@@ -142,7 +156,7 @@ pub const AstNode = union(AstNodeVariants) {
     Variable: VariableNode,
     StructDec: StructDecNode,
     IfStatement: IfStatementNode,
-    NoOp,
+    FuncDec: FuncDecNode,
 };
 
 const AstError = error{
@@ -310,12 +324,12 @@ fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, star
             var structDecNode = StructDecNode{
                 .typeCode = registeredStruct.?.typeCode,
                 .name = name,
-                .generics = &[_]StructGeneric{},
+                .generics = &[_]GenericType{},
             };
 
             if (isGeneric) {
                 const genericsTokens = tokens[start + 2 .. nameIndex - 1];
-                const genericTypes = try parseStructGenerics(allocator, compInfo, genericsTokens);
+                const genericTypes = try parseGenerics(allocator, compInfo, genericsTokens);
                 structDecNode.generics = genericTypes;
             }
 
@@ -378,10 +392,74 @@ fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, star
                 .node = ifStatement,
             };
         },
+        .Fn => {
+            var offset: usize = 1;
+            var generics: ?[]GenericType = null;
+
+            if (tokens[start + 1].type == TokenType.LBracket) {
+                const rBracketIndex = delimiterIndex(tokens, start + 2, TokenType.RBracket) catch |e| return astError(e, "]");
+                const genericTokens = tokens[start + 2 .. rBracketIndex];
+                offset += genericTokens.len + 2;
+                generics = try parseGenerics(allocator, compInfo, genericTokens);
+            }
+
+            const name = tokens[offset].string.?;
+
+            const rParenIndex = delimiterIndex(tokens, start + offset + 2, TokenType.RParen) catch |e| return astError(e, ")");
+            const parameterTokens = tokens[start + offset + 2 .. rParenIndex];
+            const parameters = try parseParameters(allocator, compInfo, parameterTokens);
+
+            const rBraceIndex = smartDelimiterIndex(tokens, compInfo, rParenIndex + 2, TokenType.RBrace) catch |e| return astError(e, "}");
+            const bodyTokens = tokens[rParenIndex + 2 .. rBraceIndex];
+            const bodyNode = try createSeqAstNode(allocator, compInfo, bodyTokens);
+
+            const func = try create(AstNode, allocator, .{
+                .FuncDec = .{
+                    .name = try cloneString(allocator, name),
+                    .generics = generics,
+                    .params = parameters,
+                    .body = bodyNode,
+                },
+            });
+
+            return .{
+                .node = func,
+                .offset = rBraceIndex + 1 - start,
+            };
+        },
         else => {
-            return AstError.UnexpectedToken;
+            return astError(AstError.UnexpectedToken, tokens[start].type.toString());
         },
     }
+}
+
+fn parseParameters(allocator: Allocator, compInfo: CompInfo, tokens: []Token) ![]Parameter {
+    var parameters = ArrayList(Parameter).init(allocator);
+    defer parameters.deinit();
+
+    var to = delimiterIndex(tokens, 0, TokenType.Comma) catch tokens.len;
+    var prev: usize = 0;
+
+    while (prev < tokens.len) {
+        const paramTokens = tokens[prev..to];
+        const nameToken = paramTokens[0];
+
+        if (nameToken.type != TokenType.Identifier) return astError(AstError.TokenNotFound, "identifier");
+
+        const typeTokens = tokens[prev + 2 .. to];
+        const parameterType = try createTypeNode(allocator, compInfo, typeTokens, 0);
+
+        try parameters.append(.{
+            .name = try cloneString(allocator, nameToken.string.?),
+            .type = parameterType,
+        });
+
+        prev = to + 1;
+        to = delimiterIndex(tokens, to + 1, TokenType.Comma) catch tokens.len;
+    }
+
+    const slice = try allocator.dupe(Parameter, parameters.items);
+    return slice;
 }
 
 fn createBoolNode(allocator: Allocator, value: bool) !*const AstNode {
@@ -391,8 +469,8 @@ fn createBoolNode(allocator: Allocator, value: bool) !*const AstNode {
     return node;
 }
 
-fn parseStructGenerics(allocator: Allocator, compInfo: CompInfo, tokens: []Token) ![]StructGeneric {
-    var genericList = ArrayList(StructGeneric).init(allocator);
+fn parseGenerics(allocator: Allocator, compInfo: CompInfo, tokens: []Token) ![]GenericType {
+    var genericList = ArrayList(GenericType).init(allocator);
     defer genericList.deinit();
 
     var to = delimiterIndex(tokens, 0, TokenType.Comma) catch tokens.len;
@@ -400,13 +478,10 @@ fn parseStructGenerics(allocator: Allocator, compInfo: CompInfo, tokens: []Token
 
     while (prev < tokens.len) {
         const typeTokens = tokens[prev..to];
-        var hasRestriction = true;
-        const colonIndex: usize = delimiterIndex(typeTokens, 1, TokenType.Colon) catch blk: {
-            hasRestriction = false;
-            break :blk to;
-        };
+        const hasRestriction = typeTokens.len > 1;
+        const colonIndex = if (hasRestriction) prev + 1 else to;
 
-        var structGeneric = StructGeneric{
+        var structGeneric = GenericType{
             .name = &[_]u8{},
             .restriction = null,
         };
@@ -434,7 +509,7 @@ fn parseStructGenerics(allocator: Allocator, compInfo: CompInfo, tokens: []Token
         to = delimiterIndex(tokens, to + 1, TokenType.Comma) catch tokens.len;
     }
 
-    const slice = allocator.dupe(StructGeneric, genericList.items);
+    const slice = allocator.dupe(GenericType, genericList.items);
     return slice;
 }
 
@@ -819,8 +894,8 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
         .VarDec => |*dec| {
             freeNode(allocator, dec.setNode);
 
-            if (dec.annotation != null) {
-                freeType(allocator, dec.annotation.?);
+            if (dec.annotation) |annotation| {
+                freeType(allocator, annotation);
             }
 
             allocator.free(dec.name);
@@ -848,8 +923,8 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
             allocator.free(dec.name);
 
             for (dec.generics) |generic| {
-                if (generic.restriction != null) {
-                    freeType(allocator, generic.restriction.?);
+                if (generic.restriction) |restriction| {
+                    freeType(allocator, restriction);
                 }
                 allocator.free(generic.name);
             }
@@ -861,6 +936,20 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
             freeNode(allocator, statement.body);
         },
         .NoOp => {},
+        .FuncDec => |*func| {
+            allocator.free(func.name);
+
+            for (func.params) |param| {
+                freeType(allocator, param.type);
+                allocator.free(param.name);
+            }
+            allocator.free(func.params);
+
+            if (func.generics) |generics| {
+                allocator.free(generics);
+            }
+            freeNode(allocator, func.body);
+        },
     }
 
     allocator.destroy(node);

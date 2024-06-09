@@ -198,37 +198,41 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
         if (char == '"' or char == '\'') {
             const strEnd = findChar(input, i + 1, char);
 
-            if (strEnd == null) {
-                return error.NoClosingQuote;
+            if (strEnd) |end| {
+                const str = try allocator.dupe(u8, input[i .. end + 1]);
+                const token = Token{ .type = TokenType.String, .string = str };
+                try tokens.append(token);
+
+                i += str.len - 1;
+
+                continue;
             }
 
-            const str = try allocator.dupe(u8, input[i .. strEnd.? + 1]);
-            const token = Token{ .type = TokenType.String, .string = str };
-            try tokens.append(token);
-
-            i += str.len - 1;
-
-            continue;
+            return error.NoClosingQuote;
         }
 
         if (i < input.len - 1 and char == '/') {
             const next = input[i + 1];
             if (next == '/') {
                 const index = findChar(input, i, '\n');
-                if (index == null) {
-                    break;
-                } else {
-                    i = index.?;
+
+                if (index) |idx| {
+                    i = idx;
                     continue;
                 }
+
+                break;
             } else if (next == '*') {
                 var index = findChar(input, i, '/');
-                if (index == null) break;
+                if (index != null) break;
 
                 while (input[index.? - 1] != '*') {
                     index = findChar(input, index.? + 1, '/');
-                    if (index == null) continue :outer;
-                    i = index.?;
+                    if (index) |newIndex| {
+                        i = newIndex;
+                    } else {
+                        continue :outer;
+                    }
                 }
 
                 continue;
@@ -244,15 +248,15 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
                 tokenType = TokenType.Dec;
             }
 
-            if (tokenType != null) {
+            if (tokenType) |tokType| {
                 const firstToken = try charsToToken(chars.items, allocator);
 
-                if (firstToken != null) {
-                    try tokens.append(firstToken.?);
+                if (firstToken) |firstTok| {
+                    try tokens.append(firstTok);
                     chars.clearRetainingCapacity();
                 }
 
-                const token = Token{ .type = tokenType.?, .string = null };
+                const token = Token{ .type = tokType, .string = null };
                 try tokens.append(token);
                 i += 1;
 
@@ -261,16 +265,16 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
         }
 
         const postEq = isPostEqSymbol(input, i);
-        if (postEq != null) {
+        if (postEq) |tok| {
             const firstToken = try charsToToken(chars.items, allocator);
 
-            if (firstToken != null) {
-                try tokens.append(firstToken.?);
+            if (firstToken) |firstTok| {
+                try tokens.append(firstTok);
                 chars.clearRetainingCapacity();
             }
 
             i += 1;
-            try tokens.append(postEq.?);
+            try tokens.append(tok);
 
             continue;
         }
@@ -289,15 +293,15 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
         }
 
         const symbol = isSymbol(char);
-        if (symbol != null) {
+        if (symbol) |sym| {
             const firstToken = try charsToToken(chars.items, allocator);
 
-            if (firstToken != null) {
-                try tokens.append(firstToken.?);
+            if (firstToken) |firstTok| {
+                try tokens.append(firstTok);
                 chars.clearRetainingCapacity();
             }
 
-            const secondToken = Token{ .string = null, .type = symbol.? };
+            const secondToken = Token{ .string = null, .type = sym };
             try tokens.append(secondToken);
 
             continue;
@@ -306,8 +310,8 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
         if (std.ascii.isWhitespace(char)) {
             const token = try charsToToken(chars.items, allocator);
 
-            if (token != null) {
-                try tokens.append(token.?);
+            if (token) |tok| {
+                try tokens.append(tok);
                 chars.clearRetainingCapacity();
             }
         }
@@ -337,9 +341,11 @@ fn isPostEqSymbol(chars: []const u8, start: usize) ?Token {
             else => null,
         };
 
-        if (res == null) return null;
+        if (res) |tok| {
+            return Token{ .type = tok, .string = null };
+        }
 
-        return Token{ .type = res.?, .string = null };
+        return null;
     }
 
     return null;
@@ -369,13 +375,13 @@ fn charsToToken(chars: []u8, allocator: Allocator) !?Token {
     }
 
     const datatype = isDatatype(chars);
-    if (datatype != null) {
-        return Token{ .string = null, .type = datatype.? };
+    if (datatype) |dt| {
+        return Token{ .string = null, .type = dt };
     }
 
     const keyword = isKeyword(chars);
-    if (keyword != null) {
-        return Token{ .string = null, .type = keyword.? };
+    if (keyword) |keywrd| {
+        return Token{ .string = null, .type = keywrd };
     } else {
         const str = try allocator.dupe(u8, chars);
         return Token{ .string = str, .type = TokenType.Identifier };
@@ -472,8 +478,8 @@ fn isSymbol(char: u8) ?TokenType {
 
 pub fn freeTokens(allocator: Allocator, tokens: anytype) void {
     for (tokens) |token| {
-        if (token.string != null) {
-            allocator.free(token.string.?);
+        if (token.string) |str| {
+            allocator.free(str);
         }
     }
 
@@ -482,8 +488,8 @@ pub fn freeTokens(allocator: Allocator, tokens: anytype) void {
 
 pub fn freeTokenArr(allocator: Allocator, tokens: anytype) void {
     for (tokens.*) |token| {
-        if (token.string != null) {
-            allocator.free(token.string.?);
+        if (token.string) |str| {
+            allocator.free(str);
         }
     }
 }

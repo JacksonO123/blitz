@@ -1,0 +1,3 @@
+fn testFunc(testing: u32, epic: bool) {
+  const a = 5;
+}

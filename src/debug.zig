@@ -6,6 +6,8 @@ const AstTypes = astUtils.AstTypes;
 const AstValues = astUtils.AstValues;
 const AstNumberVariants = astUtils.AstNumberVariants;
 const RegisteredStruct = astUtils.RegisteredStruct;
+const GenericType = astUtils.GenericType;
+const Parameter = astUtils.Parameter;
 
 pub fn printAst(ast: Ast) void {
     printNodes(ast.root.nodes);
@@ -47,7 +49,6 @@ fn printType(typeNode: *const AstTypes) void {
                 std.debug.print("<", .{});
             }
 
-            // std.debug.print("{any}", .{custom.generics});
             for (custom.generics, 0..) |generic, index| {
                 printType(generic);
 
@@ -165,23 +166,7 @@ fn printNode(node: *const AstNode) void {
 
             if (dec.generics.len > 0) {
                 std.debug.print(" with generics [", .{});
-
-                for (dec.generics, 0..) |generic, index| {
-                    std.debug.print("[", .{});
-
-                    if (generic.restriction == null) {
-                        std.debug.print("any", .{});
-                    } else {
-                        printType(generic.restriction.?);
-                    }
-
-                    std.debug.print("]({s})", .{generic.name});
-
-                    if (index < dec.generics.len - 1) {
-                        std.debug.print(", ", .{});
-                    }
-                }
-
+                printGenerics(dec.generics);
                 std.debug.print("]", .{});
             }
         },
@@ -195,6 +180,56 @@ fn printNode(node: *const AstNode) void {
         .NoOp => {
             std.debug.print("(noop)", .{});
         },
+        .FuncDec => |*func| {
+            std.debug.print("declare function ({s})", .{func.name});
+            if (func.generics) |generics| {
+                std.debug.print(" with generics [", .{});
+                printGenerics(generics);
+                std.debug.print("]", .{});
+            }
+
+            std.debug.print(" with params [", .{});
+            printParams(func.params);
+
+            std.debug.print("] -- body --\n", .{});
+            printNode(func.body);
+            std.debug.print("-- body end --\n", .{});
+        },
+    }
+}
+
+fn printParams(params: []Parameter) void {
+    if (params.len == 0) {
+        std.debug.print("(no params)", .{});
+        return;
+    }
+
+    for (params, 0..) |param, index| {
+        std.debug.print("[", .{});
+        printType(param.type);
+        std.debug.print("]({s})", .{param.name});
+
+        if (index < params.len - 1) {
+            std.debug.print(", ", .{});
+        }
+    }
+}
+
+fn printGenerics(generics: []GenericType) void {
+    for (generics, 0..) |generic, index| {
+        std.debug.print("[", .{});
+
+        if (generic.restriction == null) {
+            std.debug.print("any", .{});
+        } else {
+            printType(generic.restriction.?);
+        }
+
+        std.debug.print("]({s})", .{generic.name});
+
+        if (index < generics.len - 1) {
+            std.debug.print(", ", .{});
+        }
     }
 }
 
