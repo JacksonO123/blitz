@@ -20,6 +20,8 @@ pub const TokenType = enum {
     While,
     Continue,
     Break,
+    Pub,
+    Prot,
 
     // symbols
     Colon,
@@ -83,6 +85,8 @@ pub const TokenType = enum {
         return switch (self.*) {
             .Const => "const",
             .Var => "var",
+            .Pub => "pub",
+            .Prot => "prot",
             .Fn => "fn",
             .Struct => "struct",
             .If => "if",
@@ -380,8 +384,8 @@ fn charsToToken(chars: []u8, allocator: Allocator) !?Token {
     }
 
     const keyword = isKeyword(chars);
-    if (keyword) |keywrd| {
-        return Token{ .string = null, .type = keywrd };
+    if (keyword) |k| {
+        return Token{ .string = null, .type = k };
     } else {
         const str = try allocator.dupe(u8, chars);
         return Token{ .string = str, .type = TokenType.Identifier };
@@ -424,6 +428,8 @@ fn isKeyword(chars: []const u8) ?TokenType {
         TokenTypeMap{ .string = "break", .token = TokenType.Break },
         TokenTypeMap{ .string = "true", .token = TokenType.True },
         TokenTypeMap{ .string = "false", .token = TokenType.False },
+        TokenTypeMap{ .string = "pub", .token = TokenType.Pub },
+        TokenTypeMap{ .string = "prot", .token = TokenType.Prot },
     };
 
     return getTypeFromMap(chars, keywords);

@@ -57,6 +57,7 @@ const Types = enum {
     String,
     Bool,
     Char,
+    Void,
     Number,
     DynamicArray,
     StaticArray,
@@ -68,6 +69,7 @@ pub const AstTypes = union(Types) {
     String,
     Bool,
     Char,
+    Void,
     Number: AstNumberVariants,
     DynamicArray: AstDynamicArrayType,
     StaticArray: AstStaticArrayType,
@@ -106,10 +108,59 @@ const VariableNode = struct {
     name: []u8,
 };
 
+const MemberVisibility = enum {
+    const Self = @This();
+
+    Private,
+    Public,
+    Protected,
+
+    pub fn toString(self: Self) []const u8 {
+        return switch (self) {
+            .Private => "private",
+            .Public => "public",
+            .Protected => "protected",
+        };
+    }
+};
+
+const StructMember = struct {
+    name: []u8,
+    visibility: MemberVisibility,
+    type: *const AstTypes,
+};
+
+const StructFunction = struct {
+    name: []u8,
+    func: FuncDecNode,
+    visibility: MemberVisibility,
+};
+
+const StructAttributeVariants = enum {
+    Member,
+    Function,
+};
+
+pub const StructAttribute = union(StructAttributeVariants) {
+    Member: StructMember,
+    Function: StructFunction,
+};
+
+const StructAttributesOffsetData = struct {
+    attrs: []StructAttribute,
+    offset: usize,
+};
+
+const StructAttributeOffsetData = struct {
+    attr: StructAttribute,
+    offset: usize,
+};
+
 const StructDecNode = struct {
     typeCode: usize,
     name: []u8,
     generics: []GenericType,
+    attributes: []StructAttribute,
 };
 
 pub const GenericType = struct {
@@ -127,11 +178,12 @@ pub const Parameter = struct {
     type: *const AstTypes,
 };
 
-const FuncDecNode = struct {
+pub const FuncDecNode = struct {
     name: []u8,
     generics: ?[]GenericType,
     params: []Parameter,
     body: *const AstNode,
+    returnType: *const AstTypes,
 };
 
 const AstNodeVariants = enum {
@@ -174,6 +226,11 @@ const AstNodeOffsetData = struct {
 
 const AstTypeOffsetData = struct {
     type: *const AstTypes,
+    offset: usize,
+};
+
+const FuncOffsetData = struct {
+    func: FuncDecNode,
     offset: usize,
 };
 
@@ -313,6 +370,9 @@ fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, star
             const isGeneric = tokens[start + 1].type == TokenType.LBracket;
             const nameIndex = (if (isGeneric) try delimiterIndex(tokens, start + 2, TokenType.RBracket) else start) + 1;
             const end = try smartDelimiterIndex(tokens, compInfo, nameIndex + 2, TokenType.RBrace);
+            const defTokens = tokens[nameIndex + 2 .. end];
+
+            const attrData = try createStructAttributes(allocator, compInfo, defTokens);
 
             if (tokens[nameIndex].type != TokenType.Identifier) {
                 return astError(AstError.TokenNotFound, "struct name");
@@ -325,6 +385,7 @@ fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, star
                 .typeCode = registeredStruct.?.typeCode,
                 .name = name,
                 .generics = &[_]GenericType{},
+                .attributes = attrData.attrs,
             };
 
             if (isGeneric) {
@@ -393,44 +454,144 @@ fn createAstNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token, star
             };
         },
         .Fn => {
-            var offset: usize = 1;
-            var generics: ?[]GenericType = null;
-
-            if (tokens[start + 1].type == TokenType.LBracket) {
-                const rBracketIndex = delimiterIndex(tokens, start + 2, TokenType.RBracket) catch |e| return astError(e, "]");
-                const genericTokens = tokens[start + 2 .. rBracketIndex];
-                offset += genericTokens.len + 2;
-                generics = try parseGenerics(allocator, compInfo, genericTokens);
-            }
-
-            const name = tokens[offset].string.?;
-
-            const rParenIndex = delimiterIndex(tokens, start + offset + 2, TokenType.RParen) catch |e| return astError(e, ")");
-            const parameterTokens = tokens[start + offset + 2 .. rParenIndex];
-            const parameters = try parseParameters(allocator, compInfo, parameterTokens);
-
-            const rBraceIndex = smartDelimiterIndex(tokens, compInfo, rParenIndex + 2, TokenType.RBrace) catch |e| return astError(e, "}");
-            const bodyTokens = tokens[rParenIndex + 2 .. rBraceIndex];
-            const bodyNode = try createSeqAstNode(allocator, compInfo, bodyTokens);
+            const funcTokens = tokens[1..];
+            const data = try createFuncDecNode(allocator, compInfo, funcTokens);
 
             const func = try create(AstNode, allocator, .{
-                .FuncDec = .{
-                    .name = try cloneString(allocator, name),
-                    .generics = generics,
-                    .params = parameters,
-                    .body = bodyNode,
-                },
+                .FuncDec = data.func,
             });
 
             return .{
                 .node = func,
-                .offset = rBraceIndex + 1 - start,
+                .offset = data.offset + 1,
             };
         },
         else => {
             return astError(AstError.UnexpectedToken, tokens[start].type.toString());
         },
     }
+}
+
+fn createFuncDecNode(allocator: Allocator, compInfo: CompInfo, tokens: []Token) !FuncOffsetData {
+    var offset: usize = 0;
+    var generics: ?[]GenericType = null;
+
+    if (tokens[0].type == TokenType.LBracket) {
+        const rBracketIndex = delimiterIndex(tokens, 2, TokenType.RBracket) catch |e| return astError(e, "]");
+        const genericTokens = tokens[2..rBracketIndex];
+        offset += genericTokens.len + 2;
+        generics = try parseGenerics(allocator, compInfo, genericTokens);
+    }
+
+    const name = tokens[offset].string.?;
+
+    const rParenIndex = delimiterIndex(tokens, offset + 2, TokenType.RParen) catch |e| return astError(e, ")");
+    const parameterTokens = tokens[offset + 2 .. rParenIndex];
+    const parameters = try parseParameters(allocator, compInfo, parameterTokens);
+
+    const lBraceIndex = smartDelimiterIndex(tokens, compInfo, rParenIndex + 1, TokenType.LBrace) catch |e| return astError(e, "{");
+    const rBraceIndex = smartDelimiterIndex(tokens, compInfo, lBraceIndex + 1, TokenType.RBrace) catch |e| return astError(e, "}");
+    const bodyTokens = tokens[lBraceIndex + 1 .. rBraceIndex];
+    const bodyNode = try createSeqAstNode(allocator, compInfo, bodyTokens);
+
+    const returnType = if (tokens[rParenIndex + 1].type == TokenType.Colon) val: {
+        const returnTypeTokens = tokens[rParenIndex + 2 .. lBraceIndex];
+        break :val try createTypeNode(allocator, compInfo, returnTypeTokens, 0);
+    } else val: {
+        const tempType: AstTypes = AstTypes.Void;
+        break :val try create(AstTypes, allocator, tempType);
+    };
+
+    return FuncOffsetData{
+        .func = .{
+            .name = try cloneString(allocator, name),
+            .generics = generics,
+            .params = parameters,
+            .body = bodyNode,
+            .returnType = returnType,
+        },
+        .offset = rBraceIndex + 1,
+    };
+}
+
+fn createStructAttributes(allocator: Allocator, compInfo: CompInfo, tokens: []Token) !StructAttributesOffsetData {
+    var attributes = ArrayList(StructAttribute).init(allocator);
+    defer attributes.deinit();
+
+    var current: usize = 0;
+
+    while (current < tokens.len) {
+        switch (tokens[current].type) {
+            .Pub => {
+                const attr = try createStructAttribute(allocator, compInfo, tokens[1..], MemberVisibility.Public);
+                try attributes.append(attr.attr);
+                current += attr.offset;
+            },
+            .Prot => {
+                const attr = try createStructAttribute(allocator, compInfo, tokens[1..], MemberVisibility.Protected);
+                try attributes.append(attr.attr);
+                current += attr.offset;
+            },
+            .Identifier => {
+                const attr = try createStructAttribute(allocator, compInfo, tokens, MemberVisibility.Private);
+                try attributes.append(attr.attr);
+                current += attr.offset;
+            },
+            else => {},
+        }
+        break;
+    }
+
+    const slice = try allocator.dupe(StructAttribute, attributes.items);
+    return .{
+        .attrs = slice,
+        .offset = current,
+    };
+}
+
+fn createStructAttribute(allocator: Allocator, compInfo: CompInfo, tokens: []Token, visibility: MemberVisibility) !StructAttributeOffsetData {
+    if (tokens[0].type != TokenType.Identifier) {
+        return astError(AstError.TokenNotFound, "struct attribute name");
+    }
+
+    const name = try cloneString(allocator, tokens[0].string.?);
+    var offset: usize = 0;
+
+    const attr = switch (tokens[1].type) {
+        .LParen => val: {
+            const data = try createFuncDecNode(allocator, compInfo, tokens);
+            offset += data.offset;
+
+            break :val StructAttribute{
+                .Function = .{
+                    .name = name,
+                    .func = data.func,
+                    .visibility = visibility,
+                },
+            };
+        },
+        .Colon => val: {
+            const typeTokens = tokens[2..];
+            const typeNode = try createTypeNode(allocator, compInfo, typeTokens, 0);
+            offset = delimiterIndex(tokens, 2, TokenType.Semicolon) catch |e| return astError(e, ";");
+
+            break :val StructAttribute{
+                .Member = .{
+                    .name = name,
+                    .visibility = visibility,
+                    .type = typeNode,
+                },
+            };
+        },
+        else => {
+            return astError(AstError.TokenNotFound, "( or :");
+        },
+    };
+
+    return .{
+        .attr = attr,
+        .offset = offset,
+    };
 }
 
 fn parseParameters(allocator: Allocator, compInfo: CompInfo, tokens: []Token) ![]Parameter {
@@ -929,6 +1090,11 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
                 allocator.free(generic.name);
             }
 
+            for (dec.attributes) |attr| {
+                freeAttr(allocator, attr);
+            }
+
+            allocator.free(dec.attributes);
             allocator.free(dec.generics);
         },
         .IfStatement => |*statement| {
@@ -936,23 +1102,41 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
             freeNode(allocator, statement.body);
         },
         .NoOp => {},
-        .FuncDec => |*func| {
-            allocator.free(func.name);
-
-            for (func.params) |param| {
-                freeType(allocator, param.type);
-                allocator.free(param.name);
-            }
-            allocator.free(func.params);
-
-            if (func.generics) |generics| {
-                allocator.free(generics);
-            }
-            freeNode(allocator, func.body);
+        .FuncDec => |func| {
+            freeFuncDec(allocator, func);
         },
     }
 
     allocator.destroy(node);
+}
+
+fn freeFuncDec(allocator: Allocator, func: FuncDecNode) void {
+    allocator.free(func.name);
+
+    for (func.params) |param| {
+        freeType(allocator, param.type);
+        allocator.free(param.name);
+    }
+    allocator.free(func.params);
+
+    if (func.generics) |generics| {
+        allocator.free(generics);
+    }
+    freeNode(allocator, func.body);
+    freeType(allocator, func.returnType);
+}
+
+fn freeAttr(allocator: Allocator, attr: StructAttribute) void {
+    switch (attr) {
+        .Member => {
+            allocator.free(attr.Member.name);
+            freeType(allocator, attr.Member.type);
+        },
+        .Function => {
+            allocator.free(attr.Function.name);
+            freeFuncDec(allocator, attr.Function.func);
+        },
+    }
 }
 
 pub fn freeRegisteredStructs(allocator: Allocator, structs: []RegisteredStruct) void {

@@ -1,0 +1,5 @@
+struct Epic {
+  thing(): u32 {
+    const b = 2;
+  }
+}

@@ -8,6 +8,8 @@ const AstNumberVariants = astUtils.AstNumberVariants;
 const RegisteredStruct = astUtils.RegisteredStruct;
 const GenericType = astUtils.GenericType;
 const Parameter = astUtils.Parameter;
+const StructAttribute = astUtils.StructAttribute;
+const FuncDecNode = astUtils.FuncDecNode;
 
 pub fn printAst(ast: Ast) void {
     printNodes(ast.root.nodes);
@@ -15,6 +17,9 @@ pub fn printAst(ast: Ast) void {
 
 fn printType(typeNode: *const AstTypes) void {
     return switch (typeNode.*) {
+        .Void => {
+            std.debug.print("void", .{});
+        },
         .String => {
             std.debug.print("string", .{});
         },
@@ -169,6 +174,12 @@ fn printNode(node: *const AstNode) void {
                 printGenerics(dec.generics);
                 std.debug.print("]", .{});
             }
+
+            if (dec.attributes.len > 0) {
+                std.debug.print(" with attributes [", .{});
+                printAttributes(dec.attributes);
+                std.debug.print("]", .{});
+            }
         },
         .IfStatement => |*statement| {
             std.debug.print("if ", .{});
@@ -180,21 +191,42 @@ fn printNode(node: *const AstNode) void {
         .NoOp => {
             std.debug.print("(noop)", .{});
         },
-        .FuncDec => |*func| {
-            std.debug.print("declare function ({s})", .{func.name});
-            if (func.generics) |generics| {
-                std.debug.print(" with generics [", .{});
-                printGenerics(generics);
-                std.debug.print("]", .{});
-            }
-
-            std.debug.print(" with params [", .{});
-            printParams(func.params);
-
-            std.debug.print("] -- body --\n", .{});
-            printNode(func.body);
-            std.debug.print("-- body end --\n", .{});
+        .FuncDec => |func| {
+            printFuncDec(func);
         },
+    }
+}
+
+fn printFuncDec(func: FuncDecNode) void {
+    std.debug.print("declare function [", .{});
+    printType(func.returnType);
+    std.debug.print("] ({s})", .{func.name});
+    if (func.generics) |generics| {
+        std.debug.print(" with generics [", .{});
+        printGenerics(generics);
+        std.debug.print("]", .{});
+    }
+
+    std.debug.print(" with params [", .{});
+    printParams(func.params);
+
+    std.debug.print("] -- body --\n", .{});
+    printNode(func.body);
+    std.debug.print("-- body end --\n", .{});
+}
+
+fn printAttributes(attrs: []StructAttribute) void {
+    for (attrs) |attr| {
+        switch (attr) {
+            .Function => {
+                std.debug.print("{s} ({s}) ", .{ attr.Function.visibility.toString(), attr.Function.name });
+                printFuncDec(attr.Function.func);
+            },
+            .Member => {
+                std.debug.print("{s} ({s}) with type ", .{ attr.Member.visibility.toString(), attr.Member.name });
+                printType(attr.Member.type);
+            },
+        }
     }
 }
 
@@ -219,10 +251,10 @@ fn printGenerics(generics: []GenericType) void {
     for (generics, 0..) |generic, index| {
         std.debug.print("[", .{});
 
-        if (generic.restriction == null) {
-            std.debug.print("any", .{});
+        if (generic.restriction) |restriction| {
+            printType(restriction);
         } else {
-            printType(generic.restriction.?);
+            std.debug.print("any", .{});
         }
 
         std.debug.print("]({s})", .{generic.name});

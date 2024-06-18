@@ -25,6 +25,8 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
     const tokens = try tokenize(allocator, code);
     defer freeTokens(allocator, tokens);
 
+    // std.debug.print("{any}", .{tokens});
+
     const structs = try registerStructs(allocator, tokens);
     defer freeRegisteredStructs(allocator, structs);
 

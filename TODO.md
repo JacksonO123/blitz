@@ -9,4 +9,4 @@
 
 # Maintenance
 
-- [ ] switch to use: `if(?cond) |val| {}`
+- [x] switch to use: `if(?cond) |val| {}`
