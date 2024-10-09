@@ -22,6 +22,8 @@ pub const TokenType = enum {
     Break,
     Pub,
     Prot,
+    Static,
+    Return,
 
     // symbols
     Colon,
@@ -43,7 +45,6 @@ pub const TokenType = enum {
     Mod,
     Bang,
     Period,
-    Union,
     SingleQuote,
     DoubleQuote,
     Comma,
@@ -145,7 +146,8 @@ pub const TokenType = enum {
             .QuestionMark => "?",
             .True => "true",
             .False => "false",
-            .Union => "|",
+            .Static => "static",
+            .Return => "return",
         };
     }
 
@@ -430,6 +432,8 @@ fn isKeyword(chars: []const u8) ?TokenType {
         TokenTypeMap{ .string = "false", .token = TokenType.False },
         TokenTypeMap{ .string = "pub", .token = TokenType.Pub },
         TokenTypeMap{ .string = "prot", .token = TokenType.Prot },
+        TokenTypeMap{ .string = "static", .token = TokenType.Static },
+        TokenTypeMap{ .string = "return", .token = TokenType.Return },
     };
 
     return getTypeFromMap(chars, keywords);
@@ -470,7 +474,6 @@ fn isSymbol(char: u8) ?TokenType {
         SymbolMap{ .symbol = '.', .token = TokenType.Period },
         SymbolMap{ .symbol = ',', .token = TokenType.Comma },
         SymbolMap{ .symbol = '?', .token = TokenType.QuestionMark },
-        SymbolMap{ .symbol = '|', .token = TokenType.Union },
     };
 
     for (symbols) |symbol| {

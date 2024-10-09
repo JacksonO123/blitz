@@ -1,6 +1,7 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
 const astUtils = @import("ast.zig");
+const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const tokenize = tokenizer.tokenize;
 const freeTokens = tokenizer.freeTokens;
@@ -9,6 +10,7 @@ const freeRegisteredStructs = astUtils.freeRegisteredStructs;
 const CompInfo = astUtils.CompInfo;
 const createAst = astUtils.createAst;
 const freeAst = astUtils.freeAst;
+const freeCompInfo = astUtils.freeCompInfo;
 
 // debug
 const debug = @import("debug.zig");
@@ -25,18 +27,19 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
     const tokens = try tokenize(allocator, code);
     defer freeTokens(allocator, tokens);
 
-    // std.debug.print("{any}", .{tokens});
-
     const structs = try registerStructs(allocator, tokens);
     defer freeRegisteredStructs(allocator, structs);
 
     printRegisteredStructs(structs);
 
-    const compInfo = CompInfo{
+    var genericsList = ArrayList([]u8).init(allocator);
+    var compInfo = CompInfo{
         .registeredStructs = structs,
+        .generics = &genericsList,
     };
+    defer freeCompInfo(&compInfo);
 
-    const ast = try createAst(allocator, compInfo, tokens);
+    const ast = try createAst(allocator, &compInfo, tokens);
     defer freeAst(allocator, ast);
 
     std.debug.print("--- code ---\n{s}\n------------\n", .{code});

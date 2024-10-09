@@ -13,19 +13,12 @@ const freeTokens = tokenizer.freeTokens;
 const freeTokenArr = tokenizer.freeTokenArr;
 const toSlice = utils.toSlice;
 
+// debug
+const debug = @import("./debug.zig");
+const printTokens = debug.printTokens;
+
 // const verbose = true;
 const verbose = false;
-
-fn printTokens(tokens: anytype) void {
-    for (tokens) |token| {
-        std.debug.print("{any}", .{token.type});
-        if (token.string != null) {
-            std.debug.print(" : {s}\n", .{token.string.?});
-        } else {
-            std.debug.print("\n", .{});
-        }
-    }
-}
 
 fn testTokens(code: []const u8, tokens: anytype) !void {
     const expectedTokens = try toSlice(Token, allocator, &tokens);
@@ -285,7 +278,6 @@ test "functions" {
         Token{ .type = TokenType.Identifier, .string = str1 },
         Token{ .type = TokenType.Colon, .string = null },
         Token{ .type = TokenType.Identifier, .string = str2 },
-        Token{ .type = TokenType.Union, .string = null },
         Token{ .type = TokenType.Identifier, .string = str3 },
         Token{ .type = TokenType.Comma, .string = null },
         Token{ .type = TokenType.Identifier, .string = str4 },

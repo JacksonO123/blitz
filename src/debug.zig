@@ -66,18 +66,8 @@ fn printType(typeNode: *const AstTypes) void {
                 std.debug.print(">", .{});
             }
         },
-        .Union => |typeUnion| {
-            std.debug.print("(", .{});
-
-            for (typeUnion, 0..) |t, index| {
-                printType(t);
-
-                if (index < typeUnion.len - 1) {
-                    std.debug.print(" | ", .{});
-                }
-            }
-
-            std.debug.print(")", .{});
+        .Generic => |gen| {
+            std.debug.print("[generic]({s})", .{gen});
         },
     };
 }
@@ -194,6 +184,36 @@ fn printNode(node: *const AstNode) void {
         .FuncDec => |func| {
             printFuncDec(func);
         },
+        .ReturnNode => |ret| {
+            std.debug.print("return ", .{});
+            printNode(ret);
+        },
+        .StructInit => |init| {
+            std.debug.print("initializing ({s})[", .{init.name});
+
+            for (init.generics, 0..) |generic, index| {
+                printType(generic);
+
+                if (index < init.generics.len - 1) {
+                    std.debug.print(", ", .{});
+                }
+            }
+
+            std.debug.print("] with {{", .{});
+
+            for (init.attributes, 0..) |attr, index| {
+                std.debug.print("{s}: ", .{attr.name});
+                printNode(attr.value);
+                if (index < init.attributes.len - 1) {
+                    std.debug.print(", ", .{});
+                }
+            }
+            std.debug.print("}}", .{});
+        },
+        .Bang => |bang| {
+            std.debug.print("[bang]!", .{});
+            printNode(bang);
+        },
     }
 }
 
@@ -216,16 +236,24 @@ fn printFuncDec(func: FuncDecNode) void {
 }
 
 fn printAttributes(attrs: []StructAttribute) void {
-    for (attrs) |attr| {
-        switch (attr) {
+    for (attrs, 0..) |attr, index| {
+        if (attr.static) {
+            std.debug.print("static ", .{});
+        }
+
+        switch (attr.attr) {
             .Function => {
-                std.debug.print("{s} ({s}) ", .{ attr.Function.visibility.toString(), attr.Function.name });
-                printFuncDec(attr.Function.func);
+                std.debug.print("{s} ({s}) ", .{ attr.attr.Function.visibility.toString(), attr.attr.Function.name });
+                printFuncDec(attr.attr.Function.func);
             },
             .Member => {
-                std.debug.print("{s} ({s}) with type ", .{ attr.Member.visibility.toString(), attr.Member.name });
-                printType(attr.Member.type);
+                std.debug.print("{s} ({s}) with type ", .{ attr.attr.Member.visibility.toString(), attr.attr.Member.name });
+                printType(attr.attr.Member.type);
             },
+        }
+
+        if (index < attrs.len - 1) {
+            std.debug.print(", ", .{});
         }
     }
 }
@@ -276,5 +304,16 @@ pub fn printRegisteredStructs(structs: []RegisteredStruct) void {
     std.debug.print("--- structs ---\n", .{});
     for (structs) |s| {
         std.debug.print("{s}{s}\n", .{ s.name, if (s.numGenerics > 0) " : (generic)" else "" });
+    }
+}
+
+pub fn printTokens(tokens: anytype) void {
+    for (tokens) |token| {
+        std.debug.print("{any}", .{token.type});
+        if (token.string != null) {
+            std.debug.print(" : {s}\n", .{token.string.?});
+        } else {
+            std.debug.print("\n", .{});
+        }
     }
 }

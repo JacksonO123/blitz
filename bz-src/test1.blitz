@@ -1,11 +1,13 @@
+struct Car {}
+
 struct [T: Car] name {
   value1: bool;
-  pub value2: T;
-  pub static fn create(val1: bool, val2: T): name {
-    return name {
+  value2: T;
+  pub static fn create(val1: bool, val2: T): name<T> {
+    return name<T> {
       val1 = !val1,
       val2
     };
   }
-  prot someFunc(): u32 {}
+  prot fn someFunc(): u32 {}
 }
