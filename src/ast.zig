@@ -330,7 +330,8 @@ fn createSeqNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) !Se
             continue;
         }
 
-        const node = try createAstNode(allocator, compInfo, tokens, currentToken);
+        const seqTokens = tokens[currentToken..];
+        const node = try createAstNode(allocator, compInfo, seqTokens);
         currentToken += node.offset;
         try seq.append(node.node);
     }
@@ -339,7 +340,7 @@ fn createSeqNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) !Se
     return SeqNode{ .nodes = astNodes };
 }
 
-fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, start: usize) (AstError || Allocator.Error)!AstNodeOffsetData {
+fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (AstError || Allocator.Error)!AstNodeOffsetData {
     if (tokens.len == 0) {
         return .{
             .offset = 0,
@@ -347,14 +348,14 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, sta
         };
     }
 
-    const token = tokens[start];
+    const token = tokens[0];
 
     switch (token.type) {
         .Const => {
-            return try createVarDecNode(allocator, compInfo, tokens, start, true);
+            return try createVarDecNode(allocator, compInfo, tokens, 0, true);
         },
         .Var => {
-            return try createVarDecNode(allocator, compInfo, tokens, start, false);
+            return try createVarDecNode(allocator, compInfo, tokens, 0, false);
         },
         .Number => {
             const numType = if (findChar(token.string.?, 0, '.') != null) AstNumberVariants.F32 else AstNumberVariants.U32;
@@ -390,13 +391,13 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, sta
             var nodeItems = ArrayList(*const AstNode).init(allocator);
             defer nodeItems.deinit();
 
-            const end = smartDelimiterIndex(tokens, compInfo, start + 1, TokenType.RBracket) catch |e| return astError(e, "]");
-            var comma = smartDelimiterIndex(tokens, compInfo, start + 1, TokenType.Comma) catch end;
-            var prev = start + 1;
+            const end = smartDelimiterIndex(tokens, compInfo, 1, TokenType.RBracket) catch |e| return astError(e, "]");
+            var comma = smartDelimiterIndex(tokens, compInfo, 1, TokenType.Comma) catch end;
+            var prev: usize = 1;
 
             while (prev < end) {
                 const tempTokens = tokens[prev..comma];
-                const node = try createAstNode(allocator, compInfo, tempTokens, 0);
+                const node = try createAstNode(allocator, compInfo, tempTokens);
                 try nodeItems.append(node.node);
 
                 prev = comma + 1;
@@ -411,18 +412,18 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, sta
                         .StaticArray = itemsSlice,
                     },
                 }),
-                .offset = end - start + 1,
+                .offset = end + 1,
             };
         },
         .Struct => {
-            const isGeneric = tokens[start + 1].type == TokenType.LBracket;
-            const nameIndex = (if (isGeneric) try delimiterIndex(tokens, start + 2, TokenType.RBracket) else start) + 1;
+            const isGeneric = tokens[1].type == TokenType.LBracket;
+            const nameIndex = (if (isGeneric) try delimiterIndex(tokens, 2, TokenType.RBracket) else 0) + 1;
             const end = try smartDelimiterIndex(tokens, compInfo, nameIndex + 2, TokenType.RBrace);
             const defTokens = tokens[nameIndex + 2 .. end];
             var genericTypes: []GenericType = &[_]GenericType{};
 
             if (isGeneric) {
-                const genericsTokens = tokens[start + 2 .. nameIndex - 1];
+                const genericsTokens = tokens[2 .. nameIndex - 1];
                 genericTypes = try parseGenerics(allocator, compInfo, genericsTokens);
             }
 
@@ -453,15 +454,15 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, sta
             }
 
             return .{
-                .offset = end - start + 1,
+                .offset = end + 1,
                 .node = structNode,
             };
         },
         .Identifier => {
             if (compInfo.hasRegisteredStruct(token.string.?)) {
-                if (tokens[start + 1].type == TokenType.LBrace or tokens[start + 1].type == TokenType.LAngle) {
+                if (tokens[1].type == TokenType.LBrace or tokens[1].type == TokenType.LAngle) {
                     const openBraceIndex = try smartDelimiterIndex(tokens, compInfo, 1, TokenType.LBrace);
-                    const typeTokens = tokens[start..openBraceIndex];
+                    const typeTokens = tokens[0..openBraceIndex];
                     const typeNodes = try parseGenericArgs(allocator, compInfo, typeTokens, 0);
                     const initTokens = tokens[openBraceIndex..];
                     const structDef = try createStructDef(allocator, compInfo, token.string.?, typeNodes, initTokens);
@@ -474,11 +475,12 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, sta
                 } else {
                     // type cast to struct
 
-                    const lParenIndex = try smartDelimiterIndex(tokens, compInfo, start + 1, TokenType.LParen);
-                    const typeTokens = tokens[start..lParenIndex];
+                    const lParenIndex = try smartDelimiterIndex(tokens, compInfo, 1, TokenType.LParen);
+                    const typeTokens = tokens[0..lParenIndex];
 
                     const typeNode = try createTypeNode(allocator, compInfo, typeTokens);
-                    const node = try createAstNode(allocator, compInfo, tokens, lParenIndex + 1);
+                    const castTokens = tokens[lParenIndex + 1 ..];
+                    const node = try createAstNode(allocator, compInfo, castTokens);
 
                     const castNode = try create(AstNode, allocator, .{
                         .Cast = .{
@@ -504,9 +506,9 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, sta
             };
         },
         .If => {
-            const closeParen = smartDelimiterIndex(tokens, compInfo, start + 2, TokenType.RParen) catch |e| return astError(e, ")");
-            const conditionTokens = tokens[start + 2 .. closeParen];
-            const conditionNode = try createAstNode(allocator, compInfo, conditionTokens, 0);
+            const closeParen = smartDelimiterIndex(tokens, compInfo, 2, TokenType.RParen) catch |e| return astError(e, ")");
+            const conditionTokens = tokens[2..closeParen];
+            const conditionNode = try createAstNode(allocator, compInfo, conditionTokens);
 
             const endBrace = smartDelimiterIndex(tokens, compInfo, closeParen + 2, TokenType.RBrace) catch |e| return astError(e, "]");
             const bodyTokens = tokens[closeParen + 2 .. endBrace];
@@ -520,7 +522,7 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, sta
             });
 
             return .{
-                .offset = endBrace - start + 1,
+                .offset = endBrace + 1,
                 .node = ifStatement,
             };
         },
@@ -538,8 +540,8 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, sta
             };
         },
         .Return => {
-            const semiIndex = try smartDelimiterIndex(tokens, compInfo, start + 1, TokenType.Semicolon);
-            const node = try createAstNode(allocator, compInfo, tokens[start + 1 .. semiIndex], 0);
+            const semiIndex = try smartDelimiterIndex(tokens, compInfo, 1, TokenType.Semicolon);
+            const node = try createAstNode(allocator, compInfo, tokens[1..semiIndex]);
             const returnNode = try create(AstNode, allocator, .{ .ReturnNode = node.node });
 
             return .{
@@ -548,7 +550,8 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, sta
             };
         },
         .Bang => {
-            const otherNode = try createAstNode(allocator, compInfo, tokens, start + 1);
+            const otherTokens = tokens[1..];
+            const otherNode = try createAstNode(allocator, compInfo, otherTokens);
             const node = try create(AstNode, allocator, .{
                 .Bang = otherNode.node,
             });
@@ -559,7 +562,7 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, sta
             };
         },
         else => {
-            return astError(AstError.UnexpectedToken, tokens[start].type.toString());
+            return astError(AstError.UnexpectedToken, tokens[0].type.toString());
         },
     }
 }
@@ -575,7 +578,7 @@ fn createStructDef(allocator: Allocator, compInfo: *CompInfo, structName: []u8, 
         const value: *const AstNode = switch (tokens[i + 1].type) {
             .EqSet => a: {
                 const valueTokens = tokens[i + 2 .. commaIndex];
-                const valueNode = try createAstNode(allocator, compInfo, valueTokens, 0);
+                const valueNode = try createAstNode(allocator, compInfo, valueTokens);
                 break :a valueNode.node;
             },
             .Comma => a: {
@@ -953,7 +956,8 @@ fn createVarDecNode(
         offset += index - searchStart + 1;
     }
 
-    const setNode = try createAstNode(allocator, compInfo, tokens, start + offset);
+    const setTokens = tokens[start + offset ..];
+    const setNode = try createAstNode(allocator, compInfo, setTokens);
     const tokenOffset = offset + setNode.offset;
 
     if (name.type != TokenType.Identifier) return AstError.UnexpectedToken;
@@ -1033,7 +1037,8 @@ fn createTypeNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (A
                 },
             });
         } else {
-            const sizeNode = try createAstNode(allocator, compInfo, tokens, current + 2);
+            const sizeTokens = tokens[current + 2 ..];
+            const sizeNode = try createAstNode(allocator, compInfo, sizeTokens);
             res = try create(AstTypes, allocator, .{
                 .StaticArray = .{
                     .type = res,
