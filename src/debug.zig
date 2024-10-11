@@ -15,7 +15,7 @@ pub fn printAst(ast: Ast) void {
     printNodes(ast.root.nodes);
 }
 
-fn printType(typeNode: *const AstTypes) void {
+pub fn printType(typeNode: *const AstTypes) void {
     return switch (typeNode.*) {
         .Void => {
             std.debug.print("void", .{});
@@ -29,9 +29,9 @@ fn printType(typeNode: *const AstTypes) void {
         .Bool => {
             std.debug.print("bool", .{});
         },
-        .DynamicArray => |*arr| {
+        .DynamicArray => |arr| {
             std.debug.print("DynamicArray<", .{});
-            printType(arr.type);
+            printType(arr);
             std.debug.print(">", .{});
         },
         .StaticArray => |*arr| {
@@ -74,18 +74,22 @@ fn printType(typeNode: *const AstTypes) void {
 
 fn numberTypeToString(numType: AstNumberVariants) [*:0]const u8 {
     return switch (numType) {
+        .U8 => "u8",
         .U16 => "u16",
         .U32 => "u32",
         .U64 => "u64",
         .U128 => "u128",
+        .I8 => "i8",
         .I16 => "i16",
         .I32 => "i32",
         .I64 => "i64",
         .I128 => "i128",
+        .F8 => "f8",
         .F16 => "f16",
         .F32 => "f32",
         .F64 => "f64",
         .F128 => "f128",
+        .USize => "usize",
     };
 }
 
@@ -107,7 +111,7 @@ fn printValue(value: *const AstValues) void {
         .Number => |*n| {
             std.debug.print("[{s}]({s})", .{ numberTypeToString(n.type), n.value });
         },
-        .String => |*s| {
+        .String => |s| {
             std.debug.print("[string](\"{s}\")", .{s});
         },
         .Char => |*c| {
@@ -119,7 +123,7 @@ fn printValue(value: *const AstValues) void {
     }
 }
 
-fn printNode(node: *const AstNode) void {
+pub fn printNode(node: *const AstNode) void {
     switch (node.*) {
         .VarDec => |*dec| {
             std.debug.print("declare ({s}) ({s}) = ", .{

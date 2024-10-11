@@ -45,28 +45,31 @@ pub const TokenType = enum {
     Mod,
     Bang,
     Period,
-    SingleQuote,
-    DoubleQuote,
     Comma,
     QuestionMark,
     True,
     False,
+    StringToken,
 
     // datatypes
     Char,
+    U8,
     U16,
     U32,
     U64,
     U128,
+    I8,
     I16,
     I32,
     I64,
     I128,
+    F8,
     F16,
     F32,
     F64,
     F128,
-    String,
+    USize,
+    StringType,
     Bool,
 
     // other
@@ -114,23 +117,26 @@ pub const TokenType = enum {
             .Mod => "%",
             .Bang => "!",
             .Period => ".",
-            .SingleQuote => "'",
-            .DoubleQuote => "\"",
             .Comma => ",",
             .Char => "char",
+            .U8 => "u8",
             .U16 => "u16",
             .U32 => "u32",
             .U64 => "u64",
             .U128 => "u128",
+            .I8 => "i8",
             .I16 => "i16",
             .I32 => "i32",
             .I64 => "i64",
             .I128 => "i128",
+            .F8 => "f8",
             .F16 => "f16",
             .F32 => "f32",
             .F64 => "f64",
             .F128 => "f128",
-            .String => "string",
+            .USize => "usize",
+            .StringType => "string",
+            .StringToken => "(string data...)",
             .Bool => "bool",
             .Identifier => "identifier",
             .Number => "number",
@@ -206,7 +212,7 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
 
             if (strEnd) |end| {
                 const str = try allocator.dupe(u8, input[i .. end + 1]);
-                const token = Token{ .type = TokenType.String, .string = str };
+                const token = Token{ .type = TokenType.StringToken, .string = str };
                 try tokens.append(token);
 
                 i += str.len - 1;
@@ -397,7 +403,7 @@ fn charsToToken(chars: []u8, allocator: Allocator) !?Token {
 fn isDatatype(chars: []const u8) ?TokenType {
     const datatypes = [_]TokenTypeMap{
         TokenTypeMap{ .string = "char", .token = TokenType.Char },
-        TokenTypeMap{ .string = "string", .token = TokenType.String },
+        TokenTypeMap{ .string = "string", .token = TokenType.StringType },
         TokenTypeMap{ .string = "bool", .token = TokenType.Bool },
         // numbers
         TokenTypeMap{ .string = "u16", .token = TokenType.U16 },
@@ -469,8 +475,6 @@ fn isSymbol(char: u8) ?TokenType {
         SymbolMap{ .symbol = '/', .token = TokenType.Div },
         SymbolMap{ .symbol = '%', .token = TokenType.Mod },
         SymbolMap{ .symbol = '!', .token = TokenType.Bang },
-        SymbolMap{ .symbol = '\'', .token = TokenType.SingleQuote },
-        SymbolMap{ .symbol = '"', .token = TokenType.DoubleQuote },
         SymbolMap{ .symbol = '.', .token = TokenType.Period },
         SymbolMap{ .symbol = ',', .token = TokenType.Comma },
         SymbolMap{ .symbol = '?', .token = TokenType.QuestionMark },

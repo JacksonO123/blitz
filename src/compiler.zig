@@ -1,16 +1,21 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
-const astUtils = @import("ast.zig");
+const astMod = @import("ast.zig");
+const scan = @import("scan.zig");
+const utils = @import("utils.zig");
 const ArrayList = std.ArrayList;
+const StringHashMap = std.StringHashMap;
 const Allocator = std.mem.Allocator;
+const AstTypes = astMod.AstTypes;
 const tokenize = tokenizer.tokenize;
 const freeTokens = tokenizer.freeTokens;
-const registerStructs = astUtils.registerStructs;
-const freeRegisteredStructs = astUtils.freeRegisteredStructs;
-const CompInfo = astUtils.CompInfo;
-const createAst = astUtils.createAst;
-const freeAst = astUtils.freeAst;
-const freeCompInfo = astUtils.freeCompInfo;
+const registerStructs = astMod.registerStructs;
+const freeRegisteredStructs = astMod.freeRegisteredStructs;
+const CompInfo = utils.CompInfo;
+const createAst = astMod.createAst;
+const freeAst = astMod.freeAst;
+const freeCompInfo = astMod.freeCompInfo;
+const typeScan = scan.typeScan;
 
 // debug
 const debug = @import("debug.zig");
@@ -33,15 +38,20 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
     printRegisteredStructs(structs);
 
     var genericsList = ArrayList([]u8).init(allocator);
+    var variableTypes = StringHashMap(*const AstTypes).init(allocator);
     var compInfo = CompInfo{
         .registeredStructs = structs,
         .generics = &genericsList,
+        .variableTypes = &variableTypes,
     };
-    defer freeCompInfo(&compInfo);
+    defer freeCompInfo(allocator, &compInfo);
 
     const ast = try createAst(allocator, &compInfo, tokens);
     defer freeAst(allocator, ast);
 
     std.debug.print("--- code ---\n{s}\n------------\n", .{code});
     printAst(ast);
+
+    try typeScan(allocator, ast, &compInfo);
+    std.debug.print("\n", .{});
 }
