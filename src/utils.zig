@@ -1,13 +1,13 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
-const ast = @import("ast.zig");
-const AstTypes = ast.AstTypes;
-const RegisteredStruct = ast.RegisteredStruct;
+const astMod = @import("ast.zig");
+const AstTypes = astMod.AstTypes;
 const Token = tokenizer.Token;
 const TokenType = tokenizer.TokenType;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
+const RegisteredStruct = astMod.RegisteredStruct;
 
 pub fn findChar(items: []const u8, start: usize, item: u8) ?usize {
     var i = start;

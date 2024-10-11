@@ -1,6 +1,7 @@
 const std = @import("std");
 const astMod = @import("ast.zig");
 const utils = @import("utils.zig");
+const free = @import("free.zig");
 const Allocator = std.mem.Allocator;
 const Ast = astMod.Ast;
 const AstNode = astMod.AstNode;
@@ -12,6 +13,7 @@ const numberLength = utils.numberLength;
 const create = utils.create;
 const toSlice = utils.toSlice;
 const Case = std.fmt.Case;
+const freeStackType = free.freeStackType;
 
 // debug
 const debug = @import("debug.zig");
@@ -26,6 +28,7 @@ const ScanError = error{
     UndefinedOrUnknownVariableType,
     ExpectedBooleanIfCondition,
     FunctionReturnTypeMismatch,
+    VariableAlreadyExists,
 };
 
 pub fn typeScan(allocator: Allocator, ast: Ast, compInfo: *CompInfo) !void {
@@ -46,27 +49,22 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) !vo
             try scanNodes(allocator, compInfo, seq.nodes);
         },
         .VarDec => |dec| {
+            if (compInfo.getVariableType(dec.name) != null) {
+                return ScanError.VariableAlreadyExists;
+            }
+
             const setType = try getExpressionType(allocator, compInfo, dec.setNode);
-            const typePtr = try create(AstTypes, allocator, setType);
+            const setPtr = try create(AstTypes, allocator, setType);
 
             if (dec.annotation) |annotation| {
-                printType(annotation);
-                std.debug.print(" ", .{});
-                printType(&setType);
-
                 if (try matchTypes(allocator, compInfo, annotation.*, setType)) {
-                    try compInfo.setVariableType(dec.name, typePtr);
-                    std.debug.print("GOOD\n", .{});
+                    try compInfo.setVariableType(dec.name, setPtr);
                 } else {
-                    allocator.destroy(typePtr);
-                    std.debug.print("BAD\n", .{});
                     return ScanError.VariableAnnotationMismatch;
                 }
             } else {
-                try compInfo.setVariableType(dec.name, typePtr);
+                try compInfo.setVariableType(dec.name, setPtr);
             }
-
-            printNode(dec.setNode);
         },
         .Variable => |v| {
             const varType = compInfo.getVariableType(v.name);
@@ -76,6 +74,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) !vo
         .StructDec => {},
         .IfStatement => |statement| {
             const conditionType = try getExpressionType(allocator, compInfo, statement.condition);
+            defer freeStackType(allocator, &conditionType);
             if (conditionType != AstTypes.Bool) return ScanError.ExpectedBooleanIfCondition;
         },
         .FuncDec => |dec| {
@@ -83,6 +82,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) !vo
                 .Seq => |seq| {
                     const last = seq.nodes[seq.nodes.len - 1];
                     const lastType = try getExpressionType(allocator, compInfo, last);
+                    defer freeStackType(allocator, &lastType);
                     if (last.* == AstNode.ReturnNode or dec.returnType.* != AstTypes.Void) {
                         if (!try matchTypes(allocator, compInfo, dec.returnType.*, lastType)) {
                             return ScanError.FunctionReturnTypeMismatch;
@@ -91,6 +91,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) !vo
                 },
                 .ReturnNode => |ret| {
                     const retType = try getExpressionType(allocator, compInfo, ret);
+                    defer freeStackType(allocator, &retType);
                     if (!try matchTypes(allocator, compInfo, dec.returnType.*, retType)) {
                         return ScanError.FunctionReturnTypeMismatch;
                     }
@@ -102,6 +103,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) !vo
         .StructInit => {},
         .Bang => |bang| {
             const bangType = try getExpressionType(allocator, compInfo, bang);
+            defer freeStackType(allocator, &bangType);
             if (bangType != AstTypes.Bool) return ScanError.ExpectedBooleanBang;
         },
     }
@@ -181,6 +183,9 @@ fn matchTypes(allocator: Allocator, compInfo: *CompInfo, type1: AstTypes, type2:
 
             const sizeType1 = try getExpressionType(allocator, compInfo, arr.size);
             const sizeType2 = try getExpressionType(allocator, compInfo, type2.StaticArray.size);
+            defer freeStackType(allocator, &sizeType1);
+            defer freeStackType(allocator, &sizeType2);
+
             if (!isInt(sizeType1) or !isInt(sizeType2)) {
                 return false;
             }
@@ -241,6 +246,8 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
         },
         .Cast => |cast| {
             const nodeType = try getExpressionType(allocator, compInfo, cast.node);
+            defer freeStackType(allocator, &nodeType);
+
             if (isPrimary(nodeType) and isPrimary(cast.toType.*)) {
                 return cast.toType.*;
             }
@@ -259,6 +266,7 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
         .StructInit => AstTypes.Void,
         .Bang => |node| {
             const nodeType = try getExpressionType(allocator, compInfo, node);
+            defer freeStackType(allocator, &nodeType);
 
             if (!try matchTypes(allocator, compInfo, nodeType, AstTypes.Bool)) {
                 return ScanError.ExpectedBooleanBang;
@@ -276,6 +284,8 @@ fn inferStaticArrType(allocator: Allocator, compInfo: *CompInfo, arr: []*const A
 
     for (arr[1..]) |item| {
         const exprType = try getExpressionType(allocator, compInfo, item);
+        defer freeStackType(allocator, &exprType);
+
         if (!try matchTypes(allocator, compInfo, exprType, item0Type)) {
             return ScanError.StaticArrayTypeMismatch;
         }

@@ -3,6 +3,7 @@ const tokenizer = @import("tokenizer.zig");
 const astMod = @import("ast.zig");
 const scan = @import("scan.zig");
 const utils = @import("utils.zig");
+const free = @import("free.zig");
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = std.mem.Allocator;
@@ -10,11 +11,11 @@ const AstTypes = astMod.AstTypes;
 const tokenize = tokenizer.tokenize;
 const freeTokens = tokenizer.freeTokens;
 const registerStructs = astMod.registerStructs;
-const freeRegisteredStructs = astMod.freeRegisteredStructs;
+const freeRegisteredStructs = free.freeRegisteredStructs;
 const CompInfo = utils.CompInfo;
 const createAst = astMod.createAst;
-const freeAst = astMod.freeAst;
-const freeCompInfo = astMod.freeCompInfo;
+const freeAst = free.freeAst;
+const freeCompInfo = free.freeCompInfo;
 const typeScan = scan.typeScan;
 
 // debug

@@ -1,5 +1,6 @@
-const thing: u32[5] = [true, 3, 5, 2, 1];
-const thing: u32 = 2;
+// const thing: u32[5] = [true, 3, 5, 2, 1];
+const thing: u32[5] = [4, 3, 5, 2, 1];
+const thing2: u32 = 2;
 
 /* u32[] */
 // u32[][][]

@@ -178,6 +178,7 @@ const StructDecNode = struct {
     name: []u8,
     generics: []GenericType,
     attributes: []StructAttribute,
+    deriveType: ?*const AstTypes,
 };
 
 const AttributeDefinition = struct {
@@ -397,8 +398,16 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
         .Struct => {
             const isGeneric = tokens[1].type == TokenType.LBracket;
             const nameIndex = (if (isGeneric) try delimiterIndex(tokens, 2, TokenType.RBracket) else 0) + 1;
-            const end = try smartDelimiterIndex(tokens, compInfo, nameIndex + 2, TokenType.RBrace);
-            const defTokens = tokens[nameIndex + 2 .. end];
+            const lBraceIndex = try delimiterIndex(tokens, nameIndex + 1, TokenType.LBrace);
+
+            var deriveType: ?*const AstTypes = null;
+            if (tokens[nameIndex + 1].type == TokenType.Colon) {
+                const deriveTokens = tokens[nameIndex + 2 .. lBraceIndex];
+                deriveType = try createTypeNode(allocator, compInfo, deriveTokens);
+            }
+
+            const end = try smartDelimiterIndex(tokens, compInfo, lBraceIndex + 1, TokenType.RBrace);
+            const defTokens = tokens[lBraceIndex + 1 .. end];
             var genericTypes: []GenericType = &[_]GenericType{};
 
             if (isGeneric) {
@@ -424,6 +433,7 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
                 .name = name,
                 .generics = genericTypes,
                 .attributes = attrData.attrs,
+                .deriveType = deriveType,
             };
 
             const structNode = try create(AstNode, allocator, .{ .StructDec = structDecNode });
@@ -570,8 +580,6 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
 
             const rParentIndex = smartDelimiterIndex(tokens, compInfo, 2, TokenType.RParen) catch |e| return astError(e, ")");
             const castTokens = tokens[2..rParentIndex];
-            std.debug.print("CAST TOKENS\n", .{});
-            printTokens(castTokens);
             const castNode = try createAstNode(allocator, compInfo, castTokens);
 
             const toType = try createAstType(allocator, compInfo, tokens[0]);
@@ -1203,190 +1211,4 @@ fn astError(errorType: AstError, str: []const u8) AstError {
     }) catch {};
 
     return errorType;
-}
-
-// |-----------------|
-// | free structures |
-// |-----------------|
-
-pub fn freeAst(allocator: Allocator, ast: Ast) void {
-    freeNodes(allocator, ast.root.nodes);
-    allocator.free(ast.root.nodes);
-}
-
-fn freeNodes(allocator: Allocator, nodes: []*const AstNode) void {
-    for (nodes) |node| {
-        freeNode(allocator, node);
-    }
-}
-
-fn freeType(allocator: Allocator, node: *const AstTypes) void {
-    switch (node.*) {
-        .DynamicArray => |arr| {
-            freeType(allocator, arr);
-        },
-        .StaticArray => |*arr| {
-            freeType(allocator, arr.type);
-            freeNode(allocator, arr.size);
-        },
-        .Nullable => |nullable| {
-            freeType(allocator, nullable);
-        },
-        .Custom => |*custom| {
-            for (custom.generics) |generic| {
-                freeType(allocator, generic);
-            }
-
-            allocator.free(custom.generics);
-            allocator.free(custom.name);
-        },
-        else => {},
-    }
-
-    allocator.destroy(node);
-}
-
-fn freeValueNode(allocator: Allocator, node: *const AstValues) void {
-    switch (node.*) {
-        .StaticArray => |arr| {
-            freeNodes(allocator, arr);
-            allocator.free(arr);
-        },
-        .Number => |*num| {
-            allocator.free(num.value);
-        },
-        .String => |string| {
-            allocator.free(string);
-        },
-        else => {},
-    }
-}
-
-pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
-    switch (node.*) {
-        .VarDec => |*dec| {
-            freeNode(allocator, dec.setNode);
-
-            if (dec.annotation) |annotation| {
-                freeType(allocator, annotation);
-            }
-
-            allocator.free(dec.name);
-        },
-        .Seq => |*seq| {
-            for (seq.nodes) |seqNode| {
-                freeNode(allocator, seqNode);
-            }
-            allocator.free(seq.nodes);
-        },
-        .Type => |*t| {
-            freeType(allocator, t);
-        },
-        .Value => |*val| {
-            freeValueNode(allocator, val);
-        },
-        .Cast => |*cast| {
-            freeNode(allocator, cast.node);
-            freeType(allocator, cast.toType);
-        },
-        .Variable => |*variable| {
-            allocator.free(variable.name);
-        },
-        .StructDec => |*dec| {
-            allocator.free(dec.name);
-
-            for (dec.generics) |generic| {
-                if (generic.restriction) |restriction| {
-                    freeType(allocator, restriction);
-                }
-                allocator.free(generic.name);
-            }
-
-            for (dec.attributes) |attr| {
-                freeAttr(allocator, attr);
-            }
-
-            allocator.free(dec.attributes);
-            allocator.free(dec.generics);
-        },
-        .IfStatement => |*statement| {
-            freeNode(allocator, statement.condition);
-            freeNode(allocator, statement.body);
-        },
-        .NoOp => {},
-        .FuncDec => |func| {
-            freeFuncDec(allocator, func);
-        },
-        .ReturnNode => |ret| {
-            freeNode(allocator, ret);
-        },
-        .StructInit => |init| {
-            allocator.free(init.name);
-
-            for (init.attributes) |attr| {
-                allocator.free(attr.name);
-                freeNode(allocator, attr.value);
-            }
-
-            for (init.generics) |generic| {
-                freeType(allocator, generic);
-            }
-
-            allocator.free(init.attributes);
-            allocator.free(init.generics);
-        },
-        .Bang => |bang| {
-            freeNode(allocator, bang);
-        },
-    }
-
-    allocator.destroy(node);
-}
-
-fn freeFuncDec(allocator: Allocator, func: FuncDecNode) void {
-    allocator.free(func.name);
-
-    for (func.params) |param| {
-        freeType(allocator, param.type);
-        allocator.free(param.name);
-    }
-    allocator.free(func.params);
-
-    if (func.generics) |generics| {
-        allocator.free(generics);
-    }
-    freeNode(allocator, func.body);
-    freeType(allocator, func.returnType);
-}
-
-fn freeAttr(allocator: Allocator, attr: StructAttribute) void {
-    switch (attr.attr) {
-        .Member => {
-            allocator.free(attr.attr.Member.name);
-            freeType(allocator, attr.attr.Member.type);
-        },
-        .Function => {
-            allocator.free(attr.attr.Function.name);
-            freeFuncDec(allocator, attr.attr.Function.func);
-        },
-    }
-}
-
-pub fn freeRegisteredStructs(allocator: Allocator, structs: []RegisteredStruct) void {
-    for (structs) |s| {
-        allocator.free(s.name);
-    }
-
-    allocator.free(structs);
-}
-
-pub fn freeCompInfo(allocator: Allocator, compInfo: *CompInfo) void {
-    compInfo.generics.deinit();
-
-    var it = compInfo.variableTypes.valueIterator();
-    while (it.next()) |valuePtr| {
-        allocator.destroy(valuePtr.*);
-    }
-
-    compInfo.variableTypes.deinit();
 }
