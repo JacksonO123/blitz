@@ -17,8 +17,8 @@ const toSlice = utils.toSlice;
 const debug = @import("./debug.zig");
 const printTokens = debug.printTokens;
 
-// const verbose = true;
-const verbose = false;
+const verbose = true;
+// const verbose = false;
 
 fn testTokens(code: []const u8, tokens: anytype) !void {
     const expectedTokens = try toSlice(Token, allocator, &tokens);
@@ -35,7 +35,7 @@ fn testTokens(code: []const u8, tokens: anytype) !void {
         printTokens(resTokens);
     }
 
-    try expectEqualDeep(resTokens, expectedTokens);
+    try expectEqualDeep(expectedTokens, resTokens);
 }
 
 test "numbers" {
@@ -130,170 +130,106 @@ test "booleans" {
     try testTokens(code2, tokens2);
 }
 
-test "variables" {
-    const code1 = "const thing = 2;";
-    const str1 = try toSlice(u8, allocator, "thing");
-    defer allocator.free(str1);
-    const str2 = try toSlice(u8, allocator, "2");
-    defer allocator.free(str2);
+test "keywords" {
+    const code1 = "const var fn struct if for while continue break pub prot static return;";
     const tokensArr1 = [_]Token{
         Token{ .type = TokenType.Const, .string = null },
-        Token{ .type = TokenType.Identifier, .string = str1 },
-        Token{ .type = TokenType.EqSet, .string = null },
-        Token{ .type = TokenType.Number, .string = str2 },
-        Token{ .type = TokenType.Semicolon, .string = null },
-    };
-    try testTokens(code1, tokensArr1);
-
-    const code2 = "var thing: string = \"something\";";
-    const str3 = try toSlice(u8, allocator, "thing");
-    defer allocator.free(str3);
-    const str4 = try toSlice(u8, allocator, "\"something\"");
-    defer allocator.free(str4);
-    const tokensArr2 = [_]Token{
         Token{ .type = TokenType.Var, .string = null },
-        Token{ .type = TokenType.Identifier, .string = str3 },
-        Token{ .type = TokenType.Colon, .string = null },
-        Token{ .type = TokenType.String, .string = null },
-        Token{ .type = TokenType.EqSet, .string = null },
-        Token{ .type = TokenType.String, .string = str4 },
-        Token{ .type = TokenType.Semicolon, .string = null },
-    };
-    try testTokens(code2, tokensArr2);
-}
-
-test "if statements" {
-    const code1 = "if (a == 2) {}";
-    const str1 = try toSlice(u8, allocator, "a");
-    defer allocator.free(str1);
-    const str2 = try toSlice(u8, allocator, "2");
-    defer allocator.free(str2);
-    const tokensArr1 = [_]Token{
-        Token{ .type = TokenType.If, .string = null },
-        Token{ .type = TokenType.LParen, .string = null },
-        Token{ .type = TokenType.Identifier, .string = str1 },
-        Token{ .type = TokenType.EqComp, .string = null },
-        Token{ .type = TokenType.Number, .string = str2 },
-        Token{ .type = TokenType.RParen, .string = null },
-        Token{ .type = TokenType.LBrace, .string = null },
-        Token{ .type = TokenType.RBrace, .string = null },
-    };
-    try testTokens(code1, tokensArr1);
-}
-
-test "loops" {
-    const code1 = "for (var i = 0; i < 10; i++) {}";
-    const iStr = try toSlice(u8, allocator, "i");
-    defer allocator.free(iStr);
-    const str1 = try toSlice(u8, allocator, "0");
-    defer allocator.free(str1);
-    const str2 = try toSlice(u8, allocator, "10");
-    defer allocator.free(str2);
-    const tokensArr1 = [_]Token{
-        Token{ .type = TokenType.For, .string = null },
-        Token{ .type = TokenType.LParen, .string = null },
-        Token{ .type = TokenType.Var, .string = null },
-        Token{ .type = TokenType.Identifier, .string = iStr },
-        Token{ .type = TokenType.EqSet, .string = null },
-        Token{ .type = TokenType.Number, .string = str1 },
-        Token{ .type = TokenType.Semicolon, .string = null },
-        Token{ .type = TokenType.Identifier, .string = iStr },
-        Token{ .type = TokenType.LAngle, .string = null },
-        Token{ .type = TokenType.Number, .string = str2 },
-        Token{ .type = TokenType.Semicolon, .string = null },
-        Token{ .type = TokenType.Identifier, .string = iStr },
-        Token{ .type = TokenType.Inc, .string = null },
-        Token{ .type = TokenType.RParen, .string = null },
-        Token{ .type = TokenType.LBrace, .string = null },
-        Token{ .type = TokenType.RBrace, .string = null },
-    };
-    try testTokens(code1, tokensArr1);
-
-    const code2 = "while (i < 10) { i++; }";
-    const tokensArr2 = [_]Token{
-        Token{ .type = TokenType.While, .string = null },
-        Token{ .type = TokenType.LParen, .string = null },
-        Token{ .type = TokenType.Identifier, .string = iStr },
-        Token{ .type = TokenType.LAngle, .string = null },
-        Token{ .type = TokenType.Number, .string = str2 },
-        Token{ .type = TokenType.RParen, .string = null },
-        Token{ .type = TokenType.LBrace, .string = null },
-        Token{ .type = TokenType.Identifier, .string = iStr },
-        Token{ .type = TokenType.Inc, .string = null },
-        Token{ .type = TokenType.Semicolon, .string = null },
-        Token{ .type = TokenType.RBrace, .string = null },
-    };
-    try testTokens(code2, tokensArr2);
-}
-
-test "post eq symbols" {
-    const symbol1 = "==";
-    const expected1 = [_]Token{Token{ .type = TokenType.EqComp, .string = null }};
-    try testTokens(symbol1, expected1);
-
-    const symbol2 = "<=";
-    const expected2 = [_]Token{Token{ .type = TokenType.LAngleEq, .string = null }};
-    try testTokens(symbol2, expected2);
-
-    const symbol3 = ">=";
-    const expected3 = [_]Token{Token{ .type = TokenType.RAngleEq, .string = null }};
-    try testTokens(symbol3, expected3);
-
-    const symbol4 = "-=";
-    const expected4 = [_]Token{Token{ .type = TokenType.SubEq, .string = null }};
-    try testTokens(symbol4, expected4);
-
-    const symbol5 = "+=";
-    const expected5 = [_]Token{Token{ .type = TokenType.AddEq, .string = null }};
-    try testTokens(symbol5, expected5);
-
-    const symbol6 = "*=";
-    const expected6 = [_]Token{Token{ .type = TokenType.MultEq, .string = null }};
-    try testTokens(symbol6, expected6);
-
-    const symbol7 = "/=";
-    const expected7 = [_]Token{Token{ .type = TokenType.DivEq, .string = null }};
-    try testTokens(symbol7, expected7);
-}
-
-test "functions" {
-    const code1 = "fn [T: Rectangle | Car, K: string[]] name(param: T) {}";
-    const str1 = try toSlice(u8, allocator, "T");
-    defer allocator.free(str1);
-    const str2 = try toSlice(u8, allocator, "Rectangle");
-    defer allocator.free(str2);
-    const str3 = try toSlice(u8, allocator, "Car");
-    defer allocator.free(str3);
-    const str4 = try toSlice(u8, allocator, "K");
-    defer allocator.free(str4);
-    const str5 = try toSlice(u8, allocator, "name");
-    defer allocator.free(str5);
-    const str6 = try toSlice(u8, allocator, "param");
-    defer allocator.free(str6);
-    const str7 = try toSlice(u8, allocator, "T");
-    defer allocator.free(str7);
-    const tokensArr1 = [_]Token{
         Token{ .type = TokenType.Fn, .string = null },
-        Token{ .type = TokenType.LBracket, .string = null },
-        Token{ .type = TokenType.Identifier, .string = str1 },
-        Token{ .type = TokenType.Colon, .string = null },
-        Token{ .type = TokenType.Identifier, .string = str2 },
-        Token{ .type = TokenType.Identifier, .string = str3 },
-        Token{ .type = TokenType.Comma, .string = null },
-        Token{ .type = TokenType.Identifier, .string = str4 },
-        Token{ .type = TokenType.Colon, .string = null },
-        Token{ .type = TokenType.String, .string = null },
-        Token{ .type = TokenType.LBracket, .string = null },
-        Token{ .type = TokenType.RBracket, .string = null },
-        Token{ .type = TokenType.RBracket, .string = null },
-        Token{ .type = TokenType.Identifier, .string = str5 },
+        Token{ .type = TokenType.Struct, .string = null },
+        Token{ .type = TokenType.If, .string = null },
+        Token{ .type = TokenType.For, .string = null },
+        Token{ .type = TokenType.While, .string = null },
+        Token{ .type = TokenType.Continue, .string = null },
+        Token{ .type = TokenType.Break, .string = null },
+        Token{ .type = TokenType.Pub, .string = null },
+        Token{ .type = TokenType.Prot, .string = null },
+        Token{ .type = TokenType.Static, .string = null },
+        Token{ .type = TokenType.Return, .string = null },
+        Token{ .type = TokenType.Semicolon, .string = null },
+    };
+    try testTokens(code1, tokensArr1);
+}
+
+test "string/char" {
+    const code1 = "\"this is a string\" 'c';";
+    const str1 = try toSlice(u8, allocator, "this is a string");
+    defer allocator.free(str1);
+    const str2 = try toSlice(u8, allocator, "c");
+    defer allocator.free(str2);
+    const tokensArr1 = [_]Token{
+        Token{ .type = TokenType.StringToken, .string = str1 },
+        Token{ .type = TokenType.CharToken, .string = str2 },
+        Token{ .type = TokenType.Semicolon, .string = null },
+    };
+    try testTokens(code1, tokensArr1);
+}
+
+test "parens" {
+    const code1 = "()[]{}<>";
+    const tokensArr1 = [_]Token{
         Token{ .type = TokenType.LParen, .string = null },
-        Token{ .type = TokenType.Identifier, .string = str6 },
-        Token{ .type = TokenType.Colon, .string = null },
-        Token{ .type = TokenType.Identifier, .string = str7 },
         Token{ .type = TokenType.RParen, .string = null },
+        Token{ .type = TokenType.LBracket, .string = null },
+        Token{ .type = TokenType.RBracket, .string = null },
         Token{ .type = TokenType.LBrace, .string = null },
         Token{ .type = TokenType.RBrace, .string = null },
+        Token{ .type = TokenType.LAngle, .string = null },
+        Token{ .type = TokenType.RAngle, .string = null },
+    };
+    try testTokens(code1, tokensArr1);
+}
+
+test "other chars" {
+    const code1 = ": & = - + * / % += -= *= /= ! . , ? == <= >= ++ --";
+    const tokensArr1 = [_]Token{
+        Token{ .type = TokenType.Colon, .string = null },
+        Token{ .type = TokenType.Ampersand, .string = null },
+        Token{ .type = TokenType.EqSet, .string = null },
+        Token{ .type = TokenType.Sub, .string = null },
+        Token{ .type = TokenType.Add, .string = null },
+        Token{ .type = TokenType.Mult, .string = null },
+        Token{ .type = TokenType.Div, .string = null },
+        Token{ .type = TokenType.Mod, .string = null },
+        Token{ .type = TokenType.AddEq, .string = null },
+        Token{ .type = TokenType.SubEq, .string = null },
+        Token{ .type = TokenType.MultEq, .string = null },
+        Token{ .type = TokenType.DivEq, .string = null },
+        Token{ .type = TokenType.Bang, .string = null },
+        Token{ .type = TokenType.Period, .string = null },
+        Token{ .type = TokenType.Comma, .string = null },
+        Token{ .type = TokenType.QuestionMark, .string = null },
+        Token{ .type = TokenType.EqComp, .string = null },
+        Token{ .type = TokenType.LAngleEq, .string = null },
+        Token{ .type = TokenType.RAngleEq, .string = null },
+        Token{ .type = TokenType.Inc, .string = null },
+        Token{ .type = TokenType.Dec, .string = null },
+    };
+    try testTokens(code1, tokensArr1);
+}
+
+test "types" {
+    const code1 = "char u8 u16 u32 u64 u128 i8 i32 i64 i128 f8 f16 f32 f64 f128 usize string bool";
+    const tokensArr1 = [_]Token{
+        Token{ .type = TokenType.CharType, .string = null },
+        Token{ .type = TokenType.U8, .string = null },
+        Token{ .type = TokenType.U16, .string = null },
+        Token{ .type = TokenType.U32, .string = null },
+        Token{ .type = TokenType.U64, .string = null },
+        Token{ .type = TokenType.U128, .string = null },
+        Token{ .type = TokenType.I8, .string = null },
+        Token{ .type = TokenType.I16, .string = null },
+        Token{ .type = TokenType.I32, .string = null },
+        Token{ .type = TokenType.I64, .string = null },
+        Token{ .type = TokenType.I128, .string = null },
+        Token{ .type = TokenType.F8, .string = null },
+        Token{ .type = TokenType.F16, .string = null },
+        Token{ .type = TokenType.F32, .string = null },
+        Token{ .type = TokenType.F64, .string = null },
+        Token{ .type = TokenType.F128, .string = null },
+        Token{ .type = TokenType.USize, .string = null },
+        Token{ .type = TokenType.StringType, .string = null },
+        Token{ .type = TokenType.Bool, .string = null },
     };
     try testTokens(code1, tokensArr1);
 }

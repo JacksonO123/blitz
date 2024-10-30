@@ -7,6 +7,7 @@ pub const TokenizeError = error{
     IdentifierWithStartingNumber,
     NumberHasTwoPeriods,
     NoClosingQuote,
+    CharTokenTooLong,
 };
 
 pub const TokenType = enum {
@@ -50,9 +51,10 @@ pub const TokenType = enum {
     True,
     False,
     StringToken,
+    CharToken,
 
     // datatypes
-    Char,
+    CharType,
     U8,
     U16,
     U32,
@@ -118,7 +120,8 @@ pub const TokenType = enum {
             .Bang => "!",
             .Period => ".",
             .Comma => ",",
-            .Char => "char",
+            .CharType => "char",
+            .CharToken => "(char data...)",
             .U8 => "u8",
             .U16 => "u16",
             .U32 => "u32",
@@ -207,20 +210,33 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
     outer: while (i < input.len) : (i += 1) {
         const char = input[i];
 
-        if (char == '"' or char == '\'') {
-            const strEnd = findChar(input, i + 1, char);
+        if (char == '"') {
+            const strEnd = findChar(input, i + 1, '\"');
 
             if (strEnd) |end| {
-                const str = try allocator.dupe(u8, input[i .. end + 1]);
+                const str = try allocator.dupe(u8, input[i + 1 .. end]);
                 const token = Token{ .type = TokenType.StringToken, .string = str };
                 try tokens.append(token);
 
-                i += str.len - 1;
+                i += str.len + 1;
 
                 continue;
             }
 
-            return error.NoClosingQuote;
+            return TokenizeError.NoClosingQuote;
+        }
+
+        if (char == '\'') {
+            if (input[i + 2] != '\'') {
+                return TokenizeError.CharTokenTooLong;
+            }
+
+            const str = try allocator.dupe(u8, &[_]u8{input[i + 1]});
+            const token = Token{ .type = TokenType.CharToken, .string = str };
+            try tokens.append(token);
+            i += 2;
+
+            continue;
         }
 
         if (i < input.len - 1 and char == '/') {
@@ -299,7 +315,7 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
 
                 try chars.append(char);
                 continue;
-            } else if (std.ascii.isDigit(chars.items[0])) {
+            } else if (chars.items.len > 0 and std.ascii.isDigit(chars.items[0])) {
                 return TokenizeError.IdentifierWithStartingNumber;
             }
         }
@@ -364,6 +380,8 @@ fn isPostEqSymbol(chars: []const u8, start: usize) ?Token {
 }
 
 fn isNumber(chars: []u8) bool {
+    if (chars.len == 0) return false;
+
     for (chars) |char| {
         if (!std.ascii.isDigit(char) and char != '.') return false;
     }
@@ -402,9 +420,10 @@ fn charsToToken(chars: []u8, allocator: Allocator) !?Token {
 
 fn isDatatype(chars: []const u8) ?TokenType {
     const datatypes = [_]TokenTypeMap{
-        TokenTypeMap{ .string = "char", .token = TokenType.Char },
+        TokenTypeMap{ .string = "char", .token = TokenType.CharType },
         TokenTypeMap{ .string = "string", .token = TokenType.StringType },
         TokenTypeMap{ .string = "bool", .token = TokenType.Bool },
+        TokenTypeMap{ .string = "usize", .token = TokenType.USize },
         // numbers
         TokenTypeMap{ .string = "u16", .token = TokenType.U16 },
         TokenTypeMap{ .string = "u32", .token = TokenType.U32 },

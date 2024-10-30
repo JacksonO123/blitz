@@ -584,6 +584,16 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
                 .offset = otherNode.offset + 1,
             };
         },
+        .CharToken => {
+            const node = try create(AstNode, allocator, .{
+                .Value = .{ .Char = token.string.?[0] },
+            });
+
+            return .{
+                .node = node,
+                .offset = 1,
+            };
+        },
         .U8,
         .U16,
         .U32,
@@ -602,7 +612,7 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
         .F128,
         .StringType,
         .Bool,
-        .Char,
+        .CharType,
         => {
             if (tokens.len == 1) return astError(AstError.TokenNotFound, "(");
 
@@ -1158,7 +1168,7 @@ fn createAstType(allocator: Allocator, compInfo: *CompInfo, token: Token) !*cons
         .F64 => AstTypes{ .Number = AstNumberVariants.F64 },
         .F128 => AstTypes{ .Number = AstNumberVariants.F128 },
         .USize => AstTypes{ .Number = AstNumberVariants.USize },
-        .Char => AstTypes.Char,
+        .CharType => AstTypes.Char,
         else => a: {
             if (token.string) |tokenString| {
                 if (token.type == TokenType.Identifier and compInfo.hasGeneric(tokenString)) {

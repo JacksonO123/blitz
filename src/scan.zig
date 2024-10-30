@@ -32,6 +32,8 @@ const ScanError = error{
     VariableAlreadyExists,
     FunctionCallParamTypeMismatch,
     FunctionCallParamCountMismatch,
+    VoidVariableDec,
+    ExpectedFunctionReturn,
 };
 
 pub fn typeScan(allocator: Allocator, ast: Ast, compInfo: *CompInfo) !void {
@@ -57,6 +59,11 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
             }
 
             const setType = try getExpressionType(allocator, compInfo, dec.setNode);
+
+            if (setType == AstTypes.Void) {
+                return ScanError.VoidVariableDec;
+            }
+
             const setPtr = try create(AstTypes, allocator, setType);
 
             if (dec.annotation) |annotation| {
@@ -92,7 +99,13 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
         .FuncDec => |dec| {
             switch (dec.body.*) {
                 .Seq => |seq| {
-                    if (seq.nodes.len == 0 and dec.returnType.* == AstTypes.Void) return;
+                    if (seq.nodes.len == 0) {
+                        if (dec.returnType.* == AstTypes.Void) {
+                            return;
+                        } else {
+                            return ScanError.ExpectedFunctionReturn;
+                        }
+                    }
 
                     const last = seq.nodes[seq.nodes.len - 1];
                     const lastType = try getExpressionType(allocator, compInfo, last);
@@ -212,7 +225,7 @@ fn matchTypes(allocator: Allocator, compInfo: *CompInfo, type1: AstTypes, type2:
     switch (type1) {
         .String => return type2 == AstTypes.String,
         .Bool => return type2 == AstTypes.Bool,
-        .Char => return type2 == AstTypes.Bool,
+        .Char => return type2 == AstTypes.Char,
         .Void => return type2 == AstTypes.Void,
         .Number => |num| return type2 == AstTypes.Number and matchNumber(num, type2.Number),
         .DynamicArray => |arr| return type2 == AstTypes.DynamicArray and try matchTypes(allocator, compInfo, arr.*, type2.DynamicArray.*),

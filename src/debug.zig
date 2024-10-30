@@ -138,7 +138,7 @@ fn printValue(value: *const AstValues) void {
         .String => |s| {
             std.debug.print("[string](\"{s}\")", .{s});
         },
-        .Char => |*c| {
+        .Char => |c| {
             std.debug.print("[char]({c})", .{c});
         },
         .Bool => |b| {

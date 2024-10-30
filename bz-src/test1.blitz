@@ -12,6 +12,9 @@ struct [T: Car] name {
   prot fn someFunc(): u32 {}
 }
 
-fn b(p1: bool, p2: string, p3: u32) {}
+fn b(p1: bool, p2: string, p3: u32): char {
+  return 'b';
+}
 
-b(true, "thing", 2);
+// const h: bool = b(true, "thing", 2);
+const h: char = b(true, "thing", 2);
