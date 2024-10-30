@@ -8,6 +8,7 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const RegisteredStruct = astMod.RegisteredStruct;
+const FuncDecNode = astMod.FuncDecNode;
 
 pub fn findChar(items: []const u8, start: usize, item: u8) ?usize {
     var i = start;
@@ -50,6 +51,7 @@ pub const CompInfo = struct {
     registeredStructs: []RegisteredStruct,
     generics: *ArrayList([]u8),
     variableTypes: *StringHashMap(*const AstTypes),
+    functions: *StringHashMap(*const FuncDecNode),
 
     pub fn getRegisteredStruct(self: Self, structName: []u8) ?RegisteredStruct {
         for (self.registeredStructs) |s| {
@@ -101,5 +103,17 @@ pub const CompInfo = struct {
         }
 
         return null;
+    }
+
+    pub fn addFunction(self: *Self, name: []u8, dec: *const FuncDecNode) !void {
+        try self.functions.put(name, dec);
+    }
+
+    pub fn getFunction(self: Self, name: []u8) ?*const FuncDecNode {
+        return self.functions.get(name);
+    }
+
+    pub fn hasFunctionName(self: Self, name: []u8) bool {
+        return self.functions.contains(name);
     }
 };

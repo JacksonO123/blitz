@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 const Ast = astMod.Ast;
 const AstNode = astMod.AstNode;
 const AstTypes = astMod.AstTypes;
+const StructAttribute = astMod.StructAttribute;
 const CompInfo = utils.CompInfo;
 const AstNumberVariants = astMod.AstNumberVariants;
 const ArrayList = std.ArrayList;
@@ -29,6 +30,8 @@ const ScanError = error{
     ExpectedBooleanIfCondition,
     FunctionReturnTypeMismatch,
     VariableAlreadyExists,
+    FunctionCallParamTypeMismatch,
+    FunctionCallParamCountMismatch,
 };
 
 pub fn typeScan(allocator: Allocator, ast: Ast, compInfo: *CompInfo) !void {
@@ -41,7 +44,7 @@ fn scanNodes(allocator: Allocator, compInfo: *CompInfo, nodes: []*const AstNode)
     }
 }
 
-fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) !void {
+fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Allocator.Error || ScanError)!void {
     switch (node.*) {
         .NoOp, .Type, .Value, .Cast, .ReturnNode => {},
 
@@ -70,8 +73,17 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) !vo
             const varType = compInfo.getVariableType(v.name);
             if (varType == null) return ScanError.UndefinedOrUnknownVariableType;
         },
-        // TODO
-        .StructDec => {},
+        .StructDec => |dec| {
+            for (dec.generics) |generic| {
+                try compInfo.addGeneric(generic.name);
+            }
+
+            try scanAttributes(allocator, compInfo, dec.attributes);
+
+            for (dec.generics) |generic| {
+                compInfo.removeGeneric(generic.name);
+            }
+        },
         .IfStatement => |statement| {
             const conditionType = try getExpressionType(allocator, compInfo, statement.condition);
             defer freeStackType(allocator, &conditionType);
@@ -80,6 +92,8 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) !vo
         .FuncDec => |dec| {
             switch (dec.body.*) {
                 .Seq => |seq| {
+                    if (seq.nodes.len == 0 and dec.returnType.* == AstTypes.Void) return;
+
                     const last = seq.nodes[seq.nodes.len - 1];
                     const lastType = try getExpressionType(allocator, compInfo, last);
                     defer freeStackType(allocator, &lastType);
@@ -99,6 +113,18 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) !vo
                 else => if (dec.returnType.* != AstTypes.Void) return ScanError.FunctionReturnTypeMismatch,
             }
         },
+        .FuncCall => |call| {
+            if (call.func.params.len != call.params.len) {
+                return ScanError.FunctionCallParamCountMismatch;
+            }
+
+            for (call.func.params, 0..) |param, index| {
+                const paramType = try getExpressionType(allocator, compInfo, call.params[index]);
+                if (!try matchTypes(allocator, compInfo, param.type.*, paramType)) {
+                    return ScanError.FunctionCallParamTypeMismatch;
+                }
+            }
+        },
         // TODO
         .StructInit => {},
         .Bang => |bang| {
@@ -106,6 +132,20 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) !vo
             defer freeStackType(allocator, &bangType);
             if (bangType != AstTypes.Bool) return ScanError.ExpectedBooleanBang;
         },
+    }
+}
+
+fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []StructAttribute) !void {
+    for (attrs) |attr| {
+        switch (attr.attr) {
+            .Member => |member| {
+                const varType = try create(AstTypes, allocator, member.type.*);
+                try compInfo.setVariableType(member.name, varType);
+            },
+            .Function => |function| {
+                try scanNode(allocator, compInfo, function.func.body);
+            },
+        }
     }
 }
 
@@ -214,35 +254,32 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
         .VarDec => AstTypes.Void,
         .StructDec => AstTypes.Void,
         .IfStatement => AstTypes.Void,
-        .ReturnNode => |ret| return getExpressionType(allocator, compInfo, ret),
-        // TODO
-        .FuncDec => AstTypes.Void,
+        .ReturnNode => |ret| getExpressionType(allocator, compInfo, ret),
+        .FuncDec => |func| AstTypes{ .Function = func },
 
         .Type => |t| t,
-        .Value => |val| {
-            return switch (val) {
-                .String => AstTypes.String,
-                .Bool => AstTypes.Bool,
-                .Char => AstTypes.Char,
-                .Number => |num| AstTypes{ .Number = num.type },
-                .StaticArray => |arr| a: {
-                    const buf = try std.fmt.allocPrint(allocator, "{}", .{arr.len});
+        .Value => |val| switch (val) {
+            .String => AstTypes.String,
+            .Bool => AstTypes.Bool,
+            .Char => AstTypes.Char,
+            .Number => |num| AstTypes{ .Number = num.type },
+            .StaticArray => |arr| a: {
+                const buf = try std.fmt.allocPrint(allocator, "{}", .{arr.len});
 
-                    break :a AstTypes{
-                        .StaticArray = .{
-                            .type = try create(AstTypes, allocator, try inferStaticArrType(allocator, compInfo, arr)),
-                            .size = try create(AstNode, allocator, .{
-                                .Value = .{
-                                    .Number = .{
-                                        .type = AstNumberVariants.USize,
-                                        .value = buf,
-                                    },
+                break :a AstTypes{
+                    .StaticArray = .{
+                        .type = try create(AstTypes, allocator, try inferStaticArrType(allocator, compInfo, arr)),
+                        .size = try create(AstNode, allocator, .{
+                            .Value = .{
+                                .Number = .{
+                                    .type = AstNumberVariants.USize,
+                                    .value = buf,
                                 },
-                            }),
-                        },
-                    };
-                },
-            };
+                            },
+                        }),
+                    },
+                };
+            },
         },
         .Cast => |cast| {
             const nodeType = try getExpressionType(allocator, compInfo, cast.node);
@@ -264,6 +301,7 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
         },
         // TODO
         .StructInit => AstTypes.Void,
+        .FuncCall => |call| call.func.returnType.*,
         .Bang => |node| {
             const nodeType = try getExpressionType(allocator, compInfo, node);
             defer freeStackType(allocator, &nodeType);

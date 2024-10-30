@@ -11,3 +11,7 @@ struct [T: Car] name {
   }
   prot fn someFunc(): u32 {}
 }
+
+fn b(p1: bool, p2: string, p3: u32) {}
+
+b(true, "thing", 2);

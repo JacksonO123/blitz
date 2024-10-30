@@ -27,12 +27,18 @@ pub fn freeRegisteredStructs(allocator: Allocator, structs: []RegisteredStruct) 
 pub fn freeCompInfo(allocator: Allocator, compInfo: *CompInfo) void {
     compInfo.generics.deinit();
 
-    var it = compInfo.variableTypes.valueIterator();
-    while (it.next()) |valuePtr| {
+    var variableIt = compInfo.variableTypes.valueIterator();
+    while (variableIt.next()) |valuePtr| {
         freeType(allocator, valuePtr.*);
     }
 
+    var functionIt = compInfo.functions.valueIterator();
+    while (functionIt.next()) |f| {
+        allocator.destroy(f.*);
+    }
+
     compInfo.variableTypes.deinit();
+    compInfo.functions.deinit();
 }
 
 pub fn freeFuncDec(allocator: Allocator, func: FuncDecNode) void {
@@ -138,6 +144,13 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
         .NoOp => {},
         .FuncDec => |func| {
             freeFuncDec(allocator, func);
+        },
+        .FuncCall => |call| {
+            for (call.params) |param| {
+                freeNode(allocator, param);
+            }
+
+            allocator.free(call.params);
         },
         .ReturnNode => |ret| {
             freeNode(allocator, ret);

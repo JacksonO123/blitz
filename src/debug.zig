@@ -69,6 +69,30 @@ pub fn printType(typeNode: *const AstTypes) void {
         .Generic => |gen| {
             std.debug.print("[generic]({s})", .{gen});
         },
+        .Function => |func| {
+            std.debug.print("[function](\"{s}\"", .{func.name});
+
+            if (func.generics) |generics| {
+                printGenerics(generics);
+            }
+
+            std.debug.print(" (", .{});
+
+            for (func.params, 0..) |param, index| {
+                std.debug.print("({s})[", .{param.name});
+                printType(param.type);
+                std.debug.print("]", .{});
+
+                if (index < func.params.len - 1) {
+                    std.debug.print(", ", .{});
+                }
+            }
+
+            std.debug.print(" ", .{});
+            printType(func.returnType);
+
+            std.debug.print(")", .{});
+        },
     };
 }
 
@@ -187,6 +211,18 @@ pub fn printNode(node: *const AstNode) void {
         },
         .FuncDec => |func| {
             printFuncDec(func);
+        },
+        .FuncCall => |call| {
+            std.debug.print("calling function ({s}) with params [", .{call.func.name});
+
+            for (call.params, 0..) |param, index| {
+                printNode(param);
+                if (index < call.params.len - 1) {
+                    std.debug.print(", ", .{});
+                }
+            }
+
+            std.debug.print("]", .{});
         },
         .ReturnNode => |ret| {
             std.debug.print("return ", .{});

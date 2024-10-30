@@ -17,6 +17,7 @@ const createAst = astMod.createAst;
 const freeAst = free.freeAst;
 const freeCompInfo = free.freeCompInfo;
 const typeScan = scan.typeScan;
+const FuncDecNode = astMod.FuncDecNode;
 
 // debug
 const debug = @import("debug.zig");
@@ -39,11 +40,13 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
     printRegisteredStructs(structs);
 
     var genericsList = ArrayList([]u8).init(allocator);
+    var functions = StringHashMap(*const FuncDecNode).init(allocator);
     var variableTypes = StringHashMap(*const AstTypes).init(allocator);
     var compInfo = CompInfo{
         .registeredStructs = structs,
         .generics = &genericsList,
         .variableTypes = &variableTypes,
+        .functions = &functions,
     };
     defer freeCompInfo(allocator, &compInfo);
 

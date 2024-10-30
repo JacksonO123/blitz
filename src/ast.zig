@@ -14,6 +14,7 @@ const cloneString = utils.cloneString;
 // debug
 const debug = @import("./debug.zig");
 const printTokens = debug.printTokens;
+const printNode = debug.printNode;
 
 pub const RegisteredStruct = struct {
     name: []u8,
@@ -70,6 +71,7 @@ const Types = enum {
     Nullable,
     Custom,
     Generic,
+    Function,
 };
 pub const AstTypes = union(Types) {
     String,
@@ -82,6 +84,7 @@ pub const AstTypes = union(Types) {
     Nullable: *const AstTypes,
     Custom: CustomType,
     Generic: []u8,
+    Function: FuncDecNode,
 };
 
 const StaticTypes = enum {
@@ -215,6 +218,11 @@ pub const FuncDecNode = struct {
     returnType: *const AstTypes,
 };
 
+const FuncCallNode = struct {
+    func: *const FuncDecNode,
+    params: []*const AstNode,
+};
+
 const AstNodeVariants = enum {
     NoOp,
     Seq,
@@ -226,6 +234,7 @@ const AstNodeVariants = enum {
     StructDec,
     IfStatement,
     FuncDec,
+    FuncCall,
     ReturnNode,
     StructInit,
     Bang,
@@ -241,6 +250,7 @@ pub const AstNode = union(AstNodeVariants) {
     StructDec: StructDecNode,
     IfStatement: IfStatementNode,
     FuncDec: FuncDecNode,
+    FuncCall: FuncCallNode,
     ReturnNode: *const AstNode,
     StructInit: StructInitNode,
     Bang: *const AstNode,
@@ -253,6 +263,7 @@ const AstError = error{
     UnknownType,
     ExpectedGenericArgument,
     InvalidStructKey,
+    FunctionNotFound,
 };
 
 const AstNodeOffsetData = struct {
@@ -448,6 +459,24 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
             };
         },
         .Identifier => {
+            if (compInfo.hasFunctionName(token.string.?) and tokens[1].type == TokenType.LParen) {
+                const rParenIndex = smartDelimiterIndex(tokens, compInfo, 2, TokenType.RParen) catch |e| return astError(e, ")");
+                const paramTokens = tokens[2..rParenIndex];
+                const params = try parseParams(allocator, compInfo, paramTokens);
+
+                const func = compInfo.getFunction(token.string.?);
+                if (func) |f| {
+                    const node = try create(AstNode, allocator, .{
+                        .FuncCall = .{
+                            .func = f,
+                            .params = params,
+                        },
+                    });
+
+                    return .{ .offset = 3 + paramTokens.len, .node = node };
+                } else return astError(AstError.FunctionNotFound, token.string.?);
+            }
+
             if (compInfo.hasRegisteredStruct(token.string.?)) {
                 // TODO
                 // should check if rangle has lparen immediately following
@@ -525,6 +554,9 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
                 .FuncDec = data.func,
             });
 
+            const funcDec = try create(FuncDecNode, allocator, data.func);
+            try compInfo.addFunction(data.func.name, funcDec);
+
             return .{
                 .node = func,
                 .offset = data.offset + 1,
@@ -583,33 +615,13 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
             const castNode = try createAstNode(allocator, compInfo, castTokens);
 
             const toType = try createAstType(allocator, compInfo, tokens[0]);
-            // const toType = switch (tokens[0].type) {
-            //     .U8 => AstTypes{ .Number = AstNumberVariants.U8 },
-            //     .U16 => AstTypes{ .Number = AstNumberVariants.U16 },
-            //     .U32 => AstTypes{ .Number = AstNumberVariants.U32 },
-            //     .U64 => AstTypes{ .Number = AstNumberVariants.U64 },
-            //     .U128 => AstTypes{ .Number = AstNumberVariants.U128 },
-            //     .USize => AstTypes{ .Number = AstNumberVariants.USize },
-            //     .F8 => AstTypes{ .Number = AstNumberVariants.F8 },
-            //     .F16 => AstTypes{ .Number = AstNumberVariants.F16 },
-            //     .F32 => AstTypes{ .Number = AstNumberVariants.F32 },
-            //     .F64 => AstTypes{ .Number = AstNumberVariants.F64 },
-            //     .F128 => AstTypes{ .Number = AstNumberVariants.F128 },
-            //     .I8 => AstTypes{ .Number = AstNumberVariants.I8 },
-            //     .I16 => AstTypes{ .Number = AstNumberVariants.I16 },
-            //     .I32 => AstTypes{ .Number = AstNumberVariants.I32 },
-            //     .I64 => AstTypes{ .Number = AstNumberVariants.I64 },
-            //     .I128 => AstTypes{ .Number = AstNumberVariants.I128 },
-            //     .StringType => AstTypes.String,
-            //     .Bool => AstTypes.Bool,
-            //     .Char => AstTypes.Char,
-            //     else => unreachable,
-            // };
 
-            const node = try create(AstNode, allocator, .{ .Cast = .{
-                .node = castNode.node,
-                .toType = toType,
-            } });
+            const node = try create(AstNode, allocator, .{
+                .Cast = .{
+                    .node = castNode.node,
+                    .toType = toType,
+                },
+            });
 
             return .{ .node = node, .offset = castNode.offset + 4 };
         },
@@ -617,6 +629,24 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
             return astError(AstError.UnexpectedToken, tokens[0].type.toString());
         },
     }
+}
+
+fn parseParams(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) ![]*const AstNode {
+    var params = ArrayList(*const AstNode).init(allocator);
+    defer params.deinit();
+
+    var i: usize = 0;
+    while (i < tokens.len) {
+        const commaIndex = smartDelimiterIndex(tokens, compInfo, i, TokenType.Comma) catch tokens.len;
+        const paramTokens = tokens[i..commaIndex];
+
+        const node = try createAstNode(allocator, compInfo, paramTokens);
+        try params.append(node.node);
+
+        i = commaIndex + 1;
+    }
+
+    return try allocator.dupe(*const AstNode, params.items);
 }
 
 fn createStructDef(allocator: Allocator, compInfo: *CompInfo, structName: []u8, generics: []*const AstTypes, tokens: []Token) !StructInitNode {
@@ -794,7 +824,6 @@ fn createStructAttribute(allocator: Allocator, compInfo: *CompInfo, tokens: []To
 }
 
 fn createStructAttributeData(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, visibility: MemberVisibility) !StructAttributeUnionOffsetData {
-    printTokens(tokens[0..1]);
     const nameIndex: u32 = if (tokens[0].type == TokenType.Fn) 1 else 0;
     const name = try cloneString(allocator, tokens[nameIndex].string.?);
     var offset: usize = 0;
@@ -1200,6 +1229,7 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.UnknownType => "unknown type",
         AstError.ExpectedGenericArgument => "expected generic argument",
         AstError.InvalidStructKey => "invalid struct key",
+        AstError.FunctionNotFound => "function not found",
     };
 }
 
