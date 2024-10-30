@@ -58,6 +58,8 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
                 return ScanError.VariableAlreadyExists;
             }
 
+            try scanNode(allocator, compInfo, dec.setNode);
+
             const setType = try getExpressionType(allocator, compInfo, dec.setNode);
 
             if (setType == AstTypes.Void) {

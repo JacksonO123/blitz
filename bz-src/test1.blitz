@@ -17,4 +17,4 @@ fn b(p1: bool, p2: string, p3: u32): char {
 }
 
 // const h: bool = b(true, "thing", 2);
-const h: char = b(true, "thing", 2);
+const h = b(true, "thing", 2);
