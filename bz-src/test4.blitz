@@ -1,5 +1,5 @@
-const a = true;
-
-if (a) {
-  const b = 2;
+struct Epic {
+  fn thing(): u32 {
+    const b = 2;
+  }
 }

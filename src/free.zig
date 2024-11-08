@@ -8,20 +8,12 @@ const AstNode = astMod.AstNode;
 const AstValues = astMod.AstValues;
 const StructAttribute = astMod.StructAttribute;
 const FuncDecNode = astMod.FuncDecNode;
-const RegisteredStruct = astMod.RegisteredStruct;
 const CompInfo = utils.CompInfo;
+const StructDecNode = astMod.StructDecNode;
 
 pub fn freeAst(allocator: Allocator, ast: Ast) void {
     freeNodes(allocator, ast.root.nodes);
     allocator.free(ast.root.nodes);
-}
-
-pub fn freeRegisteredStructs(allocator: Allocator, structs: []RegisteredStruct) void {
-    for (structs) |s| {
-        allocator.free(s.name);
-    }
-
-    allocator.free(structs);
 }
 
 pub fn freeCompInfo(allocator: Allocator, compInfo: *CompInfo) void {
@@ -37,8 +29,25 @@ pub fn freeCompInfo(allocator: Allocator, compInfo: *CompInfo) void {
         allocator.destroy(f.*);
     }
 
+    var structsIt = compInfo.structs.valueIterator();
+    while (structsIt.next()) |dec| {
+        freeStructDec(allocator, dec.*);
+        allocator.destroy(dec.*);
+    }
+
+    freeStructNames(allocator, compInfo.structNames);
+
     compInfo.variableTypes.deinit();
     compInfo.functions.deinit();
+    compInfo.structs.deinit();
+}
+
+pub fn freeStructNames(allocator: Allocator, structNames: [][]u8) void {
+    for (structNames) |name| {
+        allocator.free(name);
+    }
+
+    allocator.free(structNames);
 }
 
 pub fn freeFuncDec(allocator: Allocator, func: FuncDecNode) void {
@@ -116,26 +125,8 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
         .Variable => |*variable| {
             allocator.free(variable.name);
         },
-        .StructDec => |*dec| {
-            allocator.free(dec.name);
-
-            for (dec.generics) |generic| {
-                if (generic.restriction) |restriction| {
-                    freeType(allocator, restriction);
-                }
-                allocator.free(generic.name);
-            }
-
-            for (dec.attributes) |attr| {
-                freeAttr(allocator, attr);
-            }
-
-            allocator.free(dec.attributes);
-            allocator.free(dec.generics);
-
-            if (dec.deriveType) |derived| {
-                freeType(allocator, derived);
-            }
+        .StructDec => |dec| {
+            freeStructDec(allocator, dec);
         },
         .IfStatement => |*statement| {
             freeNode(allocator, statement.condition);
@@ -176,6 +167,28 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
     }
 
     allocator.destroy(node);
+}
+
+fn freeStructDec(allocator: Allocator, dec: *const StructDecNode) void {
+    allocator.free(dec.name);
+
+    for (dec.generics) |generic| {
+        if (generic.restriction) |restriction| {
+            freeType(allocator, restriction);
+        }
+        allocator.free(generic.name);
+    }
+
+    for (dec.attributes) |attr| {
+        freeAttr(allocator, attr);
+    }
+
+    allocator.free(dec.attributes);
+    allocator.free(dec.generics);
+
+    if (dec.deriveType) |derived| {
+        freeType(allocator, derived);
+    }
 }
 
 pub fn freeNodes(allocator: Allocator, nodes: []*const AstNode) void {

@@ -15,6 +15,8 @@ const create = utils.create;
 const toSlice = utils.toSlice;
 const Case = std.fmt.Case;
 const freeStackType = free.freeStackType;
+const GenericType = astMod.GenericType;
+const StructAttributeVariants = astMod.StructAttributeVariants;
 
 // debug
 const debug = @import("debug.zig");
@@ -34,6 +36,10 @@ const ScanError = error{
     FunctionCallParamCountMismatch,
     VoidVariableDec,
     ExpectedFunctionReturn,
+    StructInitGenericsCountMismatch,
+    StructInitAttributeCountMismatch,
+    StructInitMemberTypeMismatch,
+    StructInitAttributeNotFound,
 };
 
 pub fn typeScan(allocator: Allocator, ast: Ast, compInfo: *CompInfo) !void {
@@ -48,8 +54,10 @@ fn scanNodes(allocator: Allocator, compInfo: *CompInfo, nodes: []*const AstNode)
 
 fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Allocator.Error || ScanError)!void {
     switch (node.*) {
-        .NoOp, .Type, .Value, .Cast, .ReturnNode => {},
-
+        .NoOp, .Type, .Value, .Cast => {},
+        .ReturnNode => |ret| {
+            try scanNode(allocator, compInfo, ret);
+        },
         .Seq => |seq| {
             try scanNodes(allocator, compInfo, seq.nodes);
         },
@@ -99,6 +107,8 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
             if (conditionType != AstTypes.Bool) return ScanError.ExpectedBooleanIfCondition;
         },
         .FuncDec => |dec| {
+            try scanNode(allocator, compInfo, dec.body);
+
             switch (dec.body.*) {
                 .Seq => |seq| {
                     if (seq.nodes.len == 0) {
@@ -140,14 +150,59 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
                 }
             }
         },
-        // TODO
-        .StructInit => {},
+        .StructInit => |init| {
+            const structDec = compInfo.getStructDec(init.name).?;
+
+            if (init.generics.len != structDec.generics.len) {
+                return ScanError.StructInitGenericsCountMismatch;
+            }
+
+            try scanGenerics(init.generics, structDec.generics);
+
+            var numMembers: usize = 0;
+            for (structDec.attributes) |attr| {
+                if (attr.static) continue;
+                if (attr.attr == StructAttributeVariants.Function) continue;
+                numMembers += 1;
+
+                var attrNode: ?*const AstNode = null;
+                for (init.attributes) |initAttr| {
+                    if (std.mem.eql(u8, initAttr.name, attr.attr.Member.name)) {
+                        attrNode = initAttr.value;
+                    }
+                }
+
+                if (attrNode == null) {
+                    std.debug.print("cant find {s}\n", .{attr.attr.Member.name});
+                    return ScanError.StructInitAttributeNotFound;
+                }
+
+                // TODO this is not ideal for generics, which should have
+                // the ability to define ambiguity in their restrictions
+                // which tighten when initialized, but for now whatever
+                // ig generics dont exist
+
+                const attrType = try getExpressionType(allocator, compInfo, attrNode.?);
+                if (!try matchTypes(allocator, compInfo, attr.attr.Member.type.*, attrType)) {
+                    return ScanError.StructInitMemberTypeMismatch;
+                }
+            }
+
+            // if (numMembers != init.attributes.len) {
+            //     return ScanError.StructInitAttributeCountMismatch;
+            // }
+        },
         .Bang => |bang| {
             const bangType = try getExpressionType(allocator, compInfo, bang);
             defer freeStackType(allocator, &bangType);
             if (bangType != AstTypes.Bool) return ScanError.ExpectedBooleanBang;
         },
     }
+}
+
+fn scanGenerics(initGenerics: []*const AstTypes, decGenerics: []GenericType) !void {
+    _ = initGenerics;
+    _ = decGenerics;
 }
 
 fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []StructAttribute) !void {
@@ -314,8 +369,14 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
 
             return ScanError.UndefinedOrUnknownVariableType;
         },
-        // TODO
-        .StructInit => AstTypes.Void,
+        .StructInit => |init| {
+            return AstTypes{
+                .Custom = .{
+                    .generics = init.generics,
+                    .name = init.name,
+                },
+            };
+        },
         .FuncCall => |call| call.func.returnType.*,
         .Bang => |node| {
             const nodeType = try getExpressionType(allocator, compInfo, node);

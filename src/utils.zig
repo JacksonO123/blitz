@@ -7,8 +7,8 @@ const TokenType = tokenizer.TokenType;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
-const RegisteredStruct = astMod.RegisteredStruct;
 const FuncDecNode = astMod.FuncDecNode;
+const StructDecNode = astMod.StructDecNode;
 
 pub fn findChar(items: []const u8, start: usize, item: u8) ?usize {
     var i = start;
@@ -48,22 +48,20 @@ pub fn cloneString(allocator: Allocator, string: []u8) ![]u8 {
 pub const CompInfo = struct {
     const Self = @This();
 
-    registeredStructs: []RegisteredStruct,
+    structNames: [][]u8,
     generics: *ArrayList([]u8),
     variableTypes: *StringHashMap(*const AstTypes),
     functions: *StringHashMap(*const FuncDecNode),
+    structs: *StringHashMap(*const StructDecNode),
+    preAst: bool,
 
-    pub fn getRegisteredStruct(self: Self, structName: []u8) ?RegisteredStruct {
-        for (self.registeredStructs) |s| {
-            if (std.mem.eql(u8, s.name, structName)) return s;
-        }
-
-        return null;
+    pub fn prepareForAst(self: *Self) void {
+        self.preAst = false;
     }
 
-    pub fn hasRegisteredStruct(self: Self, structName: []u8) bool {
-        for (self.registeredStructs) |s| {
-            if (std.mem.eql(u8, s.name, structName)) return true;
+    pub fn hasStruct(self: Self, name: []u8) bool {
+        for (self.structNames) |structName| {
+            if (std.mem.eql(u8, structName, name)) return true;
         }
 
         return false;
@@ -115,5 +113,19 @@ pub const CompInfo = struct {
 
     pub fn hasFunctionName(self: Self, name: []u8) bool {
         return self.functions.contains(name);
+    }
+
+    pub fn setStructDec(self: *Self, name: []u8, node: *const StructDecNode) !void {
+        try self.structs.put(name, node);
+    }
+
+    pub fn setStructDecs(self: *Self, nodes: [](*const StructDecNode)) !void {
+        for (nodes) |node| {
+            try self.setStructDec(node.name, node);
+        }
+    }
+
+    pub fn getStructDec(self: Self, name: []u8) ?*const StructDecNode {
+        return self.structs.get(name);
     }
 };

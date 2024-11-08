@@ -15,12 +15,7 @@ const cloneString = utils.cloneString;
 const debug = @import("./debug.zig");
 const printTokens = debug.printTokens;
 const printNode = debug.printNode;
-
-pub const RegisteredStruct = struct {
-    name: []u8,
-    typeCode: usize,
-    numGenerics: usize,
-};
+const printType = debug.printType;
 
 const SeqNode = struct {
     nodes: []*const AstNode,
@@ -55,7 +50,6 @@ const AstStaticArrayType = struct {
 };
 
 const CustomType = struct {
-    structCode: usize,
     name: []u8,
     generics: []*const AstTypes,
 };
@@ -146,7 +140,7 @@ const StructFunction = struct {
     name: []u8,
 };
 
-const StructAttributeVariants = enum {
+pub const StructAttributeVariants = enum {
     Member,
     Function,
 };
@@ -176,8 +170,7 @@ const StructAttributeOffsetData = struct {
     offset: usize,
 };
 
-const StructDecNode = struct {
-    typeCode: usize,
+pub const StructDecNode = struct {
     name: []u8,
     generics: []GenericType,
     attributes: []StructAttribute,
@@ -247,7 +240,7 @@ pub const AstNode = union(AstNodeVariants) {
     Value: AstValues,
     Cast: CastNode,
     Variable: VariableNode,
-    StructDec: StructDecNode,
+    StructDec: *const StructDecNode,
     IfStatement: IfStatementNode,
     FuncDec: FuncDecNode,
     FuncCall: FuncCallNode,
@@ -264,6 +257,7 @@ const AstError = error{
     ExpectedGenericArgument,
     InvalidStructKey,
     FunctionNotFound,
+    ExpectedNameForStruct,
 };
 
 const AstNodeOffsetData = struct {
@@ -410,6 +404,14 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
             const isGeneric = tokens[1].type == TokenType.LBracket;
             const nameIndex = (if (isGeneric) try delimiterIndex(tokens, 2, TokenType.RBracket) else 0) + 1;
             const lBraceIndex = try delimiterIndex(tokens, nameIndex + 1, TokenType.LBrace);
+            const end = try smartDelimiterIndex(tokens, compInfo, lBraceIndex + 1, TokenType.RBrace);
+
+            if (!compInfo.preAst) {
+                return .{
+                    .offset = end + 1,
+                    .node = try create(AstNode, allocator, @as(AstNode, AstNode.NoOp)),
+                };
+            }
 
             var deriveType: ?*const AstTypes = null;
             if (tokens[nameIndex + 1].type == TokenType.Colon) {
@@ -417,7 +419,6 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
                 deriveType = try createTypeNode(allocator, compInfo, deriveTokens);
             }
 
-            const end = try smartDelimiterIndex(tokens, compInfo, lBraceIndex + 1, TokenType.RBrace);
             const defTokens = tokens[lBraceIndex + 1 .. end];
             var genericTypes: []GenericType = &[_]GenericType{};
 
@@ -437,17 +438,17 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
             }
 
             const name = try cloneString(allocator, tokens[nameIndex].string.?);
-            const registeredStruct = compInfo.getRegisteredStruct(name);
 
-            const structDecNode = StructDecNode{
-                .typeCode = registeredStruct.?.typeCode,
+            const structDecNode = try create(StructDecNode, allocator, .{
                 .name = name,
                 .generics = genericTypes,
                 .attributes = attrData.attrs,
                 .deriveType = deriveType,
-            };
+            });
 
-            const structNode = try create(AstNode, allocator, .{ .StructDec = structDecNode });
+            const structNode = try create(AstNode, allocator, .{
+                .StructDec = structDecNode,
+            });
 
             for (genericTypes) |gType| {
                 compInfo.removeGeneric(gType.name);
@@ -477,7 +478,7 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
                 } else return astError(AstError.FunctionNotFound, token.string.?);
             }
 
-            if (compInfo.hasRegisteredStruct(token.string.?)) {
+            if (compInfo.hasStruct(token.string.?)) {
                 // TODO
                 // should check if rangle has lparen immediately following
                 if (tokens[1].type == TokenType.LBrace or tokens[1].type == TokenType.LAngle) {
@@ -724,7 +725,7 @@ fn createFuncDecNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token)
 
     if (tokens[0].type == TokenType.LBracket) {
         const rBracketIndex = delimiterIndex(tokens, 2, TokenType.RBracket) catch |e| return astError(e, "]");
-        const genericTokens = tokens[2..rBracketIndex];
+        const genericTokens = tokens[1..rBracketIndex];
         offset += genericTokens.len + 2;
         generics = try parseGenerics(allocator, compInfo, genericTokens);
     }
@@ -994,7 +995,7 @@ fn smartDelimiterIndex(tokens: []Token, compInfo: *CompInfo, start: usize, delim
 
         if (tokens[current].type == TokenType.LAngle and current > 0) {
             const prevToken = tokens[current - 1];
-            if (prevToken.type == TokenType.Identifier and compInfo.hasRegisteredStruct(prevToken.string.?)) {
+            if (prevToken.type == TokenType.Identifier and compInfo.hasStruct(prevToken.string.?)) {
                 if (!inGeneric) {
                     genericStart = parens;
                     inGeneric = true;
@@ -1103,19 +1104,22 @@ fn createTypeNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (A
     if (tokens[current].type == TokenType.Identifier) {
         const tokenString = tokens[current].string.?;
         if (compInfo.hasGeneric(tokenString)) {
-            res = try create(AstTypes, allocator, AstTypes{ .Generic = tokenString });
-        } else if (compInfo.getRegisteredStruct(tokenString)) |registeredStruct| {
+            res = try create(AstTypes, allocator, AstTypes{
+                .Generic = tokenString,
+            });
+        } else if (compInfo.hasStruct(tokenString)) {
             var customType = CustomType{
                 .generics = &[_]*const AstTypes{},
-                .structCode = registeredStruct.typeCode,
-                .name = try cloneString(allocator, registeredStruct.name),
+                .name = try cloneString(allocator, tokenString),
             };
 
-            if (registeredStruct.numGenerics > 0) {
+            if (tokens.len > 1 and tokens[1].type == TokenType.LAngle) {
                 customType.generics = try parseGenericArgs(allocator, compInfo, tokens, current);
             }
 
-            res = try create(AstTypes, allocator, .{ .Custom = customType });
+            res = try create(AstTypes, allocator, .{
+                .Custom = customType,
+            });
         } else {
             return astError(AstError.UnknownType, tokenString);
         }
@@ -1185,50 +1189,48 @@ fn createAstType(allocator: Allocator, compInfo: *CompInfo, token: Token) !*cons
     return create(AstTypes, allocator, val);
 }
 
-pub fn registerStructs(allocator: Allocator, tokens: []Token) ![]RegisteredStruct {
-    var arr = ArrayList(RegisteredStruct).init(allocator);
-    defer arr.deinit();
+pub fn findStructNames(allocator: Allocator, tokens: []Token) ![][]u8 {
+    var names = ArrayList([]u8).init(allocator);
+    defer names.deinit();
 
-    var typeCode: u32 = 0;
     var i: usize = 0;
     while (i < tokens.len) : (i += 1) {
         if (tokens[i].type != TokenType.Struct) continue;
 
-        const isGeneric = tokens[i + 1].type == TokenType.LBracket;
-        var numGenerics: u32 = 0;
-
-        if (isGeneric) {
-            const pos = delimiterIndex(tokens, i + 2, TokenType.RBracket) catch |e| return astError(e, "]");
-
-            var currentIndex = i + 2;
-            while (currentIndex < pos) {
-                currentIndex = delimiterIndex(tokens, currentIndex, TokenType.Comma) catch break;
-
-                currentIndex += 1;
-                numGenerics += 1;
-            }
-
-            numGenerics += 1;
-            i = pos + 1;
-        } else {
-            i += 1;
+        if (tokens[i + 1].type == TokenType.LBracket) {
+            const rBracket = try delimiterIndex(tokens, i + 2, TokenType.RBracket);
+            i = rBracket;
         }
 
-        if (tokens[i].type != TokenType.Identifier) return AstError.UnexpectedToken;
-
-        const registeredStruct = RegisteredStruct{
-            .numGenerics = numGenerics,
-            .name = try cloneString(allocator, tokens[i].string.?),
-            .typeCode = typeCode,
-        };
-
-        typeCode += 1;
-
-        try arr.append(registeredStruct);
+        if (tokens[i + 1].type == TokenType.Identifier) {
+            const str = try cloneString(allocator, tokens[i + 1].string.?);
+            try names.append(str);
+        } else return AstError.ExpectedNameForStruct;
     }
 
-    const slice = try allocator.dupe(RegisteredStruct, arr.items);
-    return slice;
+    return allocator.dupe([]u8, names.items);
+}
+
+pub fn registerStructs(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) ![](*const StructDecNode) {
+    var arr = ArrayList(*const StructDecNode).init(allocator);
+    defer arr.deinit();
+
+    var i: usize = 0;
+    while (i < tokens.len) {
+        if (tokens[i].type != TokenType.Struct) {
+            i += 1;
+            continue;
+        }
+
+        const structTokens = tokens[i..];
+        const node = try createAstNode(allocator, compInfo, structTokens);
+        try arr.append(node.node.*.StructDec);
+        allocator.destroy(node.node);
+
+        i += node.offset;
+    }
+
+    return try allocator.dupe(*const StructDecNode, arr.items);
 }
 
 fn astErrorToString(errorType: AstError) []const u8 {
@@ -1240,6 +1242,7 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedGenericArgument => "expected generic argument",
         AstError.InvalidStructKey => "invalid struct key",
         AstError.FunctionNotFound => "function not found",
+        AstError.ExpectedNameForStruct => "expected name for struct",
     };
 }
 

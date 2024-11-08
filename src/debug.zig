@@ -5,14 +5,23 @@ const AstNode = astUtils.AstNode;
 const AstTypes = astUtils.AstTypes;
 const AstValues = astUtils.AstValues;
 const AstNumberVariants = astUtils.AstNumberVariants;
-const RegisteredStruct = astUtils.RegisteredStruct;
 const GenericType = astUtils.GenericType;
 const Parameter = astUtils.Parameter;
 const StructAttribute = astUtils.StructAttribute;
 const FuncDecNode = astUtils.FuncDecNode;
+const StructDecNode = astUtils.StructDecNode;
 
 pub fn printAst(ast: Ast) void {
     printNodes(ast.root.nodes);
+}
+
+pub fn printStructNames(names: [][]u8) void {
+    std.debug.print("------------\n", .{});
+    std.debug.print("structs:\n", .{});
+    for (names) |name| {
+        std.debug.print("{s}\n", .{name});
+    }
+    std.debug.print("------------\n", .{});
 }
 
 pub fn printType(typeNode: *const AstTypes) void {
@@ -184,7 +193,7 @@ pub fn printNode(node: *const AstNode) void {
         .Variable => |*variable| {
             std.debug.print("[variable: ({s})]", .{variable.name});
         },
-        .StructDec => |*dec| {
+        .StructDec => |dec| {
             std.debug.print("declare struct ({s})", .{dec.name});
 
             if (dec.generics.len > 0) {
@@ -340,10 +349,10 @@ fn printNodes(nodes: []*const AstNode) void {
     }
 }
 
-pub fn printRegisteredStructs(structs: []RegisteredStruct) void {
+pub fn printRegisteredStructs(structs: [](*const StructDecNode)) void {
     std.debug.print("--- structs ---\n", .{});
     for (structs) |s| {
-        std.debug.print("{s}{s}\n", .{ s.name, if (s.numGenerics > 0) " : (generic)" else "" });
+        std.debug.print("{s}{s}\n", .{ s.name, if (s.generics.len > 0) " : (generic)" else "" });
     }
 }
 

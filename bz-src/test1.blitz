@@ -3,10 +3,10 @@ struct Car {}
 struct [T: Car] name {
   value1: bool;
   value2: T;
-  pub static fn create(val1: bool, val2: T): name<T> {
+  pub static fn create(value1: bool, value2: T): name<T> {
     return name<T> {
-      val1 = !val1,
-      val2
+      value1 = !value1,
+      value2
     };
   }
   prot fn someFunc(): u32 {}
