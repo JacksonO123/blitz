@@ -1,0 +1,16 @@
+struct square {
+  size: u32;
+  pub static fn create(size: u32): square {
+    return square {
+      size
+    };
+  }
+}
+
+// fn thing(shape: square) {
+//   const a = 2;
+// }
+
+const s = square.create(10);
+
+// thing(s);

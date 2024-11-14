@@ -507,21 +507,3 @@ fn isSymbol(char: u8) ?TokenType {
 
     return null;
 }
-
-pub fn freeTokens(allocator: Allocator, tokens: anytype) void {
-    for (tokens) |token| {
-        if (token.string) |str| {
-            allocator.free(str);
-        }
-    }
-
-    allocator.free(tokens);
-}
-
-pub fn freeTokenArr(allocator: Allocator, tokens: anytype) void {
-    for (tokens.*) |token| {
-        if (token.string) |str| {
-            allocator.free(str);
-        }
-    }
-}

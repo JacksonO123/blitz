@@ -2,6 +2,8 @@ const std = @import("std");
 const astMod = @import("ast.zig");
 const utils = @import("utils.zig");
 const free = @import("free.zig");
+const builtins = @import("builtins.zig");
+const clone = @import("clone.zig");
 const Allocator = std.mem.Allocator;
 const Ast = astMod.Ast;
 const AstNode = astMod.AstNode;
@@ -13,17 +15,26 @@ const ArrayList = std.ArrayList;
 const numberLength = utils.numberLength;
 const create = utils.create;
 const toSlice = utils.toSlice;
+const cloneString = utils.cloneString;
 const Case = std.fmt.Case;
 const freeStackType = free.freeStackType;
 const GenericType = astMod.GenericType;
 const StructAttributeVariants = astMod.StructAttributeVariants;
+const validateStaticArrayProps = builtins.validateStaticArrayProps;
+const validateDynamicArrayProps = builtins.validateDynamicArrayProps;
+const validateStringProps = builtins.validateStringProps;
+const getStringPropTypes = builtins.getStringPropTypes;
+const getStaticArrayPropTypes = builtins.getStaticArrayPropTypes;
+const cloneAstTypes = clone.cloneAstTypes;
+const CustomType = astMod.CustomType;
+const cloneFuncDec = clone.cloneFuncDec;
 
 // debug
 const debug = @import("debug.zig");
 const printNode = debug.printNode;
 const printType = debug.printType;
 
-const ScanError = error{
+pub const ScanError = error{
     StaticArrayTypeMismatch,
     InvalidCast,
     ExpectedBooleanBang,
@@ -40,6 +51,9 @@ const ScanError = error{
     StructInitAttributeCountMismatch,
     StructInitMemberTypeMismatch,
     StructInitAttributeNotFound,
+    InvalidProperty,
+    UnsupportedFeature,
+    InvalidPropertySource,
 };
 
 pub fn typeScan(allocator: Allocator, ast: Ast, compInfo: *CompInfo) !void {
@@ -54,7 +68,23 @@ fn scanNodes(allocator: Allocator, compInfo: *CompInfo, nodes: []*const AstNode)
 
 fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Allocator.Error || ScanError)!void {
     switch (node.*) {
-        .NoOp, .Type, .Value, .Cast => {},
+        .NoOp, .Type, .Value, .Cast, .StaticStructInstance => {},
+        .PropertyAccess => |access| {
+            const res = try getExpressionType(allocator, compInfo, access.value);
+            defer freeStackType(allocator, &res);
+
+            const validProp = switch (res) {
+                .DynamicArray => validateDynamicArrayProps(access.property),
+                .StaticArray => validateStaticArrayProps(access.property),
+                .String => validateStringProps(access.property),
+                .Custom => |custom| try validateCustomProps(compInfo, custom, access.property),
+                else => false,
+            };
+
+            if (!validProp) {
+                return ScanError.InvalidProperty;
+            }
+        },
         .ReturnNode => |ret| {
             try scanNode(allocator, compInfo, ret);
         },
@@ -145,6 +175,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
 
             for (call.func.params, 0..) |param, index| {
                 const paramType = try getExpressionType(allocator, compInfo, call.params[index]);
+                defer freeStackType(allocator, &paramType);
                 if (!try matchTypes(allocator, compInfo, param.type.*, paramType)) {
                     return ScanError.FunctionCallParamTypeMismatch;
                 }
@@ -183,6 +214,8 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
                 // ig generics dont exist
 
                 const attrType = try getExpressionType(allocator, compInfo, attrNode.?);
+                defer freeStackType(allocator, &attrType);
+
                 if (!try matchTypes(allocator, compInfo, attr.attr.Member.type.*, attrType)) {
                     return ScanError.StructInitMemberTypeMismatch;
                 }
@@ -200,6 +233,40 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
     }
 }
 
+fn validateCustomProps(compInfo: *CompInfo, custom: CustomType, prop: []u8) !bool {
+    // TODO support private and protected
+
+    const dec = compInfo.getStructDec(custom.name);
+    if (dec) |structDec| {
+        for (structDec.attributes) |attr| {
+            if (attr.static) continue;
+
+            switch (attr.attr) {
+                .Member => |member| {
+                    switch (member.visibility) {
+                        .Public => {
+                            if (std.mem.eql(u8, member.name, prop)) return true;
+                        },
+                        else => return ScanError.UnsupportedFeature,
+                    }
+                },
+                .Function => |func| {
+                    switch (func.visibility) {
+                        .Public => {
+                            if (std.mem.eql(u8, func.name, prop)) return true;
+                        },
+                        else => return ScanError.UnsupportedFeature,
+                    }
+                },
+            }
+        }
+
+        return false;
+    }
+
+    return ScanError.InvalidPropertySource;
+}
+
 fn scanGenerics(initGenerics: []*const AstTypes, decGenerics: []GenericType) !void {
     _ = initGenerics;
     _ = decGenerics;
@@ -209,6 +276,7 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []StructAttr
     for (attrs) |attr| {
         switch (attr.attr) {
             .Member => |member| {
+                // NOTE might be bad
                 const varType = try create(AstTypes, allocator, member.type.*);
                 try compInfo.setVariableType(member.name, varType);
             },
@@ -324,9 +392,10 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
         .VarDec => AstTypes.Void,
         .StructDec => AstTypes.Void,
         .IfStatement => AstTypes.Void,
+
         .ReturnNode => |ret| getExpressionType(allocator, compInfo, ret),
         .FuncDec => |func| AstTypes{ .Function = func },
-
+        .StaticStructInstance => |inst| AstTypes{ .StaticStructInstance = inst },
         .Type => |t| t,
         .Value => |val| switch (val) {
             .String => AstTypes.String,
@@ -364,7 +433,7 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
         .Variable => |v| {
             const varType = compInfo.getVariableType(v.name);
             if (varType) |astType| {
-                return astType;
+                return try cloneAstTypes(allocator, astType);
             }
 
             return ScanError.UndefinedOrUnknownVariableType;
@@ -373,7 +442,7 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
             return AstTypes{
                 .Custom = .{
                     .generics = init.generics,
-                    .name = init.name,
+                    .name = try cloneString(allocator, init.name),
                 },
             };
         },
@@ -388,7 +457,94 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
 
             return AstTypes.Bool;
         },
+        .PropertyAccess => |access| {
+            const source = try getExpressionType(allocator, compInfo, access.value);
+            defer freeStackType(allocator, &source);
+            return try getPropertyType(allocator, compInfo, source, access.property);
+        },
     };
+}
+
+fn getPropertyType(allocator: Allocator, compInfo: *CompInfo, source: AstTypes, prop: []u8) !AstTypes {
+    return switch (source) {
+        .StaticStructInstance => |inst| try getStructPropType(compInfo, false, inst, prop),
+        .StaticArray => try getStaticArrayPropTypes(allocator, prop),
+        .String => try getStringPropTypes(allocator, prop),
+        .Custom => |custom| getCustomPropType(allocator, compInfo, custom, prop),
+        else => ScanError.UnsupportedFeature,
+    };
+}
+
+fn getCustomPropType(allocator: Allocator, compInfo: *CompInfo, custom: CustomType, prop: []u8) !AstTypes {
+    // TODO support private and protected
+
+    const dec = compInfo.getStructDec(custom.name);
+    if (dec) |structDec| {
+        for (structDec.attributes) |attr| {
+            if (attr.static) continue;
+
+            switch (attr.attr) {
+                .Member => |member| {
+                    switch (member.visibility) {
+                        .Public => {
+                            if (std.mem.eql(u8, member.name, prop)) {
+                                return try cloneAstTypes(allocator, member.type.*);
+                            }
+                        },
+                        else => return ScanError.UnsupportedFeature,
+                    }
+                },
+                .Function => |func| {
+                    switch (func.visibility) {
+                        .Public => {
+                            if (std.mem.eql(u8, func.name, prop)) {
+                                return AstTypes{
+                                    .Function = try cloneFuncDec(allocator, func.func),
+                                };
+                            }
+                        },
+                        else => return ScanError.UnsupportedFeature,
+                    }
+                },
+            }
+        }
+
+        return ScanError.InvalidProperty;
+    }
+
+    return ScanError.InvalidPropertySource;
+}
+
+fn getStructPropType(compInfo: *CompInfo, allowNonStatic: bool, inst: []u8, prop: []u8) !AstTypes {
+    // TODO support protected/private visibility
+
+    const dec = compInfo.getStructDec(inst);
+    if (dec == null) return ScanError.InvalidPropertySource;
+
+    for (dec.?.attributes) |attr| {
+        if (!attr.static and allowNonStatic) continue;
+
+        switch (attr.attr) {
+            .Member => |member| {
+                if (!std.mem.eql(u8, member.name, prop)) continue;
+
+                switch (member.visibility) {
+                    .Public => return member.type.*,
+                    else => return ScanError.UnsupportedFeature,
+                }
+            },
+            .Function => |func| {
+                if (!std.mem.eql(u8, func.name, prop)) continue;
+
+                switch (func.visibility) {
+                    .Public => return AstTypes{ .Function = func.func },
+                    else => return ScanError.UnsupportedFeature,
+                }
+            },
+        }
+    }
+
+    return ScanError.InvalidProperty;
 }
 
 fn inferStaticArrType(allocator: Allocator, compInfo: *CompInfo, arr: []*const AstNode) !AstTypes {

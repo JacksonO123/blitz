@@ -119,7 +119,7 @@ pub const CompInfo = struct {
         try self.structs.put(name, node);
     }
 
-    pub fn setStructDecs(self: *Self, nodes: [](*const StructDecNode)) !void {
+    pub fn setStructDecs(self: *Self, nodes: []*const StructDecNode) !void {
         for (nodes) |node| {
             try self.setStructDec(node.name, node);
         }

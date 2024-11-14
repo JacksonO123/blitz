@@ -1,6 +1,7 @@
 const std = @import("std");
 const astMod = @import("ast.zig");
 const utils = @import("utils.zig");
+const tokenizer = @import("tokenizer.zig");
 const Allocator = std.mem.Allocator;
 const Ast = astMod.Ast;
 const AstTypes = astMod.AstTypes;
@@ -10,6 +11,7 @@ const StructAttribute = astMod.StructAttribute;
 const FuncDecNode = astMod.FuncDecNode;
 const CompInfo = utils.CompInfo;
 const StructDecNode = astMod.StructDecNode;
+const Token = tokenizer.Token;
 
 pub fn freeAst(allocator: Allocator, ast: Ast) void {
     freeNodes(allocator, ast.root.nodes);
@@ -97,6 +99,12 @@ pub fn freeValueNode(allocator: Allocator, node: *const AstValues) void {
 
 pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
     switch (node.*) {
+        .StaticStructInstance => |inst| {
+            allocator.free(inst);
+        },
+        .PropertyAccess => |access| {
+            freeNode(allocator, access.value);
+        },
         .VarDec => |*dec| {
             freeNode(allocator, dec.setNode);
 
@@ -224,4 +232,26 @@ pub fn freeStackType(allocator: Allocator, node: *const AstTypes) void {
 pub fn freeType(allocator: Allocator, node: *const AstTypes) void {
     freeStackType(allocator, node);
     allocator.destroy(node);
+}
+
+pub fn freeToken(allocator: Allocator, token: Token) void {
+    if (token.string) |str| {
+        allocator.free(str);
+    }
+}
+
+pub fn freeTokens(allocator: Allocator, tokens: []Token) void {
+    for (tokens) |token| {
+        freeToken(allocator, token);
+    }
+
+    allocator.free(tokens);
+}
+
+pub fn freeTokenArr(allocator: Allocator, tokens: []Token) void {
+    for (tokens.*) |token| {
+        if (token.string) |str| {
+            allocator.free(str);
+        }
+    }
 }

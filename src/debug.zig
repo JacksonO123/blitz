@@ -102,6 +102,9 @@ pub fn printType(typeNode: *const AstTypes) void {
 
             std.debug.print(")", .{});
         },
+        .StaticStructInstance => |inst| {
+            std.debug.print("[static struct instance]({s})", .{inst});
+        },
     };
 }
 
@@ -158,6 +161,13 @@ fn printValue(value: *const AstValues) void {
 
 pub fn printNode(node: *const AstNode) void {
     switch (node.*) {
+        .StaticStructInstance => |inst| {
+            std.debug.print("accessing static struct ({s})", .{inst});
+        },
+        .PropertyAccess => |access| {
+            std.debug.print("accessing {s} from ", .{access.property});
+            printNode(access.value);
+        },
         .VarDec => |*dec| {
             std.debug.print("declare ({s}) ({s}) = ", .{
                 if (dec.isConst) "const" else "mutable",

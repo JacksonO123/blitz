@@ -1,5 +1,5 @@
 const std = @import("std");
-const tokenizer = @import("./tokenizer.zig");
+const tokenizer = @import("tokenizer.zig");
 const utils = @import("utils.zig");
 const expect = std.testing.expect;
 const expectEqualDeep = std.testing.expectEqualDeep;
@@ -14,7 +14,7 @@ const freeTokenArr = tokenizer.freeTokenArr;
 const toSlice = utils.toSlice;
 
 // debug
-const debug = @import("./debug.zig");
+const debug = @import("debug.zig");
 const printTokens = debug.printTokens;
 
 const verbose = true;

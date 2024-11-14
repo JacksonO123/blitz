@@ -12,7 +12,7 @@ const TokenizeError = tokenizer.TokenizeError;
 const cloneString = utils.cloneString;
 
 // debug
-const debug = @import("./debug.zig");
+const debug = @import("debug.zig");
 const printTokens = debug.printTokens;
 const printNode = debug.printNode;
 const printType = debug.printType;
@@ -49,7 +49,7 @@ const AstStaticArrayType = struct {
     size: *const AstNode,
 };
 
-const CustomType = struct {
+pub const CustomType = struct {
     name: []u8,
     generics: []*const AstTypes,
 };
@@ -66,6 +66,7 @@ const Types = enum {
     Custom,
     Generic,
     Function,
+    StaticStructInstance,
 };
 pub const AstTypes = union(Types) {
     String,
@@ -79,6 +80,7 @@ pub const AstTypes = union(Types) {
     Custom: CustomType,
     Generic: []u8,
     Function: FuncDecNode,
+    StaticStructInstance: []u8,
 };
 
 const StaticTypes = enum {
@@ -145,7 +147,7 @@ pub const StructAttributeVariants = enum {
     Function,
 };
 
-const StructAttributeUnion = union(StructAttributeVariants) {
+pub const StructAttributeUnion = union(StructAttributeVariants) {
     Member: StructMember,
     Function: StructFunction,
 };
@@ -177,7 +179,7 @@ pub const StructDecNode = struct {
     deriveType: ?*const AstTypes,
 };
 
-const AttributeDefinition = struct {
+pub const AttributeDefinition = struct {
     name: []u8,
     value: *const AstNode,
 };
@@ -216,6 +218,11 @@ const FuncCallNode = struct {
     params: []*const AstNode,
 };
 
+const PropertyAccess = struct {
+    value: *const AstNode,
+    property: []u8,
+};
+
 const AstNodeVariants = enum {
     NoOp,
     Seq,
@@ -231,6 +238,8 @@ const AstNodeVariants = enum {
     ReturnNode,
     StructInit,
     Bang,
+    PropertyAccess,
+    StaticStructInstance,
 };
 pub const AstNode = union(AstNodeVariants) {
     NoOp,
@@ -247,6 +256,8 @@ pub const AstNode = union(AstNodeVariants) {
     ReturnNode: *const AstNode,
     StructInit: StructInitNode,
     Bang: *const AstNode,
+    PropertyAccess: PropertyAccess,
+    StaticStructInstance: []u8,
 };
 
 const AstError = error{
@@ -258,6 +269,8 @@ const AstError = error{
     InvalidStructKey,
     FunctionNotFound,
     ExpectedNameForStruct,
+    ExpectedIdentifierPropertyAccess,
+    ExpectedIdentifierPropertyAccessSource,
 };
 
 const AstNodeOffsetData = struct {
@@ -319,6 +332,46 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
         };
     }
 
+    var propAccessNode: ?*const AstNode = null;
+    var closestPeriod = smartDelimiterIndex(tokens, compInfo, 0, TokenType.Period) catch null;
+    if (closestPeriod) |periodIndex| {
+        const sourceTokens = tokens[0..periodIndex];
+        const singleNode = try isSingleNode(compInfo, sourceTokens);
+        if (singleNode) {
+            const data = try createAstNode(allocator, compInfo, sourceTokens);
+            propAccessNode = data.node;
+        }
+    }
+
+    if (propAccessNode != null) {
+        var periodIndex = closestPeriod.?;
+        while (periodIndex < tokens.len) {
+            if (tokens[periodIndex + 1].type != TokenType.Identifier) return AstError.ExpectedIdentifierPropertyAccess;
+
+            propAccessNode = try create(AstNode, allocator, .{
+                .PropertyAccess = .{
+                    .value = propAccessNode.?,
+                    .property = tokens[periodIndex + 1].string.?,
+                },
+            });
+
+            if (tokens[periodIndex + 2].type == TokenType.Period) {
+                periodIndex = periodIndex + 2;
+                continue;
+            } else {
+                closestPeriod = periodIndex;
+                break;
+            }
+        }
+    }
+
+    if (propAccessNode) |accessNode| {
+        return .{
+            .node = accessNode,
+            .offset = closestPeriod.? + 2,
+        };
+    }
+
     const token = tokens[0];
 
     switch (token.type) {
@@ -345,11 +398,10 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
             };
         },
         .StringToken => {
-            const origString = tokens[0].string.?;
-            const tempString = origString[1 .. origString.len - 1];
+            const str = tokens[0].string.?;
             const node = try create(AstNode, allocator, .{
                 .Value = .{
-                    .String = try cloneString(allocator, tempString),
+                    .String = try cloneString(allocator, str),
                 },
             });
 
@@ -479,22 +531,35 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
             }
 
             if (compInfo.hasStruct(token.string.?)) {
-                // TODO
-                // should check if rangle has lparen immediately following
-                if (tokens[1].type == TokenType.LBrace or tokens[1].type == TokenType.LAngle) {
-                    const openBraceIndex = try smartDelimiterIndex(tokens, compInfo, 1, TokenType.LBrace);
-                    const typeTokens = tokens[0..openBraceIndex];
-                    const typeNodes = try parseGenericArgs(allocator, compInfo, typeTokens, 0);
-                    const initTokens = tokens[openBraceIndex..];
-                    const structDef = try createStructDef(allocator, compInfo, token.string.?, typeNodes, initTokens);
-                    const initNode = try create(AstNode, allocator, .{ .StructInit = structDef });
+                var offset: usize = 0;
+                var structGenerics: []*const AstTypes = &[_]*const AstTypes{};
+
+                if (tokens[1].type == TokenType.LAngle) {
+                    const rAngleIndex = delimiterIndex(tokens, 2, TokenType.RAngle) catch |e| return astError(e, ">");
+                    const typeTokens = tokens[0 .. rAngleIndex + 1];
+
+                    if (typeTokens.len > 0) {
+                        offset += typeTokens.len - 1;
+                    }
+
+                    structGenerics = try parseGenericArgs(allocator, compInfo, typeTokens, 0);
+                }
+
+                if (tokens[1 + offset].type == TokenType.LBrace) {
+                    const lBraceIndex = try smartDelimiterIndex(tokens, compInfo, 1, TokenType.LBrace);
+                    const rBraceIndex = try smartDelimiterIndex(tokens, compInfo, lBraceIndex + 1, TokenType.RBrace);
+                    const initTokens = tokens[lBraceIndex..rBraceIndex];
+                    const structDef = try createStructDef(allocator, compInfo, token.string.?, structGenerics, initTokens);
+                    const initNode = try create(AstNode, allocator, .{
+                        .StructInit = structDef,
+                    });
 
                     return .{
                         .node = initNode,
-                        .offset = tokens.len,
+                        .offset = initTokens.len + 2,
                     };
                 } else {
-                    // type cast to struct MAYBE
+                    // type cast to struct PROBABLY
 
                     const lParenIndex = try smartDelimiterIndex(tokens, compInfo, 1, TokenType.LParen);
                     const typeTokens = tokens[0..lParenIndex];
@@ -642,6 +707,29 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
     }
 }
 
+fn isSingleNode(compInfo: *CompInfo, tokens: []Token) !bool {
+    if (tokens.len == 0) return false;
+
+    if (tokens.len > 1) {
+        if (tokens[0].type == TokenType.LParen and tokens[tokens.len - 1].type == TokenType.RParen) return true;
+        if (tokens.len > 3 and tokens[0].type == TokenType.Identifier and tokens[1].type == TokenType.LBracket) {
+            const rBracketIndex = try smartDelimiterIndex(tokens, compInfo, 2, TokenType.RBracket);
+            if (rBracketIndex == tokens.len - 1) return true;
+        }
+    } else if (tokens[0].type == TokenType.Identifier) return true;
+
+    return false;
+}
+
+fn createPropertyAccess(allocator: Allocator, value: *const AstNode, str: []u8) !*const AstNode {
+    return try create(AstNode, allocator, .{
+        .PropertyAccess = .{
+            .value = value,
+            .property = str,
+        },
+    });
+}
+
 fn parseParams(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) ![]*const AstNode {
     var params = ArrayList(*const AstNode).init(allocator);
     defer params.deinit();
@@ -696,7 +784,10 @@ fn createStructDef(allocator: Allocator, compInfo: *CompInfo, structName: []u8, 
                 });
                 break :a varNode;
             },
-            else => return astError(AstError.UnexpectedToken, if (tokens[i + 2].string != null) tokens[i + 2].string.? else ""),
+            else => return astError(
+                AstError.UnexpectedToken,
+                if (tokens[i + 1].string != null) tokens[i + 1].string.? else "(no str)",
+            ),
         };
 
         const attr = AttributeDefinition{
@@ -772,12 +863,12 @@ fn createStructAttributes(allocator: Allocator, compInfo: *CompInfo, tokens: []T
             .Pub => {
                 const attr = try createStructAttribute(allocator, compInfo, tokens[current + 1 ..], MemberVisibility.Public);
                 try attributes.append(attr.attr);
-                current += attr.offset;
+                current += attr.offset + 1;
             },
             .Prot => {
                 const attr = try createStructAttribute(allocator, compInfo, tokens[current + 1 ..], MemberVisibility.Protected);
                 try attributes.append(attr.attr);
-                current += attr.offset;
+                current += attr.offset + 1;
             },
             .Identifier => {
                 const attr = try createStructAttribute(allocator, compInfo, tokens[current..], MemberVisibility.Private);
@@ -807,11 +898,7 @@ fn createStructAttributes(allocator: Allocator, compInfo: *CompInfo, tokens: []T
 
 fn createStructAttribute(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, visibility: MemberVisibility) !StructAttributeOffsetData {
     if (switch (tokens[0].type) {
-        .Identifier => false,
-        .Static => false,
-        .Prot => false,
-        .Pub => false,
-        .Fn => false,
+        .Identifier, .Static, .Prot, .Pub, .Fn => false,
         else => true,
     }) {
         return astError(AstError.TokenNotFound, "struct attribute name");
@@ -1017,16 +1104,6 @@ fn smartDelimiterIndex(tokens: []Token, compInfo: *CompInfo, start: usize, delim
     return AstError.TokenNotFound;
 }
 
-fn nextTokenOccurrence(tokens: []Token, start: usize, tokenType: TokenType) !usize {
-    var i = start;
-
-    while (i < tokens.len) : (i += 1) {
-        if (tokens[i].type == tokenType) return i;
-    }
-
-    return AstError.TokenNotFound;
-}
-
 fn createVarDecNode(
     allocator: Allocator,
     compInfo: *CompInfo,
@@ -1044,7 +1121,7 @@ fn createVarDecNode(
 
     if (hasType) {
         const searchStart = offset;
-        const index = nextTokenOccurrence(tokens, searchStart, TokenType.EqSet) catch |e| return astError(e, "=");
+        const index = delimiterIndex(tokens, searchStart, TokenType.EqSet) catch |e| return astError(e, "=");
 
         const typeTokens = tokens[searchStart..index];
         annotation = try createTypeNode(allocator, compInfo, typeTokens);
@@ -1243,6 +1320,8 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.InvalidStructKey => "invalid struct key",
         AstError.FunctionNotFound => "function not found",
         AstError.ExpectedNameForStruct => "expected name for struct",
+        AstError.ExpectedIdentifierPropertyAccess => "expected identifier for struct property access",
+        AstError.ExpectedIdentifierPropertyAccessSource => "expected identifier for property access source",
     };
 }
 
