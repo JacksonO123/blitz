@@ -1,6 +1,8 @@
 # Todo
 
-- [ ] struct accessor modifiers (function call, index)
+- [ ] struct accessor modifiers
+  - [x] function call
+  - [ ] index
 - [ ] function generics
   - [ ] if generics are specified on call, set type and scan params
   - [ ] otherwise infer type from non trivial type tree

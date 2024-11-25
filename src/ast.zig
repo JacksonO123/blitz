@@ -375,7 +375,7 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
 
                     current += paramTokens.len + 2;
                 } else if (tokens[current].type == TokenType.LBracket) {
-                    // const rBracketIndex = smartDelimiterIndex(tokens, compInfo, currentCha)
+                    // TODO
                 }
             }
 
