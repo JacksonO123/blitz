@@ -1,0 +1,20 @@
+struct Car {}
+
+struct [T: Car] name {
+  value1: bool;
+  value2: T;
+  pub static fn create(value1: bool, value2: T): name<T> {
+    return name<T> {
+      value1 = !value1,
+      value2
+    };
+  }
+  prot fn someFunc(): u32 {}
+}
+
+fn b(p1: bool, p2: string, p3: u32): char {
+  return 'b';
+}
+
+// const h: bool = b(true, "thing", 2);
+const h = b(true, "thing", 2);

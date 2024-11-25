@@ -65,7 +65,7 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
     defer freeAst(allocator, ast);
 
     std.debug.print("--- code ---\n{s}\n------------\n", .{code});
-    printAst(ast);
+    printAst(&compInfo, ast);
 
     try typeScan(allocator, ast, &compInfo);
     std.debug.print("\n", .{});

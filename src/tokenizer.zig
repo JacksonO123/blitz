@@ -1,7 +1,8 @@
 const std = @import("std");
+const utils = @import("utils.zig");
+const findChar = utils.findChar;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
-const findChar = @import("utils.zig").findChar;
 
 pub const TokenizeError = error{
     IdentifierWithStartingNumber,

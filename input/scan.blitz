@@ -1,0 +1,10 @@
+const a = "what thing";
+const b = false;
+
+fn [T] typeCheck(val: T): T {
+  return val;
+}
+
+const h = typeCheck(a);
+
+if (h) { }

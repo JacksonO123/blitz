@@ -54,6 +54,8 @@ pub const ScanError = error{
     InvalidProperty,
     UnsupportedFeature,
     InvalidPropertySource,
+    IdentifierNotAFunction,
+    CannotCallNonFunctionNode,
 };
 
 pub fn typeScan(allocator: Allocator, ast: Ast, compInfo: *CompInfo) !void {
@@ -69,6 +71,9 @@ fn scanNodes(allocator: Allocator, compInfo: *CompInfo, nodes: []*const AstNode)
 fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Allocator.Error || ScanError)!void {
     switch (node.*) {
         .NoOp, .Type, .Value, .Cast, .StaticStructInstance => {},
+        .FuncReference => |ref| {
+            if (!compInfo.hasFunctionName(ref)) return ScanError.IdentifierNotAFunction;
+        },
         .PropertyAccess => |access| {
             const res = try getExpressionType(allocator, compInfo, access.value);
             defer freeStackType(allocator, &res);
@@ -136,7 +141,8 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
             defer freeStackType(allocator, &conditionType);
             if (conditionType != AstTypes.Bool) return ScanError.ExpectedBooleanIfCondition;
         },
-        .FuncDec => |dec| {
+        .FuncDec => |name| {
+            const dec = compInfo.getFunction(name).?;
             try scanNode(allocator, compInfo, dec.body);
 
             switch (dec.body.*) {
@@ -169,16 +175,22 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
             }
         },
         .FuncCall => |call| {
-            if (call.func.params.len != call.params.len) {
-                return ScanError.FunctionCallParamCountMismatch;
-            }
+            const dec = try getExpressionType(allocator, compInfo, call.func);
+            switch (dec) {
+                .Function => |func| {
+                    if (func.params.len != call.params.len) {
+                        return ScanError.FunctionCallParamCountMismatch;
+                    }
 
-            for (call.func.params, 0..) |param, index| {
-                const paramType = try getExpressionType(allocator, compInfo, call.params[index]);
-                defer freeStackType(allocator, &paramType);
-                if (!try matchTypes(allocator, compInfo, param.type.*, paramType)) {
-                    return ScanError.FunctionCallParamTypeMismatch;
-                }
+                    for (func.params, 0..) |param, index| {
+                        const paramType = try getExpressionType(allocator, compInfo, call.params[index]);
+                        defer freeStackType(allocator, &paramType);
+                        if (!try matchTypes(allocator, compInfo, param.type.*, paramType)) {
+                            return ScanError.FunctionCallParamTypeMismatch;
+                        }
+                    }
+                },
+                else => return ScanError.CannotCallNonFunctionNode,
             }
         },
         .StructInit => |init| {
@@ -393,8 +405,18 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
         .StructDec => AstTypes.Void,
         .IfStatement => AstTypes.Void,
 
+        .FuncReference => |ref| {
+            try scanNode(allocator, compInfo, expr);
+            const dec = compInfo.getFunction(ref).?;
+            return AstTypes{
+                .Function = dec,
+            };
+        },
         .ReturnNode => |ret| getExpressionType(allocator, compInfo, ret),
-        .FuncDec => |func| AstTypes{ .Function = func },
+        .FuncDec => |name| {
+            const dec = compInfo.getFunction(name).?;
+            return AstTypes{ .Function = dec };
+        },
         .StaticStructInstance => |inst| AstTypes{ .StaticStructInstance = inst },
         .Type => |t| t,
         .Value => |val| switch (val) {
@@ -446,7 +468,14 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
                 },
             };
         },
-        .FuncCall => |call| call.func.returnType.*,
+        .FuncCall => |call| {
+            try scanNode(allocator, compInfo, expr);
+
+            const dec = try getExpressionType(allocator, compInfo, call.func);
+            defer freeStackType(allocator, &dec);
+
+            return try cloneAstTypes(allocator, dec.Function.returnType.*);
+        },
         .Bang => |node| {
             const nodeType = try getExpressionType(allocator, compInfo, node);
             defer freeStackType(allocator, &nodeType);

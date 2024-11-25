@@ -72,13 +72,13 @@ pub fn cloneAstTypes(allocator: Allocator, types: AstTypes) !AstTypes {
             const bodyPtr = try cloneAstNodePtr(allocator, func.body);
 
             return AstTypes{
-                .Function = .{
+                .Function = try create(FuncDecNode, allocator, .{
                     .generics = clonedGenerics,
                     .name = name,
                     .params = params,
                     .returnType = returnType,
                     .body = bodyPtr,
-                },
+                }),
             };
         },
     }
@@ -105,6 +105,11 @@ pub fn cloneAstNode(allocator: Allocator, node: AstNode) !AstNode {
     switch (node) {
         .NoOp => return node,
 
+        .FuncReference => |ref| {
+            return AstNode{
+                .FuncReference = try cloneString(allocator, ref),
+            };
+        },
         .Seq => |seq| {
             var newSeq = ArrayList(*const AstNode).init(allocator);
             defer newSeq.deinit();
@@ -244,18 +249,16 @@ pub fn cloneAstNode(allocator: Allocator, node: AstNode) !AstNode {
         },
         .FuncDec => |dec| {
             return AstNode{
-                .FuncDec = try cloneFuncDec(allocator, dec),
+                .FuncDec = try cloneString(allocator, dec),
             };
         },
         .FuncCall => |call| {
-            const clonedFunc = try cloneFuncDec(allocator, call.func.*);
-            const funcPtr = try create(FuncDecNode, allocator, clonedFunc);
-
+            const clonedFunc = try cloneAstNodePtr(allocator, call.func);
             const newParams = try cloneNodeArr(allocator, call.params);
 
             return AstNode{
                 .FuncCall = .{
-                    .func = funcPtr,
+                    .func = clonedFunc,
                     .params = newParams,
                 },
             };
@@ -367,7 +370,7 @@ fn cloneNodeArr(allocator: Allocator, nodes: []*const AstNode) ![]*const AstNode
     return try allocator.dupe(*const AstNode, newNodes.items);
 }
 
-pub fn cloneFuncDec(allocator: Allocator, dec: FuncDecNode) !FuncDecNode {
+pub fn cloneFuncDec(allocator: Allocator, dec: *const FuncDecNode) !*const FuncDecNode {
     const bodyPtr = try cloneAstNodePtr(allocator, dec.body);
     const name = try cloneString(allocator, dec.name);
     var generics: ?[]GenericType = null;
@@ -378,13 +381,13 @@ pub fn cloneFuncDec(allocator: Allocator, dec: FuncDecNode) !FuncDecNode {
         generics = try cloneGenerics(allocator, decGenerics);
     }
 
-    return .{
+    return try create(FuncDecNode, allocator, .{
         .body = bodyPtr,
         .name = name,
         .params = params,
         .generics = generics,
         .returnType = returnType,
-    };
+    });
 }
 
 fn cloneAstNodePtr(allocator: Allocator, node: *const AstNode) Allocator.Error!*const AstNode {

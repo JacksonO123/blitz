@@ -1,5 +1,0 @@
-fn [T] thing(a: T) {
-  return a;
-}
-
-thing(2);

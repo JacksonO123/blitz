@@ -1,5 +1,6 @@
 const std = @import("std");
 const astUtils = @import("ast.zig");
+const utils = @import("utils.zig");
 const Ast = astUtils.Ast;
 const AstNode = astUtils.AstNode;
 const AstTypes = astUtils.AstTypes;
@@ -10,9 +11,10 @@ const Parameter = astUtils.Parameter;
 const StructAttribute = astUtils.StructAttribute;
 const FuncDecNode = astUtils.FuncDecNode;
 const StructDecNode = astUtils.StructDecNode;
+const CompInfo = utils.CompInfo;
 
-pub fn printAst(ast: Ast) void {
-    printNodes(ast.root.nodes);
+pub fn printAst(compInfo: *CompInfo, ast: Ast) void {
+    printNodes(compInfo, ast.root.nodes);
 }
 
 pub fn printStructNames(names: [][]u8) void {
@@ -24,7 +26,7 @@ pub fn printStructNames(names: [][]u8) void {
     std.debug.print("------------\n", .{});
 }
 
-pub fn printType(typeNode: *const AstTypes) void {
+pub fn printType(compInfo: *CompInfo, typeNode: *const AstTypes) void {
     return switch (typeNode.*) {
         .Void => {
             std.debug.print("void", .{});
@@ -40,19 +42,19 @@ pub fn printType(typeNode: *const AstTypes) void {
         },
         .DynamicArray => |arr| {
             std.debug.print("DynamicArray<", .{});
-            printType(arr);
+            printType(compInfo, arr);
             std.debug.print(">", .{});
         },
         .StaticArray => |*arr| {
             std.debug.print("StaticArray<", .{});
-            printNode(arr.size);
+            printNode(compInfo, arr.size);
             std.debug.print(", ", .{});
-            printType(arr.type);
+            printType(compInfo, arr.type);
             std.debug.print(">", .{});
         },
         .Nullable => |n| {
             std.debug.print("?", .{});
-            printType(n);
+            printType(compInfo, n);
         },
         .Number => |*num| {
             std.debug.print("{s}", .{numberTypeToString(num.*)});
@@ -64,7 +66,7 @@ pub fn printType(typeNode: *const AstTypes) void {
             }
 
             for (custom.generics, 0..) |generic, index| {
-                printType(generic);
+                printType(compInfo, generic);
 
                 if (index < custom.generics.len - 1) {
                     std.debug.print(", ", .{});
@@ -82,14 +84,14 @@ pub fn printType(typeNode: *const AstTypes) void {
             std.debug.print("[function](\"{s}\"", .{func.name});
 
             if (func.generics) |generics| {
-                printGenerics(generics);
+                printGenerics(compInfo, generics);
             }
 
             std.debug.print(" (", .{});
 
             for (func.params, 0..) |param, index| {
                 std.debug.print("({s})[", .{param.name});
-                printType(param.type);
+                printType(compInfo, param.type);
                 std.debug.print("]", .{});
 
                 if (index < func.params.len - 1) {
@@ -98,7 +100,7 @@ pub fn printType(typeNode: *const AstTypes) void {
             }
 
             std.debug.print(" ", .{});
-            printType(func.returnType);
+            printType(compInfo, func.returnType);
 
             std.debug.print(")", .{});
         },
@@ -129,13 +131,13 @@ fn numberTypeToString(numType: AstNumberVariants) [*:0]const u8 {
     };
 }
 
-fn printValue(value: *const AstValues) void {
+fn printValue(compInfo: *CompInfo, value: *const AstValues) void {
     switch (value.*) {
         .StaticArray => |arr| {
             std.debug.print("([", .{});
 
             for (arr, 0..) |val, index| {
-                printNode(val);
+                printNode(compInfo, val);
 
                 if (index < arr.len - 1) {
                     std.debug.print(", ", .{});
@@ -159,14 +161,17 @@ fn printValue(value: *const AstValues) void {
     }
 }
 
-pub fn printNode(node: *const AstNode) void {
+pub fn printNode(compInfo: *CompInfo, node: *const AstNode) void {
     switch (node.*) {
+        .FuncReference => |ref| {
+            std.debug.print("function ({s})", .{ref});
+        },
         .StaticStructInstance => |inst| {
-            std.debug.print("accessing static struct ({s})", .{inst});
+            std.debug.print("static struct ({s})", .{inst});
         },
         .PropertyAccess => |access| {
             std.debug.print("accessing {s} from ", .{access.property});
-            printNode(access.value);
+            printNode(compInfo, access.value);
         },
         .VarDec => |*dec| {
             std.debug.print("declare ({s}) ({s}) = ", .{
@@ -174,31 +179,31 @@ pub fn printNode(node: *const AstNode) void {
                 dec.name,
             });
 
-            printNode(dec.setNode);
+            printNode(compInfo, dec.setNode);
 
             if (dec.annotation != null) {
                 std.debug.print(" with annotation: ", .{});
-                printType(dec.annotation.?);
+                printType(compInfo, dec.annotation.?);
             }
         },
         .Value => |*val| {
-            printValue(val);
+            printValue(compInfo, val);
         },
         .Type => |*t| {
-            printType(t);
+            printType(compInfo, t);
         },
         .Seq => |*seq| {
             if (seq.nodes.len == 0) {
                 std.debug.print("(empty seq)", .{});
             } else {
-                printNodes(seq.nodes);
+                printNodes(compInfo, seq.nodes);
             }
         },
         .Cast => |*cast| {
             std.debug.print("cast ", .{});
-            printNode(cast.node);
+            printNode(compInfo, cast.node);
             std.debug.print(" to ", .{});
-            printType(cast.toType);
+            printType(compInfo, cast.toType);
         },
         .Variable => |*variable| {
             std.debug.print("[variable: ({s})]", .{variable.name});
@@ -208,34 +213,37 @@ pub fn printNode(node: *const AstNode) void {
 
             if (dec.generics.len > 0) {
                 std.debug.print(" with generics [", .{});
-                printGenerics(dec.generics);
+                printGenerics(compInfo, dec.generics);
                 std.debug.print("]", .{});
             }
 
             if (dec.attributes.len > 0) {
                 std.debug.print(" with attributes [", .{});
-                printAttributes(dec.attributes);
+                printAttributes(compInfo, dec.attributes);
                 std.debug.print("]", .{});
             }
         },
         .IfStatement => |*statement| {
             std.debug.print("if ", .{});
-            printNode(statement.condition);
+            printNode(compInfo, statement.condition);
             std.debug.print(" then -- body --\n", .{});
-            printNode(statement.body);
+            printNode(compInfo, statement.body);
             std.debug.print("-- body end --\n", .{});
         },
         .NoOp => {
             std.debug.print("(noop)", .{});
         },
-        .FuncDec => |func| {
-            printFuncDec(func);
+        .FuncDec => |name| {
+            const dec = compInfo.getFunction(name).?;
+            printFuncDec(compInfo, dec);
         },
         .FuncCall => |call| {
-            std.debug.print("calling function ({s}) with params [", .{call.func.name});
+            std.debug.print("calling ", .{});
+            printNode(compInfo, call.func);
+            std.debug.print(" with params [", .{});
 
             for (call.params, 0..) |param, index| {
-                printNode(param);
+                printNode(compInfo, param);
                 if (index < call.params.len - 1) {
                     std.debug.print(", ", .{});
                 }
@@ -245,13 +253,13 @@ pub fn printNode(node: *const AstNode) void {
         },
         .ReturnNode => |ret| {
             std.debug.print("return ", .{});
-            printNode(ret);
+            printNode(compInfo, ret);
         },
         .StructInit => |init| {
             std.debug.print("initializing ({s})[", .{init.name});
 
             for (init.generics, 0..) |generic, index| {
-                printType(generic);
+                printType(compInfo, generic);
 
                 if (index < init.generics.len - 1) {
                     std.debug.print(", ", .{});
@@ -262,7 +270,7 @@ pub fn printNode(node: *const AstNode) void {
 
             for (init.attributes, 0..) |attr, index| {
                 std.debug.print("{s}: ", .{attr.name});
-                printNode(attr.value);
+                printNode(compInfo, attr.value);
                 if (index < init.attributes.len - 1) {
                     std.debug.print(", ", .{});
                 }
@@ -271,30 +279,30 @@ pub fn printNode(node: *const AstNode) void {
         },
         .Bang => |bang| {
             std.debug.print("[bang]!", .{});
-            printNode(bang);
+            printNode(compInfo, bang);
         },
     }
 }
 
-fn printFuncDec(func: FuncDecNode) void {
+pub fn printFuncDec(compInfo: *CompInfo, func: *const FuncDecNode) void {
     std.debug.print("declare function [", .{});
-    printType(func.returnType);
+    printType(compInfo, func.returnType);
     std.debug.print("] ({s})", .{func.name});
     if (func.generics) |generics| {
         std.debug.print(" with generics [", .{});
-        printGenerics(generics);
+        printGenerics(compInfo, generics);
         std.debug.print("]", .{});
     }
 
     std.debug.print(" with params [", .{});
-    printParams(func.params);
+    printParams(compInfo, func.params);
 
     std.debug.print("] -- body --\n", .{});
-    printNode(func.body);
+    printNode(compInfo, func.body);
     std.debug.print("-- body end --\n", .{});
 }
 
-fn printAttributes(attrs: []StructAttribute) void {
+fn printAttributes(compInfo: *CompInfo, attrs: []StructAttribute) void {
     for (attrs, 0..) |attr, index| {
         if (attr.static) {
             std.debug.print("static ", .{});
@@ -303,11 +311,11 @@ fn printAttributes(attrs: []StructAttribute) void {
         switch (attr.attr) {
             .Function => {
                 std.debug.print("{s} ({s}) ", .{ attr.attr.Function.visibility.toString(), attr.attr.Function.name });
-                printFuncDec(attr.attr.Function.func);
+                printFuncDec(compInfo, attr.attr.Function.func);
             },
             .Member => {
                 std.debug.print("{s} ({s}) with type ", .{ attr.attr.Member.visibility.toString(), attr.attr.Member.name });
-                printType(attr.attr.Member.type);
+                printType(compInfo, attr.attr.Member.type);
             },
         }
 
@@ -317,7 +325,7 @@ fn printAttributes(attrs: []StructAttribute) void {
     }
 }
 
-fn printParams(params: []Parameter) void {
+fn printParams(compInfo: *CompInfo, params: []Parameter) void {
     if (params.len == 0) {
         std.debug.print("(no params)", .{});
         return;
@@ -325,7 +333,7 @@ fn printParams(params: []Parameter) void {
 
     for (params, 0..) |param, index| {
         std.debug.print("[", .{});
-        printType(param.type);
+        printType(compInfo, param.type);
         std.debug.print("]({s})", .{param.name});
 
         if (index < params.len - 1) {
@@ -334,12 +342,12 @@ fn printParams(params: []Parameter) void {
     }
 }
 
-fn printGenerics(generics: []GenericType) void {
+fn printGenerics(compInfo: *CompInfo, generics: []GenericType) void {
     for (generics, 0..) |generic, index| {
         std.debug.print("[", .{});
 
         if (generic.restriction) |restriction| {
-            printType(restriction);
+            printType(compInfo, restriction);
         } else {
             std.debug.print("any", .{});
         }
@@ -352,9 +360,9 @@ fn printGenerics(generics: []GenericType) void {
     }
 }
 
-fn printNodes(nodes: []*const AstNode) void {
+fn printNodes(compInfo: *CompInfo, nodes: []*const AstNode) void {
     for (nodes) |node| {
-        printNode(node);
+        printNode(compInfo, node);
         std.debug.print("\n", .{});
     }
 }

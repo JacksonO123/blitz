@@ -13,6 +13,9 @@ const CompInfo = utils.CompInfo;
 const StructDecNode = astMod.StructDecNode;
 const Token = tokenizer.Token;
 
+const debug = @import("debug.zig");
+const printType = debug.printType;
+
 pub fn freeAst(allocator: Allocator, ast: Ast) void {
     freeNodes(allocator, ast.root.nodes);
     allocator.free(ast.root.nodes);
@@ -28,7 +31,7 @@ pub fn freeCompInfo(allocator: Allocator, compInfo: *CompInfo) void {
 
     var functionIt = compInfo.functions.valueIterator();
     while (functionIt.next()) |f| {
-        allocator.destroy(f.*);
+        freeFuncDec(allocator, f.*);
     }
 
     var structsIt = compInfo.structs.valueIterator();
@@ -52,7 +55,7 @@ pub fn freeStructNames(allocator: Allocator, structNames: [][]u8) void {
     allocator.free(structNames);
 }
 
-pub fn freeFuncDec(allocator: Allocator, func: FuncDecNode) void {
+pub fn freeFuncDec(allocator: Allocator, func: *const FuncDecNode) void {
     allocator.free(func.name);
 
     for (func.params) |param| {
@@ -66,6 +69,8 @@ pub fn freeFuncDec(allocator: Allocator, func: FuncDecNode) void {
     }
     freeNode(allocator, func.body);
     freeType(allocator, func.returnType);
+
+    allocator.destroy(func);
 }
 
 pub fn freeAttr(allocator: Allocator, attr: StructAttribute) void {
@@ -99,6 +104,9 @@ pub fn freeValueNode(allocator: Allocator, node: *const AstValues) void {
 
 pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
     switch (node.*) {
+        .FuncReference => |ref| {
+            allocator.free(ref);
+        },
         .StaticStructInstance => |inst| {
             allocator.free(inst);
         },
@@ -141,10 +149,12 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
             freeNode(allocator, statement.body);
         },
         .NoOp => {},
-        .FuncDec => |func| {
-            freeFuncDec(allocator, func);
+        .FuncDec => |name| {
+            allocator.free(name);
         },
         .FuncCall => |call| {
+            freeNode(allocator, call.func);
+
             for (call.params) |param| {
                 freeNode(allocator, param);
             }
