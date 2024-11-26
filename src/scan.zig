@@ -158,6 +158,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
                     const last = seq.nodes[seq.nodes.len - 1];
                     const lastType = try getExpressionType(allocator, compInfo, last);
                     defer freeStackType(allocator, &lastType);
+
                     if (last.* == AstNode.ReturnNode or dec.returnType.* != AstTypes.Void) {
                         if (!try matchTypes(allocator, compInfo, dec.returnType.*, lastType)) {
                             return ScanError.FunctionReturnTypeMismatch;
@@ -167,6 +168,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
                 .ReturnNode => |ret| {
                     const retType = try getExpressionType(allocator, compInfo, ret);
                     defer freeStackType(allocator, &retType);
+
                     if (!try matchTypes(allocator, compInfo, dec.returnType.*, retType)) {
                         return ScanError.FunctionReturnTypeMismatch;
                     }
@@ -176,6 +178,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
         },
         .FuncCall => |call| {
             const dec = try getExpressionType(allocator, compInfo, call.func);
+
             switch (dec) {
                 .Function => |func| {
                     if (func.params.len != call.params.len) {
@@ -185,6 +188,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
                     for (func.params, 0..) |param, index| {
                         const paramType = try getExpressionType(allocator, compInfo, call.params[index]);
                         defer freeStackType(allocator, &paramType);
+
                         if (!try matchTypes(allocator, compInfo, param.type.*, paramType)) {
                             return ScanError.FunctionCallParamTypeMismatch;
                         }
@@ -210,13 +214,13 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
 
                 var attrNode: ?*const AstNode = null;
                 for (init.attributes) |initAttr| {
-                    if (std.mem.eql(u8, initAttr.name, attr.attr.Member.name)) {
+                    if (std.mem.eql(u8, initAttr.name, attr.name)) {
                         attrNode = initAttr.value;
                     }
                 }
 
                 if (attrNode == null) {
-                    std.debug.print("cant find {s}\n", .{attr.attr.Member.name});
+                    std.debug.print("cant find {s}\n", .{attr.name});
                     return ScanError.StructInitAttributeNotFound;
                 }
 
@@ -228,7 +232,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
                 const attrType = try getExpressionType(allocator, compInfo, attrNode.?);
                 defer freeStackType(allocator, &attrType);
 
-                if (!try matchTypes(allocator, compInfo, attr.attr.Member.type.*, attrType)) {
+                if (!try matchTypes(allocator, compInfo, attr.attr.Member.*, attrType)) {
                     return ScanError.StructInitMemberTypeMismatch;
                 }
             }
@@ -253,23 +257,11 @@ fn validateCustomProps(compInfo: *CompInfo, custom: CustomType, prop: []u8) !boo
         for (structDec.attributes) |attr| {
             if (attr.static) continue;
 
-            switch (attr.attr) {
-                .Member => |member| {
-                    switch (member.visibility) {
-                        .Public => {
-                            if (std.mem.eql(u8, member.name, prop)) return true;
-                        },
-                        else => return ScanError.UnsupportedFeature,
-                    }
-                },
-                .Function => |func| {
-                    switch (func.visibility) {
-                        .Public => {
-                            if (std.mem.eql(u8, func.name, prop)) return true;
-                        },
-                        else => return ScanError.UnsupportedFeature,
-                    }
-                },
+            if (std.mem.eql(u8, attr.name, prop)) return true;
+
+            switch (attr.visibility) {
+                .Public => {},
+                else => return ScanError.UnsupportedFeature,
             }
         }
 
@@ -287,13 +279,9 @@ fn scanGenerics(initGenerics: []*const AstTypes, decGenerics: []GenericType) !vo
 fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []StructAttribute) !void {
     for (attrs) |attr| {
         switch (attr.attr) {
-            .Member => |member| {
-                // NOTE might be bad
-                const varType = try create(AstTypes, allocator, member.type.*);
-                try compInfo.setVariableType(member.name, varType);
-            },
-            .Function => |function| {
-                try scanNode(allocator, compInfo, function.func.body);
+            .Member => {},
+            .Function => |func| {
+                try scanNode(allocator, compInfo, func.body);
             },
         }
     }
@@ -511,30 +499,16 @@ fn getCustomPropType(allocator: Allocator, compInfo: *CompInfo, custom: CustomTy
     if (dec) |structDec| {
         for (structDec.attributes) |attr| {
             if (attr.static) continue;
+            if (!std.mem.eql(u8, attr.name, prop)) continue;
+
+            switch (attr.visibility) {
+                .Public => {},
+                else => return ScanError.UnsupportedFeature,
+            }
 
             switch (attr.attr) {
-                .Member => |member| {
-                    switch (member.visibility) {
-                        .Public => {
-                            if (std.mem.eql(u8, member.name, prop)) {
-                                return try cloneAstTypes(allocator, member.type.*);
-                            }
-                        },
-                        else => return ScanError.UnsupportedFeature,
-                    }
-                },
-                .Function => |func| {
-                    switch (func.visibility) {
-                        .Public => {
-                            if (std.mem.eql(u8, func.name, prop)) {
-                                return AstTypes{
-                                    .Function = try cloneFuncDec(allocator, func.func),
-                                };
-                            }
-                        },
-                        else => return ScanError.UnsupportedFeature,
-                    }
-                },
+                .Member => |member| return try cloneAstTypes(allocator, member.*),
+                .Function => |func| return AstTypes{ .Function = func },
             }
         }
 
@@ -552,24 +526,16 @@ fn getStructPropType(compInfo: *CompInfo, allowNonStatic: bool, inst: []u8, prop
 
     for (dec.?.attributes) |attr| {
         if (!attr.static and allowNonStatic) continue;
+        if (!std.mem.eql(u8, attr.name, prop)) continue;
+
+        switch (attr.visibility) {
+            .Public => {},
+            else => return ScanError.UnsupportedFeature,
+        }
 
         switch (attr.attr) {
-            .Member => |member| {
-                if (!std.mem.eql(u8, member.name, prop)) continue;
-
-                switch (member.visibility) {
-                    .Public => return member.type.*,
-                    else => return ScanError.UnsupportedFeature,
-                }
-            },
-            .Function => |func| {
-                if (!std.mem.eql(u8, func.name, prop)) continue;
-
-                switch (func.visibility) {
-                    .Public => return AstTypes{ .Function = func.func },
-                    else => return ScanError.UnsupportedFeature,
-                }
-            },
+            .Member => |member| return member.*,
+            .Function => |func| return AstTypes{ .Function = func },
         }
     }
 

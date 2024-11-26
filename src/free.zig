@@ -12,7 +12,9 @@ const FuncDecNode = astMod.FuncDecNode;
 const CompInfo = utils.CompInfo;
 const StructDecNode = astMod.StructDecNode;
 const Token = tokenizer.Token;
+const GenericType = astMod.GenericType;
 
+// DEBUG
 const debug = @import("debug.zig");
 const printType = debug.printType;
 
@@ -62,11 +64,21 @@ pub fn freeFuncDec(allocator: Allocator, func: *const FuncDecNode) void {
         freeType(allocator, param.type);
         allocator.free(param.name);
     }
+
     allocator.free(func.params);
 
     if (func.generics) |generics| {
+        for (generics) |generic| {
+            allocator.free(generic.name);
+
+            if (generic.restriction) |rest| {
+                freeType(allocator, rest);
+            }
+        }
+
         allocator.free(generics);
     }
+
     freeNode(allocator, func.body);
     freeType(allocator, func.returnType);
 
@@ -74,15 +86,11 @@ pub fn freeFuncDec(allocator: Allocator, func: *const FuncDecNode) void {
 }
 
 pub fn freeAttr(allocator: Allocator, attr: StructAttribute) void {
+    allocator.free(attr.name);
+
     switch (attr.attr) {
-        .Member => {
-            allocator.free(attr.attr.Member.name);
-            freeType(allocator, attr.attr.Member.type);
-        },
-        .Function => {
-            allocator.free(attr.attr.Function.name);
-            freeFuncDec(allocator, attr.attr.Function.func);
-        },
+        .Member => |mem| freeType(allocator, mem),
+        .Function => |func| freeFuncDec(allocator, func),
     }
 }
 

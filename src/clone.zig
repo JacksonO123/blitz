@@ -217,6 +217,8 @@ pub fn cloneAstNode(allocator: Allocator, node: AstNode) !AstNode {
                 const newAttr = StructAttribute{
                     .static = attr.static,
                     .attr = try cloneStructAttributeUnion(allocator, attr.attr),
+                    .name = try cloneString(allocator, attr.name),
+                    .visibility = attr.visibility,
                 };
 
                 try attributes.append(newAttr);
@@ -320,28 +322,12 @@ pub fn cloneAstNode(allocator: Allocator, node: AstNode) !AstNode {
 fn cloneStructAttributeUnion(allocator: Allocator, structAttrUnion: StructAttributeUnion) !StructAttributeUnion {
     switch (structAttrUnion) {
         .Function => |func| {
-            const dec = try cloneFuncDec(allocator, func.func);
-            const name = try cloneString(allocator, func.name);
-            const visibility = func.visibility;
-            return StructAttributeUnion{
-                .Function = .{
-                    .func = dec,
-                    .name = name,
-                    .visibility = visibility,
-                },
-            };
+            const dec = try cloneFuncDec(allocator, func);
+            return StructAttributeUnion{ .Function = dec };
         },
         .Member => |member| {
-            const memType = try cloneAstTypesPtr(allocator, member.type);
-            const name = try cloneString(allocator, member.name);
-            const visibility = member.visibility;
-            return StructAttributeUnion{
-                .Member = .{
-                    .type = memType,
-                    .name = name,
-                    .visibility = visibility,
-                },
-            };
+            const memType = try cloneAstTypesPtr(allocator, member);
+            return StructAttributeUnion{ .Member = memType };
         },
     }
 }

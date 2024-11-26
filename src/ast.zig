@@ -131,30 +131,20 @@ const MemberVisibility = enum {
     }
 };
 
-const StructMember = struct {
-    type: *const AstTypes,
-    visibility: MemberVisibility,
-    name: []u8,
-};
-
-const StructFunction = struct {
-    visibility: MemberVisibility,
-    func: *const FuncDecNode,
-    name: []u8,
-};
-
 pub const StructAttributeVariants = enum {
     Member,
     Function,
 };
 
 pub const StructAttributeUnion = union(StructAttributeVariants) {
-    Member: StructMember,
-    Function: StructFunction,
+    Member: *const AstTypes,
+    Function: *const FuncDecNode,
 };
 
 pub const StructAttribute = struct {
+    name: []u8,
     attr: StructAttributeUnion,
+    visibility: MemberVisibility,
     static: bool,
 };
 
@@ -896,12 +886,12 @@ fn createStructAttributes(allocator: Allocator, compInfo: *CompInfo, tokens: []T
             .Pub => {
                 const attr = try createStructAttribute(allocator, compInfo, tokens[current + 1 ..], MemberVisibility.Public);
                 try attributes.append(attr.attr);
-                current += attr.offset + 1;
+                current += attr.offset;
             },
             .Prot => {
                 const attr = try createStructAttribute(allocator, compInfo, tokens[current + 1 ..], MemberVisibility.Protected);
                 try attributes.append(attr.attr);
-                current += attr.offset + 1;
+                current += attr.offset;
             },
             .Identifier => {
                 const attr = try createStructAttribute(allocator, compInfo, tokens[current..], MemberVisibility.Private);
@@ -941,11 +931,17 @@ fn createStructAttribute(allocator: Allocator, compInfo: *CompInfo, tokens: []To
     var attr: StructAttribute = undefined;
     const isStatic = tokens[0].type == TokenType.Static;
     const attrTokens = if (isStatic) tokens[1..] else tokens;
-    const tempAttr = try createStructAttributeData(allocator, compInfo, attrTokens, visibility);
+    const tempAttr = try createStructAttributeData(allocator, compInfo, attrTokens);
     offset = tempAttr.offset + @as(usize, if (isStatic) 1 else 0);
+
+    const nameIndex: u32 = if (attrTokens[0].type == TokenType.Fn) 1 else 0;
+    const name = try cloneString(allocator, attrTokens[nameIndex].string.?);
+
     attr = StructAttribute{
         .static = isStatic,
         .attr = tempAttr.attr,
+        .visibility = visibility,
+        .name = name,
     };
 
     return .{
@@ -954,9 +950,7 @@ fn createStructAttribute(allocator: Allocator, compInfo: *CompInfo, tokens: []To
     };
 }
 
-fn createStructAttributeData(allocator: Allocator, compInfo: *CompInfo, tokens: []Token, visibility: MemberVisibility) !StructAttributeUnionOffsetData {
-    const nameIndex: u32 = if (tokens[0].type == TokenType.Fn) 1 else 0;
-    const name = try cloneString(allocator, tokens[nameIndex].string.?);
+fn createStructAttributeData(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) !StructAttributeUnionOffsetData {
     var offset: usize = 0;
 
     const attr = switch (tokens[0].type) {
@@ -964,26 +958,14 @@ fn createStructAttributeData(allocator: Allocator, compInfo: *CompInfo, tokens: 
             const data = try createFuncDecNode(allocator, compInfo, tokens);
             offset += data.offset + 2;
 
-            break :val StructAttributeUnion{
-                .Function = .{
-                    .name = name,
-                    .func = data.func,
-                    .visibility = visibility,
-                },
-            };
+            break :val StructAttributeUnion{ .Function = data.func };
         },
         .Identifier => val: {
             const typeTokens = tokens[2..];
             const typeNode = try createTypeNode(allocator, compInfo, typeTokens);
             offset = delimiterIndex(tokens, 2, TokenType.Semicolon) catch |e| return astError(e, ";");
 
-            break :val StructAttributeUnion{
-                .Member = .{
-                    .name = name,
-                    .visibility = visibility,
-                    .type = typeNode,
-                },
-            };
+            break :val StructAttributeUnion{ .Member = typeNode };
         },
         else => {
             return astError(AstError.TokenNotFound, "( or :");

@@ -5,6 +5,9 @@ struct square {
       size
     };
   }
+  pub fn testFn(isTest: bool) {
+    const b = 2;
+  }
 }
 
 fn thing(shape: square) {
@@ -14,3 +17,5 @@ fn thing(shape: square) {
 const s = square.create(10);
 
 thing(s);
+
+s.testFn(false);

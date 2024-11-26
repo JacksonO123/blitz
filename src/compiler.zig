@@ -57,7 +57,7 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
     defer allocator.free(registeredStructs);
     try compInfo.setStructDecs(registeredStructs);
 
-    printRegisteredStructs(registeredStructs);
+    printRegisteredStructs(&compInfo, registeredStructs);
 
     compInfo.prepareForAst();
 
