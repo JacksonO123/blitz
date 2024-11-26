@@ -1,11 +1,13 @@
 # Todo
 
+- [ ] struct accessor modifiers
+  - [x] function call
+  - [ ] index
+- [ ] function generics
+  - [ ] if generics are specified on call, set type and scan params
+  - [ ] otherwise infer type from non trivial type tree
+    - [ ] if generic is nested, defined wrapper types act as restrictions
 - [x] Parse types to ast nodes
-- [ ] Struct ast nodes
-- [ ] Condition ast nodes
+- [x] Struct ast nodes
 - [x] If statement ast nodes
-- [ ] Expression ast nodes
-
-# Maintenance
-
-- [x] switch to use: `if(?cond) |val| {}`
+- [x] Parse struct declerations ahead of ast

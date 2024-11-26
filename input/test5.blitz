@@ -1,0 +1,3 @@
+struct building { }
+
+struct house : building { }

@@ -1,5 +1,0 @@
-const a = true;
-
-if (a) {
-  const b = 2;
-}

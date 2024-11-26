@@ -1,12 +1,14 @@
 const std = @import("std");
+const utils = @import("utils.zig");
+const findChar = utils.findChar;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
-const findChar = @import("utils.zig").findChar;
 
 pub const TokenizeError = error{
     IdentifierWithStartingNumber,
     NumberHasTwoPeriods,
     NoClosingQuote,
+    CharTokenTooLong,
 };
 
 pub const TokenType = enum {
@@ -45,28 +47,32 @@ pub const TokenType = enum {
     Mod,
     Bang,
     Period,
-    SingleQuote,
-    DoubleQuote,
     Comma,
     QuestionMark,
     True,
     False,
+    StringToken,
+    CharToken,
 
     // datatypes
-    Char,
+    CharType,
+    U8,
     U16,
     U32,
     U64,
     U128,
+    I8,
     I16,
     I32,
     I64,
     I128,
+    F8,
     F16,
     F32,
     F64,
     F128,
-    String,
+    USize,
+    StringType,
     Bool,
 
     // other
@@ -114,23 +120,27 @@ pub const TokenType = enum {
             .Mod => "%",
             .Bang => "!",
             .Period => ".",
-            .SingleQuote => "'",
-            .DoubleQuote => "\"",
             .Comma => ",",
-            .Char => "char",
+            .CharType => "char",
+            .CharToken => "(char data...)",
+            .U8 => "u8",
             .U16 => "u16",
             .U32 => "u32",
             .U64 => "u64",
             .U128 => "u128",
+            .I8 => "i8",
             .I16 => "i16",
             .I32 => "i32",
             .I64 => "i64",
             .I128 => "i128",
+            .F8 => "f8",
             .F16 => "f16",
             .F32 => "f32",
             .F64 => "f64",
             .F128 => "f128",
-            .String => "string",
+            .USize => "usize",
+            .StringType => "string",
+            .StringToken => "(string data...)",
             .Bool => "bool",
             .Identifier => "identifier",
             .Number => "number",
@@ -201,20 +211,33 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
     outer: while (i < input.len) : (i += 1) {
         const char = input[i];
 
-        if (char == '"' or char == '\'') {
-            const strEnd = findChar(input, i + 1, char);
+        if (char == '"') {
+            const strEnd = findChar(input, i + 1, '\"');
 
             if (strEnd) |end| {
-                const str = try allocator.dupe(u8, input[i .. end + 1]);
-                const token = Token{ .type = TokenType.String, .string = str };
+                const str = try allocator.dupe(u8, input[i + 1 .. end]);
+                const token = Token{ .type = TokenType.StringToken, .string = str };
                 try tokens.append(token);
 
-                i += str.len - 1;
+                i += str.len + 1;
 
                 continue;
             }
 
-            return error.NoClosingQuote;
+            return TokenizeError.NoClosingQuote;
+        }
+
+        if (char == '\'') {
+            if (input[i + 2] != '\'') {
+                return TokenizeError.CharTokenTooLong;
+            }
+
+            const str = try allocator.dupe(u8, &[_]u8{input[i + 1]});
+            const token = Token{ .type = TokenType.CharToken, .string = str };
+            try tokens.append(token);
+            i += 2;
+
+            continue;
         }
 
         if (i < input.len - 1 and char == '/') {
@@ -293,7 +316,7 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
 
                 try chars.append(char);
                 continue;
-            } else if (std.ascii.isDigit(chars.items[0])) {
+            } else if (chars.items.len > 0 and std.ascii.isDigit(chars.items[0])) {
                 return TokenizeError.IdentifierWithStartingNumber;
             }
         }
@@ -358,6 +381,8 @@ fn isPostEqSymbol(chars: []const u8, start: usize) ?Token {
 }
 
 fn isNumber(chars: []u8) bool {
+    if (chars.len == 0) return false;
+
     for (chars) |char| {
         if (!std.ascii.isDigit(char) and char != '.') return false;
     }
@@ -396,9 +421,10 @@ fn charsToToken(chars: []u8, allocator: Allocator) !?Token {
 
 fn isDatatype(chars: []const u8) ?TokenType {
     const datatypes = [_]TokenTypeMap{
-        TokenTypeMap{ .string = "char", .token = TokenType.Char },
-        TokenTypeMap{ .string = "string", .token = TokenType.String },
+        TokenTypeMap{ .string = "char", .token = TokenType.CharType },
+        TokenTypeMap{ .string = "string", .token = TokenType.StringType },
         TokenTypeMap{ .string = "bool", .token = TokenType.Bool },
+        TokenTypeMap{ .string = "usize", .token = TokenType.USize },
         // numbers
         TokenTypeMap{ .string = "u16", .token = TokenType.U16 },
         TokenTypeMap{ .string = "u32", .token = TokenType.U32 },
@@ -469,8 +495,6 @@ fn isSymbol(char: u8) ?TokenType {
         SymbolMap{ .symbol = '/', .token = TokenType.Div },
         SymbolMap{ .symbol = '%', .token = TokenType.Mod },
         SymbolMap{ .symbol = '!', .token = TokenType.Bang },
-        SymbolMap{ .symbol = '\'', .token = TokenType.SingleQuote },
-        SymbolMap{ .symbol = '"', .token = TokenType.DoubleQuote },
         SymbolMap{ .symbol = '.', .token = TokenType.Period },
         SymbolMap{ .symbol = ',', .token = TokenType.Comma },
         SymbolMap{ .symbol = '?', .token = TokenType.QuestionMark },
@@ -483,22 +507,4 @@ fn isSymbol(char: u8) ?TokenType {
     }
 
     return null;
-}
-
-pub fn freeTokens(allocator: Allocator, tokens: anytype) void {
-    for (tokens) |token| {
-        if (token.string) |str| {
-            allocator.free(str);
-        }
-    }
-
-    allocator.free(tokens);
-}
-
-pub fn freeTokenArr(allocator: Allocator, tokens: anytype) void {
-    for (tokens.*) |token| {
-        if (token.string) |str| {
-            allocator.free(str);
-        }
-    }
 }
