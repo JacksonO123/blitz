@@ -305,7 +305,7 @@ pub fn printFuncDec(compInfo: *CompInfo, func: *const FuncDecNode) void {
 fn printAttributes(compInfo: *CompInfo, attrs: []StructAttribute) void {
     for (attrs, 0..) |attr, index| {
         if (attr.static) {
-            std.debug.print("static ", .{});
+            std.debug.print("(static) ", .{});
         }
 
         std.debug.print("{s} ({s}) ", .{ attr.visibility.toString(), attr.name });
@@ -366,25 +366,25 @@ fn printNodes(compInfo: *CompInfo, nodes: []*const AstNode) void {
 pub fn printRegisteredStructs(compInfo: *CompInfo, structs: [](*const StructDecNode)) void {
     std.debug.print("--- structs ---\n", .{});
     for (structs) |s| {
-        std.debug.print("declaring {s}\n", .{s.name});
+        std.debug.print("declaring {s}", .{s.name});
+
+        if (s.deriveType) |derived| {
+            std.debug.print(" extending ", .{});
+            printType(compInfo, derived);
+        }
 
         if (s.generics.len > 0) {
-            std.debug.print(" with generics : ", .{});
+            std.debug.print(" with generics [", .{});
             printGenerics(compInfo, s.generics);
+            std.debug.print("]", .{});
         }
+
+        std.debug.print(" with attributes [", .{});
+        printAttributes(compInfo, s.attributes);
+        std.debug.print("]", .{});
+
+        std.debug.print("\n", .{});
     }
-}
-
-fn printStructAttributes(attrs: []StructAttribute) void {
-    _ = attrs;
-    // for (attrs) |attr| {
-    //     switch (attr.attr) {
-    //         .Member => {},
-    //         .Function => {}
-    //     }
-
-    //     if (attr.static) std.debug.print("(static)", .{});
-    // }
 }
 
 pub fn printTokens(tokens: anytype) void {
