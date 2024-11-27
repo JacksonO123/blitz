@@ -56,6 +56,8 @@ pub const ScanError = error{
     InvalidPropertySource,
     IdentifierNotAFunction,
     CannotCallNonFunctionNode,
+    StaticAccessFromStructInstance,
+    NonStaticAccessFromStaticStructReference,
 };
 
 pub fn typeScan(allocator: Allocator, ast: Ast, compInfo: *CompInfo) !void {
@@ -83,6 +85,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
                 .StaticArray => validateStaticArrayProps(access.property),
                 .String => validateStringProps(access.property),
                 .Custom => |custom| try validateCustomProps(compInfo, custom, access.property),
+                .StaticStructInstance => |name| try validateStaticStructProps(compInfo, name, access.property),
                 else => false,
             };
 
@@ -177,6 +180,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
             }
         },
         .FuncCall => |call| {
+            try scanNode(allocator, compInfo, call.func);
             const dec = try getExpressionType(allocator, compInfo, call.func);
 
             switch (dec) {
@@ -247,6 +251,24 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
             if (bangType != AstTypes.Bool) return ScanError.ExpectedBooleanBang;
         },
     }
+}
+
+fn validateStaticStructProps(compInfo: *CompInfo, name: []u8, prop: []u8) !bool {
+    const dec = compInfo.getStructDec(name).?;
+
+    for (dec.attributes) |attr| {
+        if (!std.mem.eql(u8, attr.name, prop)) continue;
+        if (!attr.static) return ScanError.NonStaticAccessFromStaticStructReference;
+
+        switch (attr.visibility) {
+            .Public => {},
+            else => return ScanError.UnsupportedFeature,
+        }
+
+        return true;
+    }
+
+    return ScanError.InvalidProperty;
 }
 
 fn validateCustomProps(compInfo: *CompInfo, custom: CustomType, prop: []u8) !bool {
@@ -498,8 +520,8 @@ fn getCustomPropType(allocator: Allocator, compInfo: *CompInfo, custom: CustomTy
     const dec = compInfo.getStructDec(custom.name);
     if (dec) |structDec| {
         for (structDec.attributes) |attr| {
-            if (attr.static) continue;
             if (!std.mem.eql(u8, attr.name, prop)) continue;
+            if (attr.static) return ScanError.StaticAccessFromStructInstance;
 
             switch (attr.visibility) {
                 .Public => {},

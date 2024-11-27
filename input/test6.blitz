@@ -18,4 +18,4 @@ const s = square.create(10);
 
 thing(s);
 
-s.testFn(false);
+// square.testFn(true);
