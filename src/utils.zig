@@ -1,6 +1,7 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
 const astMod = @import("ast.zig");
+const free = @import("free.zig");
 const AstTypes = astMod.AstTypes;
 const Token = tokenizer.Token;
 const TokenType = tokenizer.TokenType;
@@ -9,6 +10,7 @@ const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const FuncDecNode = astMod.FuncDecNode;
 const StructDecNode = astMod.StructDecNode;
+const freeCompInfo = free.freeCompInfo;
 
 pub fn findChar(items: []const u8, start: usize, item: u8) ?usize {
     var i = start;
@@ -45,6 +47,10 @@ pub fn cloneString(allocator: Allocator, string: []u8) ![]u8 {
     return try allocator.dupe(u8, string);
 }
 
+pub inline fn compString(str1: []const u8, str2: []const u8) bool {
+    return std.mem.eql(u8, str1, str2);
+}
+
 pub const CompInfo = struct {
     const Self = @This();
 
@@ -53,6 +59,10 @@ pub const CompInfo = struct {
     variableTypes: *StringHashMap(*const AstTypes),
     functions: *StringHashMap(*const FuncDecNode),
     structs: *StringHashMap(*const StructDecNode),
+    currentStructs: *ArrayList([]u8),
+    // each number describes how far from
+    // the struct method a child node is
+    distFromStructMethod: *ArrayList(u32),
     preAst: bool,
 
     pub fn prepareForAst(self: *Self) void {
@@ -61,7 +71,7 @@ pub const CompInfo = struct {
 
     pub fn hasStruct(self: Self, name: []u8) bool {
         for (self.structNames) |structName| {
-            if (std.mem.eql(u8, structName, name)) return true;
+            if (compString(structName, name)) return true;
         }
 
         return false;
@@ -73,7 +83,7 @@ pub const CompInfo = struct {
 
     pub fn removeGeneric(self: *Self, name: []u8) void {
         for (self.generics.items, 0..) |item, index| {
-            if (std.mem.eql(u8, item, name)) {
+            if (compString(item, name)) {
                 _ = self.generics.swapRemove(index);
             }
         }
@@ -81,7 +91,7 @@ pub const CompInfo = struct {
 
     pub fn hasGeneric(self: Self, name: []u8) bool {
         for (self.generics.items) |item| {
-            if (std.mem.eql(u8, item, name)) {
+            if (compString(item, name)) {
                 return true;
             }
         }
@@ -91,6 +101,10 @@ pub const CompInfo = struct {
 
     pub fn setVariableType(self: *Self, name: []u8, astType: *const AstTypes) !void {
         try self.variableTypes.put(name, astType);
+    }
+
+    pub fn removeVariableType(self: *Self, name: []u8) void {
+        _ = self.variableTypes.remove(name);
     }
 
     pub fn getVariableType(self: *Self, name: []u8) ?AstTypes {
@@ -127,5 +141,38 @@ pub const CompInfo = struct {
 
     pub fn getStructDec(self: Self, name: []u8) ?*const StructDecNode {
         return self.structs.get(name);
+    }
+
+    pub fn addCurrentStruct(self: *Self, name: []u8) !void {
+        try self.currentStructs.append(name);
+        try self.distFromStructMethod.append(0);
+    }
+
+    pub fn getCurrentStruct(self: Self) ?[]u8 {
+        return self.currentStructs.getLastOrNull();
+    }
+
+    pub fn popCurrentStruct(self: *Self) ?[]u8 {
+        _ = self.distFromStructMethod.popOrNull();
+        return self.currentStructs.popOrNull();
+    }
+
+    pub fn enteringStruct(self: *Self) void {
+        const len = self.distFromStructMethod.items.len;
+        if (len > 0) {
+            self.distFromStructMethod.items[len - 1] += 1;
+        }
+    }
+
+    pub fn exitingStruct(self: *Self) void {
+        const len = self.distFromStructMethod.items.len;
+        if (len > 0) {
+            self.distFromStructMethod.items[len - 1] -= 1;
+        }
+    }
+
+    pub fn isInStructMethod(self: Self) bool {
+        const len = self.distFromStructMethod.items.len;
+        return self.getCurrentStruct() != null and len > 0 and self.distFromStructMethod.items[len - 1] > 0;
     }
 };

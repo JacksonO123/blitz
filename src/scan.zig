@@ -28,6 +28,7 @@ const getStaticArrayPropTypes = builtins.getStaticArrayPropTypes;
 const cloneAstTypes = clone.cloneAstTypes;
 const CustomType = astMod.CustomType;
 const cloneFuncDec = clone.cloneFuncDec;
+const compString = utils.compString;
 
 // debug
 const debug = @import("debug.zig");
@@ -58,13 +59,16 @@ pub const ScanError = error{
     CannotCallNonFunctionNode,
     StaticAccessFromStructInstance,
     NonStaticAccessFromStaticStructReference,
+    UnexpectedDeriveType,
+    SelfUsedOutsideStruct,
+    UndefinedStruct,
 };
 
 pub fn typeScan(allocator: Allocator, ast: Ast, compInfo: *CompInfo) !void {
     try scanNodes(allocator, compInfo, ast.root.nodes);
 }
 
-fn scanNodes(allocator: Allocator, compInfo: *CompInfo, nodes: []*const AstNode) (ScanError || Allocator.Error)!void {
+pub fn scanNodes(allocator: Allocator, compInfo: *CompInfo, nodes: []*const AstNode) (ScanError || Allocator.Error)!void {
     for (nodes) |node| {
         try scanNode(allocator, compInfo, node);
     }
@@ -123,21 +127,29 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
             } else {
                 try compInfo.setVariableType(dec.name, setPtr);
             }
+
+            // TODO: remove variable types
         },
         .Variable => |v| {
             const varType = compInfo.getVariableType(v.name);
             if (varType == null) return ScanError.UndefinedOrUnknownVariableType;
         },
         .StructDec => |dec| {
+            try compInfo.addCurrentStruct(dec.name);
+
             for (dec.generics) |generic| {
                 try compInfo.addGeneric(generic.name);
             }
 
+            compInfo.enteringStruct();
             try scanAttributes(allocator, compInfo, dec.attributes);
+            compInfo.exitingStruct();
 
             for (dec.generics) |generic| {
                 compInfo.removeGeneric(generic.name);
             }
+
+            _ = compInfo.popCurrentStruct();
         },
         .IfStatement => |statement| {
             const conditionType = try getExpressionType(allocator, compInfo, statement.condition);
@@ -218,7 +230,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
 
                 var attrNode: ?*const AstNode = null;
                 for (init.attributes) |initAttr| {
-                    if (std.mem.eql(u8, initAttr.name, attr.name)) {
+                    if (compString(initAttr.name, attr.name)) {
                         attrNode = initAttr.value;
                     }
                 }
@@ -253,11 +265,37 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
     }
 }
 
+fn validateSelfProps(compInfo: *CompInfo, name: []u8, prop: []u8) !bool {
+    const structDec = compInfo.getStructDec(name);
+
+    if (structDec) |dec| {
+        for (dec.attributes) |attr| {
+            if (compString(attr.name, prop)) {
+                return true;
+            }
+        }
+
+        if (dec.deriveType) |derived| {
+            // TODO - handle litterally anything else
+            return validateSelfProps(compInfo, derived.StaticStructInstance, prop);
+        }
+    } else return ScanError.UndefinedStruct;
+
+    return false;
+}
+
 fn validateStaticStructProps(compInfo: *CompInfo, name: []u8, prop: []u8) !bool {
+    if (compString(name, "self")) {
+        const currentStruct = compInfo.getCurrentStruct();
+        if (currentStruct) |current| {
+            return validateSelfProps(compInfo, current, prop);
+        } else return ScanError.SelfUsedOutsideStruct;
+    }
+
     const dec = compInfo.getStructDec(name).?;
 
     for (dec.attributes) |attr| {
-        if (!std.mem.eql(u8, attr.name, prop)) continue;
+        if (!compString(attr.name, prop)) continue;
         if (!attr.static) return ScanError.NonStaticAccessFromStaticStructReference;
 
         switch (attr.visibility) {
@@ -272,18 +310,25 @@ fn validateStaticStructProps(compInfo: *CompInfo, name: []u8, prop: []u8) !bool 
 }
 
 fn validateCustomProps(compInfo: *CompInfo, custom: CustomType, prop: []u8) !bool {
-    // TODO support private and protected
-
     const dec = compInfo.getStructDec(custom.name);
     if (dec) |structDec| {
         for (structDec.attributes) |attr| {
             if (attr.static) continue;
 
-            if (std.mem.eql(u8, attr.name, prop)) return true;
+            if (compString(attr.name, prop)) {
+                switch (attr.visibility) {
+                    .Public => {},
+                    else => return ScanError.UnsupportedFeature,
+                }
 
-            switch (attr.visibility) {
-                .Public => {},
-                else => return ScanError.UnsupportedFeature,
+                return true;
+            }
+        }
+
+        if (structDec.deriveType) |deriveType| {
+            switch (deriveType.*) {
+                .Custom => |c| return try validateCustomProps(compInfo, c, prop),
+                else => return ScanError.UnexpectedDeriveType,
             }
         }
 
@@ -303,7 +348,15 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []StructAttr
         switch (attr.attr) {
             .Member => {},
             .Function => |func| {
+                for (func.params) |param| {
+                    try compInfo.setVariableType(param.name, param.type);
+                }
+
                 try scanNode(allocator, compInfo, func.body);
+
+                for (func.params) |param| {
+                    compInfo.removeVariableType(param.name);
+                }
             },
         }
     }
@@ -463,6 +516,12 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
             return ScanError.InvalidCast;
         },
         .Variable => |v| {
+            if (compInfo.isInStructMethod() and compString(v.name, "self")) {
+                return .{
+                    .StaticStructInstance = v.name,
+                };
+            }
+
             const varType = compInfo.getVariableType(v.name);
             if (varType) |astType| {
                 return try cloneAstTypes(allocator, astType);
@@ -520,7 +579,7 @@ fn getCustomPropType(allocator: Allocator, compInfo: *CompInfo, custom: CustomTy
     const dec = compInfo.getStructDec(custom.name);
     if (dec) |structDec| {
         for (structDec.attributes) |attr| {
-            if (!std.mem.eql(u8, attr.name, prop)) continue;
+            if (!compString(attr.name, prop)) continue;
             if (attr.static) return ScanError.StaticAccessFromStructInstance;
 
             switch (attr.visibility) {
@@ -534,6 +593,13 @@ fn getCustomPropType(allocator: Allocator, compInfo: *CompInfo, custom: CustomTy
             }
         }
 
+        if (structDec.deriveType) |deriveType| {
+            switch (deriveType.*) {
+                .Custom => |c| return try getCustomPropType(allocator, compInfo, c, prop),
+                else => return ScanError.UnexpectedDeriveType,
+            }
+        }
+
         return ScanError.InvalidProperty;
     }
 
@@ -541,14 +607,12 @@ fn getCustomPropType(allocator: Allocator, compInfo: *CompInfo, custom: CustomTy
 }
 
 fn getStructPropType(compInfo: *CompInfo, allowNonStatic: bool, inst: []u8, prop: []u8) !AstTypes {
-    // TODO support protected/private visibility
-
     const dec = compInfo.getStructDec(inst);
     if (dec == null) return ScanError.InvalidPropertySource;
 
     for (dec.?.attributes) |attr| {
         if (!attr.static and allowNonStatic) continue;
-        if (!std.mem.eql(u8, attr.name, prop)) continue;
+        if (!compString(attr.name, prop)) continue;
 
         switch (attr.visibility) {
             .Public => {},

@@ -63,3 +63,7 @@ thing.size = 3;
 // type casting
 const a: u32 = 4;
 const b: f32 = f32(a);
+
+// self
+can access self in struct method scopes
+not accessible in static methods

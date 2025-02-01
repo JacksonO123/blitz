@@ -14,11 +14,11 @@ pub fn main() !void {
         return RuntimeError.NoInputFile;
     }
 
-    const testSrc: []const u8 = "input/";
-    var path = try allocator.alloc(u8, testSrc.len + args[1].len);
-    std.mem.copyForwards(u8, path[0..], testSrc);
-    std.mem.copyForwards(u8, path[testSrc.len..], args[1]);
+    var path = try allocator.alloc(u8, args[1].len);
+    std.mem.copyForwards(u8, path[0..], args[1]);
     defer allocator.free(path);
+
+    std.debug.print("opening: {s}", .{path});
 
     try compile(allocator, path);
 }

@@ -21,13 +21,13 @@ pub fn cloneAstTypes(allocator: Allocator, types: AstTypes) !AstTypes {
 
         .DynamicArray => |arr| {
             const newPtr = try cloneAstTypesPtr(allocator, arr);
-            return AstTypes{ .DynamicArray = newPtr };
+            return .{ .DynamicArray = newPtr };
         },
         .StaticArray => |arr| {
             const clonedType = try cloneAstTypesPtr(allocator, arr.type);
             const clonedNode = try cloneAstNodePtr(allocator, arr.size);
 
-            return AstTypes{
+            return .{
                 .StaticArray = .{
                     .type = clonedType,
                     .size = clonedNode,
@@ -35,19 +35,19 @@ pub fn cloneAstTypes(allocator: Allocator, types: AstTypes) !AstTypes {
             };
         },
         .StaticStructInstance => |name| {
-            return AstTypes{
+            return .{
                 .StaticStructInstance = try cloneString(allocator, name),
             };
         },
         .Nullable => |t| {
-            return AstTypes{
+            return .{
                 .Nullable = try cloneAstTypesPtr(allocator, t),
             };
         },
         .Custom => |custom| {
             const genericsSlice = try cloneTypesArr(allocator, custom.generics);
 
-            return AstTypes{
+            return .{
                 .Custom = .{
                     .name = try cloneString(allocator, custom.name),
                     .generics = genericsSlice,
@@ -55,7 +55,7 @@ pub fn cloneAstTypes(allocator: Allocator, types: AstTypes) !AstTypes {
             };
         },
         .Generic => |generic| {
-            return AstTypes{
+            return .{
                 .Generic = try cloneString(allocator, generic),
             };
         },
@@ -71,7 +71,7 @@ pub fn cloneAstTypes(allocator: Allocator, types: AstTypes) !AstTypes {
             const returnType = try cloneAstTypesPtr(allocator, func.returnType);
             const bodyPtr = try cloneAstNodePtr(allocator, func.body);
 
-            return AstTypes{
+            return .{
                 .Function = try create(FuncDecNode, allocator, .{
                     .generics = clonedGenerics,
                     .name = name,

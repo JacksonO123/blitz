@@ -3,6 +3,7 @@ const utils = @import("utils.zig");
 const findChar = utils.findChar;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
+const compString = utils.compString;
 
 pub const TokenizeError = error{
     IdentifierWithStartingNumber,
@@ -467,7 +468,7 @@ fn isKeyword(chars: []const u8) ?TokenType {
 
 fn getTypeFromMap(chars: []const u8, map: anytype) ?TokenType {
     for (map) |mapItem| {
-        if (std.mem.eql(u8, chars, mapItem.string)) {
+        if (compString(chars, mapItem.string)) {
             return mapItem.token;
         }
     }

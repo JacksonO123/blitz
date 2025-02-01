@@ -1,5 +1,8 @@
 # Todo
 
+## fs should do
+
+- [ ] struct member visibility
 - [ ] struct accessor modifiers
   - [x] function call
   - [ ] index

@@ -4,6 +4,8 @@ const astMod = @import("ast.zig");
 const scan = @import("scan.zig");
 const utils = @import("utils.zig");
 const free = @import("free.zig");
+const create = utils.create;
+const AstNode = astMod.AstNode;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = std.mem.Allocator;
@@ -14,11 +16,14 @@ const registerStructs = astMod.registerStructs;
 const CompInfo = utils.CompInfo;
 const createAst = astMod.createAst;
 const freeAst = free.freeAst;
-const freeCompInfo = free.freeCompInfo;
+const freeNode = free.freeNode;
 const typeScan = scan.typeScan;
+const scanNodes = scan.scanNodes;
 const findStructNames = astMod.findStructNames;
 const FuncDecNode = astMod.FuncDecNode;
 const StructDecNode = astMod.StructDecNode;
+const createCompInfo = utils.createCompInfo;
+const freeCompInfo = free.freeCompInfo;
 
 // debug
 const debug = @import("debug.zig");
@@ -40,15 +45,20 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
     printStructNames(structNames);
 
     var genericsList = ArrayList([]u8).init(allocator);
+    var currentStructs = ArrayList([]u8).init(allocator);
+    var distFromStructMethod = ArrayList(u32).init(allocator);
     var functions = StringHashMap(*const FuncDecNode).init(allocator);
     var variableTypes = StringHashMap(*const AstTypes).init(allocator);
     var structs = StringHashMap(*const StructDecNode).init(allocator);
-    var compInfo = CompInfo{
+
+    var compInfo: CompInfo = .{
         .structNames = structNames,
         .generics = &genericsList,
         .variableTypes = &variableTypes,
         .functions = &functions,
         .structs = &structs,
+        .currentStructs = &currentStructs,
+        .distFromStructMethod = &distFromStructMethod,
         .preAst = true,
     };
     defer freeCompInfo(allocator, &compInfo);
@@ -58,6 +68,24 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
     try compInfo.setStructDecs(registeredStructs);
 
     printRegisteredStructs(&compInfo, registeredStructs);
+
+    {
+        var registeredStructNodes = ArrayList(*const AstNode).init(allocator);
+        defer registeredStructNodes.deinit();
+
+        for (registeredStructs) |s| {
+            const node = try create(AstNode, allocator, .{
+                .StructDec = s,
+            });
+            try registeredStructNodes.append(node);
+        }
+
+        try scanNodes(allocator, &compInfo, registeredStructNodes.items);
+
+        for (registeredStructNodes.items) |node| {
+            allocator.destroy(node);
+        }
+    }
 
     compInfo.prepareForAst();
 

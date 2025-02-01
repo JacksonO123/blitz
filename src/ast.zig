@@ -164,6 +164,8 @@ const StructAttributeOffsetData = struct {
 };
 
 pub const StructDecNode = struct {
+    const Self = @This();
+
     name: []u8,
     generics: []GenericType,
     attributes: []StructAttribute,
@@ -264,6 +266,9 @@ const AstError = error{
     ExpectedNameForStruct,
     ExpectedIdentifierPropertyAccess,
     ExpectedIdentifierPropertyAccessSource,
+    ExpectedStructDeriveType,
+    ExpectedIdentifierForDerivedType,
+    UndefinedStruct,
 };
 
 const AstNodeOffsetData = struct {
@@ -349,6 +354,8 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
             });
 
             var current = currentChar + 2;
+            if (current >= tokens.len) break;
+
             while (tokens[current].type == TokenType.LParen or tokens[current].type == TokenType.LBracket) {
                 if (tokens[current].type == TokenType.LParen) {
                     const rParenIndex = smartDelimiterIndex(tokens, compInfo, currentChar + 3, TokenType.RParen) catch |e| return astError(e, ")");
@@ -483,6 +490,13 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
             var deriveType: ?*const AstTypes = null;
             if (tokens[nameIndex + 1].type == TokenType.Colon) {
                 const deriveTokens = tokens[nameIndex + 2 .. lBraceIndex];
+
+                if (deriveTokens.len == 0) {
+                    return AstError.ExpectedStructDeriveType;
+                } else if (deriveTokens[0].type != TokenType.Identifier) {
+                    return AstError.ExpectedIdentifierForDerivedType;
+                }
+
                 deriveType = try createTypeNode(allocator, compInfo, deriveTokens);
             }
 
@@ -1197,7 +1211,7 @@ fn createTypeNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (A
         const tokenString = tokens[current].string.?;
         if (compInfo.hasGeneric(tokenString)) {
             res = try create(AstTypes, allocator, AstTypes{
-                .Generic = tokenString,
+                .Generic = try cloneString(allocator, tokenString),
             });
         } else if (compInfo.hasStruct(tokenString)) {
             var customType = CustomType{
@@ -1337,6 +1351,9 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedNameForStruct => "expected name for struct",
         AstError.ExpectedIdentifierPropertyAccess => "expected identifier for struct property access",
         AstError.ExpectedIdentifierPropertyAccessSource => "expected identifier for property access source",
+        AstError.ExpectedStructDeriveType => "expected struct derive type",
+        AstError.ExpectedIdentifierForDerivedType => "expected identifier for derive type",
+        AstError.UndefinedStruct => "undefined struct",
     };
 }
 

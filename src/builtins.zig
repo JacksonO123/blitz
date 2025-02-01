@@ -8,6 +8,7 @@ const ScanError = scanner.ScanError;
 const AstNumberVariants = astMod.AstNumberVariants;
 const toSlice = utils.toSlice;
 const Allocator = std.mem.Allocator;
+const compString = utils.compString;
 
 const PropTypeMap = struct {
     prop: []u8,
@@ -46,7 +47,7 @@ pub fn validateStringProps(str: []u8) bool {
 
 fn validateProps(comptime sz: comptime_int, props: *const [sz][]const u8, prop: []u8) bool {
     for (props) |p| {
-        if (std.mem.eql(u8, p, prop)) return true;
+        if (compString(p, prop)) return true;
     }
 
     return false;
@@ -76,7 +77,7 @@ pub fn getStaticArrayPropTypes(allocator: Allocator, prop: []u8) !AstTypes {
 
 fn getPropType(typeMap: []const PropTypeMap, prop: []u8) !AstTypes {
     for (typeMap) |item| {
-        if (std.mem.eql(u8, item.prop, prop)) return item.type;
+        if (compString(item.prop, prop)) return item.type;
     }
 
     return ScanError.InvalidProperty;

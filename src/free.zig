@@ -44,9 +44,15 @@ pub fn freeCompInfo(allocator: Allocator, compInfo: *CompInfo) void {
 
     freeStructNames(allocator, compInfo.structNames);
 
+    for (compInfo.currentStructs.items) |item| {
+        allocator.free(item);
+    }
+
     compInfo.variableTypes.deinit();
     compInfo.functions.deinit();
     compInfo.structs.deinit();
+    compInfo.currentStructs.deinit();
+    compInfo.distFromStructMethod.deinit();
 }
 
 pub fn freeStructNames(allocator: Allocator, structNames: [][]u8) void {
@@ -242,6 +248,9 @@ pub fn freeStackType(allocator: Allocator, node: *const AstTypes) void {
 
             allocator.free(custom.generics);
             allocator.free(custom.name);
+        },
+        .Generic => |gen| {
+            allocator.free(gen);
         },
         else => {},
     }

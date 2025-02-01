@@ -1,12 +1,24 @@
-struct square {
+struct shape {
+  pub fn util() {
+    const c = 3;
+  }
+}
+
+struct square : shape {
   size: u32;
+
   pub static fn create(size: u32): square {
     return square {
       size
     };
   }
+
   pub fn testFn(isTest: bool) {
     const b = 2;
+  }
+
+  fn testPriv() {
+    return self.size;
   }
 }
 
@@ -18,4 +30,10 @@ const s = square.create(10);
 
 thing(s);
 
-// square.testFn(true);
+s.testFn(true);
+
+// s.testPriv();
+
+s.util();
+
+// s.size;
