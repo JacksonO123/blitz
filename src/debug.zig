@@ -163,6 +163,34 @@ fn printValue(compInfo: *CompInfo, value: *const AstValues) void {
 
 pub fn printNode(compInfo: *CompInfo, node: *const AstNode) void {
     switch (node.*) {
+        .Add => |op| {
+            std.debug.print("(", .{});
+            printNode(compInfo, op.left);
+            std.debug.print(") +ADD+ (", .{});
+            printNode(compInfo, op.right);
+            std.debug.print(")", .{});
+        },
+        .Sub => |op| {
+            std.debug.print("(", .{});
+            printNode(compInfo, op.left);
+            std.debug.print(") -SUB- (", .{});
+            printNode(compInfo, op.right);
+            std.debug.print(")", .{});
+        },
+        .Mult => |op| {
+            std.debug.print("(", .{});
+            printNode(compInfo, op.left);
+            std.debug.print(") *MULT* (", .{});
+            printNode(compInfo, op.right);
+            std.debug.print(")", .{});
+        },
+        .Div => |op| {
+            std.debug.print("(", .{});
+            printNode(compInfo, op.left);
+            std.debug.print(") /DIV/ (", .{});
+            printNode(compInfo, op.right);
+            std.debug.print(")", .{});
+        },
         .FuncReference => |ref| {
             std.debug.print("function ({s})", .{ref});
         },

@@ -1,6 +1,8 @@
 const std = @import("std");
 const compile = @import("compiler.zig").compile;
 
+pub const blitz = @import("blitz.zig");
+
 const RuntimeError = error{NoInputFile};
 
 pub fn main() !void {

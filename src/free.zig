@@ -118,6 +118,10 @@ pub fn freeValueNode(allocator: Allocator, node: *const AstValues) void {
 
 pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
     switch (node.*) {
+        .Add, .Sub, .Mult, .Div => |op| {
+            freeNode(allocator, op.left);
+            freeNode(allocator, op.right);
+        },
         .FuncReference => |ref| {
             allocator.free(ref);
         },

@@ -105,6 +105,38 @@ pub fn cloneAstNode(allocator: Allocator, node: AstNode) !AstNode {
     switch (node) {
         .NoOp => return node,
 
+        .Add => |op| {
+            return .{
+                .Add = .{
+                    .left = try cloneAstNodePtr(allocator, op.left),
+                    .right = try cloneAstNodePtr(allocator, op.right),
+                },
+            };
+        },
+        .Sub => |op| {
+            return .{
+                .Sub = .{
+                    .left = try cloneAstNodePtr(allocator, op.left),
+                    .right = try cloneAstNodePtr(allocator, op.right),
+                },
+            };
+        },
+        .Mult => |op| {
+            return .{
+                .Mult = .{
+                    .left = try cloneAstNodePtr(allocator, op.left),
+                    .right = try cloneAstNodePtr(allocator, op.right),
+                },
+            };
+        },
+        .Div => |op| {
+            return .{
+                .Div = .{
+                    .left = try cloneAstNodePtr(allocator, op.left),
+                    .right = try cloneAstNodePtr(allocator, op.right),
+                },
+            };
+        },
         .FuncReference => |ref| {
             return AstNode{
                 .FuncReference = try cloneString(allocator, ref),

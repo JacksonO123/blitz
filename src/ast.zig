@@ -216,6 +216,11 @@ const PropertyAccess = struct {
     property: []u8,
 };
 
+const MathOp = struct {
+    left: *const AstNode,
+    right: *const AstNode,
+};
+
 const AstNodeVariants = enum {
     NoOp,
     Seq,
@@ -234,6 +239,10 @@ const AstNodeVariants = enum {
     PropertyAccess,
     StaticStructInstance,
     FuncReference,
+    Add,
+    Sub,
+    Mult,
+    Div,
 };
 pub const AstNode = union(AstNodeVariants) {
     NoOp,
@@ -253,6 +262,10 @@ pub const AstNode = union(AstNodeVariants) {
     PropertyAccess: PropertyAccess,
     StaticStructInstance: []u8,
     FuncReference: []u8,
+    Add: MathOp,
+    Sub: MathOp,
+    Mult: MathOp,
+    Div: MathOp,
 };
 
 const AstError = error{
@@ -326,7 +339,15 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
     if (tokens.len == 0) {
         return .{
             .offset = 0,
-            .node = try create(AstNode, allocator, @as(AstNode, AstNode.NoOp)),
+            .node = try create(AstNode, allocator, @as(AstNode, .NoOp)),
+        };
+    }
+
+    if (isMathExpr(compInfo, tokens)) {
+        const node = try parseMathExpr(allocator, compInfo, tokens);
+        return .{
+            .node = node,
+            .offset = tokens.len,
         };
     }
 
@@ -744,6 +765,70 @@ fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (As
     }
 }
 
+fn isMathExpr(compInfo: *CompInfo, tokens: []Token) bool {
+    const addIndex = smartDelimiterIndex(tokens, compInfo, 0, TokenType.Add) catch null;
+    const subIndex = smartDelimiterIndex(tokens, compInfo, 0, TokenType.Sub) catch null;
+    const mulIndex = smartDelimiterIndex(tokens, compInfo, 0, TokenType.Mult) catch null;
+    const divIndex = smartDelimiterIndex(tokens, compInfo, 0, TokenType.Div) catch null;
+    const eqIndex = smartDelimiterIndex(tokens, compInfo, 0, TokenType.EqSet) catch null;
+
+    if (eqIndex != null) return false;
+    if (addIndex == null and subIndex == null and mulIndex == null and divIndex == null) return false;
+    return true;
+}
+
+fn parseMathHelper(allocator: Allocator, compInfo: *CompInfo, opIndex: usize, tokens: []Token) !MathOp {
+    const leftTokens = tokens[0..opIndex];
+    const leftExpr = try parseMathExpr(allocator, compInfo, leftTokens);
+    const rightTokens = tokens[opIndex + 1 ..];
+    const rightExpr = try parseMathExpr(allocator, compInfo, rightTokens);
+
+    return .{
+        .left = leftExpr,
+        .right = rightExpr,
+    };
+}
+
+fn parseMathExpr(allocator: Allocator, compInfo: *CompInfo, tokens: []Token) (AstError || Allocator.Error)!*const AstNode {
+    const addIndex = smartDelimiterIndex(tokens, compInfo, 0, TokenType.Add) catch null;
+
+    if (addIndex) |index| {
+        const op = try parseMathHelper(allocator, compInfo, index, tokens);
+        return try create(AstNode, allocator, .{
+            .Add = op,
+        });
+    }
+
+    const subIndex = smartDelimiterIndex(tokens, compInfo, 0, TokenType.Sub) catch null;
+
+    if (subIndex) |index| {
+        const op = try parseMathHelper(allocator, compInfo, index, tokens);
+        return try create(AstNode, allocator, .{
+            .Sub = op,
+        });
+    }
+
+    const multIndex = smartDelimiterIndex(tokens, compInfo, 0, TokenType.Mult) catch null;
+
+    if (multIndex) |index| {
+        const op = try parseMathHelper(allocator, compInfo, index, tokens);
+        return try create(AstNode, allocator, .{
+            .Mult = op,
+        });
+    }
+
+    const divIndex = smartDelimiterIndex(tokens, compInfo, 0, TokenType.Div) catch null;
+
+    if (divIndex) |index| {
+        const op = try parseMathHelper(allocator, compInfo, index, tokens);
+        return try create(AstNode, allocator, .{
+            .Div = op,
+        });
+    }
+
+    return (try createAstNode(allocator, compInfo, tokens)).node;
+}
+
 fn isSingleNode(compInfo: *CompInfo, tokens: []Token) !bool {
     if (tokens.len == 0) return false;
 
@@ -922,6 +1007,7 @@ fn createStructAttributes(allocator: Allocator, compInfo: *CompInfo, tokens: []T
             },
             else => {
                 std.debug.print("stuck {any}\n", .{tokens[current]});
+                return AstError.UnexpectedToken;
             },
         }
     }
@@ -977,7 +1063,7 @@ fn createStructAttributeData(allocator: Allocator, compInfo: *CompInfo, tokens: 
         .Identifier => val: {
             const typeTokens = tokens[2..];
             const typeNode = try createTypeNode(allocator, compInfo, typeTokens);
-            offset = delimiterIndex(tokens, 2, TokenType.Semicolon) catch |e| return astError(e, ";");
+            offset = (delimiterIndex(tokens, 2, TokenType.Semicolon) catch |e| return astError(e, ";")) + 1;
 
             break :val StructAttributeUnion{ .Member = typeNode };
         },

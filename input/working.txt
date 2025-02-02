@@ -4,3 +4,5 @@ test3.blitz
 test4.blitz
 test5.blitz
 test6.blitz
+test8.blitz
+test9.blitz

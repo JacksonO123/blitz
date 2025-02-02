@@ -1,5 +1,9 @@
-target:
-	echo "specify blitz file"
+target: .FORCE_DEBUG
 
-%.blitz:
-	zig run src/main.zig -- "input/$@"
+prod: .FORCE_PROD
+
+.FORCE_DEBUG:
+	zig build -p build
+
+.FORCE_PROD:
+	zig build -p build -Doptimize=ReleaseFast --release=fast

@@ -11,6 +11,7 @@ const StringHashMap = std.StringHashMap;
 const FuncDecNode = astMod.FuncDecNode;
 const StructDecNode = astMod.StructDecNode;
 const freeCompInfo = free.freeCompInfo;
+const AstNumberVariants = astMod.AstNumberVariants;
 
 pub fn findChar(items: []const u8, start: usize, item: u8) ?usize {
     var i = start;
@@ -35,12 +36,6 @@ pub fn toSlice(comptime T: type, allocator: Allocator, data: anytype) ![]T {
     std.mem.copyForwards(T, list.items, data);
     const res = try allocator.dupe(T, list.items);
     return res;
-}
-
-pub fn numberLength(num: usize) usize {
-    if (num == 0) return 1;
-    const float: f64 = @floatFromInt(num);
-    return @as(usize, @intFromFloat(@floor(@log10(@abs(float))) + 1));
 }
 
 pub fn cloneString(allocator: Allocator, string: []u8) ![]u8 {

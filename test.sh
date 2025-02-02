@@ -1,8 +1,12 @@
 function run() {
+  blitz-debug "input/$1"
+}
+
+function run_log() {
   if [ "$2" == "-l" ]; then
-    make "$1" 2> ./logs/"$1"
+    run "$1" 2> ./logs/"$1"
   else
-    make "$1"
+    run "$1"
   fi
 
   OUT=$(echo $?)
@@ -17,12 +21,14 @@ function run() {
 if [ "$1" == "" ]; then
   while IFS="" read -r p || [ -n "$p" ]
   do
-    run "$p" -l &
+    run_log "$p" -l &
   done < input/working.txt
-elif [ "$1" == "build" ]; then
-  echo "build is a builtin test command, if you wanted to run a\nblitz file named 'build', consider renaming the file"
-  zig build -p build
 else
-  run "$1.blitz"
+  if [[ "$1" == *\.blitz ]]; then
+    echo "expected filename without \".blitz\" extension"
+    exit 0
+  fi
+
+  run_log "$1.blitz"
 fi
 

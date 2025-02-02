@@ -1,16 +1,18 @@
 const std = @import("std");
-const astMod = @import("ast.zig");
-const utils = @import("utils.zig");
-const free = @import("free.zig");
+const blitz = @import("root").blitz;
+const blitzAst = blitz.ast;
+const utils = blitz.utils;
+const free = blitz.free;
 const builtins = @import("builtins.zig");
 const clone = @import("clone.zig");
+const number = blitz.number;
 const Allocator = std.mem.Allocator;
-const Ast = astMod.Ast;
-const AstNode = astMod.AstNode;
-const AstTypes = astMod.AstTypes;
-const StructAttribute = astMod.StructAttribute;
+const Ast = blitzAst.Ast;
+const AstNode = blitzAst.AstNode;
+const AstTypes = blitzAst.AstTypes;
+const StructAttribute = blitzAst.StructAttribute;
 const CompInfo = utils.CompInfo;
-const AstNumberVariants = astMod.AstNumberVariants;
+const AstNumberVariants = blitzAst.AstNumberVariants;
 const ArrayList = std.ArrayList;
 const numberLength = utils.numberLength;
 const create = utils.create;
@@ -18,15 +20,15 @@ const toSlice = utils.toSlice;
 const cloneString = utils.cloneString;
 const Case = std.fmt.Case;
 const freeStackType = free.freeStackType;
-const GenericType = astMod.GenericType;
-const StructAttributeVariants = astMod.StructAttributeVariants;
+const GenericType = blitzAst.GenericType;
+const StructAttributeVariants = blitzAst.StructAttributeVariants;
 const validateStaticArrayProps = builtins.validateStaticArrayProps;
 const validateDynamicArrayProps = builtins.validateDynamicArrayProps;
 const validateStringProps = builtins.validateStringProps;
 const getStringPropTypes = builtins.getStringPropTypes;
 const getStaticArrayPropTypes = builtins.getStaticArrayPropTypes;
 const cloneAstTypes = clone.cloneAstTypes;
-const CustomType = astMod.CustomType;
+const CustomType = blitzAst.CustomType;
 const cloneFuncDec = clone.cloneFuncDec;
 const compString = utils.compString;
 
@@ -62,6 +64,9 @@ pub const ScanError = error{
     UnexpectedDeriveType,
     SelfUsedOutsideStruct,
     UndefinedStruct,
+    RestrictedPropertyAccess,
+    MathOpOnNonNumberType,
+    MathOpTypeMismatch,
 };
 
 pub fn typeScan(allocator: Allocator, ast: Ast, compInfo: *CompInfo) !void {
@@ -77,6 +82,15 @@ pub fn scanNodes(allocator: Allocator, compInfo: *CompInfo, nodes: []*const AstN
 fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Allocator.Error || ScanError)!void {
     switch (node.*) {
         .NoOp, .Type, .Value, .Cast, .StaticStructInstance => {},
+        .Add, .Sub, .Mult, .Div => |op| {
+            const left = try getExpressionType(allocator, compInfo, op.left);
+            defer freeStackType(allocator, &left);
+            const right = try getExpressionType(allocator, compInfo, op.right);
+            defer freeStackType(allocator, &right);
+
+            if (left != .Number or right != .Number) return ScanError.MathOpOnNonNumberType;
+            if (!number.sameType(left.Number, right.Number)) return ScanError.MathOpTypeMismatch;
+        },
         .FuncReference => |ref| {
             if (!compInfo.hasFunctionName(ref)) return ScanError.IdentifierNotAFunction;
         },
@@ -128,7 +142,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
                 try compInfo.setVariableType(dec.name, setPtr);
             }
 
-            // TODO: remove variable types
+            // TODO: remove variable types when out of scope
         },
         .Variable => |v| {
             const varType = compInfo.getVariableType(v.name);
@@ -297,11 +311,7 @@ fn validateStaticStructProps(compInfo: *CompInfo, name: []u8, prop: []u8) !bool 
     for (dec.attributes) |attr| {
         if (!compString(attr.name, prop)) continue;
         if (!attr.static) return ScanError.NonStaticAccessFromStaticStructReference;
-
-        switch (attr.visibility) {
-            .Public => {},
-            else => return ScanError.UnsupportedFeature,
-        }
+        if (attr.visibility != .Public) return ScanError.RestrictedPropertyAccess;
 
         return true;
     }
@@ -316,11 +326,7 @@ fn validateCustomProps(compInfo: *CompInfo, custom: CustomType, prop: []u8) !boo
             if (attr.static) continue;
 
             if (compString(attr.name, prop)) {
-                switch (attr.visibility) {
-                    .Public => {},
-                    else => return ScanError.UnsupportedFeature,
-                }
-
+                if (attr.visibility != .Public) return false;
                 return true;
             }
         }
@@ -467,6 +473,22 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
         .VarDec => AstTypes.Void,
         .StructDec => AstTypes.Void,
         .IfStatement => AstTypes.Void,
+
+        .Add, .Sub, .Mult, .Div => |op| {
+            try scanNode(allocator, compInfo, expr);
+
+            const leftType = try getExpressionType(allocator, compInfo, op.left);
+            defer freeStackType(allocator, &leftType);
+            const rightType = try getExpressionType(allocator, compInfo, op.right);
+            defer freeStackType(allocator, &rightType);
+
+            if (leftType != .Number or rightType != .Number) return ScanError.MathOpOnNonNumberType;
+            if (!number.sameType(leftType.Number, rightType.Number)) return ScanError.MathOpTypeMismatch;
+
+            return .{
+                .Number = number.largestNumType(leftType.Number, rightType.Number),
+            };
+        },
 
         .FuncReference => |ref| {
             try scanNode(allocator, compInfo, expr);

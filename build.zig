@@ -15,8 +15,10 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    const name = if (optimize == .Debug) "blitz-debug" else "blitz";
+
     const exe = b.addExecutable(.{
-        .name = "blitz",
+        .name = name,
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
