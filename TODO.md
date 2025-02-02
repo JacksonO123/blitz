@@ -2,7 +2,7 @@
 
 ## fs should do
 
-- [ ] struct member visibility
+- [x] struct member visibility
 - [ ] struct accessor modifiers
   - [x] function call
   - [ ] index

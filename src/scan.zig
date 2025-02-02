@@ -4,33 +4,13 @@ const blitzAst = blitz.ast;
 const utils = blitz.utils;
 const free = blitz.free;
 const builtins = @import("builtins.zig");
-const clone = @import("clone.zig");
+const clone = blitz.clone;
 const number = blitz.number;
+const string = blitz.string;
 const Allocator = std.mem.Allocator;
-const Ast = blitzAst.Ast;
-const AstNode = blitzAst.AstNode;
-const AstTypes = blitzAst.AstTypes;
-const StructAttribute = blitzAst.StructAttribute;
 const CompInfo = utils.CompInfo;
-const AstNumberVariants = blitzAst.AstNumberVariants;
 const ArrayList = std.ArrayList;
-const numberLength = utils.numberLength;
 const create = utils.create;
-const toSlice = utils.toSlice;
-const cloneString = utils.cloneString;
-const Case = std.fmt.Case;
-const freeStackType = free.freeStackType;
-const GenericType = blitzAst.GenericType;
-const StructAttributeVariants = blitzAst.StructAttributeVariants;
-const validateStaticArrayProps = builtins.validateStaticArrayProps;
-const validateDynamicArrayProps = builtins.validateDynamicArrayProps;
-const validateStringProps = builtins.validateStringProps;
-const getStringPropTypes = builtins.getStringPropTypes;
-const getStaticArrayPropTypes = builtins.getStaticArrayPropTypes;
-const cloneAstTypes = clone.cloneAstTypes;
-const CustomType = blitzAst.CustomType;
-const cloneFuncDec = clone.cloneFuncDec;
-const compString = utils.compString;
 
 // debug
 const debug = @import("debug.zig");
@@ -69,24 +49,24 @@ pub const ScanError = error{
     MathOpTypeMismatch,
 };
 
-pub fn typeScan(allocator: Allocator, ast: Ast, compInfo: *CompInfo) !void {
+pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !void {
     try scanNodes(allocator, compInfo, ast.root.nodes);
 }
 
-pub fn scanNodes(allocator: Allocator, compInfo: *CompInfo, nodes: []*const AstNode) (ScanError || Allocator.Error)!void {
+pub fn scanNodes(allocator: Allocator, compInfo: *CompInfo, nodes: []*const blitzAst.AstNode) (ScanError || Allocator.Error)!void {
     for (nodes) |node| {
         try scanNode(allocator, compInfo, node);
     }
 }
 
-fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Allocator.Error || ScanError)!void {
+fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst.AstNode) (Allocator.Error || ScanError)!void {
     switch (node.*) {
         .NoOp, .Type, .Value, .Cast, .StaticStructInstance => {},
         .Add, .Sub, .Mult, .Div => |op| {
             const left = try getExpressionType(allocator, compInfo, op.left);
-            defer freeStackType(allocator, &left);
+            defer free.freeStackType(allocator, &left);
             const right = try getExpressionType(allocator, compInfo, op.right);
-            defer freeStackType(allocator, &right);
+            defer free.freeStackType(allocator, &right);
 
             if (left != .Number or right != .Number) return ScanError.MathOpOnNonNumberType;
             if (!number.sameType(left.Number, right.Number)) return ScanError.MathOpTypeMismatch;
@@ -96,12 +76,12 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
         },
         .PropertyAccess => |access| {
             const res = try getExpressionType(allocator, compInfo, access.value);
-            defer freeStackType(allocator, &res);
+            defer free.freeStackType(allocator, &res);
 
             const validProp = switch (res) {
-                .DynamicArray => validateDynamicArrayProps(access.property),
-                .StaticArray => validateStaticArrayProps(access.property),
-                .String => validateStringProps(access.property),
+                .DynamicArray => builtins.validateDynamicArrayProps(access.property),
+                .StaticArray => builtins.validateStaticArrayProps(access.property),
+                .String => builtins.validateStringProps(access.property),
                 .Custom => |custom| try validateCustomProps(compInfo, custom, access.property),
                 .StaticStructInstance => |name| try validateStaticStructProps(compInfo, name, access.property),
                 else => false,
@@ -126,11 +106,11 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
 
             const setType = try getExpressionType(allocator, compInfo, dec.setNode);
 
-            if (setType == AstTypes.Void) {
+            if (setType == .Void) {
                 return ScanError.VoidVariableDec;
             }
 
-            const setPtr = try create(AstTypes, allocator, setType);
+            const setPtr = try create(blitzAst.AstTypes, allocator, setType);
 
             if (dec.annotation) |annotation| {
                 if (try matchTypes(allocator, compInfo, annotation.*, setType)) {
@@ -167,8 +147,8 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
         },
         .IfStatement => |statement| {
             const conditionType = try getExpressionType(allocator, compInfo, statement.condition);
-            defer freeStackType(allocator, &conditionType);
-            if (conditionType != AstTypes.Bool) return ScanError.ExpectedBooleanIfCondition;
+            defer free.freeStackType(allocator, &conditionType);
+            if (conditionType != .Bool) return ScanError.ExpectedBooleanIfCondition;
         },
         .FuncDec => |name| {
             const dec = compInfo.getFunction(name).?;
@@ -177,7 +157,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
             switch (dec.body.*) {
                 .Seq => |seq| {
                     if (seq.nodes.len == 0) {
-                        if (dec.returnType.* == AstTypes.Void) {
+                        if (dec.returnType.* == .Void) {
                             return;
                         } else {
                             return ScanError.ExpectedFunctionReturn;
@@ -186,9 +166,9 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
 
                     const last = seq.nodes[seq.nodes.len - 1];
                     const lastType = try getExpressionType(allocator, compInfo, last);
-                    defer freeStackType(allocator, &lastType);
+                    defer free.freeStackType(allocator, &lastType);
 
-                    if (last.* == AstNode.ReturnNode or dec.returnType.* != AstTypes.Void) {
+                    if (last.* == .ReturnNode or dec.returnType.* != .Void) {
                         if (!try matchTypes(allocator, compInfo, dec.returnType.*, lastType)) {
                             return ScanError.FunctionReturnTypeMismatch;
                         }
@@ -196,13 +176,13 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
                 },
                 .ReturnNode => |ret| {
                     const retType = try getExpressionType(allocator, compInfo, ret);
-                    defer freeStackType(allocator, &retType);
+                    defer free.freeStackType(allocator, &retType);
 
                     if (!try matchTypes(allocator, compInfo, dec.returnType.*, retType)) {
                         return ScanError.FunctionReturnTypeMismatch;
                     }
                 },
-                else => if (dec.returnType.* != AstTypes.Void) return ScanError.FunctionReturnTypeMismatch,
+                else => if (dec.returnType.* != .Void) return ScanError.FunctionReturnTypeMismatch,
             }
         },
         .FuncCall => |call| {
@@ -217,7 +197,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
 
                     for (func.params, 0..) |param, index| {
                         const paramType = try getExpressionType(allocator, compInfo, call.params[index]);
-                        defer freeStackType(allocator, &paramType);
+                        defer free.freeStackType(allocator, &paramType);
 
                         if (!try matchTypes(allocator, compInfo, param.type.*, paramType)) {
                             return ScanError.FunctionCallParamTypeMismatch;
@@ -239,12 +219,12 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
             var numMembers: usize = 0;
             for (structDec.attributes) |attr| {
                 if (attr.static) continue;
-                if (attr.attr == StructAttributeVariants.Function) continue;
+                if (attr.attr == .Function) continue;
                 numMembers += 1;
 
-                var attrNode: ?*const AstNode = null;
+                var attrNode: ?*const blitzAst.AstNode = null;
                 for (init.attributes) |initAttr| {
-                    if (compString(initAttr.name, attr.name)) {
+                    if (string.compString(initAttr.name, attr.name)) {
                         attrNode = initAttr.value;
                     }
                 }
@@ -260,7 +240,7 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
                 // ig generics dont exist
 
                 const attrType = try getExpressionType(allocator, compInfo, attrNode.?);
-                defer freeStackType(allocator, &attrType);
+                defer free.freeStackType(allocator, &attrType);
 
                 if (!try matchTypes(allocator, compInfo, attr.attr.Member.*, attrType)) {
                     return ScanError.StructInitMemberTypeMismatch;
@@ -273,8 +253,8 @@ fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const AstNode) (Al
         },
         .Bang => |bang| {
             const bangType = try getExpressionType(allocator, compInfo, bang);
-            defer freeStackType(allocator, &bangType);
-            if (bangType != AstTypes.Bool) return ScanError.ExpectedBooleanBang;
+            defer free.freeStackType(allocator, &bangType);
+            if (bangType != .Bool) return ScanError.ExpectedBooleanBang;
         },
     }
 }
@@ -284,7 +264,7 @@ fn validateSelfProps(compInfo: *CompInfo, name: []u8, prop: []u8) !bool {
 
     if (structDec) |dec| {
         for (dec.attributes) |attr| {
-            if (compString(attr.name, prop)) {
+            if (string.compString(attr.name, prop)) {
                 return true;
             }
         }
@@ -299,7 +279,7 @@ fn validateSelfProps(compInfo: *CompInfo, name: []u8, prop: []u8) !bool {
 }
 
 fn validateStaticStructProps(compInfo: *CompInfo, name: []u8, prop: []u8) !bool {
-    if (compString(name, "self")) {
+    if (string.compString(name, "self")) {
         const currentStruct = compInfo.getCurrentStruct();
         if (currentStruct) |current| {
             return validateSelfProps(compInfo, current, prop);
@@ -309,7 +289,7 @@ fn validateStaticStructProps(compInfo: *CompInfo, name: []u8, prop: []u8) !bool 
     const dec = compInfo.getStructDec(name).?;
 
     for (dec.attributes) |attr| {
-        if (!compString(attr.name, prop)) continue;
+        if (!string.compString(attr.name, prop)) continue;
         if (!attr.static) return ScanError.NonStaticAccessFromStaticStructReference;
         if (attr.visibility != .Public) return ScanError.RestrictedPropertyAccess;
 
@@ -319,13 +299,13 @@ fn validateStaticStructProps(compInfo: *CompInfo, name: []u8, prop: []u8) !bool 
     return ScanError.InvalidProperty;
 }
 
-fn validateCustomProps(compInfo: *CompInfo, custom: CustomType, prop: []u8) !bool {
+fn validateCustomProps(compInfo: *CompInfo, custom: blitzAst.CustomType, prop: []u8) !bool {
     const dec = compInfo.getStructDec(custom.name);
     if (dec) |structDec| {
         for (structDec.attributes) |attr| {
             if (attr.static) continue;
 
-            if (compString(attr.name, prop)) {
+            if (string.compString(attr.name, prop)) {
                 if (attr.visibility != .Public) return false;
                 return true;
             }
@@ -344,12 +324,12 @@ fn validateCustomProps(compInfo: *CompInfo, custom: CustomType, prop: []u8) !boo
     return ScanError.InvalidPropertySource;
 }
 
-fn scanGenerics(initGenerics: []*const AstTypes, decGenerics: []GenericType) !void {
+fn scanGenerics(initGenerics: []*const blitzAst.AstTypes, decGenerics: []blitzAst.GenericType) !void {
     _ = initGenerics;
     _ = decGenerics;
 }
 
-fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []StructAttribute) !void {
+fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.StructAttribute) !void {
     for (attrs) |attr| {
         switch (attr.attr) {
             .Member => {},
@@ -368,35 +348,35 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []StructAttr
     }
 }
 
-fn matchNumber(num1: AstNumberVariants, num2: AstNumberVariants) bool {
+fn matchNumber(num1: blitzAst.AstNumberVariants, num2: blitzAst.AstNumberVariants) bool {
     return switch (num1) {
-        .U8 => num2 == AstNumberVariants.U8,
-        .U16 => num2 == AstNumberVariants.U16,
-        .U32 => num2 == AstNumberVariants.U32,
-        .U64 => num2 == AstNumberVariants.U64,
-        .U128 => num2 == AstNumberVariants.U128,
-        .I8 => num2 == AstNumberVariants.I8,
-        .I16 => num2 == AstNumberVariants.I16,
-        .I32 => num2 == AstNumberVariants.I32,
-        .I64 => num2 == AstNumberVariants.I64,
-        .I128 => num2 == AstNumberVariants.I128,
-        .F8 => num2 == AstNumberVariants.F8,
-        .F16 => num2 == AstNumberVariants.F16,
-        .F32 => num2 == AstNumberVariants.F32,
-        .F64 => num2 == AstNumberVariants.F64,
-        .F128 => num2 == AstNumberVariants.F128,
-        .USize => num2 == AstNumberVariants.USize,
+        .U8 => num2 == .U8,
+        .U16 => num2 == .U16,
+        .U32 => num2 == .U32,
+        .U64 => num2 == .U64,
+        .U128 => num2 == .U128,
+        .I8 => num2 == .I8,
+        .I16 => num2 == .I16,
+        .I32 => num2 == .I32,
+        .I64 => num2 == .I64,
+        .I128 => num2 == .I128,
+        .F8 => num2 == .F8,
+        .F16 => num2 == .F16,
+        .F32 => num2 == .F32,
+        .F64 => num2 == .F64,
+        .F128 => num2 == .F128,
+        .USize => num2 == .USize,
     };
 }
 
-fn isNumber(astType: AstTypes) bool {
+fn isNumber(astType: blitzAst.AstTypes) bool {
     return switch (astType) {
         .Number => true,
         else => false,
     };
 }
 
-fn isUnsignedInt(astType: AstTypes) bool {
+fn isUnsignedInt(astType: blitzAst.AstTypes) bool {
     return switch (astType) {
         .Number => |num| switch (num) {
             .U8, .U16, .U32, .U64, .U128, .USize => true,
@@ -406,7 +386,7 @@ fn isUnsignedInt(astType: AstTypes) bool {
     };
 }
 
-fn isInt(astType: AstTypes) bool {
+fn isInt(astType: blitzAst.AstTypes) bool {
     return switch (astType) {
         .Number => |num| switch (num) {
             .U8, .U16, .U32, .U64, .U128, .USize => true,
@@ -417,7 +397,7 @@ fn isInt(astType: AstTypes) bool {
     };
 }
 
-fn isFloat(astType: AstTypes) bool {
+fn isFloat(astType: blitzAst.AstTypes) bool {
     return switch (astType) {
         .Number => |num| switch (num) {
             .F8, .F16, .F32, .F64, .F128 => true,
@@ -427,23 +407,23 @@ fn isFloat(astType: AstTypes) bool {
     };
 }
 
-fn matchTypes(allocator: Allocator, compInfo: *CompInfo, type1: AstTypes, type2: AstTypes) !bool {
+fn matchTypes(allocator: Allocator, compInfo: *CompInfo, type1: blitzAst.AstTypes, type2: blitzAst.AstTypes) !bool {
     switch (type1) {
-        .String => return type2 == AstTypes.String,
-        .Bool => return type2 == AstTypes.Bool,
-        .Char => return type2 == AstTypes.Char,
-        .Void => return type2 == AstTypes.Void,
-        .Number => |num| return type2 == AstTypes.Number and matchNumber(num, type2.Number),
-        .DynamicArray => |arr| return type2 == AstTypes.DynamicArray and try matchTypes(allocator, compInfo, arr.*, type2.DynamicArray.*),
+        .String => return type2 == .String,
+        .Bool => return type2 == .Bool,
+        .Char => return type2 == .Char,
+        .Void => return type2 == .Void,
+        .Number => |num| return type2 == .Number and matchNumber(num, type2.Number),
+        .DynamicArray => |arr| return type2 == .DynamicArray and try matchTypes(allocator, compInfo, arr.*, type2.DynamicArray.*),
         .StaticArray => |arr| {
-            if (type2 != AstTypes.StaticArray) {
+            if (type2 != .StaticArray) {
                 return false;
             }
 
             const sizeType1 = try getExpressionType(allocator, compInfo, arr.size);
             const sizeType2 = try getExpressionType(allocator, compInfo, type2.StaticArray.size);
-            defer freeStackType(allocator, &sizeType1);
-            defer freeStackType(allocator, &sizeType2);
+            defer free.freeStackType(allocator, &sizeType1);
+            defer free.freeStackType(allocator, &sizeType2);
 
             if (!isInt(sizeType1) or !isInt(sizeType2)) {
                 return false;
@@ -459,28 +439,28 @@ fn matchTypes(allocator: Allocator, compInfo: *CompInfo, type1: AstTypes, type2:
     return false;
 }
 
-fn isPrimary(astType: AstTypes) bool {
+fn isPrimary(astType: blitzAst.AstTypes) bool {
     return switch (astType) {
         .String, .Bool, .Char, .Number => true,
         else => false,
     };
 }
 
-fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const AstNode) (ScanError || Allocator.Error)!AstTypes {
+fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const blitzAst.AstNode) (ScanError || Allocator.Error)!blitzAst.AstTypes {
     return switch (expr.*) {
-        .NoOp => AstTypes.Void,
-        .Seq => AstTypes.Void,
-        .VarDec => AstTypes.Void,
-        .StructDec => AstTypes.Void,
-        .IfStatement => AstTypes.Void,
+        .NoOp => .Void,
+        .Seq => .Void,
+        .VarDec => .Void,
+        .StructDec => .Void,
+        .IfStatement => .Void,
 
         .Add, .Sub, .Mult, .Div => |op| {
             try scanNode(allocator, compInfo, expr);
 
             const leftType = try getExpressionType(allocator, compInfo, op.left);
-            defer freeStackType(allocator, &leftType);
+            defer free.freeStackType(allocator, &leftType);
             const rightType = try getExpressionType(allocator, compInfo, op.right);
-            defer freeStackType(allocator, &rightType);
+            defer free.freeStackType(allocator, &rightType);
 
             if (leftType != .Number or rightType != .Number) return ScanError.MathOpOnNonNumberType;
             if (!number.sameType(leftType.Number, rightType.Number)) return ScanError.MathOpTypeMismatch;
@@ -493,32 +473,32 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
         .FuncReference => |ref| {
             try scanNode(allocator, compInfo, expr);
             const dec = compInfo.getFunction(ref).?;
-            return AstTypes{
+            return .{
                 .Function = dec,
             };
         },
         .ReturnNode => |ret| getExpressionType(allocator, compInfo, ret),
         .FuncDec => |name| {
             const dec = compInfo.getFunction(name).?;
-            return AstTypes{ .Function = dec };
+            return .{ .Function = dec };
         },
-        .StaticStructInstance => |inst| AstTypes{ .StaticStructInstance = inst },
+        .StaticStructInstance => |inst| .{ .StaticStructInstance = inst },
         .Type => |t| t,
         .Value => |val| switch (val) {
-            .String => AstTypes.String,
-            .Bool => AstTypes.Bool,
-            .Char => AstTypes.Char,
-            .Number => |num| AstTypes{ .Number = num.type },
+            .String => .String,
+            .Bool => .Bool,
+            .Char => .Char,
+            .Number => |num| .{ .Number = num.type },
             .StaticArray => |arr| a: {
                 const buf = try std.fmt.allocPrint(allocator, "{}", .{arr.len});
 
-                break :a AstTypes{
+                break :a .{
                     .StaticArray = .{
-                        .type = try create(AstTypes, allocator, try inferStaticArrType(allocator, compInfo, arr)),
-                        .size = try create(AstNode, allocator, .{
+                        .type = try create(blitzAst.AstTypes, allocator, try inferStaticArrType(allocator, compInfo, arr)),
+                        .size = try create(blitzAst.AstNode, allocator, .{
                             .Value = .{
                                 .Number = .{
-                                    .type = AstNumberVariants.USize,
+                                    .type = .USize,
                                     .value = buf,
                                 },
                             },
@@ -529,7 +509,7 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
         },
         .Cast => |cast| {
             const nodeType = try getExpressionType(allocator, compInfo, cast.node);
-            defer freeStackType(allocator, &nodeType);
+            defer free.freeStackType(allocator, &nodeType);
 
             if (isPrimary(nodeType) and isPrimary(cast.toType.*)) {
                 return cast.toType.*;
@@ -538,7 +518,7 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
             return ScanError.InvalidCast;
         },
         .Variable => |v| {
-            if (compInfo.isInStructMethod() and compString(v.name, "self")) {
+            if (compInfo.isInStructMethod() and string.compString(v.name, "self")) {
                 return .{
                     .StaticStructInstance = v.name,
                 };
@@ -546,16 +526,16 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
 
             const varType = compInfo.getVariableType(v.name);
             if (varType) |astType| {
-                return try cloneAstTypes(allocator, astType);
+                return try clone.cloneAstTypes(allocator, astType);
             }
 
             return ScanError.UndefinedOrUnknownVariableType;
         },
         .StructInit => |init| {
-            return AstTypes{
+            return .{
                 .Custom = .{
                     .generics = init.generics,
-                    .name = try cloneString(allocator, init.name),
+                    .name = try string.cloneString(allocator, init.name),
                 },
             };
         },
@@ -563,63 +543,57 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const Ast
             try scanNode(allocator, compInfo, expr);
 
             const dec = try getExpressionType(allocator, compInfo, call.func);
-            defer freeStackType(allocator, &dec);
+            defer free.freeStackType(allocator, &dec);
 
-            return try cloneAstTypes(allocator, dec.Function.returnType.*);
+            return try clone.cloneAstTypes(allocator, dec.Function.returnType.*);
         },
         .Bang => |node| {
             const nodeType = try getExpressionType(allocator, compInfo, node);
-            defer freeStackType(allocator, &nodeType);
+            defer free.freeStackType(allocator, &nodeType);
 
-            if (!try matchTypes(allocator, compInfo, nodeType, AstTypes.Bool)) {
+            if (!try matchTypes(allocator, compInfo, nodeType, .Bool)) {
                 return ScanError.ExpectedBooleanBang;
             }
 
-            return AstTypes.Bool;
+            return .Bool;
         },
         .PropertyAccess => |access| {
             const source = try getExpressionType(allocator, compInfo, access.value);
-            defer freeStackType(allocator, &source);
+            defer free.freeStackType(allocator, &source);
             return try getPropertyType(allocator, compInfo, source, access.property);
         },
     };
 }
 
-fn getPropertyType(allocator: Allocator, compInfo: *CompInfo, source: AstTypes, prop: []u8) !AstTypes {
+fn getPropertyType(allocator: Allocator, compInfo: *CompInfo, source: blitzAst.AstTypes, prop: []u8) !blitzAst.AstTypes {
     return switch (source) {
         .StaticStructInstance => |inst| try getStructPropType(compInfo, false, inst, prop),
-        .StaticArray => try getStaticArrayPropTypes(allocator, prop),
-        .String => try getStringPropTypes(allocator, prop),
+        .StaticArray => try builtins.getStaticArrayPropTypes(allocator, prop),
+        .String => try builtins.getStringPropTypes(allocator, prop),
         .Custom => |custom| getCustomPropType(allocator, compInfo, custom, prop),
         else => ScanError.UnsupportedFeature,
     };
 }
 
-fn getCustomPropType(allocator: Allocator, compInfo: *CompInfo, custom: CustomType, prop: []u8) !AstTypes {
-    // TODO support private and protected
-
+fn getCustomPropType(allocator: Allocator, compInfo: *CompInfo, custom: blitzAst.CustomType, prop: []u8) !blitzAst.AstTypes {
     const dec = compInfo.getStructDec(custom.name);
     if (dec) |structDec| {
         for (structDec.attributes) |attr| {
-            if (!compString(attr.name, prop)) continue;
+            if (!string.compString(attr.name, prop)) continue;
             if (attr.static) return ScanError.StaticAccessFromStructInstance;
 
-            switch (attr.visibility) {
-                .Public => {},
-                else => return ScanError.UnsupportedFeature,
-            }
+            if (attr.visibility != .Public) return ScanError.RestrictedPropertyAccess;
 
             switch (attr.attr) {
-                .Member => |member| return try cloneAstTypes(allocator, member.*),
-                .Function => |func| return AstTypes{ .Function = func },
+                .Member => |member| return try clone.cloneAstTypes(allocator, member.*),
+                .Function => |func| return .{ .Function = func },
             }
         }
 
         if (structDec.deriveType) |deriveType| {
-            switch (deriveType.*) {
-                .Custom => |c| return try getCustomPropType(allocator, compInfo, c, prop),
-                else => return ScanError.UnexpectedDeriveType,
-            }
+            if (deriveType.* == .Custom) {
+                return try getCustomPropType(allocator, compInfo, deriveType.Custom, prop);
+            } else return ScanError.UnexpectedDeriveType;
         }
 
         return ScanError.InvalidProperty;
@@ -628,13 +602,13 @@ fn getCustomPropType(allocator: Allocator, compInfo: *CompInfo, custom: CustomTy
     return ScanError.InvalidPropertySource;
 }
 
-fn getStructPropType(compInfo: *CompInfo, allowNonStatic: bool, inst: []u8, prop: []u8) !AstTypes {
+fn getStructPropType(compInfo: *CompInfo, allowNonStatic: bool, inst: []u8, prop: []u8) !blitzAst.AstTypes {
     const dec = compInfo.getStructDec(inst);
     if (dec == null) return ScanError.InvalidPropertySource;
 
     for (dec.?.attributes) |attr| {
         if (!attr.static and allowNonStatic) continue;
-        if (!compString(attr.name, prop)) continue;
+        if (!string.compString(attr.name, prop)) continue;
 
         switch (attr.visibility) {
             .Public => {},
@@ -643,21 +617,21 @@ fn getStructPropType(compInfo: *CompInfo, allowNonStatic: bool, inst: []u8, prop
 
         switch (attr.attr) {
             .Member => |member| return member.*,
-            .Function => |func| return AstTypes{ .Function = func },
+            .Function => |func| return .{ .Function = func },
         }
     }
 
     return ScanError.InvalidProperty;
 }
 
-fn inferStaticArrType(allocator: Allocator, compInfo: *CompInfo, arr: []*const AstNode) !AstTypes {
-    if (arr.len == 0) return AstTypes.Void;
+fn inferStaticArrType(allocator: Allocator, compInfo: *CompInfo, arr: []*const blitzAst.AstNode) !blitzAst.AstTypes {
+    if (arr.len == 0) return .Void;
 
     const item0Type = try getExpressionType(allocator, compInfo, arr[0]);
 
     for (arr[1..]) |item| {
         const exprType = try getExpressionType(allocator, compInfo, item);
-        defer freeStackType(allocator, &exprType);
+        defer free.freeStackType(allocator, &exprType);
 
         if (!try matchTypes(allocator, compInfo, exprType, item0Type)) {
             return ScanError.StaticArrayTypeMismatch;

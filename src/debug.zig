@@ -1,19 +1,10 @@
 const std = @import("std");
-const astUtils = @import("ast.zig");
-const utils = @import("utils.zig");
-const Ast = astUtils.Ast;
-const AstNode = astUtils.AstNode;
-const AstTypes = astUtils.AstTypes;
-const AstValues = astUtils.AstValues;
-const AstNumberVariants = astUtils.AstNumberVariants;
-const GenericType = astUtils.GenericType;
-const Parameter = astUtils.Parameter;
-const StructAttribute = astUtils.StructAttribute;
-const FuncDecNode = astUtils.FuncDecNode;
-const StructDecNode = astUtils.StructDecNode;
+const blitz = @import("root").blitz;
+const blitzAst = blitz.ast;
+const utils = blitz.utils;
 const CompInfo = utils.CompInfo;
 
-pub fn printAst(compInfo: *CompInfo, ast: Ast) void {
+pub fn printAst(compInfo: *CompInfo, ast: blitzAst.Ast) void {
     printNodes(compInfo, ast.root.nodes);
 }
 
@@ -26,7 +17,7 @@ pub fn printStructNames(names: [][]u8) void {
     std.debug.print("------------\n", .{});
 }
 
-pub fn printType(compInfo: *CompInfo, typeNode: *const AstTypes) void {
+pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
     return switch (typeNode.*) {
         .Void => {
             std.debug.print("void", .{});
@@ -110,7 +101,7 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const AstTypes) void {
     };
 }
 
-fn numberTypeToString(numType: AstNumberVariants) [*:0]const u8 {
+fn numberTypeToString(numType: blitzAst.AstNumberVariants) [*:0]const u8 {
     return switch (numType) {
         .U8 => "u8",
         .U16 => "u16",
@@ -131,7 +122,7 @@ fn numberTypeToString(numType: AstNumberVariants) [*:0]const u8 {
     };
 }
 
-fn printValue(compInfo: *CompInfo, value: *const AstValues) void {
+fn printValue(compInfo: *CompInfo, value: *const blitzAst.AstValues) void {
     switch (value.*) {
         .StaticArray => |arr| {
             std.debug.print("([", .{});
@@ -161,7 +152,7 @@ fn printValue(compInfo: *CompInfo, value: *const AstValues) void {
     }
 }
 
-pub fn printNode(compInfo: *CompInfo, node: *const AstNode) void {
+pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
     switch (node.*) {
         .Add => |op| {
             std.debug.print("(", .{});
@@ -312,7 +303,7 @@ pub fn printNode(compInfo: *CompInfo, node: *const AstNode) void {
     }
 }
 
-pub fn printFuncDec(compInfo: *CompInfo, func: *const FuncDecNode) void {
+pub fn printFuncDec(compInfo: *CompInfo, func: *const blitzAst.FuncDecNode) void {
     std.debug.print("declare function [", .{});
     printType(compInfo, func.returnType);
     std.debug.print("] ({s})", .{func.name});
@@ -330,7 +321,7 @@ pub fn printFuncDec(compInfo: *CompInfo, func: *const FuncDecNode) void {
     std.debug.print("-- body end --\n", .{});
 }
 
-fn printAttributes(compInfo: *CompInfo, attrs: []StructAttribute) void {
+fn printAttributes(compInfo: *CompInfo, attrs: []blitzAst.StructAttribute) void {
     for (attrs, 0..) |attr, index| {
         if (attr.static) {
             std.debug.print("(static) ", .{});
@@ -349,7 +340,7 @@ fn printAttributes(compInfo: *CompInfo, attrs: []StructAttribute) void {
     }
 }
 
-fn printParams(compInfo: *CompInfo, params: []Parameter) void {
+fn printParams(compInfo: *CompInfo, params: []blitzAst.Parameter) void {
     if (params.len == 0) {
         std.debug.print("(no params)", .{});
         return;
@@ -366,7 +357,7 @@ fn printParams(compInfo: *CompInfo, params: []Parameter) void {
     }
 }
 
-fn printGenerics(compInfo: *CompInfo, generics: []GenericType) void {
+fn printGenerics(compInfo: *CompInfo, generics: []blitzAst.GenericType) void {
     for (generics, 0..) |generic, index| {
         std.debug.print("[", .{});
 
@@ -384,14 +375,14 @@ fn printGenerics(compInfo: *CompInfo, generics: []GenericType) void {
     }
 }
 
-fn printNodes(compInfo: *CompInfo, nodes: []*const AstNode) void {
+fn printNodes(compInfo: *CompInfo, nodes: []*const blitzAst.AstNode) void {
     for (nodes) |node| {
         printNode(compInfo, node);
         std.debug.print("\n", .{});
     }
 }
 
-pub fn printRegisteredStructs(compInfo: *CompInfo, structs: [](*const StructDecNode)) void {
+pub fn printRegisteredStructs(compInfo: *CompInfo, structs: [](*const blitzAst.StructDecNode)) void {
     std.debug.print("--- structs ---\n", .{});
     for (structs) |s| {
         std.debug.print("declaring {s}", .{s.name});

@@ -1,9 +1,8 @@
 const std = @import("std");
-const utils = @import("utils.zig");
-const findChar = utils.findChar;
+const blitz = @import("blitz.zig");
+const string = blitz.string;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
-const compString = utils.compString;
 
 pub const TokenizeError = error{
     IdentifierWithStartingNumber,
@@ -161,24 +160,6 @@ pub const TokenType = enum {
             .Return => "return",
         };
     }
-
-    pub fn isOpenToken(self: @This(), includeAngle: bool) bool {
-        const temp = switch (self) {
-            .LParen, .LBrace, .LBracket => true,
-            else => false,
-        };
-
-        return if (includeAngle) temp or self == TokenType.LAngle else temp;
-    }
-
-    pub fn isCloseToken(self: @This(), includeAngle: bool) bool {
-        const temp = switch (self) {
-            .RParen, .RBrace, .RBracket => true,
-            else => false,
-        };
-
-        return if (includeAngle) temp or self == TokenType.RAngle else temp;
-    }
 };
 
 const TokenTypeMap = struct {
@@ -213,7 +194,7 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
         const char = input[i];
 
         if (char == '"') {
-            const strEnd = findChar(input, i + 1, '\"');
+            const strEnd = string.findChar(input, i + 1, '\"');
 
             if (strEnd) |end| {
                 const str = try allocator.dupe(u8, input[i + 1 .. end]);
@@ -244,7 +225,7 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
         if (i < input.len - 1 and char == '/') {
             const next = input[i + 1];
             if (next == '/') {
-                const index = findChar(input, i, '\n');
+                const index = string.findChar(input, i, '\n');
 
                 if (index) |idx| {
                     i = idx;
@@ -253,11 +234,11 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
 
                 break;
             } else if (next == '*') {
-                var index = findChar(input, i, '/');
+                var index = string.findChar(input, i, '/');
                 if (index != null) break;
 
                 while (input[index.? - 1] != '*') {
-                    index = findChar(input, index.? + 1, '/');
+                    index = string.findChar(input, index.? + 1, '/');
                     if (index) |newIndex| {
                         i = newIndex;
                     } else {
@@ -311,7 +292,7 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
 
         if (char == '.') {
             if (isNumber(chars.items)) {
-                if (findChar(chars.items, 0, '.') != null) {
+                if (string.findChar(chars.items, 0, '.') != null) {
                     return TokenizeError.NumberHasTwoPeriods;
                 }
 
@@ -468,7 +449,7 @@ fn isKeyword(chars: []const u8) ?TokenType {
 
 fn getTypeFromMap(chars: []const u8, map: anytype) ?TokenType {
     for (map) |mapItem| {
-        if (compString(chars, mapItem.string)) {
+        if (string.compString(chars, mapItem.string)) {
             return mapItem.token;
         }
     }
@@ -508,4 +489,22 @@ fn isSymbol(char: u8) ?TokenType {
     }
 
     return null;
+}
+
+pub fn isOpenToken(self: TokenType, includeAngle: bool) bool {
+    const temp = switch (self) {
+        .LParen, .LBrace, .LBracket => true,
+        else => false,
+    };
+
+    return if (includeAngle) temp or self == TokenType.LAngle else temp;
+}
+
+pub fn isCloseToken(self: TokenType, includeAngle: bool) bool {
+    const temp = switch (self) {
+        .RParen, .RBrace, .RBracket => true,
+        else => false,
+    };
+
+    return if (includeAngle) temp or self == TokenType.RAngle else temp;
 }

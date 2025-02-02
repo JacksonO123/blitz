@@ -1,29 +1,15 @@
 const std = @import("std");
-const tokenizer = @import("tokenizer.zig");
-const astMod = @import("ast.zig");
-const scan = @import("scan.zig");
-const utils = @import("utils.zig");
-const free = @import("free.zig");
+const blitz = @import("root").blitz;
+const tokenizer = blitz.tokenizer;
+const blitzAst = blitz.ast;
+const scanner = blitz.scanner;
+const utils = blitz.utils;
+const free = blitz.free;
 const create = utils.create;
-const AstNode = astMod.AstNode;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = std.mem.Allocator;
-const AstTypes = astMod.AstTypes;
-const tokenize = tokenizer.tokenize;
-const freeTokens = free.freeTokens;
-const registerStructs = astMod.registerStructs;
 const CompInfo = utils.CompInfo;
-const createAst = astMod.createAst;
-const freeAst = free.freeAst;
-const freeNode = free.freeNode;
-const typeScan = scan.typeScan;
-const scanNodes = scan.scanNodes;
-const findStructNames = astMod.findStructNames;
-const FuncDecNode = astMod.FuncDecNode;
-const StructDecNode = astMod.StructDecNode;
-const createCompInfo = utils.createCompInfo;
-const freeCompInfo = free.freeCompInfo;
 
 // debug
 const debug = @import("debug.zig");
@@ -38,18 +24,18 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
     const code = try file.readToEndAlloc(allocator, maxFileSize);
     defer allocator.free(code);
 
-    const tokens = try tokenize(allocator, code);
-    defer freeTokens(allocator, tokens);
+    const tokens = try tokenizer.tokenize(allocator, code);
+    defer free.freeTokens(allocator, tokens);
 
-    const structNames = try findStructNames(allocator, tokens);
+    const structNames = try blitzAst.findStructNames(allocator, tokens);
     printStructNames(structNames);
 
     var genericsList = ArrayList([]u8).init(allocator);
     var currentStructs = ArrayList([]u8).init(allocator);
     var distFromStructMethod = ArrayList(u32).init(allocator);
-    var functions = StringHashMap(*const FuncDecNode).init(allocator);
-    var variableTypes = StringHashMap(*const AstTypes).init(allocator);
-    var structs = StringHashMap(*const StructDecNode).init(allocator);
+    var functions = StringHashMap(*const blitzAst.FuncDecNode).init(allocator);
+    var variableTypes = StringHashMap(*const blitzAst.AstTypes).init(allocator);
+    var structs = StringHashMap(*const blitzAst.StructDecNode).init(allocator);
 
     var compInfo: CompInfo = .{
         .structNames = structNames,
@@ -61,26 +47,26 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
         .distFromStructMethod = &distFromStructMethod,
         .preAst = true,
     };
-    defer freeCompInfo(allocator, &compInfo);
+    defer free.freeCompInfo(allocator, &compInfo);
 
-    const registeredStructs = try registerStructs(allocator, &compInfo, tokens);
+    const registeredStructs = try blitzAst.registerStructs(allocator, &compInfo, tokens);
     defer allocator.free(registeredStructs);
     try compInfo.setStructDecs(registeredStructs);
 
     printRegisteredStructs(&compInfo, registeredStructs);
 
     {
-        var registeredStructNodes = ArrayList(*const AstNode).init(allocator);
+        var registeredStructNodes = ArrayList(*const blitzAst.AstNode).init(allocator);
         defer registeredStructNodes.deinit();
 
         for (registeredStructs) |s| {
-            const node = try create(AstNode, allocator, .{
+            const node = try create(blitzAst.AstNode, allocator, .{
                 .StructDec = s,
             });
             try registeredStructNodes.append(node);
         }
 
-        try scanNodes(allocator, &compInfo, registeredStructNodes.items);
+        try scanner.scanNodes(allocator, &compInfo, registeredStructNodes.items);
 
         for (registeredStructNodes.items) |node| {
             allocator.destroy(node);
@@ -89,12 +75,12 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
 
     compInfo.prepareForAst();
 
-    const ast = try createAst(allocator, &compInfo, tokens);
-    defer freeAst(allocator, ast);
+    const ast = try blitzAst.createAst(allocator, &compInfo, tokens);
+    defer free.freeAst(allocator, ast);
 
     std.debug.print("--- code ---\n{s}\n------------\n", .{code});
     printAst(&compInfo, ast);
 
-    try typeScan(allocator, ast, &compInfo);
+    try scanner.typeScan(allocator, ast, &compInfo);
     std.debug.print("\n", .{});
 }

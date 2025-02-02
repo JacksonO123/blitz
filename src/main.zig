@@ -1,7 +1,6 @@
 const std = @import("std");
-const compile = @import("compiler.zig").compile;
-
 pub const blitz = @import("blitz.zig");
+const compiler = blitz.compiler;
 
 const RuntimeError = error{NoInputFile};
 
@@ -22,5 +21,5 @@ pub fn main() !void {
 
     std.debug.print("opening: {s}", .{path});
 
-    try compile(allocator, path);
+    try compiler.compile(allocator, path);
 }

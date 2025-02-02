@@ -1,4 +1,9 @@
+pub const compiler = @import("compiler.zig");
 pub const ast = @import("ast.zig");
+pub const scanner = @import("scan.zig");
+pub const tokenizer = @import("tokenizer.zig");
+pub const clone = @import("clone.zig");
 pub const number = @import("number.zig");
+pub const string = @import("string.zig");
 pub const utils = @import("utils.zig");
 pub const free = @import("free.zig");

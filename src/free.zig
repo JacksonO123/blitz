@@ -1,24 +1,16 @@
 const std = @import("std");
-const astMod = @import("ast.zig");
-const utils = @import("utils.zig");
-const tokenizer = @import("tokenizer.zig");
+const blitz = @import("root").blitz;
+const blitzAst = blitz.ast;
+const tokenizer = blitz.tokenizer;
+const utils = blitz.utils;
 const Allocator = std.mem.Allocator;
-const Ast = astMod.Ast;
-const AstTypes = astMod.AstTypes;
-const AstNode = astMod.AstNode;
-const AstValues = astMod.AstValues;
-const StructAttribute = astMod.StructAttribute;
-const FuncDecNode = astMod.FuncDecNode;
 const CompInfo = utils.CompInfo;
-const StructDecNode = astMod.StructDecNode;
-const Token = tokenizer.Token;
-const GenericType = astMod.GenericType;
 
 // DEBUG
 const debug = @import("debug.zig");
 const printType = debug.printType;
 
-pub fn freeAst(allocator: Allocator, ast: Ast) void {
+pub fn freeAst(allocator: Allocator, ast: blitzAst.Ast) void {
     freeNodes(allocator, ast.root.nodes);
     allocator.free(ast.root.nodes);
 }
@@ -63,7 +55,7 @@ pub fn freeStructNames(allocator: Allocator, structNames: [][]u8) void {
     allocator.free(structNames);
 }
 
-pub fn freeFuncDec(allocator: Allocator, func: *const FuncDecNode) void {
+pub fn freeFuncDec(allocator: Allocator, func: *const blitzAst.FuncDecNode) void {
     allocator.free(func.name);
 
     for (func.params) |param| {
@@ -91,7 +83,7 @@ pub fn freeFuncDec(allocator: Allocator, func: *const FuncDecNode) void {
     allocator.destroy(func);
 }
 
-pub fn freeAttr(allocator: Allocator, attr: StructAttribute) void {
+pub fn freeAttr(allocator: Allocator, attr: blitzAst.StructAttribute) void {
     allocator.free(attr.name);
 
     switch (attr.attr) {
@@ -100,7 +92,7 @@ pub fn freeAttr(allocator: Allocator, attr: StructAttribute) void {
     }
 }
 
-pub fn freeValueNode(allocator: Allocator, node: *const AstValues) void {
+pub fn freeValueNode(allocator: Allocator, node: *const blitzAst.AstValues) void {
     switch (node.*) {
         .StaticArray => |arr| {
             freeNodes(allocator, arr);
@@ -116,7 +108,7 @@ pub fn freeValueNode(allocator: Allocator, node: *const AstValues) void {
     }
 }
 
-pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
+pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
     switch (node.*) {
         .Add, .Sub, .Mult, .Div => |op| {
             freeNode(allocator, op.left);
@@ -205,7 +197,7 @@ pub fn freeNode(allocator: Allocator, node: *const AstNode) void {
     allocator.destroy(node);
 }
 
-fn freeStructDec(allocator: Allocator, dec: *const StructDecNode) void {
+fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) void {
     allocator.free(dec.name);
 
     for (dec.generics) |generic| {
@@ -227,13 +219,13 @@ fn freeStructDec(allocator: Allocator, dec: *const StructDecNode) void {
     }
 }
 
-pub fn freeNodes(allocator: Allocator, nodes: []*const AstNode) void {
+pub fn freeNodes(allocator: Allocator, nodes: []*const blitzAst.AstNode) void {
     for (nodes) |node| {
         freeNode(allocator, node);
     }
 }
 
-pub fn freeStackType(allocator: Allocator, node: *const AstTypes) void {
+pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void {
     switch (node.*) {
         .DynamicArray => |arr| {
             freeType(allocator, arr);
@@ -260,18 +252,18 @@ pub fn freeStackType(allocator: Allocator, node: *const AstTypes) void {
     }
 }
 
-pub fn freeType(allocator: Allocator, node: *const AstTypes) void {
+pub fn freeType(allocator: Allocator, node: *const blitzAst.AstTypes) void {
     freeStackType(allocator, node);
     allocator.destroy(node);
 }
 
-pub fn freeToken(allocator: Allocator, token: Token) void {
+pub fn freeToken(allocator: Allocator, token: tokenizer.Token) void {
     if (token.string) |str| {
         allocator.free(str);
     }
 }
 
-pub fn freeTokens(allocator: Allocator, tokens: []Token) void {
+pub fn freeTokens(allocator: Allocator, tokens: []tokenizer.Token) void {
     for (tokens) |token| {
         freeToken(allocator, token);
     }
@@ -279,7 +271,7 @@ pub fn freeTokens(allocator: Allocator, tokens: []Token) void {
     allocator.free(tokens);
 }
 
-pub fn freeTokenArr(allocator: Allocator, tokens: []Token) void {
+pub fn freeTokenArr(allocator: Allocator, tokens: []tokenizer.Token) void {
     for (tokens.*) |token| {
         if (token.string) |str| {
             allocator.free(str);

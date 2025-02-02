@@ -1,27 +1,13 @@
 const std = @import("std");
-const tokenizer = @import("tokenizer.zig");
-const astMod = @import("ast.zig");
-const free = @import("free.zig");
-const AstTypes = astMod.AstTypes;
-const Token = tokenizer.Token;
-const TokenType = tokenizer.TokenType;
+const blitz = @import("root").blitz;
+const tokenizer = blitz.tokenizer;
+const blitzAst = blitz.ast;
+const string = blitz.string;
+const free = blitz.free;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
-const FuncDecNode = astMod.FuncDecNode;
-const StructDecNode = astMod.StructDecNode;
-const freeCompInfo = free.freeCompInfo;
-const AstNumberVariants = astMod.AstNumberVariants;
-
-pub fn findChar(items: []const u8, start: usize, item: u8) ?usize {
-    var i = start;
-
-    while (i < items.len) : (i += 1) {
-        if (items[i] == item) return i;
-    }
-
-    return null;
-}
+const AstError = blitzAst.AstError;
 
 pub fn create(comptime T: type, allocator: Allocator, obj: anytype) Allocator.Error!*const T {
     const ptr = try allocator.create(T);
@@ -38,12 +24,65 @@ pub fn toSlice(comptime T: type, allocator: Allocator, data: anytype) ![]T {
     return res;
 }
 
-pub fn cloneString(allocator: Allocator, string: []u8) ![]u8 {
-    return try allocator.dupe(u8, string);
+pub fn delimiterIndex(tokens: []tokenizer.Token, start: usize, delimiter: tokenizer.TokenType) !usize {
+    var parens: u32 = 0;
+
+    var i = start;
+    while (i < tokens.len) : (i += 1) {
+        if (parens == 0 and tokens[i].type == delimiter) return i;
+
+        if (tokenizer.isOpenToken(tokens[i].type, true)) {
+            parens += 1;
+        } else if (tokenizer.isCloseToken(tokens[i].type, true)) {
+            if (parens > 0) {
+                parens -= 1;
+            } else if (tokens[i].type != delimiter) return AstError.TokenNotFound;
+        }
+    }
+
+    return AstError.TokenNotFound;
 }
 
-pub inline fn compString(str1: []const u8, str2: []const u8) bool {
-    return std.mem.eql(u8, str1, str2);
+pub fn smartDelimiterIndex(tokens: []tokenizer.Token, compInfo: *CompInfo, start: usize, delimiter: tokenizer.TokenType) !usize {
+    var current = start;
+    var parens: u32 = 0;
+    var inGeneric = false;
+    var genericStart: u32 = 0;
+
+    while (current < tokens.len) : (current += 1) {
+        if (parens == 0 and tokens[current].type == delimiter) return current;
+
+        if (tokens[current].type == .RAngle and inGeneric) {
+            parens -= 1;
+            if (parens == genericStart) {
+                genericStart = 0;
+                inGeneric = false;
+            }
+            continue;
+        }
+
+        if (tokens[current].type == .LAngle and current > 0) {
+            const prevToken = tokens[current - 1];
+            if (prevToken.type == .Identifier and compInfo.hasStruct(prevToken.string.?)) {
+                if (!inGeneric) {
+                    genericStart = parens;
+                    inGeneric = true;
+                }
+
+                parens += 1;
+                continue;
+            }
+        }
+
+        if (tokenizer.isOpenToken(tokens[current].type, false)) {
+            parens += 1;
+        } else if (tokenizer.isCloseToken(tokens[current].type, false)) {
+            if (parens == 0) return AstError.TokenNotFound;
+            parens -= 1;
+        }
+    }
+
+    return AstError.TokenNotFound;
 }
 
 pub const CompInfo = struct {
@@ -51,9 +90,9 @@ pub const CompInfo = struct {
 
     structNames: [][]u8,
     generics: *ArrayList([]u8),
-    variableTypes: *StringHashMap(*const AstTypes),
-    functions: *StringHashMap(*const FuncDecNode),
-    structs: *StringHashMap(*const StructDecNode),
+    variableTypes: *StringHashMap(*const blitzAst.AstTypes),
+    functions: *StringHashMap(*const blitzAst.FuncDecNode),
+    structs: *StringHashMap(*const blitzAst.StructDecNode),
     currentStructs: *ArrayList([]u8),
     // each number describes how far from
     // the struct method a child node is
@@ -66,7 +105,7 @@ pub const CompInfo = struct {
 
     pub fn hasStruct(self: Self, name: []u8) bool {
         for (self.structNames) |structName| {
-            if (compString(structName, name)) return true;
+            if (string.compString(structName, name)) return true;
         }
 
         return false;
@@ -78,7 +117,7 @@ pub const CompInfo = struct {
 
     pub fn removeGeneric(self: *Self, name: []u8) void {
         for (self.generics.items, 0..) |item, index| {
-            if (compString(item, name)) {
+            if (string.compString(item, name)) {
                 _ = self.generics.swapRemove(index);
             }
         }
@@ -86,7 +125,7 @@ pub const CompInfo = struct {
 
     pub fn hasGeneric(self: Self, name: []u8) bool {
         for (self.generics.items) |item| {
-            if (compString(item, name)) {
+            if (string.compString(item, name)) {
                 return true;
             }
         }
@@ -94,7 +133,7 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn setVariableType(self: *Self, name: []u8, astType: *const AstTypes) !void {
+    pub fn setVariableType(self: *Self, name: []u8, astType: *const blitzAst.AstTypes) !void {
         try self.variableTypes.put(name, astType);
     }
 
@@ -102,7 +141,7 @@ pub const CompInfo = struct {
         _ = self.variableTypes.remove(name);
     }
 
-    pub fn getVariableType(self: *Self, name: []u8) ?AstTypes {
+    pub fn getVariableType(self: *Self, name: []u8) ?blitzAst.AstTypes {
         const res = self.variableTypes.get(name);
 
         if (res) |t| {
@@ -112,11 +151,11 @@ pub const CompInfo = struct {
         return null;
     }
 
-    pub fn addFunction(self: *Self, name: []u8, dec: *const FuncDecNode) !void {
+    pub fn addFunction(self: *Self, name: []u8, dec: *const blitzAst.FuncDecNode) !void {
         try self.functions.put(name, dec);
     }
 
-    pub fn getFunction(self: Self, name: []u8) ?*const FuncDecNode {
+    pub fn getFunction(self: Self, name: []u8) ?*const blitzAst.FuncDecNode {
         return self.functions.get(name);
     }
 
@@ -124,17 +163,17 @@ pub const CompInfo = struct {
         return self.functions.contains(name);
     }
 
-    pub fn setStructDec(self: *Self, name: []u8, node: *const StructDecNode) !void {
+    pub fn setStructDec(self: *Self, name: []u8, node: *const blitzAst.StructDecNode) !void {
         try self.structs.put(name, node);
     }
 
-    pub fn setStructDecs(self: *Self, nodes: []*const StructDecNode) !void {
+    pub fn setStructDecs(self: *Self, nodes: []*const blitzAst.StructDecNode) !void {
         for (nodes) |node| {
             try self.setStructDec(node.name, node);
         }
     }
 
-    pub fn getStructDec(self: Self, name: []u8) ?*const StructDecNode {
+    pub fn getStructDec(self: Self, name: []u8) ?*const blitzAst.StructDecNode {
         return self.structs.get(name);
     }
 
