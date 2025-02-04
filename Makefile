@@ -1,5 +1,8 @@
 target: .FORCE_DEBUG
 
+test: .FORCE_DEBUG
+	./test.sh
+
 prod: .FORCE_PROD
 
 .FORCE_DEBUG:

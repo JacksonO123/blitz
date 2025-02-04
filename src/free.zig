@@ -10,43 +10,6 @@ const CompInfo = utils.CompInfo;
 const debug = @import("debug.zig");
 const printType = debug.printType;
 
-pub fn freeAst(allocator: Allocator, ast: blitzAst.Ast) void {
-    freeNodes(allocator, ast.root.nodes);
-    allocator.free(ast.root.nodes);
-}
-
-pub fn freeCompInfo(allocator: Allocator, compInfo: *CompInfo) void {
-    compInfo.generics.deinit();
-
-    var variableIt = compInfo.variableTypes.valueIterator();
-    while (variableIt.next()) |valuePtr| {
-        freeType(allocator, valuePtr.*);
-    }
-
-    var functionIt = compInfo.functions.valueIterator();
-    while (functionIt.next()) |f| {
-        freeFuncDec(allocator, f.*);
-    }
-
-    var structsIt = compInfo.structs.valueIterator();
-    while (structsIt.next()) |dec| {
-        freeStructDec(allocator, dec.*);
-        allocator.destroy(dec.*);
-    }
-
-    freeStructNames(allocator, compInfo.structNames);
-
-    for (compInfo.currentStructs.items) |item| {
-        allocator.free(item);
-    }
-
-    compInfo.variableTypes.deinit();
-    compInfo.functions.deinit();
-    compInfo.structs.deinit();
-    compInfo.currentStructs.deinit();
-    compInfo.distFromStructMethod.deinit();
-}
-
 pub fn freeStructNames(allocator: Allocator, structNames: [][]u8) void {
     for (structNames) |name| {
         allocator.free(name);
@@ -197,7 +160,7 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
     allocator.destroy(node);
 }
 
-fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) void {
+pub fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) void {
     allocator.free(dec.name);
 
     for (dec.generics) |generic| {

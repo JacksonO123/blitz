@@ -2,6 +2,7 @@ const std = @import("std");
 const blitz = @import("root").blitz;
 const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
+const free = blitz.free;
 const string = blitz.string;
 const CompInfo = utils.CompInfo;
 const create = utils.create;
@@ -298,12 +299,27 @@ const FuncOffsetData = struct {
 };
 
 pub const Ast = struct {
+    const Self = @This();
+
     root: SeqNode,
+    allocator: Allocator,
+
+    pub fn init(allocator: Allocator, seq: SeqNode) Self {
+        return Self{
+            .root = seq,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        free.freeNodes(self.allocator, self.root.nodes);
+        self.allocator.free(self.root.nodes);
+    }
 };
 
 pub fn createAst(allocator: Allocator, compInfo: *CompInfo, tokens: []tokenizer.Token) !Ast {
     const seq = try createSeqNode(allocator, compInfo, tokens);
-    return Ast{ .root = seq };
+    return Ast.init(allocator, seq);
 }
 
 fn createSeqAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokenizer.Token) !*const AstNode {

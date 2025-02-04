@@ -3,3 +3,4 @@ fn myFunc(): u32 {
 }
 
 const a = 1 * 2 + myFunc();
+// const b = 1 + 2 * 3;

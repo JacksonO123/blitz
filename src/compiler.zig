@@ -1,5 +1,5 @@
 const std = @import("std");
-const blitz = @import("root").blitz;
+pub const blitz = @import("blitz.zig");
 const tokenizer = blitz.tokenizer;
 const blitzAst = blitz.ast;
 const scanner = blitz.scanner;
@@ -17,11 +17,25 @@ const printRegisteredStructs = debug.printRegisteredStructs;
 const printAst = debug.printAst;
 const printStructNames = debug.printStructNames;
 
-pub fn compile(allocator: Allocator, path: []const u8) !void {
-    const maxFileSize = 1028 * 4; // arbitrary
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    const code = try file.readToEndAlloc(allocator, maxFileSize);
+const RuntimeError = error{NoInputFile};
+
+pub fn main() !void {
+    var gp = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    defer _ = gp.deinit();
+    const allocator = gp.allocator();
+
+    // TODO - extend later
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+    if (args.len < 2) {
+        return RuntimeError.NoInputFile;
+    }
+
+    const path = args[1];
+
+    std.debug.print("opening: {s}", .{path});
+
+    const code = try utils.readRelativeFile(allocator, path);
     defer allocator.free(code);
 
     const tokens = try tokenizer.tokenize(allocator, code);
@@ -30,24 +44,8 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
     const structNames = try blitzAst.findStructNames(allocator, tokens);
     printStructNames(structNames);
 
-    var genericsList = ArrayList([]u8).init(allocator);
-    var currentStructs = ArrayList([]u8).init(allocator);
-    var distFromStructMethod = ArrayList(u32).init(allocator);
-    var functions = StringHashMap(*const blitzAst.FuncDecNode).init(allocator);
-    var variableTypes = StringHashMap(*const blitzAst.AstTypes).init(allocator);
-    var structs = StringHashMap(*const blitzAst.StructDecNode).init(allocator);
-
-    var compInfo: CompInfo = .{
-        .structNames = structNames,
-        .generics = &genericsList,
-        .variableTypes = &variableTypes,
-        .functions = &functions,
-        .structs = &structs,
-        .currentStructs = &currentStructs,
-        .distFromStructMethod = &distFromStructMethod,
-        .preAst = true,
-    };
-    defer free.freeCompInfo(allocator, &compInfo);
+    var compInfo = CompInfo.init(allocator, structNames);
+    defer compInfo.deinit();
 
     const registeredStructs = try blitzAst.registerStructs(allocator, &compInfo, tokens);
     defer allocator.free(registeredStructs);
@@ -55,28 +53,17 @@ pub fn compile(allocator: Allocator, path: []const u8) !void {
 
     printRegisteredStructs(&compInfo, registeredStructs);
 
-    {
-        var registeredStructNodes = ArrayList(*const blitzAst.AstNode).init(allocator);
-        defer registeredStructNodes.deinit();
-
-        for (registeredStructs) |s| {
-            const node = try create(blitzAst.AstNode, allocator, .{
-                .StructDec = s,
-            });
-            try registeredStructNodes.append(node);
-        }
-
-        try scanner.scanNodes(allocator, &compInfo, registeredStructNodes.items);
-
-        for (registeredStructNodes.items) |node| {
-            allocator.destroy(node);
-        }
+    for (registeredStructs) |s| {
+        const node = .{
+            .StructDec = s,
+        };
+        try scanner.scanNode(allocator, &compInfo, &node);
     }
 
     compInfo.prepareForAst();
 
-    const ast = try blitzAst.createAst(allocator, &compInfo, tokens);
-    defer free.freeAst(allocator, ast);
+    var ast = try blitzAst.createAst(allocator, &compInfo, tokens);
+    defer ast.deinit();
 
     std.debug.print("--- code ---\n{s}\n------------\n", .{code});
     printAst(&compInfo, ast);

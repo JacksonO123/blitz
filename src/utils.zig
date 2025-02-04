@@ -9,7 +9,11 @@ const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const AstError = blitzAst.AstError;
 
-pub fn create(comptime T: type, allocator: Allocator, obj: anytype) Allocator.Error!*const T {
+pub inline fn create(comptime T: type, allocator: Allocator, obj: anytype) Allocator.Error!*const T {
+    return createMut(T, allocator, obj);
+}
+
+pub inline fn createMut(comptime T: type, allocator: Allocator, obj: anytype) Allocator.Error!*T {
     const ptr = try allocator.create(T);
     ptr.* = obj;
     return ptr;
@@ -22,6 +26,13 @@ pub fn toSlice(comptime T: type, allocator: Allocator, data: anytype) ![]T {
     std.mem.copyForwards(T, list.items, data);
     const res = try allocator.dupe(T, list.items);
     return res;
+}
+
+pub fn readRelativeFile(allocator: Allocator, path: []u8) ![]u8 {
+    const maxFileSize = 1028 * 4; // arbitrary
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    return try file.readToEndAlloc(allocator, maxFileSize);
 }
 
 pub fn delimiterIndex(tokens: []tokenizer.Token, start: usize, delimiter: tokenizer.TokenType) !usize {
@@ -98,6 +109,59 @@ pub const CompInfo = struct {
     // the struct method a child node is
     distFromStructMethod: *ArrayList(u32),
     preAst: bool,
+    allocator: Allocator,
+
+    pub inline fn init(allocator: Allocator, structNames: [][]u8) Self {
+        var genericsList = ArrayList([]u8).init(allocator);
+        var currentStructs = ArrayList([]u8).init(allocator);
+        var distFromStructMethod = ArrayList(u32).init(allocator);
+        var functions = StringHashMap(*const blitzAst.FuncDecNode).init(allocator);
+        var variableTypes = StringHashMap(*const blitzAst.AstTypes).init(allocator);
+        var structs = StringHashMap(*const blitzAst.StructDecNode).init(allocator);
+
+        return Self{
+            .structNames = structNames,
+            .generics = &genericsList,
+            .variableTypes = &variableTypes,
+            .functions = &functions,
+            .structs = &structs,
+            .currentStructs = &currentStructs,
+            .distFromStructMethod = &distFromStructMethod,
+            .preAst = true,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        var variableIt = self.variableTypes.valueIterator();
+        while (variableIt.next()) |valuePtr| {
+            free.freeType(self.allocator, valuePtr.*);
+        }
+
+        var functionIt = self.functions.valueIterator();
+        while (functionIt.next()) |f| {
+            free.freeFuncDec(self.allocator, f.*);
+        }
+
+        var structsIt = self.structs.valueIterator();
+        while (structsIt.next()) |dec| {
+            free.freeStructDec(self.allocator, dec.*);
+            self.allocator.destroy(dec.*);
+        }
+
+        free.freeStructNames(self.allocator, self.structNames);
+
+        for (self.currentStructs.items) |item| {
+            self.allocator.free(item);
+        }
+
+        self.generics.deinit();
+        self.variableTypes.deinit();
+        self.functions.deinit();
+        self.structs.deinit();
+        self.currentStructs.deinit();
+        self.distFromStructMethod.deinit();
+    }
 
     pub fn prepareForAst(self: *Self) void {
         self.preAst = false;

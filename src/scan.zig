@@ -59,7 +59,7 @@ pub fn scanNodes(allocator: Allocator, compInfo: *CompInfo, nodes: []*const blit
     }
 }
 
-fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst.AstNode) (Allocator.Error || ScanError)!void {
+pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst.AstNode) (Allocator.Error || ScanError)!void {
     switch (node.*) {
         .NoOp, .Type, .Value, .Cast, .StaticStructInstance => {},
         .Add, .Sub, .Mult, .Div => |op| {

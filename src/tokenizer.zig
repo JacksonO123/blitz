@@ -172,15 +172,10 @@ const SymbolMap = struct {
     token: TokenType,
 };
 
-pub const Token = struct { type: TokenType, string: ?[]u8 };
-
-pub fn printChars(chars: []u8) void {
-    for (chars) |char| {
-        std.debug.print("{c}", .{char});
-    }
-
-    std.debug.print("\n", .{});
-}
+pub const Token = struct {
+    type: TokenType,
+    string: ?[]u8,
+};
 
 pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
     var chars = ArrayList(u8).init(allocator);
@@ -332,9 +327,7 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
         }
     }
 
-    const resSlice = allocator.dupe(Token, tokens.items);
-
-    return resSlice;
+    return tokens.toOwnedSlice();
 }
 
 fn isPostEqSymbol(chars: []const u8, start: usize) ?Token {

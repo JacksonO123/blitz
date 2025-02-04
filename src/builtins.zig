@@ -14,37 +14,24 @@ const PropTypeMap = struct {
 };
 
 pub fn validateDynamicArrayProps(str: []u8) bool {
-    const sz = 5;
-    const validProps: *const [sz][]const u8 = &[_][]const u8{
-        @as([]const u8, "len"),
-        @as([]const u8, "push"),
-        @as([]const u8, "pop"),
-        @as([]const u8, "pushFront"),
-        @as([]const u8, "popFront"),
-    };
-    return validateProps(sz, validProps, str);
+    return validateProps(.{ "len", "push", "pop", "pushFront", "popFront" }, str);
 }
 
 pub fn validateStaticArrayProps(str: []u8) bool {
-    const str2: []const u8 = "len";
-    const sz = 1;
-    const validProps: *const [sz][]const u8 = &[_][]const u8{str2};
-    return validateProps(sz, validProps, str);
+    return validateProps(.{"len"}, str);
 }
 
 pub fn validateStringProps(str: []u8) bool {
-    const sz = 4;
-    const validProps: *const [sz][]const u8 = &[_][]const u8{
-        @as([]const u8, "len"),
-        @as([]const u8, "concat"),
-        @as([]const u8, "indexOf"),
-        @as([]const u8, "lastIndexOf"),
-    };
-    return validateProps(sz, validProps, str);
+    return validateProps(.{
+        "len",
+        "concat",
+        "indexOf",
+        "lastIndexOf",
+    }, str);
 }
 
-fn validateProps(comptime sz: comptime_int, props: *const [sz][]const u8, prop: []u8) bool {
-    for (props) |p| {
+fn validateProps(comptime props: anytype, prop: []u8) bool {
+    inline for (props) |p| {
         if (string.compString(p, prop)) return true;
     }
 
