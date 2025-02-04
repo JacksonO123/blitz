@@ -215,7 +215,15 @@ const PropertyAccess = struct {
     property: []u8,
 };
 
+const MathOps = enum {
+    Add,
+    Sub,
+    Mult,
+    Div,
+};
+
 const MathOp = struct {
+    type: MathOps,
     left: *const AstNode,
     right: *const AstNode,
 };
@@ -238,10 +246,7 @@ const AstNodeVariants = enum {
     PropertyAccess,
     StaticStructInstance,
     FuncReference,
-    Add,
-    Sub,
-    Mult,
-    Div,
+    MathOp,
 };
 pub const AstNode = union(AstNodeVariants) {
     NoOp,
@@ -261,10 +266,7 @@ pub const AstNode = union(AstNodeVariants) {
     PropertyAccess: PropertyAccess,
     StaticStructInstance: []u8,
     FuncReference: []u8,
-    Add: MathOp,
-    Sub: MathOp,
-    Mult: MathOp,
-    Div: MathOp,
+    MathOp: MathOp,
 };
 
 pub const AstError = error{
@@ -296,6 +298,11 @@ const AstTypeOffsetData = struct {
 const FuncOffsetData = struct {
     func: *const FuncDecNode,
     offset: usize,
+};
+
+const MathOpTokenMap = struct {
+    type: MathOps,
+    token: tokenizer.TokenType,
 };
 
 pub const Ast = struct {
@@ -791,53 +798,40 @@ fn isMathExpr(compInfo: *CompInfo, tokens: []tokenizer.Token) bool {
     return true;
 }
 
-fn parseMathHelper(allocator: Allocator, compInfo: *CompInfo, opIndex: usize, tokens: []tokenizer.Token) !MathOp {
+fn parseMathHelper(allocator: Allocator, compInfo: *CompInfo, opIndex: usize, tokens: []tokenizer.Token, opType: MathOps) !MathOp {
     const leftTokens = tokens[0..opIndex];
     const leftExpr = try parseMathExpr(allocator, compInfo, leftTokens);
     const rightTokens = tokens[opIndex + 1 ..];
     const rightExpr = try parseMathExpr(allocator, compInfo, rightTokens);
 
     return .{
+        .type = opType,
         .left = leftExpr,
         .right = rightExpr,
     };
 }
 
 fn parseMathExpr(allocator: Allocator, compInfo: *CompInfo, tokens: []tokenizer.Token) (AstError || Allocator.Error)!*const AstNode {
-    const addIndex = utils.smartDelimiterIndex(tokens, compInfo, 0, .Add) catch null;
+    const ops = &[_]MathOpTokenMap{
+        .{ .type = .Add, .token = .Add },
+        .{ .type = .Sub, .token = .Sub },
+        .{ .type = .Mult, .token = .Mult },
+        .{ .type = .Div, .token = .Div },
+    };
 
-    if (addIndex) |index| {
-        const op = try parseMathHelper(allocator, compInfo, index, tokens);
-        return try create(AstNode, allocator, .{
-            .Add = op,
-        });
-    }
+    inline for (ops) |op| {
+        const tokIndex = utils.smartDelimiterIndex(tokens, compInfo, 0, op.token) catch null;
 
-    const subIndex = utils.smartDelimiterIndex(tokens, compInfo, 0, .Sub) catch null;
-
-    if (subIndex) |index| {
-        const op = try parseMathHelper(allocator, compInfo, index, tokens);
-        return try create(AstNode, allocator, .{
-            .Sub = op,
-        });
-    }
-
-    const multIndex = utils.smartDelimiterIndex(tokens, compInfo, 0, .Mult) catch null;
-
-    if (multIndex) |index| {
-        const op = try parseMathHelper(allocator, compInfo, index, tokens);
-        return try create(AstNode, allocator, .{
-            .Mult = op,
-        });
-    }
-
-    const divIndex = utils.smartDelimiterIndex(tokens, compInfo, 0, .Div) catch null;
-
-    if (divIndex) |index| {
-        const op = try parseMathHelper(allocator, compInfo, index, tokens);
-        return try create(AstNode, allocator, .{
-            .Div = op,
-        });
+        if (tokIndex) |index| {
+            const opSides = try parseMathHelper(allocator, compInfo, index, tokens, op.type);
+            return try create(AstNode, allocator, .{
+                .MathOp = .{
+                    .type = op.type,
+                    .left = opSides.left,
+                    .right = opSides.right,
+                },
+            });
+        }
     }
 
     return (try createAstNode(allocator, compInfo, tokens)).node;

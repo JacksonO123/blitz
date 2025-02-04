@@ -62,7 +62,8 @@ pub fn scanNodes(allocator: Allocator, compInfo: *CompInfo, nodes: []*const blit
 pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst.AstNode) (Allocator.Error || ScanError)!void {
     switch (node.*) {
         .NoOp, .Type, .Value, .Cast, .StaticStructInstance => {},
-        .Add, .Sub, .Mult, .Div => |op| {
+
+        .MathOp => |op| {
             const left = try getExpressionType(allocator, compInfo, op.left);
             defer free.freeStackType(allocator, &left);
             const right = try getExpressionType(allocator, compInfo, op.right);
@@ -454,7 +455,7 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const bli
         .StructDec => .Void,
         .IfStatement => .Void,
 
-        .Add, .Sub, .Mult, .Div => |op| {
+        .MathOp => |op| {
             try scanNode(allocator, compInfo, expr);
 
             const leftType = try getExpressionType(allocator, compInfo, op.left);

@@ -154,31 +154,19 @@ fn printValue(compInfo: *CompInfo, value: *const blitzAst.AstValues) void {
 
 pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
     switch (node.*) {
-        .Add => |op| {
+        .MathOp => |op| {
             std.debug.print("(", .{});
             printNode(compInfo, op.left);
-            std.debug.print(") +ADD+ (", .{});
-            printNode(compInfo, op.right);
-            std.debug.print(")", .{});
-        },
-        .Sub => |op| {
-            std.debug.print("(", .{});
-            printNode(compInfo, op.left);
-            std.debug.print(") -SUB- (", .{});
-            printNode(compInfo, op.right);
-            std.debug.print(")", .{});
-        },
-        .Mult => |op| {
-            std.debug.print("(", .{});
-            printNode(compInfo, op.left);
-            std.debug.print(") *MULT* (", .{});
-            printNode(compInfo, op.right);
-            std.debug.print(")", .{});
-        },
-        .Div => |op| {
-            std.debug.print("(", .{});
-            printNode(compInfo, op.left);
-            std.debug.print(") /DIV/ (", .{});
+            std.debug.print(") ", .{});
+
+            switch (op.type) {
+                .Add => std.debug.print("+ADD+", .{}),
+                .Sub => std.debug.print("-SUB-", .{}),
+                .Mult => std.debug.print("*MULT*", .{}),
+                .Div => std.debug.print("/DIV/", .{}),
+            }
+
+            std.debug.print(" (", .{});
             printNode(compInfo, op.right);
             std.debug.print(")", .{});
         },

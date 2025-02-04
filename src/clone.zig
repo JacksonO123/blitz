@@ -97,35 +97,40 @@ pub fn cloneAstNode(allocator: Allocator, node: blitzAst.AstNode) !blitzAst.AstN
     switch (node) {
         .NoOp => return node,
 
-        .Add => |op| {
-            return .{
-                .Add = .{
-                    .left = try cloneAstNodePtr(allocator, op.left),
-                    .right = try cloneAstNodePtr(allocator, op.right),
-                },
+        .MathOp => |op| {
+            const sides = .{
+                .left = try cloneAstNodePtr(allocator, op.left),
+                .right = try cloneAstNodePtr(allocator, op.right),
             };
-        },
-        .Sub => |op| {
-            return .{
-                .Sub = .{
-                    .left = try cloneAstNodePtr(allocator, op.left),
-                    .right = try cloneAstNodePtr(allocator, op.right),
+
+            return switch (op.type) {
+                .Add => .{
+                    .MathOp = .{
+                        .type = .Add,
+                        .left = sides.left,
+                        .right = sides.right,
+                    },
                 },
-            };
-        },
-        .Mult => |op| {
-            return .{
-                .Mult = .{
-                    .left = try cloneAstNodePtr(allocator, op.left),
-                    .right = try cloneAstNodePtr(allocator, op.right),
+                .Sub => .{
+                    .MathOp = .{
+                        .type = .Sub,
+                        .left = sides.left,
+                        .right = sides.right,
+                    },
                 },
-            };
-        },
-        .Div => |op| {
-            return .{
-                .Div = .{
-                    .left = try cloneAstNodePtr(allocator, op.left),
-                    .right = try cloneAstNodePtr(allocator, op.right),
+                .Mult => .{
+                    .MathOp = .{
+                        .type = .Mult,
+                        .left = sides.left,
+                        .right = sides.right,
+                    },
+                },
+                .Div => .{
+                    .MathOp = .{
+                        .type = .Div,
+                        .left = sides.left,
+                        .right = sides.right,
+                    },
                 },
             };
         },

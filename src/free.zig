@@ -73,7 +73,7 @@ pub fn freeValueNode(allocator: Allocator, node: *const blitzAst.AstValues) void
 
 pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
     switch (node.*) {
-        .Add, .Sub, .Mult, .Div => |op| {
+        .MathOp => |op| {
             freeNode(allocator, op.left);
             freeNode(allocator, op.right);
         },
