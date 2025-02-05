@@ -215,7 +215,7 @@ const PropertyAccess = struct {
     property: []u8,
 };
 
-const MathOps = enum {
+pub const MathOps = enum {
     Add,
     Sub,
     Mult,

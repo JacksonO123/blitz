@@ -11,7 +11,6 @@ const ArrayList = std.ArrayList;
 const allocator = std.testing.allocator;
 const freeTokens = tokenizer.freeTokens;
 const freeTokenArr = tokenizer.freeTokenArr;
-const toSlice = utils.toSlice;
 
 // debug
 const debug = @import("debug.zig");
@@ -19,6 +18,15 @@ const printTokens = debug.printTokens;
 
 const verbose = true;
 // const verbose = false;
+
+pub fn toSlice(comptime T: type, data: anytype) ![]T {
+    var list = ArrayList(T).init(allocator);
+    defer list.deinit();
+    try list.resize(data.len);
+    std.mem.copyForwards(T, list.items, data);
+    const res = try allocator.dupe(T, list.items);
+    return res;
+}
 
 fn testTokens(code: []const u8, tokens: anytype) !void {
     const expectedTokens = try toSlice(Token, allocator, &tokens);

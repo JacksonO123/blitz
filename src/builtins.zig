@@ -9,7 +9,7 @@ const Allocator = std.mem.Allocator;
 const ScanError = scanner.ScanError;
 
 const PropTypeMap = struct {
-    prop: []u8,
+    prop: *const []u8,
     type: blitzAst.AstTypes,
 };
 
@@ -38,31 +38,33 @@ fn validateProps(comptime props: anytype, prop: []u8) bool {
     return false;
 }
 
-pub fn getStringPropTypes(allocator: Allocator, prop: []u8) !blitzAst.AstTypes {
-    const typeMap = &[_]PropTypeMap{.{
-        .prop = try utils.toSlice(u8, allocator, "len"),
-        .type = .{
+pub fn getStringPropTypes(prop: []u8) !blitzAst.AstTypes {
+    const props = .{"len"};
+    const types = &[_]blitzAst.AstTypes{
+        .{
             .Number = blitzAst.AstNumberVariants.USize,
         },
-    }};
+    };
 
-    return getPropType(typeMap, prop);
+    const index = try getPropType(props, prop);
+    return types[index];
 }
 
-pub fn getStaticArrayPropTypes(allocator: Allocator, prop: []u8) !blitzAst.AstTypes {
-    const typeMap = &[_]PropTypeMap{.{
-        .prop = try utils.toSlice(u8, allocator, "len"),
-        .type = .{
+pub fn getStaticArrayPropTypes(prop: []u8) !blitzAst.AstTypes {
+    const props = .{"len"};
+    const types = &[_]blitzAst.AstTypes{
+        .{
             .Number = blitzAst.AstNumberVariants.USize,
         },
-    }};
+    };
 
-    return try getPropType(typeMap, prop);
+    const index = try getPropType(props, prop);
+    return types[index];
 }
 
-fn getPropType(typeMap: []const PropTypeMap, prop: []u8) !blitzAst.AstTypes {
-    for (typeMap) |item| {
-        if (string.compString(item.prop, prop)) return item.type;
+fn getPropType(comptime props: anytype, prop: []u8) !usize {
+    inline for (props, 0..) |item, index| {
+        if (string.compString(item, prop)) return index;
     }
 
     return ScanError.InvalidProperty;

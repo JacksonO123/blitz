@@ -19,15 +19,6 @@ pub inline fn createMut(comptime T: type, allocator: Allocator, obj: anytype) Al
     return ptr;
 }
 
-pub fn toSlice(comptime T: type, allocator: Allocator, data: anytype) ![]T {
-    var list = ArrayList(T).init(allocator);
-    defer list.deinit();
-    try list.resize(data.len);
-    std.mem.copyForwards(T, list.items, data);
-    const res = try allocator.dupe(T, list.items);
-    return res;
-}
-
 pub fn readRelativeFile(allocator: Allocator, path: []u8) ![]u8 {
     const maxFileSize = 1028 * 4; // arbitrary
     const file = try std.fs.cwd().openFile(path, .{});

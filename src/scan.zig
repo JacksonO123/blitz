@@ -569,8 +569,8 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const bli
 fn getPropertyType(allocator: Allocator, compInfo: *CompInfo, source: blitzAst.AstTypes, prop: []u8) !blitzAst.AstTypes {
     return switch (source) {
         .StaticStructInstance => |inst| try getStructPropType(compInfo, false, inst, prop),
-        .StaticArray => try builtins.getStaticArrayPropTypes(allocator, prop),
-        .String => try builtins.getStringPropTypes(allocator, prop),
+        .StaticArray => try builtins.getStaticArrayPropTypes(prop),
+        .String => try builtins.getStringPropTypes(prop),
         .Custom => |custom| getCustomPropType(allocator, compInfo, custom, prop),
         else => ScanError.UnsupportedFeature,
     };

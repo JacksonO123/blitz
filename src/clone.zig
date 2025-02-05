@@ -103,36 +103,21 @@ pub fn cloneAstNode(allocator: Allocator, node: blitzAst.AstNode) !blitzAst.AstN
                 .right = try cloneAstNodePtr(allocator, op.right),
             };
 
-            return switch (op.type) {
-                .Add => .{
-                    .MathOp = .{
-                        .type = .Add,
-                        .left = sides.left,
-                        .right = sides.right,
-                    },
-                },
-                .Sub => .{
-                    .MathOp = .{
-                        .type = .Sub,
-                        .left = sides.left,
-                        .right = sides.right,
-                    },
-                },
-                .Mult => .{
-                    .MathOp = .{
-                        .type = .Mult,
-                        .left = sides.left,
-                        .right = sides.right,
-                    },
-                },
-                .Div => .{
-                    .MathOp = .{
-                        .type = .Div,
-                        .left = sides.left,
-                        .right = sides.right,
-                    },
-                },
-            };
+            const opTypes = &[_]blitzAst.MathOps{ .Add, .Sub, .Mult, .Div };
+
+            inline for (opTypes) |opType| {
+                if (op.type == opType) {
+                    return .{
+                        .MathOp = .{
+                            .type = opType,
+                            .left = sides.left,
+                            .right = sides.right,
+                        },
+                    };
+                }
+            }
+
+            unreachable;
         },
         .FuncReference => |ref| {
             return .{
