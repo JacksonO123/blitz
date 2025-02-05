@@ -39,8 +39,8 @@ function run_log_dbg_build() {
 }
 
 
-# check if in project root
-if [[ "$(pwd)" == *\/blitz ]] && [ -e "$(pwd)/build.zig" ]; then
+# use multiple methods to check if in project root
+if [[ "$(pwd)" == *\/blitz ]] && [ -e "$(pwd)/build.zig" ] && [ -e "$(pwd)/.zig-cache" ]; then
   if [ "$1" == "" ]; then
     while IFS="" read -r p || [ -n "$p" ]
     do
