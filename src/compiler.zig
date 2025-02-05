@@ -44,7 +44,7 @@ pub fn main() !void {
     const structNames = try blitzAst.findStructNames(allocator, tokens);
     printStructNames(structNames);
 
-    var compInfo = CompInfo.init(allocator, structNames);
+    var compInfo = try CompInfo.init(allocator, structNames);
     defer compInfo.deinit();
 
     const registeredStructs = try blitzAst.registerStructs(allocator, &compInfo, tokens);

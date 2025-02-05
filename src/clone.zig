@@ -395,7 +395,7 @@ fn cloneAstNodePtr(allocator: Allocator, node: *const blitzAst.AstNode) Allocato
     return try create(blitzAst.AstNode, allocator, clonedNode);
 }
 
-fn cloneAstTypesPtr(allocator: Allocator, types: *const blitzAst.AstTypes) Allocator.Error!*const blitzAst.AstTypes {
+pub fn cloneAstTypesPtr(allocator: Allocator, types: *const blitzAst.AstTypes) Allocator.Error!*const blitzAst.AstTypes {
     const clonedType = try cloneAstTypes(allocator, types.*);
     return try create(blitzAst.AstTypes, allocator, clonedType);
 }

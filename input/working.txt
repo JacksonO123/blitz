@@ -1,8 +1,8 @@
-test1.blitz
-test2.blitz
-test3.blitz
-test4.blitz
-test5.blitz
-test6.blitz
-test8.blitz
-test9.blitz
+test1
+test2
+test3
+test4
+test5
+test6
+test8
+test9

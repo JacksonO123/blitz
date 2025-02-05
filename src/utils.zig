@@ -87,12 +87,19 @@ pub fn smartDelimiterIndex(tokens: []tokenizer.Token, compInfo: *CompInfo, start
     return AstError.TokenNotFound;
 }
 
+fn initPtrT(comptime T: type, allocator: Allocator) !*T {
+    const data = T.init(allocator);
+    return try createMut(T, allocator, data);
+}
+
+const Scope = *StringHashMap(*const blitzAst.AstTypes);
+
 pub const CompInfo = struct {
     const Self = @This();
 
     structNames: [][]u8,
     generics: *ArrayList([]u8),
-    variableTypes: *StringHashMap(*const blitzAst.AstTypes),
+    variableScopes: *ArrayList(Scope),
     functions: *StringHashMap(*const blitzAst.FuncDecNode),
     structs: *StringHashMap(*const blitzAst.StructDecNode),
     currentStructs: *ArrayList([]u8),
@@ -102,31 +109,38 @@ pub const CompInfo = struct {
     preAst: bool,
     allocator: Allocator,
 
-    pub inline fn init(allocator: Allocator, structNames: [][]u8) Self {
-        var genericsList = ArrayList([]u8).init(allocator);
-        var currentStructs = ArrayList([]u8).init(allocator);
-        var distFromStructMethod = ArrayList(u32).init(allocator);
-        var functions = StringHashMap(*const blitzAst.FuncDecNode).init(allocator);
-        var variableTypes = StringHashMap(*const blitzAst.AstTypes).init(allocator);
-        var structs = StringHashMap(*const blitzAst.StructDecNode).init(allocator);
+    pub fn init(allocator: Allocator, structNames: [][]u8) !Self {
+        const genericsList = try initPtrT(ArrayList([]u8), allocator);
+        const currentStructs = try initPtrT(ArrayList([]u8), allocator);
+        const distFromStructMethod = try initPtrT(ArrayList(u32), allocator);
+        const functions = try initPtrT(StringHashMap(*const blitzAst.FuncDecNode), allocator);
+        const structs = try initPtrT(StringHashMap(*const blitzAst.StructDecNode), allocator);
+
+        const baseScope = try initPtrT(StringHashMap(*const blitzAst.AstTypes), allocator);
+        const variableScopes = try initPtrT(ArrayList(Scope), allocator);
+        try variableScopes.append(baseScope);
 
         return Self{
             .structNames = structNames,
-            .generics = &genericsList,
-            .variableTypes = &variableTypes,
-            .functions = &functions,
-            .structs = &structs,
-            .currentStructs = &currentStructs,
-            .distFromStructMethod = &distFromStructMethod,
+            .generics = genericsList,
+            .variableScopes = variableScopes,
+            .functions = functions,
+            .structs = structs,
+            .currentStructs = currentStructs,
+            .distFromStructMethod = distFromStructMethod,
             .preAst = true,
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        var variableIt = self.variableTypes.valueIterator();
-        while (variableIt.next()) |valuePtr| {
-            free.freeType(self.allocator, valuePtr.*);
+        for (self.variableScopes.items) |scopePtr| {
+            var variableIt = scopePtr.valueIterator();
+            while (variableIt.next()) |valuePtr| {
+                free.freeType(self.allocator, valuePtr.*);
+            }
+            scopePtr.deinit();
+            self.allocator.destroy(scopePtr);
         }
 
         var functionIt = self.functions.valueIterator();
@@ -147,11 +161,38 @@ pub const CompInfo = struct {
         }
 
         self.generics.deinit();
-        self.variableTypes.deinit();
+        self.variableScopes.deinit();
         self.functions.deinit();
         self.structs.deinit();
         self.currentStructs.deinit();
         self.distFromStructMethod.deinit();
+
+        self.allocator.destroy(self.generics);
+        self.allocator.destroy(self.variableScopes);
+        self.allocator.destroy(self.functions);
+        self.allocator.destroy(self.structs);
+        self.allocator.destroy(self.currentStructs);
+        self.allocator.destroy(self.distFromStructMethod);
+    }
+
+    pub fn pushScope(self: *Self) !void {
+        const newScope = try initPtrT(StringHashMap(*const blitzAst.AstTypes), self.allocator);
+        try self.variableScopes.append(newScope);
+    }
+
+    pub fn popScope(self: *Self) void {
+        if (self.variableScopes.items.len > 1) {
+            const scope = self.getCurrentScope();
+
+            var scopeIt = scope.valueIterator();
+            while (scopeIt.next()) |v| {
+                free.freeType(self.allocator, v.*);
+            }
+
+            scope.deinit();
+            self.allocator.destroy(scope);
+            _ = self.variableScopes.pop();
+        }
     }
 
     pub fn prepareForAst(self: *Self) void {
@@ -188,19 +229,43 @@ pub const CompInfo = struct {
         return false;
     }
 
+    pub fn getCurrentScope(self: Self) Scope {
+        return self.variableScopes.getLast();
+    }
+
+    pub fn getPrevScope(self: *Self, current: Scope) ?Scope {
+        var i: usize = self.variableScopes.items.len - 1;
+
+        while (i > 1) {
+            if (self.variableScopes.items[i] == current) {
+                return self.variableScopes.items[i - 1];
+            }
+
+            i -= 1;
+        }
+
+        return null;
+    }
+
     pub fn setVariableType(self: *Self, name: []u8, astType: *const blitzAst.AstTypes) !void {
-        try self.variableTypes.put(name, astType);
+        const scope = self.getCurrentScope();
+        try scope.put(name, astType);
     }
 
     pub fn removeVariableType(self: *Self, name: []u8) void {
-        _ = self.variableTypes.remove(name);
+        const scope = self.getCurrentScope();
+        _ = scope.remove(name);
     }
 
     pub fn getVariableType(self: *Self, name: []u8) ?blitzAst.AstTypes {
-        const res = self.variableTypes.get(name);
+        var scope: ?Scope = self.getCurrentScope();
 
-        if (res) |t| {
-            return t.*;
+        while (scope) |s| {
+            if (s.get(name)) |t| {
+                return t.*;
+            }
+
+            scope = self.getPrevScope(s);
         }
 
         return null;

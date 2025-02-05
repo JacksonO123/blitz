@@ -122,8 +122,6 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
             } else {
                 try compInfo.setVariableType(dec.name, setPtr);
             }
-
-            // TODO: remove variable types when out of scope
         },
         .Variable => |v| {
             const varType = compInfo.getVariableType(v.name);
@@ -147,11 +145,14 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
             _ = compInfo.popCurrentStruct();
         },
         .IfStatement => |statement| {
+            try compInfo.pushScope();
             const conditionType = try getExpressionType(allocator, compInfo, statement.condition);
             defer free.freeStackType(allocator, &conditionType);
             if (conditionType != .Bool) return ScanError.ExpectedBooleanIfCondition;
+            compInfo.popScope();
         },
         .FuncDec => |name| {
+            try compInfo.pushScope();
             const dec = compInfo.getFunction(name).?;
             try scanNode(allocator, compInfo, dec.body);
 
@@ -185,6 +186,8 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
                 },
                 else => if (dec.returnType.* != .Void) return ScanError.FunctionReturnTypeMismatch,
             }
+
+            compInfo.popScope();
         },
         .FuncCall => |call| {
             try scanNode(allocator, compInfo, call.func);
@@ -335,15 +338,16 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
         switch (attr.attr) {
             .Member => {},
             .Function => |func| {
+                try compInfo.pushScope();
+
                 for (func.params) |param| {
-                    try compInfo.setVariableType(param.name, param.type);
+                    const clonedPtr = try clone.cloneAstTypesPtr(allocator, param.type);
+                    try compInfo.setVariableType(param.name, clonedPtr);
                 }
 
                 try scanNode(allocator, compInfo, func.body);
 
-                for (func.params) |param| {
-                    compInfo.removeVariableType(param.name);
-                }
+                compInfo.popScope();
             },
         }
     }
@@ -481,7 +485,9 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const bli
         .ReturnNode => |ret| getExpressionType(allocator, compInfo, ret),
         .FuncDec => |name| {
             const dec = compInfo.getFunction(name).?;
-            return .{ .Function = dec };
+            return .{
+                .Function = dec,
+            };
         },
         .StaticStructInstance => |inst| .{ .StaticStructInstance = inst },
         .Type => |t| t,
