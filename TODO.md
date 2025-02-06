@@ -12,6 +12,7 @@
     - [ ] if generic is nested, defined wrapper types act as restrictions
 - [ ] logger
   - [ ] error logger
+- [ ] anonymous functions
 - [x] Parse types to ast nodes
 - [x] Struct ast nodes
 - [x] If statement ast nodes

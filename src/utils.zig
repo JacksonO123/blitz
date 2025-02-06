@@ -101,7 +101,7 @@ pub const CompInfo = struct {
     generics: *ArrayList([]u8),
     variableScopes: *ArrayList(Scope),
     functions: *StringHashMap(*const blitzAst.FuncDecNode),
-    structs: *StringHashMap(*const blitzAst.StructDecNode),
+    structs: *StringHashMap(*blitzAst.StructDecNode),
     currentStructs: *ArrayList([]u8),
     // each number describes how far from
     // the struct method a child node is
@@ -114,7 +114,7 @@ pub const CompInfo = struct {
         const currentStructs = try initPtrT(ArrayList([]u8), allocator);
         const distFromStructMethod = try initPtrT(ArrayList(u32), allocator);
         const functions = try initPtrT(StringHashMap(*const blitzAst.FuncDecNode), allocator);
-        const structs = try initPtrT(StringHashMap(*const blitzAst.StructDecNode), allocator);
+        const structs = try initPtrT(StringHashMap(*blitzAst.StructDecNode), allocator);
 
         const baseScope = try initPtrT(StringHashMap(*const blitzAst.AstTypes), allocator);
         const variableScopes = try initPtrT(ArrayList(Scope), allocator);
@@ -161,17 +161,21 @@ pub const CompInfo = struct {
         }
 
         self.generics.deinit();
-        self.variableScopes.deinit();
-        self.functions.deinit();
-        self.structs.deinit();
-        self.currentStructs.deinit();
-        self.distFromStructMethod.deinit();
-
         self.allocator.destroy(self.generics);
+
+        self.variableScopes.deinit();
         self.allocator.destroy(self.variableScopes);
+
+        self.functions.deinit();
         self.allocator.destroy(self.functions);
+
+        self.structs.deinit();
         self.allocator.destroy(self.structs);
+
+        self.currentStructs.deinit();
         self.allocator.destroy(self.currentStructs);
+
+        self.distFromStructMethod.deinit();
         self.allocator.destroy(self.distFromStructMethod);
     }
 
@@ -195,8 +199,42 @@ pub const CompInfo = struct {
         }
     }
 
-    pub fn prepareForAst(self: *Self) void {
+    pub fn prepareForAst(self: *Self) !void {
         self.preAst = false;
+
+        {
+            var structIt = self.structs.valueIterator();
+            while (structIt.next()) |s| {
+                const attributes = s.*.attributes;
+                const arr = if (s.*.deriveType) |derived| a: {
+                    break :a try blitzAst.mergeMembers(self.allocator, self, attributes, derived);
+                } else a: {
+                    var members = try ArrayList(blitzAst.StructAttribute).initCapacity(self.allocator, attributes.len);
+
+                    for (attributes) |attr| {
+                        if (attr.attr == .Function) continue;
+                        try members.append(attr);
+                    }
+
+                    break :a try members.toOwnedSlice();
+                };
+                s.*.totalMemberList = arr;
+            }
+        }
+
+        {
+            var structIt = self.structs.valueIterator();
+            while (structIt.next()) |s| {
+                const attributes = s.*.attributes;
+                for (attributes) |attr| {
+                    if (attr.attr != .Function) continue;
+
+                    const f = attr.attr.Function;
+                    self.allocator.destroy(f.body);
+                    f.body = (try blitzAst.createAstNode(self.allocator, self, f.bodyTokens)).node;
+                }
+            }
+        }
     }
 
     pub fn hasStruct(self: Self, name: []u8) bool {
@@ -283,11 +321,11 @@ pub const CompInfo = struct {
         return self.functions.contains(name);
     }
 
-    pub fn setStructDec(self: *Self, name: []u8, node: *const blitzAst.StructDecNode) !void {
+    pub fn setStructDec(self: *Self, name: []u8, node: *blitzAst.StructDecNode) !void {
         try self.structs.put(name, node);
     }
 
-    pub fn setStructDecs(self: *Self, nodes: []*const blitzAst.StructDecNode) !void {
+    pub fn setStructDecs(self: *Self, nodes: []*blitzAst.StructDecNode) !void {
         for (nodes) |node| {
             try self.setStructDec(node.name, node);
         }

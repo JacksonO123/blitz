@@ -1,39 +1,6 @@
-struct shape {
-  pub fn util() {
-    const c = 3;
-  }
+fn myFunc(): u32 {
+  return 4;
 }
 
-struct square : shape {
-  size: u32;
-
-  pub static fn create(size: u32): square {
-    return square {
-      size
-    };
-  }
-
-  pub fn testFn(isTest: bool) {
-    const b = 2;
-  }
-
-  fn testPriv() {
-    return self.size;
-  }
-}
-
-fn thing(shape: square) {
-  const a = 2;
-}
-
-const s = square.create(10);
-
-thing(s);
-
-s.testFn(true);
-
-// s.testPriv();
-
-s.util();
-
-// s.size;
+const a = 1 * 2 + myFunc();
+// const b = 1 + 2 * 3;

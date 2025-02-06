@@ -1,9 +1,0 @@
-const a = true;
-
-if (a) {
-  const b = false;
-}
-
-if (a == b) {
-  const c = true;
-}

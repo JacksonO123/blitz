@@ -2,6 +2,24 @@
 const thing: u32[5] = [4, 3, 5, 2, 1];
 const thing2: u32 = 2;
 
+const b = thing[usize(thing2)];
+
+struct testing {
+  pub arr: u32[5];
+
+  pub static fn thing(): u32[5] {
+    return [1, 2, 3, 4, 5];
+  }
+}
+
+const t = testing {
+  arr = [5, 4, 3, 2, 1],
+};
+
+t.arr[usize(3)];
+
+testing.thing()[usize(4)];
+
 /* u32[] */
 // u32[][][]
 // ?u32

@@ -53,14 +53,14 @@ pub fn main() !void {
 
     printRegisteredStructs(&compInfo, registeredStructs);
 
+    try compInfo.prepareForAst();
+
     for (registeredStructs) |s| {
         const node = .{
             .StructDec = s,
         };
         try scanner.scanNode(allocator, &compInfo, &node);
     }
-
-    compInfo.prepareForAst();
 
     var ast = try blitzAst.createAst(allocator, &compInfo, tokens);
     defer ast.deinit();

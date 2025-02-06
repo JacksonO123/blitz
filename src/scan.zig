@@ -30,7 +30,7 @@ pub const ScanError = error{
     FunctionCallParamCountMismatch,
     VoidVariableDec,
     ExpectedFunctionReturn,
-    StructInitGenericsCountMismatch,
+    StructInitGenericCountMismatch,
     StructInitAttributeCountMismatch,
     StructInitMemberTypeMismatch,
     StructInitAttributeNotFound,
@@ -47,6 +47,8 @@ pub const ScanError = error{
     RestrictedPropertyAccess,
     MathOpOnNonNumberType,
     MathOpTypeMismatch,
+    ExpectedUSizeForIndex,
+    ExpectedArrayForIndexTarget,
 };
 
 pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !void {
@@ -63,6 +65,22 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
     switch (node.*) {
         .NoOp, .Type, .Value, .Cast, .StaticStructInstance => {},
 
+        .IndexValue => |index| {
+            try scanNode(allocator, compInfo, index.index);
+            try scanNode(allocator, compInfo, index.value);
+
+            const valueType = try getExpressionType(allocator, compInfo, index.value);
+            defer free.freeStackType(allocator, &valueType);
+            if (valueType != .StaticArray and valueType != .DynamicArray) {
+                return ScanError.ExpectedArrayForIndexTarget;
+            }
+
+            const indexType = try getExpressionType(allocator, compInfo, index.index);
+            defer free.freeStackType(allocator, &indexType);
+            if (indexType == .Number and indexType.Number != .USize) {
+                return ScanError.ExpectedUSizeForIndex;
+            }
+        },
         .MathOp => |op| {
             const left = try getExpressionType(allocator, compInfo, op.left);
             defer free.freeStackType(allocator, &left);
@@ -215,16 +233,19 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
             const structDec = compInfo.getStructDec(init.name).?;
 
             if (init.generics.len != structDec.generics.len) {
-                return ScanError.StructInitGenericsCountMismatch;
+                return ScanError.StructInitGenericCountMismatch;
             }
 
             try scanGenerics(init.generics, structDec.generics);
 
-            var numMembers: usize = 0;
-            for (structDec.attributes) |attr| {
+            std.debug.print("has {} wants {}\n", .{ init.attributes.len, structDec.totalMemberList.len });
+            if (init.attributes.len != structDec.totalMemberList.len) {
+                return ScanError.StructInitAttributeCountMismatch;
+            }
+
+            for (structDec.totalMemberList) |attr| {
                 if (attr.static) continue;
                 if (attr.attr == .Function) continue;
-                numMembers += 1;
 
                 var attrNode: ?*const blitzAst.AstNode = null;
                 for (init.attributes) |initAttr| {
@@ -234,7 +255,6 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
                 }
 
                 if (attrNode == null) {
-                    std.debug.print("cant find {s}\n", .{attr.name});
                     return ScanError.StructInitAttributeNotFound;
                 }
 
@@ -250,10 +270,6 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
                     return ScanError.StructInitMemberTypeMismatch;
                 }
             }
-
-            // if (numMembers != init.attributes.len) {
-            //     return ScanError.StructInitAttributeCountMismatch;
-            // }
         },
         .Bang => |bang| {
             const bangType = try getExpressionType(allocator, compInfo, bang);
@@ -459,6 +475,16 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const bli
         .StructDec => .Void,
         .IfStatement => .Void,
 
+        .IndexValue => |index| {
+            const valueType = try getExpressionType(allocator, compInfo, index.value);
+            defer free.freeStackType(allocator, &valueType);
+
+            switch (valueType) {
+                .DynamicArray => |arr| return clone.cloneAstTypes(allocator, arr.*),
+                .StaticArray => |info| return clone.cloneAstTypes(allocator, info.type.*),
+                else => return ScanError.ExpectedArrayForIndexTarget,
+            }
+        },
         .MathOp => |op| {
             try scanNode(allocator, compInfo, expr);
 

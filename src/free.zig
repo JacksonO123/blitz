@@ -46,6 +46,12 @@ pub fn freeFuncDec(allocator: Allocator, func: *const blitzAst.FuncDecNode) void
     allocator.destroy(func);
 }
 
+pub fn freeAttrs(allocator: Allocator, attrs: []blitzAst.StructAttribute) void {
+    for (attrs) |attr| {
+        freeAttr(allocator, attr);
+    }
+}
+
 pub fn freeAttr(allocator: Allocator, attr: blitzAst.StructAttribute) void {
     allocator.free(attr.name);
 
@@ -73,6 +79,10 @@ pub fn freeValueNode(allocator: Allocator, node: *const blitzAst.AstValues) void
 
 pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
     switch (node.*) {
+        .IndexValue => |index| {
+            freeNode(allocator, index.index);
+            freeNode(allocator, index.value);
+        },
         .MathOp => |op| {
             freeNode(allocator, op.left);
             freeNode(allocator, op.right);
@@ -170,12 +180,11 @@ pub fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) v
         allocator.free(generic.name);
     }
 
-    for (dec.attributes) |attr| {
-        freeAttr(allocator, attr);
-    }
+    freeAttrs(allocator, dec.attributes);
 
     allocator.free(dec.attributes);
     allocator.free(dec.generics);
+    allocator.free(dec.totalMemberList);
 
     if (dec.deriveType) |derived| {
         freeType(allocator, derived);

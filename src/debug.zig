@@ -154,6 +154,12 @@ fn printValue(compInfo: *CompInfo, value: *const blitzAst.AstValues) void {
 
 pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
     switch (node.*) {
+        .IndexValue => |index| {
+            std.debug.print("indexing ", .{});
+            printNode(compInfo, index.value);
+            std.debug.print(" with ", .{});
+            printNode(compInfo, index.index);
+        },
         .MathOp => |op| {
             std.debug.print("(", .{});
             printNode(compInfo, op.left);

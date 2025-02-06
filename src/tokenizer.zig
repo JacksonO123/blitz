@@ -322,12 +322,19 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
             }
         }
 
-        if (std.ascii.isAlphanumeric(char)) {
+        if (std.ascii.isAlphanumeric(char) or isValidNameChar(char)) {
             try chars.append(char);
         }
     }
 
     return tokens.toOwnedSlice();
+}
+
+fn isValidNameChar(char: u8) bool {
+    return switch (char) {
+        '_' => true,
+        else => false,
+    };
 }
 
 fn isPostEqSymbol(chars: []const u8, start: usize) ?Token {
