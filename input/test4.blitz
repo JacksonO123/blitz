@@ -1,5 +1,5 @@
-fn [T] thing(a: T) {
+fn [T] thing(a: T): char {
   return a;
 }
 
-thing(2);
+thing('h');

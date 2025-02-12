@@ -98,14 +98,15 @@ pub const CompInfo = struct {
     const Self = @This();
 
     structNames: [][]u8,
-    generics: *ArrayList([]u8),
+    availableGeneric: *ArrayList([]u8),
     variableScopes: *ArrayList(Scope),
     functions: *StringHashMap(*const blitzAst.FuncDecNode),
-    structs: *StringHashMap(*blitzAst.StructDecNode),
+    structDecs: *StringHashMap(*blitzAst.StructDecNode),
     currentStructs: *ArrayList([]u8),
     // each number describes how far from
     // the struct method a child node is
     distFromStructMethod: *ArrayList(u32),
+    genericMap: *StringHashMap(*const blitzAst.AstTypes),
     preAst: bool,
     allocator: Allocator,
 
@@ -115,6 +116,7 @@ pub const CompInfo = struct {
         const distFromStructMethod = try initPtrT(ArrayList(u32), allocator);
         const functions = try initPtrT(StringHashMap(*const blitzAst.FuncDecNode), allocator);
         const structs = try initPtrT(StringHashMap(*blitzAst.StructDecNode), allocator);
+        const genericMap = try initPtrT(StringHashMap(*const blitzAst.AstTypes), allocator);
 
         const baseScope = try initPtrT(StringHashMap(*const blitzAst.AstTypes), allocator);
         const variableScopes = try initPtrT(ArrayList(Scope), allocator);
@@ -122,12 +124,13 @@ pub const CompInfo = struct {
 
         return Self{
             .structNames = structNames,
-            .generics = genericsList,
+            .availableGeneric = genericsList,
             .variableScopes = variableScopes,
             .functions = functions,
-            .structs = structs,
+            .structDecs = structs,
             .currentStructs = currentStructs,
             .distFromStructMethod = distFromStructMethod,
+            .genericMap = genericMap,
             .preAst = true,
             .allocator = allocator,
         };
@@ -148,10 +151,15 @@ pub const CompInfo = struct {
             free.freeFuncDec(self.allocator, f.*);
         }
 
-        var structsIt = self.structs.valueIterator();
+        var structsIt = self.structDecs.valueIterator();
         while (structsIt.next()) |dec| {
             free.freeStructDec(self.allocator, dec.*);
             self.allocator.destroy(dec.*);
+        }
+
+        var genericIt = self.genericMap.valueIterator();
+        while (genericIt.next()) |gen| {
+            free.freeType(self.allocator, gen.*);
         }
 
         free.freeStructNames(self.allocator, self.structNames);
@@ -160,8 +168,8 @@ pub const CompInfo = struct {
             self.allocator.free(item);
         }
 
-        self.generics.deinit();
-        self.allocator.destroy(self.generics);
+        self.availableGeneric.deinit();
+        self.allocator.destroy(self.availableGeneric);
 
         self.variableScopes.deinit();
         self.allocator.destroy(self.variableScopes);
@@ -169,14 +177,17 @@ pub const CompInfo = struct {
         self.functions.deinit();
         self.allocator.destroy(self.functions);
 
-        self.structs.deinit();
-        self.allocator.destroy(self.structs);
+        self.structDecs.deinit();
+        self.allocator.destroy(self.structDecs);
 
         self.currentStructs.deinit();
         self.allocator.destroy(self.currentStructs);
 
         self.distFromStructMethod.deinit();
         self.allocator.destroy(self.distFromStructMethod);
+
+        self.genericMap.deinit();
+        self.allocator.destroy(self.genericMap);
     }
 
     pub fn pushScope(self: *Self) !void {
@@ -203,7 +214,7 @@ pub const CompInfo = struct {
         self.preAst = false;
 
         {
-            var structIt = self.structs.valueIterator();
+            var structIt = self.structDecs.valueIterator();
             while (structIt.next()) |s| {
                 const attributes = s.*.attributes;
                 const arr = if (s.*.deriveType) |derived| a: {
@@ -212,7 +223,7 @@ pub const CompInfo = struct {
                     var members = try ArrayList(blitzAst.StructAttribute).initCapacity(self.allocator, attributes.len);
 
                     for (attributes) |attr| {
-                        if (attr.attr == .Function) continue;
+                        if (attr.attr != .Member) continue;
                         try members.append(attr);
                     }
 
@@ -223,7 +234,7 @@ pub const CompInfo = struct {
         }
 
         {
-            var structIt = self.structs.valueIterator();
+            var structIt = self.structDecs.valueIterator();
             while (structIt.next()) |s| {
                 const attributes = s.*.attributes;
                 for (attributes) |attr| {
@@ -245,20 +256,36 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn addGeneric(self: *Self, name: []u8) !void {
-        try self.generics.append(name);
+    pub fn setGeneric(self: *Self, name: []u8, gType: *const blitzAst.AstTypes) !void {
+        try self.genericMap.put(name, gType);
     }
 
     pub fn removeGeneric(self: *Self, name: []u8) void {
-        for (self.generics.items, 0..) |item, index| {
+        const gType = self.genericMap.get(name);
+        if (gType) |generic| {
+            free.freeNode(self.allocator, generic);
+        }
+        self.genericMap.remove(name);
+    }
+
+    pub fn getGeneric(self: *Self, name: []u8) ?*const blitzAst.AstTypes {
+        return self.genericMap.get(name);
+    }
+
+    pub fn addAvailableGeneric(self: *Self, name: []u8) !void {
+        try self.availableGeneric.append(name);
+    }
+
+    pub fn removeAvailableGeneric(self: *Self, name: []u8) void {
+        for (self.availableGeneric.items, 0..) |item, index| {
             if (string.compString(item, name)) {
-                _ = self.generics.swapRemove(index);
+                _ = self.availableGeneric.swapRemove(index);
             }
         }
     }
 
     pub fn hasGeneric(self: Self, name: []u8) bool {
-        for (self.generics.items) |item| {
+        for (self.availableGeneric.items) |item| {
             if (string.compString(item, name)) {
                 return true;
             }
@@ -322,7 +349,7 @@ pub const CompInfo = struct {
     }
 
     pub fn setStructDec(self: *Self, name: []u8, node: *blitzAst.StructDecNode) !void {
-        try self.structs.put(name, node);
+        try self.structDecs.put(name, node);
     }
 
     pub fn setStructDecs(self: *Self, nodes: []*blitzAst.StructDecNode) !void {
@@ -332,7 +359,7 @@ pub const CompInfo = struct {
     }
 
     pub fn getStructDec(self: Self, name: []u8) ?*const blitzAst.StructDecNode {
-        return self.structs.get(name);
+        return self.structDecs.get(name);
     }
 
     pub fn addCurrentStruct(self: *Self, name: []u8) !void {

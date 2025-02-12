@@ -17,7 +17,7 @@ struct square : shape {
     const b = 2;
   }
 
-  fn testPriv() {
+  fn testPriv(): u32 {
     return self.size;
   }
 }

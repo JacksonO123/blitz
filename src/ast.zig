@@ -40,6 +40,7 @@ pub const AstNumberVariants = enum {
     F64,
     F128,
 };
+
 const AstNumber = struct {
     type: AstNumberVariants,
     value: []u8,
@@ -69,6 +70,7 @@ const Types = enum {
     Function,
     StaticStructInstance,
 };
+
 pub const AstTypes = union(Types) {
     String,
     Bool,
@@ -91,6 +93,7 @@ const StaticTypes = enum {
     Number,
     StaticArray,
 };
+
 pub const AstValues = union(StaticTypes) {
     String: []u8,
     Bool: bool,
@@ -571,7 +574,7 @@ pub fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
             }
 
             for (genericTypes) |gType| {
-                try compInfo.addGeneric(gType.name);
+                try compInfo.addAvailableGeneric(gType.name);
             }
 
             const attrData = try createStructAttributes(allocator, compInfo, defTokens);
@@ -595,7 +598,7 @@ pub fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
             });
 
             for (genericTypes) |gType| {
-                compInfo.removeGeneric(gType.name);
+                compInfo.removeAvailableGeneric(gType.name);
             }
 
             return .{
@@ -1024,6 +1027,20 @@ fn createFuncDecNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
         const genericTokens = tokens[2..rBracketIndex];
         offset += genericTokens.len + 2;
         generics = try parseGenerics(allocator, compInfo, genericTokens);
+
+        if (generics) |gens| {
+            for (gens) |generic| {
+                try compInfo.addAvailableGeneric(generic.name);
+            }
+        }
+    }
+
+    defer {
+        if (generics) |gens| {
+            for (gens) |generic| {
+                compInfo.removeAvailableGeneric(generic.name);
+            }
+        }
     }
 
     const name = tokens[offset].string.?;

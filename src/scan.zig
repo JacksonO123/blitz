@@ -49,42 +49,44 @@ pub const ScanError = error{
     MathOpTypeMismatch,
     ExpectedUSizeForIndex,
     ExpectedArrayForIndexTarget,
+    EmptyGenericType,
+    CustomGenericMismatch,
 };
 
 pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !void {
-    try scanNodes(allocator, compInfo, ast.root.nodes);
+    try scanNodes(allocator, compInfo, ast.root.nodes, false);
 }
 
-pub fn scanNodes(allocator: Allocator, compInfo: *CompInfo, nodes: []*const blitzAst.AstNode) (ScanError || Allocator.Error)!void {
+pub fn scanNodes(allocator: Allocator, compInfo: *CompInfo, nodes: []*const blitzAst.AstNode, withGenDef: bool) (ScanError || Allocator.Error)!void {
     for (nodes) |node| {
-        try scanNode(allocator, compInfo, node);
+        try scanNode(allocator, compInfo, node, withGenDef);
     }
 }
 
-pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst.AstNode) (Allocator.Error || ScanError)!void {
+pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst.AstNode, withGenDef: bool) (Allocator.Error || ScanError)!void {
     switch (node.*) {
         .NoOp, .Type, .Value, .Cast, .StaticStructInstance => {},
 
         .IndexValue => |index| {
-            try scanNode(allocator, compInfo, index.index);
-            try scanNode(allocator, compInfo, index.value);
+            try scanNode(allocator, compInfo, index.index, withGenDef);
+            try scanNode(allocator, compInfo, index.value, withGenDef);
 
-            const valueType = try getExpressionType(allocator, compInfo, index.value);
+            const valueType = try getExpressionType(allocator, compInfo, index.value, withGenDef);
             defer free.freeStackType(allocator, &valueType);
             if (valueType != .StaticArray and valueType != .DynamicArray) {
                 return ScanError.ExpectedArrayForIndexTarget;
             }
 
-            const indexType = try getExpressionType(allocator, compInfo, index.index);
+            const indexType = try getExpressionType(allocator, compInfo, index.index, withGenDef);
             defer free.freeStackType(allocator, &indexType);
             if (indexType == .Number and indexType.Number != .USize) {
                 return ScanError.ExpectedUSizeForIndex;
             }
         },
         .MathOp => |op| {
-            const left = try getExpressionType(allocator, compInfo, op.left);
+            const left = try getExpressionType(allocator, compInfo, op.left, withGenDef);
             defer free.freeStackType(allocator, &left);
-            const right = try getExpressionType(allocator, compInfo, op.right);
+            const right = try getExpressionType(allocator, compInfo, op.right, withGenDef);
             defer free.freeStackType(allocator, &right);
 
             if (left != .Number or right != .Number) return ScanError.MathOpOnNonNumberType;
@@ -94,7 +96,7 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
             if (!compInfo.hasFunctionName(ref)) return ScanError.IdentifierNotAFunction;
         },
         .PropertyAccess => |access| {
-            const res = try getExpressionType(allocator, compInfo, access.value);
+            const res = try getExpressionType(allocator, compInfo, access.value, withGenDef);
             defer free.freeStackType(allocator, &res);
 
             const validProp = switch (res) {
@@ -111,19 +113,19 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
             }
         },
         .ReturnNode => |ret| {
-            try scanNode(allocator, compInfo, ret);
+            try scanNode(allocator, compInfo, ret, withGenDef);
         },
         .Seq => |seq| {
-            try scanNodes(allocator, compInfo, seq.nodes);
+            try scanNodes(allocator, compInfo, seq.nodes, withGenDef);
         },
         .VarDec => |dec| {
             if (compInfo.getVariableType(dec.name) != null) {
                 return ScanError.VariableAlreadyExists;
             }
 
-            try scanNode(allocator, compInfo, dec.setNode);
+            try scanNode(allocator, compInfo, dec.setNode, withGenDef);
 
-            const setType = try getExpressionType(allocator, compInfo, dec.setNode);
+            const setType = try getExpressionType(allocator, compInfo, dec.setNode, withGenDef);
 
             if (setType == .Void) {
                 return ScanError.VoidVariableDec;
@@ -132,7 +134,8 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
             const setPtr = try create(blitzAst.AstTypes, allocator, setType);
 
             if (dec.annotation) |annotation| {
-                if (try matchTypes(allocator, compInfo, annotation.*, setType)) {
+                // TODO - do something with generics
+                if (try matchTypes(allocator, compInfo, annotation.*, setType, false)) {
                     try compInfo.setVariableType(dec.name, setPtr);
                 } else {
                     return ScanError.VariableAnnotationMismatch;
@@ -149,7 +152,7 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
             try compInfo.addCurrentStruct(dec.name);
 
             for (dec.generics) |generic| {
-                try compInfo.addGeneric(generic.name);
+                try compInfo.addAvailableGeneric(generic.name);
             }
 
             compInfo.enteringStruct();
@@ -157,77 +160,59 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
             compInfo.exitingStruct();
 
             for (dec.generics) |generic| {
-                compInfo.removeGeneric(generic.name);
+                compInfo.removeAvailableGeneric(generic.name);
             }
 
             _ = compInfo.popCurrentStruct();
         },
         .IfStatement => |statement| {
             try compInfo.pushScope();
-            const conditionType = try getExpressionType(allocator, compInfo, statement.condition);
+            const conditionType = try getExpressionType(allocator, compInfo, statement.condition, withGenDef);
             defer free.freeStackType(allocator, &conditionType);
             if (conditionType != .Bool) return ScanError.ExpectedBooleanIfCondition;
             compInfo.popScope();
         },
         .FuncDec => |name| {
-            try compInfo.pushScope();
-            const dec = compInfo.getFunction(name).?;
-            try scanNode(allocator, compInfo, dec.body);
-
-            switch (dec.body.*) {
-                .Seq => |seq| {
-                    if (seq.nodes.len == 0) {
-                        if (dec.returnType.* == .Void) {
-                            return;
-                        } else {
-                            return ScanError.ExpectedFunctionReturn;
-                        }
-                    }
-
-                    const last = seq.nodes[seq.nodes.len - 1];
-                    const lastType = try getExpressionType(allocator, compInfo, last);
-                    defer free.freeStackType(allocator, &lastType);
-
-                    if (last.* == .ReturnNode or dec.returnType.* != .Void) {
-                        if (!try matchTypes(allocator, compInfo, dec.returnType.*, lastType)) {
-                            return ScanError.FunctionReturnTypeMismatch;
-                        }
-                    }
-                },
-                .ReturnNode => |ret| {
-                    const retType = try getExpressionType(allocator, compInfo, ret);
-                    defer free.freeStackType(allocator, &retType);
-
-                    if (!try matchTypes(allocator, compInfo, dec.returnType.*, retType)) {
-                        return ScanError.FunctionReturnTypeMismatch;
-                    }
-                },
-                else => if (dec.returnType.* != .Void) return ScanError.FunctionReturnTypeMismatch,
-            }
-
-            compInfo.popScope();
+            const func = compInfo.getFunction(name).?;
+            try scanFuncBodyAndReturn(allocator, compInfo, func, withGenDef);
         },
         .FuncCall => |call| {
-            try scanNode(allocator, compInfo, call.func);
-            const dec = try getExpressionType(allocator, compInfo, call.func);
+            const dec = try getExpressionType(allocator, compInfo, call.func, withGenDef);
 
-            switch (dec) {
-                .Function => |func| {
-                    if (func.params.len != call.params.len) {
-                        return ScanError.FunctionCallParamCountMismatch;
+            if (dec == .Function) {
+                const func = dec.Function;
+
+                if (func.params.len != call.params.len) {
+                    return ScanError.FunctionCallParamCountMismatch;
+                }
+
+                for (func.params, 0..) |param, index| {
+                    const paramType = try getExpressionType(allocator, compInfo, call.params[index], withGenDef);
+                    var isGeneric = false;
+
+                    switch (param.type.*) {
+                        .Generic => |generic| {
+                            const typePtr = try create(blitzAst.AstTypes, allocator, paramType);
+                            try compInfo.setGeneric(generic, typePtr);
+
+                            isGeneric = true;
+                        },
+                        // TODO - do something with custom
+                        else => {},
                     }
 
-                    for (func.params, 0..) |param, index| {
-                        const paramType = try getExpressionType(allocator, compInfo, call.params[index]);
-                        defer free.freeStackType(allocator, &paramType);
-
-                        if (!try matchTypes(allocator, compInfo, param.type.*, paramType)) {
-                            return ScanError.FunctionCallParamTypeMismatch;
-                        }
+                    if (!try matchTypes(allocator, compInfo, param.type.*, paramType, false)) {
+                        return ScanError.FunctionCallParamTypeMismatch;
                     }
-                },
-                else => return ScanError.CannotCallNonFunctionNode,
-            }
+
+                    if (!isGeneric) {
+                        free.freeStackType(allocator, &paramType);
+                    }
+                }
+
+                try scanFuncBodyAndReturn(allocator, compInfo, func, true);
+                // try scanNode(allocator, compInfo, call.func, true);
+            } else return ScanError.CannotCallNonFunctionNode;
         },
         .StructInit => |init| {
             const structDec = compInfo.getStructDec(init.name).?;
@@ -238,7 +223,6 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
 
             try scanGenerics(init.generics, structDec.generics);
 
-            std.debug.print("has {} wants {}\n", .{ init.attributes.len, structDec.totalMemberList.len });
             if (init.attributes.len != structDec.totalMemberList.len) {
                 return ScanError.StructInitAttributeCountMismatch;
             }
@@ -258,25 +242,71 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
                     return ScanError.StructInitAttributeNotFound;
                 }
 
-                // TODO this is not ideal for generics, which should have
-                // the ability to define ambiguity in their restrictions
-                // which tighten when initialized, but for now whatever
-                // ig generics dont exist
-
-                const attrType = try getExpressionType(allocator, compInfo, attrNode.?);
+                const attrType = try getExpressionType(allocator, compInfo, attrNode.?, withGenDef);
                 defer free.freeStackType(allocator, &attrType);
 
-                if (!try matchTypes(allocator, compInfo, attr.attr.Member.*, attrType)) {
+                // TODO - check something for generics
+                if (!try matchTypes(allocator, compInfo, attr.attr.Member.*, attrType, false)) {
                     return ScanError.StructInitMemberTypeMismatch;
                 }
             }
         },
         .Bang => |bang| {
-            const bangType = try getExpressionType(allocator, compInfo, bang);
+            const bangType = try getExpressionType(allocator, compInfo, bang, withGenDef);
             defer free.freeStackType(allocator, &bangType);
             if (bangType != .Bool) return ScanError.ExpectedBooleanBang;
         },
     }
+}
+
+fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const blitzAst.FuncDecNode, withGenDef: bool) !void {
+    try compInfo.pushScope();
+
+    for (func.params) |param| {
+        const typeClone = try clone.cloneAstTypesPtr(allocator, param.type);
+        try compInfo.setVariableType(param.name, typeClone);
+    }
+
+    defer {
+        for (func.params) |param| {
+            compInfo.removeVariableType(param.name);
+        }
+    }
+
+    try scanNode(allocator, compInfo, func.body, withGenDef);
+
+    switch (func.body.*) {
+        .Seq => |seq| {
+            if (seq.nodes.len == 0) {
+                if (func.returnType.* == .Void) {
+                    return;
+                } else {
+                    return ScanError.ExpectedFunctionReturn;
+                }
+            }
+
+            const last = seq.nodes[seq.nodes.len - 1];
+            const lastType = try getExpressionType(allocator, compInfo, last, withGenDef);
+            defer free.freeStackType(allocator, &lastType);
+
+            if (last.* == .ReturnNode or func.returnType.* != .Void) {
+                if (!try matchTypes(allocator, compInfo, func.returnType.*, lastType, withGenDef)) {
+                    return ScanError.FunctionReturnTypeMismatch;
+                }
+            }
+        },
+        .ReturnNode => |ret| {
+            const retType = try getExpressionType(allocator, compInfo, ret, withGenDef);
+            defer free.freeStackType(allocator, &retType);
+
+            if (!try matchTypes(allocator, compInfo, func.returnType.*, retType, withGenDef)) {
+                return ScanError.FunctionReturnTypeMismatch;
+            }
+        },
+        else => if (func.returnType.* != .Void) return ScanError.FunctionReturnTypeMismatch,
+    }
+
+    compInfo.popScope();
 }
 
 fn validateSelfProps(compInfo: *CompInfo, name: []u8, prop: []u8) !bool {
@@ -345,6 +375,7 @@ fn validateCustomProps(compInfo: *CompInfo, custom: blitzAst.CustomType, prop: [
 }
 
 fn scanGenerics(initGenerics: []*const blitzAst.AstTypes, decGenerics: []blitzAst.GenericType) !void {
+    // TODO - fill in
     _ = initGenerics;
     _ = decGenerics;
 }
@@ -361,7 +392,8 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
                     try compInfo.setVariableType(param.name, clonedPtr);
                 }
 
-                try scanNode(allocator, compInfo, func.body);
+                // TODO - do things with generics
+                try scanNode(allocator, compInfo, func.body, false);
 
                 compInfo.popScope();
             },
@@ -428,36 +460,67 @@ fn isFloat(astType: blitzAst.AstTypes) bool {
     };
 }
 
-fn matchTypes(allocator: Allocator, compInfo: *CompInfo, type1: blitzAst.AstTypes, type2: blitzAst.AstTypes) !bool {
-    switch (type1) {
-        .String => return type2 == .String,
-        .Bool => return type2 == .Bool,
-        .Char => return type2 == .Char,
-        .Void => return type2 == .Void,
-        .Number => |num| return type2 == .Number and matchNumber(num, type2.Number),
-        .DynamicArray => |arr| return type2 == .DynamicArray and try matchTypes(allocator, compInfo, arr.*, type2.DynamicArray.*),
-        .StaticArray => |arr| {
+fn matchTypes(allocator: Allocator, compInfo: *CompInfo, type1: blitzAst.AstTypes, type2: blitzAst.AstTypes, withGenDef: bool) !bool {
+    if (type1 == .Generic and type2 == .Generic) {
+        return string.compString(type1.Generic, type2.Generic);
+    }
+
+    if (type1 == .Generic) {
+        const genType = compInfo.getGeneric(type1.Generic);
+        if (genType) |gType| {
+            return matchTypes(allocator, compInfo, gType.*, type2, withGenDef);
+        } else if (withGenDef) {
+            return ScanError.EmptyGenericType;
+        } else return true;
+    }
+
+    if (type2 == .Generic) {
+        const genType = compInfo.getGeneric(type2.Generic);
+        if (genType) |gType| {
+            return matchTypes(allocator, compInfo, type1, gType.*, withGenDef);
+        } else if (withGenDef) {
+            return ScanError.EmptyGenericType;
+        } else return true;
+    }
+
+    const res = switch (type1) {
+        .String => type2 == .String,
+        .Bool => type2 == .Bool,
+        .Char => type2 == .Char,
+        .Void => type2 == .Void,
+        .Number => |num| type2 == .Number and matchNumber(num, type2.Number),
+        .DynamicArray => |arr| type2 == .DynamicArray and try matchTypes(allocator, compInfo, arr.*, type2.DynamicArray.*, withGenDef),
+        .StaticArray => |arr| a: {
             if (type2 != .StaticArray) {
                 return false;
             }
 
-            const sizeType1 = try getExpressionType(allocator, compInfo, arr.size);
-            const sizeType2 = try getExpressionType(allocator, compInfo, type2.StaticArray.size);
+            const sizeType1 = try getExpressionType(allocator, compInfo, arr.size, withGenDef);
+            const sizeType2 = try getExpressionType(allocator, compInfo, type2.StaticArray.size, withGenDef);
             defer free.freeStackType(allocator, &sizeType1);
             defer free.freeStackType(allocator, &sizeType2);
 
             if (!isInt(sizeType1) or !isInt(sizeType2)) {
-                return false;
+                break :a false;
             }
 
-            return try matchTypes(allocator, compInfo, arr.type.*, type2.StaticArray.type.*);
+            break :a try matchTypes(allocator, compInfo, arr.type.*, type2.StaticArray.type.*, withGenDef);
         },
-        else => {
-            return true;
-        },
-    }
+        .Custom => |custom| a: {
+            if (type2 != .Custom) return false;
+            if (!string.compString(type1.Custom.name, type2.Custom.name)) return false;
 
-    return false;
+            for (custom.generics, 0..) |gen, index| {
+                const genMatch = try matchTypes(allocator, compInfo, gen.*, type2.Custom.generics[index].*, withGenDef);
+                if (!genMatch) return ScanError.CustomGenericMismatch;
+            }
+
+            break :a true;
+        },
+        else => false,
+    };
+
+    return res;
 }
 
 fn isPrimary(astType: blitzAst.AstTypes) bool {
@@ -467,7 +530,7 @@ fn isPrimary(astType: blitzAst.AstTypes) bool {
     };
 }
 
-fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const blitzAst.AstNode) (ScanError || Allocator.Error)!blitzAst.AstTypes {
+fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const blitzAst.AstNode, withGenDef: bool) (ScanError || Allocator.Error)!blitzAst.AstTypes {
     return switch (expr.*) {
         .NoOp => .Void,
         .Seq => .Void,
@@ -476,7 +539,7 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const bli
         .IfStatement => .Void,
 
         .IndexValue => |index| {
-            const valueType = try getExpressionType(allocator, compInfo, index.value);
+            const valueType = try getExpressionType(allocator, compInfo, index.value, withGenDef);
             defer free.freeStackType(allocator, &valueType);
 
             switch (valueType) {
@@ -486,11 +549,11 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const bli
             }
         },
         .MathOp => |op| {
-            try scanNode(allocator, compInfo, expr);
+            try scanNode(allocator, compInfo, expr, withGenDef);
 
-            const leftType = try getExpressionType(allocator, compInfo, op.left);
+            const leftType = try getExpressionType(allocator, compInfo, op.left, withGenDef);
             defer free.freeStackType(allocator, &leftType);
-            const rightType = try getExpressionType(allocator, compInfo, op.right);
+            const rightType = try getExpressionType(allocator, compInfo, op.right, withGenDef);
             defer free.freeStackType(allocator, &rightType);
 
             if (leftType != .Number or rightType != .Number) return ScanError.MathOpOnNonNumberType;
@@ -502,13 +565,13 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const bli
         },
 
         .FuncReference => |ref| {
-            try scanNode(allocator, compInfo, expr);
+            try scanNode(allocator, compInfo, expr, withGenDef);
             const dec = compInfo.getFunction(ref).?;
             return .{
                 .Function = dec,
             };
         },
-        .ReturnNode => |ret| getExpressionType(allocator, compInfo, ret),
+        .ReturnNode => |ret| getExpressionType(allocator, compInfo, ret, withGenDef),
         .FuncDec => |name| {
             const dec = compInfo.getFunction(name).?;
             return .{
@@ -527,7 +590,7 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const bli
 
                 break :a .{
                     .StaticArray = .{
-                        .type = try create(blitzAst.AstTypes, allocator, try inferStaticArrType(allocator, compInfo, arr)),
+                        .type = try create(blitzAst.AstTypes, allocator, try inferStaticArrType(allocator, compInfo, arr, withGenDef)),
                         .size = try create(blitzAst.AstNode, allocator, .{
                             .Value = .{
                                 .Number = .{
@@ -541,7 +604,7 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const bli
             },
         },
         .Cast => |cast| {
-            const nodeType = try getExpressionType(allocator, compInfo, cast.node);
+            const nodeType = try getExpressionType(allocator, compInfo, cast.node, withGenDef);
             defer free.freeStackType(allocator, &nodeType);
 
             if (isPrimary(nodeType) and isPrimary(cast.toType.*)) {
@@ -573,25 +636,25 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const bli
             };
         },
         .FuncCall => |call| {
-            try scanNode(allocator, compInfo, expr);
+            try scanNode(allocator, compInfo, expr, withGenDef);
 
-            const dec = try getExpressionType(allocator, compInfo, call.func);
+            const dec = try getExpressionType(allocator, compInfo, call.func, withGenDef);
             defer free.freeStackType(allocator, &dec);
 
             return try clone.cloneAstTypes(allocator, dec.Function.returnType.*);
         },
         .Bang => |node| {
-            const nodeType = try getExpressionType(allocator, compInfo, node);
+            const nodeType = try getExpressionType(allocator, compInfo, node, withGenDef);
             defer free.freeStackType(allocator, &nodeType);
 
-            if (!try matchTypes(allocator, compInfo, nodeType, .Bool)) {
+            if (!try matchTypes(allocator, compInfo, nodeType, .Bool, false)) {
                 return ScanError.ExpectedBooleanBang;
             }
 
             return .Bool;
         },
         .PropertyAccess => |access| {
-            const source = try getExpressionType(allocator, compInfo, access.value);
+            const source = try getExpressionType(allocator, compInfo, access.value, withGenDef);
             defer free.freeStackType(allocator, &source);
             return try getPropertyType(allocator, compInfo, source, access.property);
         },
@@ -657,19 +720,19 @@ fn getStructPropType(compInfo: *CompInfo, allowNonStatic: bool, inst: []u8, prop
     return ScanError.InvalidProperty;
 }
 
-fn inferStaticArrType(allocator: Allocator, compInfo: *CompInfo, arr: []*const blitzAst.AstNode) !blitzAst.AstTypes {
+fn inferStaticArrType(allocator: Allocator, compInfo: *CompInfo, arr: []*const blitzAst.AstNode, withGenDef: bool) !blitzAst.AstTypes {
     if (arr.len == 0) return .Void;
 
-    const item0Type = try getExpressionType(allocator, compInfo, arr[0]);
+    const firstType = try getExpressionType(allocator, compInfo, arr[0], withGenDef);
 
     for (arr[1..]) |item| {
-        const exprType = try getExpressionType(allocator, compInfo, item);
+        const exprType = try getExpressionType(allocator, compInfo, item, withGenDef);
         defer free.freeStackType(allocator, &exprType);
 
-        if (!try matchTypes(allocator, compInfo, exprType, item0Type)) {
+        if (!try matchTypes(allocator, compInfo, exprType, firstType, false)) {
             return ScanError.StaticArrayTypeMismatch;
         }
     }
 
-    return item0Type;
+    return firstType;
 }

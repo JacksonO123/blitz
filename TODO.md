@@ -5,8 +5,9 @@
 - [x] struct member visibility
 - [ ] struct accessor modifiers
   - [x] function call
-  - [ ] index
+  - [x] index
 - [ ] function generics
+  - [ ] make generic type scopes
   - [ ] if generics are specified on call, set type and scan params
   - [ ] otherwise infer type from non trivial type tree
     - [ ] if generic is nested, defined wrapper types act as restrictions

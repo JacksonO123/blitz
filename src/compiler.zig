@@ -59,7 +59,8 @@ pub fn main() !void {
         const node = .{
             .StructDec = s,
         };
-        try scanner.scanNode(allocator, &compInfo, &node);
+        // TODO - maybe do things with generics
+        try scanner.scanNode(allocator, &compInfo, &node, false);
     }
 
     var ast = try blitzAst.createAst(allocator, &compInfo, tokens);
