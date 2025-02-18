@@ -1,4 +1,9 @@
+fn [G] test(b: G) {
+  const h: G = b;
+}
+
 fn [T] thing(a: T): char {
+  test(2);
   return a;
 }
 

@@ -1022,6 +1022,9 @@ fn createFuncDecNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
     var offset: usize = 1;
     var generics: ?[]GenericType = null;
 
+    try compInfo.pushRegGenScope();
+    defer compInfo.popRegGenScope();
+
     if (tokens[1].type == .LBracket) {
         const rBracketIndex = utils.delimiterIndex(tokens, 3, .RBracket) catch |e| return astError(e, "]");
         const genericTokens = tokens[2..rBracketIndex];
@@ -1031,14 +1034,6 @@ fn createFuncDecNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
         if (generics) |gens| {
             for (gens) |generic| {
                 try compInfo.addAvailableGeneric(generic.name);
-            }
-        }
-    }
-
-    defer {
-        if (generics) |gens| {
-            for (gens) |generic| {
-                compInfo.removeAvailableGeneric(generic.name);
             }
         }
     }
@@ -1340,7 +1335,7 @@ fn createTypeNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokenizer
 
     if (tokens[current].type == .Identifier) {
         const tokenString = tokens[current].string.?;
-        if (compInfo.hasGeneric(tokenString)) {
+        if (compInfo.hasRegGeneric(tokenString)) {
             res = try create(AstTypes, allocator, AstTypes{
                 .Generic = try string.cloneString(allocator, tokenString),
             });
@@ -1414,7 +1409,7 @@ fn createAstType(allocator: Allocator, compInfo: *CompInfo, token: tokenizer.Tok
         .CharType => AstTypes.Char,
         else => a: {
             if (token.string) |tokenString| {
-                if (token.type == .Identifier and compInfo.hasGeneric(tokenString)) {
+                if (token.type == .Identifier and compInfo.hasRegGeneric(tokenString)) {
                     break :a AstTypes{
                         .Generic = tokenString,
                     };

@@ -177,6 +177,9 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
             try scanFuncBodyAndReturn(allocator, compInfo, func, withGenDef);
         },
         .FuncCall => |call| {
+            try compInfo.pushGenScope();
+            defer compInfo.popGenScope();
+
             const dec = try getExpressionType(allocator, compInfo, call.func, withGenDef);
 
             if (dec == .Function) {

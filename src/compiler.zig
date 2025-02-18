@@ -59,7 +59,6 @@ pub fn main() !void {
         const node = .{
             .StructDec = s,
         };
-        // TODO - maybe do things with generics
         try scanner.scanNode(allocator, &compInfo, &node, false);
     }
 
