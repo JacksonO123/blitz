@@ -3,12 +3,12 @@
 ## fs should do
 
 - [x] struct member visibility
-- [ ] struct accessor modifiers
+- [x] struct accessor modifiers
   - [x] function call
   - [x] index
 - [ ] function generics
-  - [ ] make generic type scopes
-  - [ ] if generics are specified on call, set type and scan params
+  - [x] make generic type scopes
+  - [x] if generics are specified on call, set type and scan params
   - [ ] otherwise infer type from non trivial type tree
     - [ ] if generic is nested, defined wrapper types act as restrictions
 - [ ] logger

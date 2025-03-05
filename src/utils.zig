@@ -283,6 +283,10 @@ pub const CompInfo = struct {
         if (self.genericScopes.items.len == 1) return;
 
         const genScope = self.getCurrentGenScope();
+        var genScopeIt = genScope.valueIterator();
+        while (genScopeIt.next()) |item| {
+            free.freeType(self.allocator, item.*);
+        }
 
         genScope.deinit();
         self.allocator.destroy(genScope);

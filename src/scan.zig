@@ -465,7 +465,11 @@ fn isFloat(astType: blitzAst.AstTypes) bool {
 
 fn matchTypes(allocator: Allocator, compInfo: *CompInfo, type1: blitzAst.AstTypes, type2: blitzAst.AstTypes, withGenDef: bool) !bool {
     if (type1 == .Generic and type2 == .Generic) {
-        return string.compString(type1.Generic, type2.Generic);
+        if (withGenDef) {
+            return string.compString(type1.Generic, type2.Generic);
+        }
+
+        return true;
     }
 
     if (type1 == .Generic) {
