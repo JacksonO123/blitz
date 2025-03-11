@@ -351,7 +351,7 @@ fn printParams(compInfo: *CompInfo, params: []blitzAst.Parameter) void {
     }
 }
 
-fn printGenerics(compInfo: *CompInfo, generics: []blitzAst.GenericType) void {
+pub fn printGenerics(compInfo: *CompInfo, generics: []blitzAst.GenericType) void {
     for (generics, 0..) |generic, index| {
         std.debug.print("[", .{});
 

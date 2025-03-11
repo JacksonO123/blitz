@@ -1,9 +1,11 @@
-const a = true;
-
-if (a) {
-  const b = false;
+struct [T] square {
+  value: T;
 }
 
-if (a == b) {
-  const c = true;
+fn thing(): square<u32> {
+  return square<u32> {
+    value = 2
+  };
 }
+
+const a: square<u32> = thing();

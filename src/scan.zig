@@ -149,7 +149,10 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
             if (varType == null) return ScanError.UndefinedOrUnknownVariableType;
         },
         .StructDec => |dec| {
+            try compInfo.pushRegGenScope();
             try compInfo.addCurrentStruct(dec.name);
+            defer _ = compInfo.popCurrentStruct();
+            defer compInfo.popRegGenScope();
 
             for (dec.generics) |generic| {
                 try compInfo.addAvailableGeneric(generic.name);
@@ -162,8 +165,6 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
             for (dec.generics) |generic| {
                 compInfo.removeAvailableGeneric(generic.name);
             }
-
-            _ = compInfo.popCurrentStruct();
         },
         .IfStatement => |statement| {
             try compInfo.pushScope();
@@ -214,7 +215,6 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
                 }
 
                 try scanFuncBodyAndReturn(allocator, compInfo, func, true);
-                // try scanNode(allocator, compInfo, call.func, true);
             } else return ScanError.CannotCallNonFunctionNode;
         },
         .StructInit => |init| {
@@ -290,6 +290,8 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const
 
             const last = seq.nodes[seq.nodes.len - 1];
             const lastType = try getExpressionType(allocator, compInfo, last, withGenDef);
+            // std.debug.print("here\n", .{});
+            // printType(compInfo, &lastType);
             defer free.freeStackType(allocator, &lastType);
 
             if (last.* == .ReturnNode or func.returnType.* != .Void) {
@@ -637,7 +639,7 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const bli
         .StructInit => |init| {
             return .{
                 .Custom = .{
-                    .generics = init.generics,
+                    .generics = try clone.cloneAstTypesPtrArr(allocator, init.generics),
                     .name = try string.cloneString(allocator, init.name),
                 },
             };

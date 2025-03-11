@@ -418,6 +418,19 @@ fn cloneAstNodePtr(allocator: Allocator, node: *const blitzAst.AstNode) Allocato
     return try create(blitzAst.AstNode, allocator, clonedNode);
 }
 
+pub fn cloneAstTypesPtrArr(allocator: Allocator, types: []*const blitzAst.AstTypes) Allocator.Error![]*const blitzAst.AstTypes {
+    var list = try ArrayList(*const blitzAst.AstTypes).initCapacity(allocator, types.len);
+    defer list.deinit();
+
+    for (types) |item| {
+        const clonedType = try cloneAstTypes(allocator, item.*);
+        const clonedTypePtr = try create(blitzAst.AstTypes, allocator, clonedType);
+        try list.append(clonedTypePtr);
+    }
+
+    return list.toOwnedSlice();
+}
+
 pub fn cloneAstTypesPtr(allocator: Allocator, types: *const blitzAst.AstTypes) Allocator.Error!*const blitzAst.AstTypes {
     const clonedType = try cloneAstTypes(allocator, types.*);
     return try create(blitzAst.AstTypes, allocator, clonedType);
@@ -436,7 +449,7 @@ fn cloneGeneric(allocator: Allocator, generic: blitzAst.GenericType) !blitzAst.G
     };
 }
 
-fn cloneGenerics(allocator: Allocator, generics: []blitzAst.GenericType) ![]blitzAst.GenericType {
+pub fn cloneGenerics(allocator: Allocator, generics: []blitzAst.GenericType) ![]blitzAst.GenericType {
     var clonedGenerics = ArrayList(blitzAst.GenericType).init(allocator);
     defer clonedGenerics.deinit();
 

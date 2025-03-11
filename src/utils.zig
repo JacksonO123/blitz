@@ -255,7 +255,8 @@ pub const CompInfo = struct {
                     if (attr.attr != .Function) continue;
 
                     const f = attr.attr.Function;
-                    self.allocator.destroy(f.body);
+                    // self.allocator.destroy(f.body);
+                    free.freeNode(self.allocator, f.body);
                     f.body = (try blitzAst.createAstNode(self.allocator, self, f.bodyTokens)).node;
                 }
             }
@@ -327,7 +328,7 @@ pub const CompInfo = struct {
         const genScope = self.getCurrentRegGenScope();
         for (genScope.items, 0..) |gen, index| {
             if (string.compString(gen, name)) {
-                _ = self.availableGenerics.swapRemove(index);
+                _ = genScope.swapRemove(index);
             }
         }
     }
