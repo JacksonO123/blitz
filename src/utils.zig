@@ -143,13 +143,8 @@ pub const CompInfo = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        for (self.variableScopes.items) |scopePtr| {
-            var variableIt = scopePtr.valueIterator();
-            while (variableIt.next()) |valuePtr| {
-                free.freeType(self.allocator, valuePtr.*);
-            }
-            scopePtr.deinit();
-            self.allocator.destroy(scopePtr);
+        while (self.variableScopes.items.len > 0) {
+            self.popScopeInternal();
         }
 
         for (self.availableGenerics.items) |gens| {
@@ -209,9 +204,8 @@ pub const CompInfo = struct {
         try self.variableScopes.append(newScope);
     }
 
-    pub fn popScope(self: *Self) void {
-        if (self.variableScopes.items.len == 1) return;
-
+    /// no guard on empty scope array
+    fn popScopeInternal(self: *Self) void {
         const scope = self.getCurrentScope();
 
         var scopeIt = scope.valueIterator();
@@ -222,6 +216,11 @@ pub const CompInfo = struct {
         scope.deinit();
         self.allocator.destroy(scope);
         _ = self.variableScopes.pop();
+    }
+
+    pub fn popScope(self: *Self) void {
+        if (self.variableScopes.items.len == 1) return;
+        self.popScopeInternal();
     }
 
     pub fn prepareForAst(self: *Self) !void {

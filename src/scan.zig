@@ -54,6 +54,8 @@ pub const ScanError = error{
 };
 
 pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !void {
+    while (compInfo.variableScopes.items.len > 1) compInfo.popScope();
+
     try scanNodes(allocator, compInfo, ast.root.nodes, false);
 }
 
@@ -264,16 +266,11 @@ pub fn scanNode(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst
 
 fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const blitzAst.FuncDecNode, withGenDef: bool) !void {
     try compInfo.pushScope();
+    defer compInfo.popScope();
 
     for (func.params) |param| {
         const typeClone = try clone.cloneAstTypesPtr(allocator, param.type);
         try compInfo.setVariableType(param.name, typeClone);
-    }
-
-    defer {
-        for (func.params) |param| {
-            compInfo.removeVariableType(param.name);
-        }
     }
 
     try scanNode(allocator, compInfo, func.body, withGenDef);
@@ -290,8 +287,6 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const
 
             const last = seq.nodes[seq.nodes.len - 1];
             const lastType = try getExpressionType(allocator, compInfo, last, withGenDef);
-            // std.debug.print("here\n", .{});
-            // printType(compInfo, &lastType);
             defer free.freeStackType(allocator, &lastType);
 
             if (last.* == .ReturnNode or func.returnType.* != .Void) {
@@ -310,8 +305,6 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const
         },
         else => if (func.returnType.* != .Void) return ScanError.FunctionReturnTypeMismatch,
     }
-
-    compInfo.popScope();
 }
 
 fn validateSelfProps(compInfo: *CompInfo, name: []u8, prop: []u8) !bool {
@@ -391,6 +384,7 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
             .Member => {},
             .Function => |func| {
                 try compInfo.pushScope();
+                defer compInfo.popScope();
 
                 for (func.params) |param| {
                     const clonedPtr = try clone.cloneAstTypesPtr(allocator, param.type);
@@ -399,8 +393,6 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
 
                 // TODO - do things with generics
                 try scanNode(allocator, compInfo, func.body, false);
-
-                compInfo.popScope();
             },
         }
     }
@@ -639,7 +631,7 @@ fn getExpressionType(allocator: Allocator, compInfo: *CompInfo, expr: *const bli
         .StructInit => |init| {
             return .{
                 .Custom = .{
-                    .generics = try clone.cloneAstTypesPtrArr(allocator, init.generics),
+                    .generics = try clone.cloneTypesArr(allocator, init.generics),
                     .name = try string.cloneString(allocator, init.name),
                 },
             };

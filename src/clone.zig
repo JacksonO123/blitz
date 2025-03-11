@@ -368,16 +368,16 @@ fn cloneStructAttributeUnion(allocator: Allocator, structAttrUnion: blitzAst.Str
     }
 }
 
-fn cloneTypesArr(allocator: Allocator, nodes: []*const blitzAst.AstTypes) ![]*const blitzAst.AstTypes {
-    var newTypes = ArrayList(*const blitzAst.AstTypes).init(allocator);
-    defer newTypes.deinit();
+pub fn cloneTypesArr(allocator: Allocator, nodes: []*const blitzAst.AstTypes) ![]*const blitzAst.AstTypes {
+    var arr = try ArrayList(*const blitzAst.AstTypes).initCapacity(allocator, nodes.len);
+    defer arr.deinit();
 
     for (nodes) |node| {
         const typePtr = try cloneAstTypesPtr(allocator, node);
-        try newTypes.append(typePtr);
+        try arr.append(typePtr);
     }
 
-    return try allocator.dupe(*const blitzAst.AstTypes, newTypes.items);
+    return try arr.toOwnedSlice();
 }
 
 fn cloneNodeArr(allocator: Allocator, nodes: []*const blitzAst.AstNode) ![]*const blitzAst.AstNode {
@@ -416,19 +416,6 @@ pub fn cloneFuncDec(allocator: Allocator, dec: *blitzAst.FuncDecNode) !*blitzAst
 fn cloneAstNodePtr(allocator: Allocator, node: *const blitzAst.AstNode) Allocator.Error!*const blitzAst.AstNode {
     const clonedNode = try cloneAstNode(allocator, node.*);
     return try create(blitzAst.AstNode, allocator, clonedNode);
-}
-
-pub fn cloneAstTypesPtrArr(allocator: Allocator, types: []*const blitzAst.AstTypes) Allocator.Error![]*const blitzAst.AstTypes {
-    var list = try ArrayList(*const blitzAst.AstTypes).initCapacity(allocator, types.len);
-    defer list.deinit();
-
-    for (types) |item| {
-        const clonedType = try cloneAstTypes(allocator, item.*);
-        const clonedTypePtr = try create(blitzAst.AstTypes, allocator, clonedType);
-        try list.append(clonedTypePtr);
-    }
-
-    return list.toOwnedSlice();
 }
 
 pub fn cloneAstTypesPtr(allocator: Allocator, types: *const blitzAst.AstTypes) Allocator.Error!*const blitzAst.AstTypes {

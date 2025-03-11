@@ -33,7 +33,7 @@ pub fn main() !void {
 
     const path = args[1];
 
-    std.debug.print("opening: {s}", .{path});
+    std.debug.print("opening: {s}\n", .{path});
 
     const code = try utils.readRelativeFile(allocator, path);
     defer allocator.free(code);

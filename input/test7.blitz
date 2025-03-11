@@ -2,10 +2,11 @@ struct [T] square {
   value: T;
 }
 
-fn thing(): square<u32> {
-  return square<u32> {
-    value = 2
+fn [T] thing(a: T): square<T> {
+  return square<T> {
+    value = a
   };
 }
 
-const a: square<u32> = thing();
+const a: square<u32> = thing(2);
+const b: square<char> = thing('b');
