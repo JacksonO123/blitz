@@ -34,6 +34,6 @@ s.testFn(true);
 
 // s.testPriv();
 
-s.util();
+ s.util();
 
 // s.size;

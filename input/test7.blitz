@@ -1,12 +1,18 @@
 struct [T] square {
-  value: T;
+  pub value: T;
 }
 
-fn [T] thing(a: T): square<T> {
-  return square<T> {
-    value = a
-  };
+fn [T] thing(a: square<T>): T {
+  return a.value;
 }
 
-const a: square<u32> = thing(2);
-const b: square<char> = thing('b');
+const inputA = square<u32> {
+  value = 2
+};
+
+const inputB = square<char> {
+  value = 'b'
+};
+
+const a: u32 = thing(inputA);
+const b: char = thing(inputB);

@@ -283,6 +283,7 @@ pub const CompInfo = struct {
         if (self.genericScopes.items.len == 1) return;
 
         const genScope = self.getCurrentGenScope();
+
         var genScopeIt = genScope.valueIterator();
         while (genScopeIt.next()) |item| {
             free.freeType(self.allocator, item.*);
@@ -344,6 +345,17 @@ pub const CompInfo = struct {
         return false;
     }
 
+    pub fn hasGeneric(self: Self, name: []u8) bool {
+        const genScope = self.getCurrentGenScope();
+
+        const keyIt = genScope.keyIterator();
+        while (keyIt.next()) |key| {
+            if (string.compString(name, key.*)) return true;
+        }
+
+        return false;
+    }
+
     pub fn pushRegGenScope(self: *Self) !void {
         const newScope = try initPtrT(ArrayList([]u8), self.allocator);
         try self.availableGenerics.append(newScope);
@@ -366,7 +378,7 @@ pub const CompInfo = struct {
     pub fn getPrevScope(self: *Self, current: Scope) ?Scope {
         var i: usize = self.variableScopes.items.len - 1;
 
-        while (i > 1) {
+        while (i > 0) {
             if (self.variableScopes.items[i] == current) {
                 return self.variableScopes.items[i - 1];
             }

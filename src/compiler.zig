@@ -59,7 +59,7 @@ pub fn main() !void {
         const node = .{
             .StructDec = s,
         };
-        try scanner.scanNode(allocator, &compInfo, &node, false);
+        _ = try scanner.scanNode(allocator, &compInfo, &node, false);
     }
 
     var ast = try blitzAst.createAst(allocator, &compInfo, tokens);
