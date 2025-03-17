@@ -224,9 +224,9 @@ pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void 
     }
 }
 
-pub fn freeType(allocator: Allocator, node: *const blitzAst.AstTypes) void {
-    freeStackType(allocator, node);
-    allocator.destroy(node);
+pub fn freeType(allocator: Allocator, typeNode: *const blitzAst.AstTypes) void {
+    freeStackType(allocator, typeNode);
+    allocator.destroy(typeNode);
 }
 
 pub fn freeToken(allocator: Allocator, token: tokenizer.Token) void {

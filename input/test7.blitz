@@ -2,7 +2,7 @@ struct [T] square {
   pub value: T;
 }
 
-fn [T] thing(a: square<T>): T {
+fn [T] thing(a: square<T>, val: T): T {
   return a.value;
 }
 
@@ -14,5 +14,5 @@ const inputB = square<char> {
   value = 'b'
 };
 
-const a: u32 = thing(inputA);
-const b: char = thing(inputB);
+const a: u32 = thing(inputA, 1);
+const b: char = thing(inputB, 'g');

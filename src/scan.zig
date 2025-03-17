@@ -51,6 +51,7 @@ pub const ScanError = error{
     ExpectedArrayForIndexTarget,
     EmptyGenericType,
     CustomGenericMismatch,
+    ConflictingGenericParameters,
 };
 
 pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !void {
@@ -125,6 +126,7 @@ pub fn scanNode(
             const indexType = try scanNode(allocator, compInfo, index.index, withGenDef);
             defer free.freeStackType(allocator, &indexType);
             const valueType = try scanNode(allocator, compInfo, index.value, withGenDef);
+            defer free.freeStackType(allocator, &valueType);
 
             if (indexType == .Number and indexType.Number != .USize) {
                 return ScanError.ExpectedUSizeForIndex;
@@ -386,6 +388,14 @@ fn matchParamGenericTypes(allocator: Allocator, compInfo: *CompInfo, custom: bli
                 switch (gen.*) {
                     .Generic => |generic| {
                         const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, paramGen, false);
+
+                        const genType = compInfo.getGeneric(generic);
+                        if (genType) |t| {
+                            if (!(try matchTypes(allocator, compInfo, t.*, typeClone.*, true))) {
+                                return ScanError.ConflictingGenericParameters;
+                            }
+                        }
+
                         try compInfo.setGeneric(generic, typeClone);
                     },
                     .Custom => |newCustom| {

@@ -296,6 +296,12 @@ pub const CompInfo = struct {
 
     pub fn setGeneric(self: *Self, name: []u8, gType: *const blitzAst.AstTypes) !void {
         const genScope = self.getCurrentGenScope();
+
+        const value = genScope.get(name);
+        if (value) |genValue| {
+            free.freeType(self.allocator, genValue);
+        }
+
         try genScope.put(name, gType);
     }
 
@@ -347,13 +353,7 @@ pub const CompInfo = struct {
 
     pub fn hasGeneric(self: Self, name: []u8) bool {
         const genScope = self.getCurrentGenScope();
-
-        const keyIt = genScope.keyIterator();
-        while (keyIt.next()) |key| {
-            if (string.compString(name, key.*)) return true;
-        }
-
-        return false;
+        return genScope.contains(name);
     }
 
     pub fn pushRegGenScope(self: *Self) !void {
