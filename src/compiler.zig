@@ -56,7 +56,7 @@ pub fn main() !void {
     try compInfo.prepareForAst();
 
     for (registeredStructs) |s| {
-        const node = .{
+        const node: blitzAst.AstNode = .{
             .StructDec = s,
         };
         _ = try scanner.scanNode(allocator, &compInfo, &node, false);

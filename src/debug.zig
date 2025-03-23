@@ -376,7 +376,7 @@ fn printNodes(compInfo: *CompInfo, nodes: []*const blitzAst.AstNode) void {
     }
 }
 
-pub fn printRegisteredStructs(compInfo: *CompInfo, structs: [](*const blitzAst.StructDecNode)) void {
+pub fn printRegisteredStructs(compInfo: *CompInfo, structs: [](*blitzAst.StructDecNode)) void {
     std.debug.print("--- structs ---\n", .{});
     for (structs) |s| {
         std.debug.print("declaring {s}", .{s.name});

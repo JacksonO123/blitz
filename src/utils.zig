@@ -9,11 +9,11 @@ const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const AstError = blitzAst.AstError;
 
-pub inline fn create(comptime T: type, allocator: Allocator, obj: anytype) Allocator.Error!*const T {
+pub inline fn create(comptime T: type, allocator: Allocator, obj: T) Allocator.Error!*const T {
     return createMut(T, allocator, obj);
 }
 
-pub inline fn createMut(comptime T: type, allocator: Allocator, obj: anytype) Allocator.Error!*T {
+pub inline fn createMut(comptime T: type, allocator: Allocator, obj: T) Allocator.Error!*T {
     const ptr = try allocator.create(T);
     ptr.* = obj;
     return ptr;
@@ -449,8 +449,8 @@ pub const CompInfo = struct {
     }
 
     pub fn popCurrentStruct(self: *Self) ?[]u8 {
-        _ = self.distFromStructMethod.popOrNull();
-        return self.currentStructs.popOrNull();
+        _ = self.distFromStructMethod.pop();
+        return self.currentStructs.pop();
     }
 
     pub fn enteringStruct(self: *Self) void {

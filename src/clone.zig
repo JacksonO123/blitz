@@ -95,7 +95,7 @@ fn cloneParameters(allocator: Allocator, compInfo: *CompInfo, params: []blitzAst
 
     for (params) |param| {
         const typePtr = try cloneAstTypesPtr(allocator, compInfo, param.type, replaceGenerics);
-        const newParam = .{
+        const newParam: blitzAst.Parameter = .{
             .name = try string.cloneString(allocator, param.name),
             .type = typePtr,
         };
@@ -253,7 +253,7 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                 );
             }
 
-            const structDec = .{
+            const structDec: blitzAst.StructDecNode = .{
                 .name = try string.cloneString(allocator, dec.name),
                 .generics = clonedGenerics,
                 .deriveType = deriveType,
@@ -345,7 +345,7 @@ fn cloneStructAttrDec(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzA
     defer attributes.deinit();
 
     for (attrs) |attr| {
-        const newAttr = .{
+        const newAttr: blitzAst.StructAttribute = .{
             .static = attr.static,
             .attr = try cloneStructAttributeUnion(allocator, compInfo, attr.attr, replaceGenerics),
             .name = try string.cloneString(allocator, attr.name),
@@ -363,7 +363,7 @@ fn cloneAttrDef(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.Att
     defer attributes.deinit();
 
     for (attrs) |attr| {
-        const newAttr = .{
+        const newAttr: blitzAst.AttributeDefinition = .{
             .name = try string.cloneString(allocator, attr.name),
             .value = try cloneAstNodePtr(allocator, compInfo, attr.value, replaceGenerics),
         };

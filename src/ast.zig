@@ -998,7 +998,7 @@ fn createStructInit(allocator: Allocator, compInfo: *CompInfo, structName: []u8,
             ),
         };
 
-        const attr = .{
+        const attr: AttributeDefinition = .{
             .name = try string.cloneString(allocator, tokens[i].string.?),
             .value = value,
         };
