@@ -1,0 +1,9 @@
+struct [T] square {
+  size: u32;
+  pub contains: T;
+}
+
+const a = square<bool> {
+  size = 10,
+  contains = 'b',
+};

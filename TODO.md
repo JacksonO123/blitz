@@ -9,8 +9,8 @@
 - [ ] function generics
   - [x] make generic type scopes
   - [x] if generics are specified on call, set type and scan params
-  - [ ] otherwise infer type from non trivial type tree
-    - [ ] if generic is nested, defined wrapper types act as restrictions
+  - [x] otherwise infer type from non trivial type tree
+    - [x] if generic is nested, defined wrapper types act as restrictions
 - [ ] logger
   - [ ] error logger
 - [ ] anonymous functions
