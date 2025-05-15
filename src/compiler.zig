@@ -51,9 +51,9 @@ pub fn main() !void {
     defer allocator.free(registeredStructs);
     try compInfo.setStructDecs(registeredStructs);
 
-    printRegisteredStructs(&compInfo, registeredStructs);
-
     try compInfo.prepareForAst();
+
+    printRegisteredStructs(&compInfo, registeredStructs);
 
     for (registeredStructs) |s| {
         const node: blitzAst.AstNode = .{

@@ -174,6 +174,8 @@ pub fn scanNode(
                     const def = compInfo.getStructDec(custom.name);
                     if (def == null) break :a false;
 
+                    compInfo.setPreviousAccessedStruct(def.?.name);
+
                     var genNameArr = try ArrayList([]u8).initCapacity(allocator, custom.generics.len);
                     var genTypeArr = try ArrayList(*const blitzAst.AstTypes).initCapacity(allocator, custom.generics.len);
                     defer genNameArr.deinit();
@@ -330,8 +332,21 @@ pub fn scanNode(
 
             const dec = try scanNode(allocator, compInfo, call.func, withGenDef);
             if (dec != .Function) return ScanError.CannotCallNonFunctionNode;
-
             const func = dec.Function;
+
+            const prevAccessed = compInfo.getPreviousAccessedStruct();
+            if (prevAccessed) |accessed| {
+                try compInfo.addCurrentStruct(accessed);
+                compInfo.enteringStruct();
+            }
+
+            defer {
+                if (prevAccessed != null) {
+                    compInfo.setPreviousAccessedStruct(null);
+                    compInfo.exitingStruct();
+                    _ = compInfo.popCurrentStruct();
+                }
+            }
 
             if (func.params.len != call.params.len) {
                 return ScanError.FunctionCallParamCountMismatch;
@@ -377,7 +392,6 @@ pub fn scanNode(
 
             const structDec = compInfo.getStructDec(init.name).?;
 
-            // TODO - make inferance
             if (init.generics.len != structDec.generics.len) {
                 return ScanError.StructInitGenericCountMismatch;
             }
@@ -527,7 +541,7 @@ fn validateSelfProps(allocator: Allocator, compInfo: *CompInfo, name: []u8, prop
 
     if (structDec) |dec| {
         for (dec.attributes) |attr| {
-            if (string.compString(attr.name, prop)) {
+            if ((attr.visibility == .Public or attr.visibility == .Protected) and string.compString(attr.name, prop)) {
                 return try clone.cloneStructAttributeUnionType(allocator, compInfo, attr.attr, false);
             }
         }
@@ -573,6 +587,8 @@ fn validateStaticStructProps(allocator: Allocator, compInfo: *CompInfo, name: []
 }
 
 fn validateCustomProps(allocator: Allocator, compInfo: *CompInfo, custom: blitzAst.CustomType, prop: []u8, withGenDef: bool) !?blitzAst.AstTypes {
+    std.debug.print("validating: {s}\n", .{prop});
+
     const dec = compInfo.getStructDec(custom.name);
     if (dec) |structDec| {
         for (structDec.attributes) |attr| {

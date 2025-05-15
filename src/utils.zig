@@ -107,6 +107,7 @@ pub const CompInfo = struct {
     // the struct method a child node is
     distFromStructMethod: *ArrayList(u32),
     genericScopes: *ArrayList(Scope),
+    previosAccessedStruct: ?[]u8,
     preAst: bool,
     allocator: Allocator,
 
@@ -137,6 +138,7 @@ pub const CompInfo = struct {
             .currentStructs = currentStructs,
             .distFromStructMethod = distFromStructMethod,
             .genericScopes = genericScopes,
+            .previosAccessedStruct = null,
             .preAst = true,
             .allocator = allocator,
         };
@@ -269,6 +271,14 @@ pub const CompInfo = struct {
                 }
             }
         }
+    }
+
+    pub fn setPreviousAccessedStruct(self: *Self, name: ?[]u8) void {
+        self.previosAccessedStruct = name;
+    }
+
+    pub fn getPreviousAccessedStruct(self: Self) ?[]u8 {
+        return self.previosAccessedStruct;
     }
 
     pub fn hasStruct(self: Self, name: []u8) bool {

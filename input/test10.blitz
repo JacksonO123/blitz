@@ -9,7 +9,7 @@ struct shape {
 struct square : shape {
   size: u32;
 
-  fn getShapeArea(): u32 {
+  pub fn getShapeArea(): u32 {
     return self.getArea();
   }
 }
@@ -20,3 +20,5 @@ const s = square {
   area = len * len,
   size = len
 };
+
+s.getShapeArea();
