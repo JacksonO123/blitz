@@ -387,6 +387,8 @@ pub fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
     }
 
     var propAccessNode: ?*const AstNode = null;
+    // holds index of closest period to create prop access node
+    // ends up holding final index of expression - 2 just because
     var closestPeriod = utils.smartDelimiterIndex(tokens, compInfo, 0, .Period) catch null;
     if (closestPeriod) |periodIndex| {
         const sourceTokens = tokens[0..periodIndex];
@@ -399,6 +401,7 @@ pub fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
 
     if (propAccessNode != null) {
         var currentChar = closestPeriod.?;
+
         while (currentChar < tokens.len) {
             if (tokens[currentChar + 1].type != .Identifier) return AstError.ExpectedIdentifierPropertyAccess;
 
@@ -410,9 +413,8 @@ pub fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
             });
 
             var current = currentChar + 2;
-            if (current >= tokens.len) break;
 
-            while (tokens[current].type == .LParen or tokens[current].type == .LBracket) {
+            while (current < tokens.len and (tokens[current].type == .LParen or tokens[current].type == .LBracket)) {
                 if (tokens[current].type == .LParen) {
                     const rParenIndex = utils.smartDelimiterIndex(tokens, compInfo, current + 1, .RParen) catch |e| return astError(e, ")");
                     const paramTokens = tokens[current + 1 .. rParenIndex];
@@ -442,13 +444,18 @@ pub fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
                 }
             }
 
-            switch (tokens[current].type) {
-                .Period => currentChar = current,
-                .LParen => {},
-                else => {
-                    closestPeriod = current - 2;
-                    break;
-                },
+            if (current < tokens.len) {
+                switch (tokens[current].type) {
+                    .Period => currentChar = current,
+                    .LParen => {},
+                    else => {
+                        closestPeriod = current;
+                        break;
+                    },
+                }
+            } else {
+                closestPeriod = current;
+                break;
             }
         }
     }
@@ -456,7 +463,7 @@ pub fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
     if (propAccessNode) |accessNode| {
         return .{
             .node = accessNode,
-            .offset = closestPeriod.? + 2,
+            .offset = closestPeriod.?,
         };
     }
 
@@ -841,7 +848,6 @@ pub fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
 
 pub fn mergeMembers(allocator: Allocator, compInfo: *CompInfo, attrs: []StructAttribute, derived: *const AstTypes) ![]StructAttribute {
     var res = try ArrayList(StructAttribute).initCapacity(allocator, attrs.len);
-    // TODO - handle other derived types
     const derivedDec = compInfo.getStructDec(derived.Custom.name);
 
     for (attrs) |attr| {

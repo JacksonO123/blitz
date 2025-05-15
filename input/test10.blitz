@@ -1,0 +1,22 @@
+struct shape {
+  pub area: u32;
+
+  prot fn getArea(): u32 {
+    return self.area;
+  }
+}
+
+struct square : shape {
+  size: u32;
+
+  fn getShapeArea(): u32 {
+    return self.getArea();
+  }
+}
+
+const len = 5;
+
+const s = square {
+  area = len * len,
+  size = len
+};

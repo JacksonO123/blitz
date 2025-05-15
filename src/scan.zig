@@ -166,10 +166,6 @@ pub fn scanNode(
             const res = try scanNode(allocator, compInfo, access.value, withGenDef);
             defer free.freeStackType(allocator, &res);
 
-            std.debug.print("accessing: ", .{});
-            printType(compInfo, &res);
-            std.debug.print(" :: {}\n", .{withGenDef});
-
             const valid = switch (res) {
                 .DynamicArray => builtins.validateDynamicArrayProps(access.property),
                 .StaticArray => builtins.validateStaticArrayProps(access.property),
@@ -200,9 +196,6 @@ pub fn scanNode(
                     const propType = try validateCustomProps(allocator, compInfo, custom, access.property, withGenDef);
 
                     if (propType) |t| {
-                        std.debug.print("returning: ", .{});
-                        printType(compInfo, &t);
-                        std.debug.print("\n", .{});
                         return t;
                     }
 
@@ -413,15 +406,13 @@ pub fn scanNode(
                 const attrType = try scanNode(allocator, compInfo, attrNode.?, withGenDef);
                 defer free.freeStackType(allocator, &attrType);
 
-                // TODO - check something for generics
-                if (!try matchTypes(allocator, compInfo, attr.attr.Member.*, attrType, false)) {
+                if (!try matchTypes(allocator, compInfo, attr.attr.Member.*, attrType, true)) {
                     return ScanError.StructInitMemberTypeMismatch;
                 }
             }
 
             return .{
                 .Custom = .{
-                    // TODO - prob do some generic thing
                     .generics = try clone.cloneTypesArr(allocator, compInfo, init.generics, false),
                     .name = try string.cloneString(allocator, init.name),
                 },
@@ -542,8 +533,13 @@ fn validateSelfProps(allocator: Allocator, compInfo: *CompInfo, name: []u8, prop
         }
 
         if (dec.deriveType) |derived| {
-            // TODO - handle litterally anything else
-            return validateSelfProps(allocator, compInfo, derived.StaticStructInstance, prop);
+            const derivedName = switch (derived.*) {
+                .StaticStructInstance => |structName| structName,
+                .Custom => |custom| custom.name,
+                else => unreachable,
+            };
+
+            return validateSelfProps(allocator, compInfo, derivedName, prop);
         }
     } else {
         return ScanError.UndefinedStruct;
