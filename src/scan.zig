@@ -587,8 +587,6 @@ fn validateStaticStructProps(allocator: Allocator, compInfo: *CompInfo, name: []
 }
 
 fn validateCustomProps(allocator: Allocator, compInfo: *CompInfo, custom: blitzAst.CustomType, prop: []u8, withGenDef: bool) !?blitzAst.AstTypes {
-    std.debug.print("validating: {s}\n", .{prop});
-
     const dec = compInfo.getStructDec(custom.name);
     if (dec) |structDec| {
         for (structDec.attributes) |attr| {
