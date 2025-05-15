@@ -1,9 +1,9 @@
-struct [T] square {
+struct [T: u32] square {
   size: u32;
   pub contains: T;
 }
 
-const a = square<bool> {
+const a = square<u32> {
   size = 10,
-  contains = 'b',
+  contains = 23,
 };

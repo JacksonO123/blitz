@@ -6,7 +6,7 @@
 - [x] struct accessor modifiers
   - [x] function call
   - [x] index
-- [ ] function generics
+- [x] function generics
   - [x] make generic type scopes
   - [x] if generics are specified on call, set type and scan params
   - [x] otherwise infer type from non trivial type tree

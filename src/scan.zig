@@ -16,6 +16,7 @@ const create = utils.create;
 const debug = @import("debug.zig");
 const printNode = debug.printNode;
 const printType = debug.printType;
+const printGenerics = debug.printGenerics;
 
 pub const ScanError = error{
     StaticArrayTypeMismatch,
@@ -52,6 +53,7 @@ pub const ScanError = error{
     EmptyGenericType,
     CustomGenericMismatch,
     ConflictingGenericParameters,
+    GenericRestrictionConflict,
 };
 
 pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !void {
@@ -170,6 +172,7 @@ pub fn scanNode(
                 .String => builtins.validateStringProps(access.property),
                 .Custom => |custom| a: {
                     const propType = try validateCustomProps(allocator, compInfo, custom, access.property);
+
                     if (propType) |t| {
                         return t;
                     }
@@ -178,7 +181,18 @@ pub fn scanNode(
                 },
                 .StaticStructInstance => |name| a: {
                     const propType = try validateStaticStructProps(allocator, compInfo, name, access.property);
+                    const dec = compInfo.getStructDec(name).?;
+
                     if (propType) |t| {
+                        if (t == .Function) {
+                            for (dec.generics) |gen| {
+                                if (gen.restriction) |restriction| {
+                                    const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, restriction, false);
+                                    try compInfo.setGeneric(gen.name, typeClone);
+                                }
+                            }
+                        }
+
                         return t;
                     }
 
@@ -189,7 +203,7 @@ pub fn scanNode(
 
             if (!valid) return ScanError.InvalidProperty;
 
-            // TODO - update with builtin prop types
+            // TODO - update with builtin prop types (array.length, array.push, etc)
             return .Void;
         },
         .ReturnNode => |ret| {
@@ -286,7 +300,6 @@ pub fn scanNode(
             defer compInfo.popGenScope();
 
             const dec = try scanNode(allocator, compInfo, call.func, withGenDef);
-
             if (dec != .Function) return ScanError.CannotCallNonFunctionNode;
 
             const func = dec.Function;
@@ -302,6 +315,13 @@ pub fn scanNode(
                 switch (param.type.*) {
                     .Generic => |generic| {
                         const typePtr = try create(blitzAst.AstTypes, allocator, paramType);
+
+                        if (compInfo.getGeneric(generic)) |gen| {
+                            if (!(try matchTypes(allocator, compInfo, paramType, gen.*, false))) {
+                                return ScanError.GenericRestrictionConflict;
+                            }
+                        }
+
                         try compInfo.setGeneric(generic, typePtr);
                         isGeneric = true;
                     },
@@ -323,13 +343,17 @@ pub fn scanNode(
             return try scanFuncBodyAndReturn(allocator, compInfo, func, true);
         },
         .StructInit => |init| {
+            try compInfo.pushGenScope();
+            defer compInfo.popGenScope();
+
             const structDec = compInfo.getStructDec(init.name).?;
 
+            // TODO - make inferance
             if (init.generics.len != structDec.generics.len) {
                 return ScanError.StructInitGenericCountMismatch;
             }
 
-            try scanGenerics(init.generics, structDec.generics);
+            try setInitGenerics(allocator, compInfo, init.generics, structDec.generics);
 
             if (init.attributes.len != structDec.totalMemberList.len) {
                 return ScanError.StructInitAttributeCountMismatch;
@@ -374,6 +398,21 @@ pub fn scanNode(
 
             return .Bool;
         },
+    }
+}
+
+fn setInitGenerics(allocator: Allocator, compInfo: *CompInfo, genTypes: []*const blitzAst.AstTypes, decGens: []blitzAst.GenericType) !void {
+    for (genTypes, 0..) |t, index| {
+        const decGen = decGens[index];
+
+        if (decGens[index].restriction) |restriction| {
+            if (!(try matchTypes(allocator, compInfo, t.*, restriction.*, false))) {
+                return ScanError.GenericRestrictionConflict;
+            }
+        }
+
+        const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, t, false);
+        try compInfo.setGeneric(decGen.name, typeClone);
     }
 }
 
@@ -528,12 +567,6 @@ fn validateCustomProps(allocator: Allocator, compInfo: *CompInfo, custom: blitzA
     return ScanError.InvalidPropertySource;
 }
 
-fn scanGenerics(initGenerics: []*const blitzAst.AstTypes, decGenerics: []blitzAst.GenericType) !void {
-    // TODO - fill in
-    _ = initGenerics;
-    _ = decGenerics;
-}
-
 fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.StructAttribute) !void {
     for (attrs) |attr| {
         switch (attr.attr) {
@@ -547,7 +580,6 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
                     try compInfo.setVariableType(param.name, clonedPtr);
                 }
 
-                // TODO - do things with generics
                 const bodyType = try scanNode(allocator, compInfo, func.body, false);
                 free.freeStackType(allocator, &bodyType);
             },

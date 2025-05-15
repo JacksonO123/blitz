@@ -269,17 +269,23 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
             printNode(compInfo, ret);
         },
         .StructInit => |init| {
-            std.debug.print("initializing ({s})[", .{init.name});
+            std.debug.print("initializing ({s})", .{init.name});
 
-            for (init.generics, 0..) |generic, index| {
-                printType(compInfo, generic);
+            if (init.generics.len > 0) {
+                std.debug.print("[generics: ", .{});
 
-                if (index < init.generics.len - 1) {
-                    std.debug.print(", ", .{});
+                for (init.generics, 0..) |generic, index| {
+                    printType(compInfo, generic);
+
+                    if (index < init.generics.len - 1) {
+                        std.debug.print(", ", .{});
+                    }
                 }
+
+                std.debug.print("]", .{});
             }
 
-            std.debug.print("] with {{", .{});
+            std.debug.print(" with {{", .{});
 
             for (init.attributes, 0..) |attr, index| {
                 std.debug.print("{s}: ", .{attr.name});

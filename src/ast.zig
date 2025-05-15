@@ -17,6 +17,7 @@ const printTokens = debug.printTokens;
 const printNode = debug.printNode;
 const printType = debug.printType;
 const printFuncDec = debug.printFuncDec;
+const printGenerics = debug.printGenerics;
 
 const SeqNode = struct {
     nodes: []*const AstNode,
@@ -743,7 +744,7 @@ pub fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
             };
         },
         .Fn => {
-            const data = try createFuncDecNode(allocator, compInfo, tokens, true);
+            const data = try createFuncDecNode(allocator, compInfo, tokens, true, true);
 
             const func = try create(AstNode, allocator, .{
                 .FuncDec = try string.cloneString(allocator, data.func.name),
@@ -1018,12 +1019,13 @@ fn createStructInit(allocator: Allocator, compInfo: *CompInfo, structName: []u8,
     };
 }
 
-fn createFuncDecNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokenizer.Token, parseBody: bool) !FuncOffsetData {
+fn createFuncDecNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokenizer.Token, parseBody: bool, pushRegGenScope: bool) !FuncOffsetData {
     var offset: usize = 1;
     var generics: ?[]GenericType = null;
 
-    try compInfo.pushRegGenScope();
-    defer compInfo.popRegGenScope();
+    if (pushRegGenScope) {
+        try compInfo.pushRegGenScope();
+    }
 
     if (tokens[1].type == .LBracket) {
         const rBracketIndex = utils.delimiterIndex(tokens, 3, .RBracket) catch |e| return astError(e, "]");
@@ -1057,6 +1059,10 @@ fn createFuncDecNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
     } else val: {
         break :val try create(AstTypes, allocator, @as(AstTypes, AstTypes.Void));
     };
+
+    if (pushRegGenScope) {
+        compInfo.popRegGenScope();
+    }
 
     return .{
         .func = try createMut(FuncDecNode, allocator, .{
@@ -1152,7 +1158,7 @@ fn createStructAttributeData(allocator: Allocator, compInfo: *CompInfo, tokens: 
 
     const attr: StructAttributeUnion = switch (tokens[0].type) {
         .Fn => val: {
-            const data = try createFuncDecNode(allocator, compInfo, tokens, !compInfo.preAst);
+            const data = try createFuncDecNode(allocator, compInfo, tokens, !compInfo.preAst, false);
             offset += data.offset + 2;
 
             break :val .{
@@ -1330,11 +1336,11 @@ fn createTypeNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokenizer
 
     const nullable = tokens[0].type == .QuestionMark;
     var current = @as(u32, if (nullable) 1 else 0);
-
     var res: *const AstTypes = undefined;
 
     if (tokens[current].type == .Identifier) {
         const tokenString = tokens[current].string.?;
+
         if (compInfo.hasRegGeneric(tokenString)) {
             res = try create(AstTypes, allocator, AstTypes{
                 .Generic = try string.cloneString(allocator, tokenString),

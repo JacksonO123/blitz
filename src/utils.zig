@@ -249,6 +249,16 @@ pub const CompInfo = struct {
         {
             var structIt = self.structDecs.valueIterator();
             while (structIt.next()) |s| {
+                for (s.*.generics) |gen| {
+                    try self.addAvailableGeneric(gen.name);
+                }
+
+                defer {
+                    for (s.*.generics) |gen| {
+                        self.removeAvailableGeneric(gen.name);
+                    }
+                }
+
                 const attributes = s.*.attributes;
                 for (attributes) |attr| {
                     if (attr.attr != .Function) continue;
@@ -321,7 +331,7 @@ pub const CompInfo = struct {
         return genScope.get(name);
     }
 
-    fn getCurrentRegGenScope(self: Self) *ArrayList([]u8) {
+    pub fn getCurrentRegGenScope(self: Self) *ArrayList([]u8) {
         return self.availableGenerics.getLast();
     }
 

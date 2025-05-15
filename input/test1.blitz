@@ -1,4 +1,6 @@
-struct Car {}
+struct Car {
+  size: u32;
+}
 
 struct [T: Car] name {
   value1: bool;
@@ -16,7 +18,10 @@ fn b(p0: name, p1: bool, p2: string, p3: u32): char {
   return 'b';
 }
 
-const n = name.create(true, Car {});
+// both throws error (should throw error)
+// const n: name<u32> = name.create(true, Car { size = 10 });
+// const n = name.create(true, 2 );
 
-// const h: bool = b(true, "thing", 2);
+const n: name<Car> = name.create(true, Car { size = 10 });
+
 const h = b(n, true, "thing", 2);
