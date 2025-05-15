@@ -388,7 +388,7 @@ pub fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
 
     var propAccessNode: ?*const AstNode = null;
     // holds index of closest period to create prop access node
-    // ends up holding final index of expression - 2 just because
+    // ends up holding final index of expression
     var closestPeriod = utils.smartDelimiterIndex(tokens, compInfo, 0, .Period) catch null;
     if (closestPeriod) |periodIndex| {
         const sourceTokens = tokens[0..periodIndex];
