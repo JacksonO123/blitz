@@ -181,14 +181,17 @@ pub fn scanNode(
                 },
                 .StaticStructInstance => |name| a: {
                     const propType = try validateStaticStructProps(allocator, compInfo, name, access.property);
-                    const dec = compInfo.getStructDec(name).?;
 
                     if (propType) |t| {
-                        if (t == .Function) {
-                            for (dec.generics) |gen| {
-                                if (gen.restriction) |restriction| {
-                                    const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, restriction, false);
-                                    try compInfo.setGeneric(gen.name, typeClone);
+                        if (!string.compString(name, "self")) {
+                            const dec = compInfo.getStructDec(name).?;
+
+                            if (t == .Function) {
+                                for (dec.generics) |gen| {
+                                    if (gen.restriction) |restriction| {
+                                        const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, restriction, false);
+                                        try compInfo.setGeneric(gen.name, typeClone);
+                                    }
                                 }
                             }
                         }
