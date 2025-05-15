@@ -1,0 +1,32 @@
+struct shape {
+  area: u32;
+}
+
+struct [G] rectangle : shape {
+  width: u32;
+  height: u32;
+  pub nothing: G;
+}
+
+struct [T: rectangle<char>] square {
+  pub inner: T;
+  size: u32;
+
+  pub static fn create(size: u32, inner: T): square<T> {
+    return square<T> {
+      inner,
+      size
+    };
+  }
+}
+
+const r: rectangle<char> = rectangle<char> {
+  area = 5 * 10,
+  width = 10,
+  height = 5,
+  nothing = 'o'
+};
+
+const s: square<rectangle<char>> = square.create(10, r);
+
+const a: char = s.inner.nothing;

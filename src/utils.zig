@@ -264,7 +264,6 @@ pub const CompInfo = struct {
                     if (attr.attr != .Function) continue;
 
                     const f = attr.attr.Function;
-                    // self.allocator.destroy(f.body);
                     free.freeNode(self.allocator, f.body);
                     f.body = (try blitzAst.createAstNode(self.allocator, self, f.bodyTokens)).node;
                 }

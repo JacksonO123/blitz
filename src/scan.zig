@@ -59,7 +59,7 @@ pub const ScanError = error{
 pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !void {
     while (compInfo.variableScopes.items.len > 1) compInfo.popScope();
 
-    try scanNodes(allocator, compInfo, ast.root.nodes, false);
+    try scanNodes(allocator, compInfo, ast.root.nodes, true);
 }
 
 pub fn scanNodes(
@@ -166,20 +166,51 @@ pub fn scanNode(
             const res = try scanNode(allocator, compInfo, access.value, withGenDef);
             defer free.freeStackType(allocator, &res);
 
+            std.debug.print("accessing: ", .{});
+            printType(compInfo, &res);
+            std.debug.print(" :: {}\n", .{withGenDef});
+
             const valid = switch (res) {
                 .DynamicArray => builtins.validateDynamicArrayProps(access.property),
                 .StaticArray => builtins.validateStaticArrayProps(access.property),
                 .String => builtins.validateStringProps(access.property),
                 .Custom => |custom| a: {
-                    const propType = try validateCustomProps(allocator, compInfo, custom, access.property);
+                    const def = compInfo.getStructDec(custom.name);
+                    if (def == null) break :a false;
+
+                    var genNameArr = try ArrayList([]u8).initCapacity(allocator, custom.generics.len);
+                    var genTypeArr = try ArrayList(*const blitzAst.AstTypes).initCapacity(allocator, custom.generics.len);
+                    defer genNameArr.deinit();
+                    defer genTypeArr.deinit();
+
+                    for (custom.generics, 0..) |gen, index| {
+                        const genDef = def.?.generics[index];
+                        const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, gen, withGenDef);
+                        try genNameArr.append(genDef.name);
+                        try genTypeArr.append(typeClone);
+                    }
+
+                    try compInfo.pushGenScope();
+                    defer compInfo.popGenScope();
+
+                    for (genNameArr.items, genTypeArr.items) |name, genType| {
+                        try compInfo.setGeneric(name, genType);
+                    }
+
+                    const propType = try validateCustomProps(allocator, compInfo, custom, access.property, withGenDef);
 
                     if (propType) |t| {
+                        std.debug.print("returning: ", .{});
+                        printType(compInfo, &t);
+                        std.debug.print("\n", .{});
                         return t;
                     }
 
                     break :a false;
                 },
                 .StaticStructInstance => |name| a: {
+                    try compInfo.pushGenScope();
+                    defer compInfo.popGenScope();
                     const propType = try validateStaticStructProps(allocator, compInfo, name, access.property);
 
                     if (propType) |t| {
@@ -290,7 +321,9 @@ pub fn scanNode(
             defer compInfo.popScope();
 
             const func = compInfo.getFunction(name).?;
-            const scanRes = try scanFuncBodyAndReturn(allocator, compInfo, func, withGenDef);
+            const isGeneric = func.generics != null;
+
+            const scanRes = try scanFuncBodyAndReturn(allocator, compInfo, func, !isGeneric);
             free.freeStackType(allocator, &scanRes);
 
             // TODO - replace with function type for anonymous functions sorta thing
@@ -451,7 +484,6 @@ fn matchParamGenericTypes(allocator: Allocator, compInfo: *CompInfo, custom: bli
     }
 }
 
-// TODO - review for generic replacing
 fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const blitzAst.FuncDecNode, withGenDef: bool) !blitzAst.AstTypes {
     for (func.params) |param| {
         const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, param.type, false);
@@ -544,7 +576,7 @@ fn validateStaticStructProps(allocator: Allocator, compInfo: *CompInfo, name: []
     return ScanError.InvalidProperty;
 }
 
-fn validateCustomProps(allocator: Allocator, compInfo: *CompInfo, custom: blitzAst.CustomType, prop: []u8) !?blitzAst.AstTypes {
+fn validateCustomProps(allocator: Allocator, compInfo: *CompInfo, custom: blitzAst.CustomType, prop: []u8, withGenDef: bool) !?blitzAst.AstTypes {
     const dec = compInfo.getStructDec(custom.name);
     if (dec) |structDec| {
         for (structDec.attributes) |attr| {
@@ -553,13 +585,13 @@ fn validateCustomProps(allocator: Allocator, compInfo: *CompInfo, custom: blitzA
             if (string.compString(attr.name, prop)) {
                 if (attr.visibility != .Public) return null;
 
-                return try clone.cloneStructAttributeUnionType(allocator, compInfo, attr.attr, false);
+                return try clone.cloneStructAttributeUnionType(allocator, compInfo, attr.attr, withGenDef);
             }
         }
 
         if (structDec.deriveType) |deriveType| {
             switch (deriveType.*) {
-                .Custom => |c| return try validateCustomProps(allocator, compInfo, c, prop),
+                .Custom => |c| return try validateCustomProps(allocator, compInfo, c, prop, withGenDef),
                 else => return ScanError.UnexpectedDeriveType,
             }
         }
@@ -583,7 +615,7 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
                     try compInfo.setVariableType(param.name, clonedPtr);
                 }
 
-                const bodyType = try scanNode(allocator, compInfo, func.body, false);
+                const bodyType = try scanNode(allocator, compInfo, func.body, true);
                 free.freeStackType(allocator, &bodyType);
             },
         }
@@ -702,6 +734,7 @@ fn matchTypes(allocator: Allocator, compInfo: *CompInfo, type1: blitzAst.AstType
         .Custom => |custom| a: {
             if (type2 != .Custom) return false;
             if (!string.compString(type1.Custom.name, type2.Custom.name)) return false;
+            if (custom.generics.len != type2.Custom.generics.len) return false;
 
             for (custom.generics, 0..) |gen, index| {
                 const genMatch = try matchTypes(allocator, compInfo, gen.*, type2.Custom.generics[index].*, withGenDef);

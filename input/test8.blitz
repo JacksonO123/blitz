@@ -5,5 +5,5 @@ struct [T: u32] square {
 
 const a = square<u32> {
   size = 10,
-  contains = 23,
+  contains = 23
 };
