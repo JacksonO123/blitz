@@ -1,8 +1,9 @@
-struct shape {
+struct [T] shape {
   area: u32;
+  value: T;
 }
 
-struct [G] rectangle : shape {
+struct [G] rectangle : shape<G> {
   width: u32;
   height: u32;
   pub nothing: G;
@@ -22,6 +23,9 @@ struct [T: rectangle<char>] square {
 
 const r: rectangle<char> = rectangle<char> {
   area = 5 * 10,
+  // failes with wrong value
+  // value = true,
+  value = 'b',
   width = 10,
   height = 5,
   nothing = 'o'

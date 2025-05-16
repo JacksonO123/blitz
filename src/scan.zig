@@ -398,6 +398,10 @@ pub fn scanNode(
 
             try setInitGenerics(allocator, compInfo, init.generics, structDec.generics);
 
+            if (structDec.deriveType) |derived| {
+                try setInitDerivedGenerics(allocator, compInfo, derived);
+            }
+
             if (init.attributes.len != structDec.totalMemberList.len) {
                 return ScanError.StructInitAttributeCountMismatch;
             }
@@ -453,7 +457,26 @@ fn setInitGenerics(allocator: Allocator, compInfo: *CompInfo, genTypes: []*const
         }
 
         const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, t, false);
+        std.debug.print("setting gen {s}\n", .{decGen.name});
         try compInfo.setGeneric(decGen.name, typeClone);
+    }
+}
+
+fn setInitDerivedGenerics(allocator: Allocator, compInfo: *CompInfo, deriveType: *const blitzAst.AstTypes) !void {
+    const generics = deriveType.Custom.generics;
+    const derivedDec = compInfo.getStructDec(deriveType.Custom.name);
+    const decGens = derivedDec.?.generics;
+
+    for (generics, decGens) |gen, decGen| {
+        const clonedType = try clone.cloneAstTypesPtr(allocator, compInfo, gen, true);
+
+        if (decGen.restriction) |restriction| {
+            if (!(try matchTypes(allocator, compInfo, clonedType.*, restriction.*, true))) {
+                return ScanError.GenericRestrictionConflict;
+            }
+        }
+
+        try compInfo.setGeneric(decGen.name, clonedType);
     }
 }
 
@@ -705,6 +728,7 @@ fn matchTypes(allocator: Allocator, compInfo: *CompInfo, type1: blitzAst.AstType
         if (genType) |gType| {
             return matchTypes(allocator, compInfo, gType.*, type2, withGenDef);
         } else if (withGenDef) {
+            std.debug.print("did not find {s}\n", .{type1.Generic});
             return ScanError.EmptyGenericType;
         } else return true;
     }

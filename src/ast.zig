@@ -297,6 +297,7 @@ pub const AstError = error{
     ExpectedStructDeriveType,
     ExpectedIdentifierForDerivedType,
     UndefinedStruct,
+    VariableNameExistsAsStruct,
 };
 
 const AstNodeOffsetData = struct {
@@ -560,6 +561,18 @@ pub fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
                 };
             }
 
+            const defTokens = tokens[lBraceIndex + 1 .. end];
+            var genericTypes: []GenericType = &[_]GenericType{};
+
+            if (isGeneric) {
+                const genericsTokens = tokens[2 .. nameIndex - 1];
+                genericTypes = try parseGenerics(allocator, compInfo, genericsTokens);
+            }
+
+            for (genericTypes) |gType| {
+                try compInfo.addAvailableGeneric(gType.name);
+            }
+
             var deriveType: ?*const AstTypes = null;
             if (tokens[nameIndex + 1].type == .Colon) {
                 const deriveTokens = tokens[nameIndex + 2 .. lBraceIndex];
@@ -571,18 +584,6 @@ pub fn createAstNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
                 }
 
                 deriveType = try createTypeNode(allocator, compInfo, deriveTokens);
-            }
-
-            const defTokens = tokens[lBraceIndex + 1 .. end];
-            var genericTypes: []GenericType = &[_]GenericType{};
-
-            if (isGeneric) {
-                const genericsTokens = tokens[2 .. nameIndex - 1];
-                genericTypes = try parseGenerics(allocator, compInfo, genericsTokens);
-            }
-
-            for (genericTypes) |gType| {
-                try compInfo.addAvailableGeneric(gType.name);
             }
 
             const attrData = try createStructAttributes(allocator, compInfo, defTokens);
@@ -1052,6 +1053,10 @@ fn createFuncDecNode(allocator: Allocator, compInfo: *CompInfo, tokens: []tokeni
     const parameterTokens = tokens[offset + 2 .. rParenIndex];
     const parameters = try parseParameters(allocator, compInfo, parameterTokens);
 
+    for (parameters) |param| {
+        if (compInfo.hasStruct(param.name)) return AstError.VariableNameExistsAsStruct;
+    }
+
     const lBraceIndex = utils.smartDelimiterIndex(tokens, compInfo, rParenIndex + 1, .LBrace) catch |e| return astError(e, "{");
     const rBraceIndex = utils.smartDelimiterIndex(tokens, compInfo, lBraceIndex + 1, .RBrace) catch |e| return astError(e, "}");
     const bodyTokens = tokens[lBraceIndex + 1 .. rBraceIndex];
@@ -1277,7 +1282,7 @@ fn createVarDecNode(
     tokens: []tokenizer.Token,
     isConst: bool,
 ) (AstError || Allocator.Error)!AstNodeOffsetData {
-    const name = tokens[1];
+    const nameToken = tokens[1];
     const hasType = switch (tokens[2].type) {
         .EqSet => false,
         .Colon => true,
@@ -1300,10 +1305,12 @@ fn createVarDecNode(
     const setNode = try createAstNode(allocator, compInfo, setTokens);
     const tokenOffset = offset + setNode.offset;
 
-    if (name.type != .Identifier) return AstError.UnexpectedToken;
+    if (nameToken.type != .Identifier) return astError(AstError.UnexpectedToken, nameToken.type.toString());
+    if (compInfo.hasStruct(nameToken.string.?)) return AstError.VariableNameExistsAsStruct;
+
     const node = try create(AstNode, allocator, .{
         .VarDec = VarDecNode{
-            .name = try string.cloneString(allocator, name.string.?),
+            .name = try string.cloneString(allocator, nameToken.string.?),
             .isConst = isConst,
             .setNode = setNode.node,
             .annotation = annotation,
@@ -1494,6 +1501,7 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedStructDeriveType => "expected struct derive type",
         AstError.ExpectedIdentifierForDerivedType => "expected identifier for derive type",
         AstError.UndefinedStruct => "undefined struct",
+        AstError.VariableNameExistsAsStruct => "variable name exists as struct",
     };
 }
 

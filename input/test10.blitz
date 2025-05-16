@@ -12,6 +12,14 @@ struct square : shape {
   pub fn getShapeArea(): u32 {
     return self.getArea();
   }
+
+  fn internalFn() {
+    const b = 2;
+  }
+}
+
+fn thing(sh: square) {
+  const a = 2;
 }
 
 const len = 5;
@@ -22,3 +30,4 @@ const s = square {
 };
 
 s.getShapeArea();
+// s.internalFn();
