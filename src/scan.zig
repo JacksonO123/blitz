@@ -457,7 +457,6 @@ fn setInitGenerics(allocator: Allocator, compInfo: *CompInfo, genTypes: []*const
         }
 
         const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, t, false);
-        std.debug.print("setting gen {s}\n", .{decGen.name});
         try compInfo.setGeneric(decGen.name, typeClone);
     }
 }
@@ -728,7 +727,6 @@ fn matchTypes(allocator: Allocator, compInfo: *CompInfo, type1: blitzAst.AstType
         if (genType) |gType| {
             return matchTypes(allocator, compInfo, gType.*, type2, withGenDef);
         } else if (withGenDef) {
-            std.debug.print("did not find {s}\n", .{type1.Generic});
             return ScanError.EmptyGenericType;
         } else return true;
     }
