@@ -10,12 +10,12 @@ const CompInfo = utils.CompInfo;
 const debug = @import("debug.zig");
 const printType = debug.printType;
 
-pub fn freeStructNames(allocator: Allocator, structNames: [][]u8) void {
-    for (structNames) |name| {
+pub fn freeNestedSlice(comptime T: type, allocator: Allocator, slices: [][]T) void {
+    for (slices) |name| {
         allocator.free(name);
     }
 
-    allocator.free(structNames);
+    allocator.free(slices);
 }
 
 pub fn freeFuncDec(allocator: Allocator, func: *const blitzAst.FuncDecNode) void {
@@ -121,8 +121,8 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             freeNode(allocator, cast.node);
             freeType(allocator, cast.toType);
         },
-        .Variable => |*variable| {
-            allocator.free(variable.name);
+        .Variable => |variable| {
+            allocator.free(variable);
         },
         .StructDec => |dec| {
             freeStructDec(allocator, dec);
@@ -165,9 +165,25 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         .Bang => |bang| {
             freeNode(allocator, bang);
         },
+        .ErrorDec => |dec| {
+            freeErrorDec(allocator, dec);
+        },
+        .Error => |err| {
+            allocator.free(err);
+        },
     }
 
     allocator.destroy(node);
+}
+
+pub fn freeErrorDec(allocator: Allocator, dec: *const blitzAst.ErrorDecNode) void {
+    allocator.free(dec.name);
+
+    for (dec.variants) |variant| {
+        allocator.free(variant);
+    }
+
+    allocator.free(dec.variants);
 }
 
 pub fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) void {
@@ -219,6 +235,13 @@ pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void 
         },
         .Generic => |gen| {
             allocator.free(gen);
+        },
+        .Error => |err| {
+            allocator.free(err);
+        },
+        .ErrorVariant => |err| {
+            allocator.free(err.from);
+            allocator.free(err.variant);
         },
         else => {},
     }

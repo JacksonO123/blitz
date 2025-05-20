@@ -98,10 +98,12 @@ pub const CompInfo = struct {
     const Self = @This();
 
     structNames: [][]u8,
+    errorNames: [][]u8,
     availableGenerics: *ArrayList(*ArrayList([]u8)),
     variableScopes: *ArrayList(Scope),
     functions: *StringHashMap(*const blitzAst.FuncDecNode),
     structDecs: *StringHashMap(*blitzAst.StructDecNode),
+    errorDecs: *StringHashMap(*const blitzAst.ErrorDecNode),
     currentStructs: *ArrayList([]u8),
     // each number describes how far from
     // the struct method a child node is
@@ -111,7 +113,7 @@ pub const CompInfo = struct {
     preAst: bool,
     allocator: Allocator,
 
-    pub fn init(allocator: Allocator, structNames: [][]u8) !Self {
+    pub fn init(allocator: Allocator, names: blitzAst.StructAndErrorNames) !Self {
         const availableGenerics = try initPtrT(ArrayList(*ArrayList([]u8)), allocator);
         const availableGenScope = try initPtrT(ArrayList([]u8), allocator);
         try availableGenerics.append(availableGenScope);
@@ -120,6 +122,8 @@ pub const CompInfo = struct {
         const distFromStructMethod = try initPtrT(ArrayList(u32), allocator);
         const functions = try initPtrT(StringHashMap(*const blitzAst.FuncDecNode), allocator);
         const structs = try initPtrT(StringHashMap(*blitzAst.StructDecNode), allocator);
+
+        const errors = try initPtrT(StringHashMap(*const blitzAst.ErrorDecNode), allocator);
 
         const genericMap = try initPtrT(StringHashMap(*const blitzAst.AstTypes), allocator);
         const genericScopes = try initPtrT(ArrayList(Scope), allocator);
@@ -130,11 +134,13 @@ pub const CompInfo = struct {
         try variableScopes.append(baseScope);
 
         return Self{
-            .structNames = structNames,
+            .structNames = names.structNames,
+            .errorNames = names.errorNames,
             .availableGenerics = availableGenerics,
             .variableScopes = variableScopes,
             .functions = functions,
             .structDecs = structs,
+            .errorDecs = errors,
             .currentStructs = currentStructs,
             .distFromStructMethod = distFromStructMethod,
             .genericScopes = genericScopes,
@@ -165,6 +171,12 @@ pub const CompInfo = struct {
             self.allocator.destroy(dec.*);
         }
 
+        var errorsIt = self.errorDecs.valueIterator();
+        while (errorsIt.next()) |err| {
+            free.freeErrorDec(self.allocator, err.*);
+            self.allocator.destroy(err.*);
+        }
+
         for (self.genericScopes.items) |gens| {
             var genericIt = gens.valueIterator();
             while (genericIt.next()) |gen| {
@@ -173,7 +185,8 @@ pub const CompInfo = struct {
             self.allocator.destroy(gens);
         }
 
-        free.freeStructNames(self.allocator, self.structNames);
+        free.freeNestedSlice(u8, self.allocator, self.structNames);
+        free.freeNestedSlice(u8, self.allocator, self.errorNames);
 
         for (self.currentStructs.items) |item| {
             self.allocator.free(item);
@@ -190,6 +203,9 @@ pub const CompInfo = struct {
 
         self.structDecs.deinit();
         self.allocator.destroy(self.structDecs);
+
+        self.errorDecs.deinit();
+        self.allocator.destroy(self.errorDecs);
 
         self.currentStructs.deinit();
         self.allocator.destroy(self.currentStructs);
@@ -284,6 +300,14 @@ pub const CompInfo = struct {
     pub fn hasStruct(self: Self, name: []u8) bool {
         for (self.structNames) |structName| {
             if (string.compString(structName, name)) return true;
+        }
+
+        return false;
+    }
+
+    pub fn hasError(self: Self, name: []u8) bool {
+        for (self.errorNames) |errorName| {
+            if (string.compString(errorName, name)) return true;
         }
 
         return false;
@@ -454,8 +478,18 @@ pub const CompInfo = struct {
         }
     }
 
+    pub fn setErrorDecs(self: *Self, decs: []*const blitzAst.ErrorDecNode) !void {
+        for (decs) |dec| {
+            try self.errorDecs.put(dec.name, dec);
+        }
+    }
+
     pub fn getStructDec(self: Self, name: []u8) ?*const blitzAst.StructDecNode {
         return self.structDecs.get(name);
+    }
+
+    pub fn getErrorDec(self: Self, name: []u8) ?*const blitzAst.ErrorDecNode {
+        return self.errorDecs.get(name);
     }
 
     pub fn addCurrentStruct(self: *Self, name: []u8) !void {

@@ -1,0 +1,10 @@
+error MyError {
+  Variant1,
+  Variant2,
+  Variant3,
+  Variant4,
+}
+
+fn thing(): MyError {
+  return MyError;
+}

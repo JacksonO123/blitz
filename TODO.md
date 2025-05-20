@@ -1,20 +1,13 @@
 # Todo
 
-## fs should do
-
-- [x] struct member visibility
-- [x] struct accessor modifiers
-  - [x] function call
-  - [x] index
-- [x] function generics
-  - [x] make generic type scopes
-  - [x] if generics are specified on call, set type and scan params
-  - [x] otherwise infer type from non trivial type tree
-    - [x] if generic is nested, defined wrapper types act as restrictions
+- [ ] error handling
+  - [ ] error definition
+  - [ ] return from functions
+  - [ ] comparison
+  - [ ] holds generic return
+- [ ] move functions like ast error to string to struct method
+- [ ] change iterations over two lists when indexing the second
+      to just iterate both
 - [ ] logger
   - [ ] error logger
 - [ ] anonymous functions
-- [x] Parse types to ast nodes
-- [x] Struct ast nodes
-- [x] If statement ast nodes
-- [x] Parse struct declerations ahead of ast

@@ -54,6 +54,7 @@ pub const ScanError = error{
     CustomGenericMismatch,
     ConflictingGenericParameters,
     GenericRestrictionConflict,
+    ExpectedUseOfErrorVariants,
 };
 
 pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !void {
@@ -81,7 +82,7 @@ pub fn scanNode(
     withGenDef: bool,
 ) (Allocator.Error || ScanError || clone.CloneError)!blitzAst.AstTypes {
     switch (node.*) {
-        .NoOp => return .Void,
+        .NoOp, .ErrorDec => return .Void,
 
         .StaticStructInstance => |inst| {
             return .{ .StaticStructInstance = inst };
@@ -227,6 +228,17 @@ pub fn scanNode(
 
                     break :a false;
                 },
+                .Error => |err| a: {
+                    const errDec = compInfo.getErrorDec(err).?;
+                    if (!blitzAst.variantExists(errDec.variants, access.property)) break :a false;
+
+                    return .{
+                        .ErrorVariant = .{
+                            .from = try string.cloneString(allocator, err),
+                            .variant = try string.cloneString(allocator, access.property),
+                        },
+                    };
+                },
                 else => false,
             };
 
@@ -268,13 +280,13 @@ pub fn scanNode(
             return .Void;
         },
         .Variable => |v| {
-            if (compInfo.isInStructMethod() and string.compString(v.name, "self")) {
+            if (compInfo.isInStructMethod() and string.compString(v, "self")) {
                 return .{
-                    .StaticStructInstance = v.name,
+                    .StaticStructInstance = v,
                 };
             }
 
-            const varType = compInfo.getVariableType(v.name);
+            const varType = compInfo.getVariableType(v);
 
             if (varType) |t| {
                 return try clone.cloneAstTypes(allocator, compInfo, t, false);
@@ -442,6 +454,14 @@ pub fn scanNode(
             if (bangType != .Bool) return ScanError.ExpectedBooleanBang;
 
             return .Bool;
+        },
+        .Error => |err| {
+            const dec = compInfo.getErrorDec(err).?;
+            if (dec.variants.len > 0) return ScanError.ExpectedUseOfErrorVariants;
+
+            return .{
+                .Error = try string.cloneString(allocator, err),
+            };
         },
     }
 }
@@ -774,6 +794,20 @@ fn matchTypes(allocator: Allocator, compInfo: *CompInfo, type1: blitzAst.AstType
             }
 
             break :a true;
+        },
+        .Error => |err| a: {
+            switch (type2) {
+                .Error => |err2| break :a string.compString(err, err2),
+                .ErrorVariant => |err2| break :a string.compString(err, err2.from),
+                else => break :a false,
+            }
+        },
+        .ErrorVariant => |err| a: {
+            switch (type2) {
+                .Error => |err2| break :a string.compString(err.from, err2),
+                .ErrorVariant => |err2| break :a string.compString(err.from, err2.from) and string.compString(err.variant, err2.variant),
+                else => break :a false,
+            }
         },
         else => false,
     };

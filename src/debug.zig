@@ -3,100 +3,112 @@ const blitz = @import("root").blitz;
 const blitzAst = blitz.ast;
 const utils = blitz.utils;
 const CompInfo = utils.CompInfo;
+const print = std.debug.print;
 
 pub fn printAst(compInfo: *CompInfo, ast: blitzAst.Ast) void {
     printNodes(compInfo, ast.root.nodes);
 }
 
-pub fn printStructNames(names: [][]u8) void {
-    std.debug.print("------------\n", .{});
-    std.debug.print("structs:\n", .{});
-    for (names) |name| {
-        std.debug.print("{s}\n", .{name});
+pub fn printStructAndErrorNames(names: blitzAst.StructAndErrorNames) void {
+    print("------------\n", .{});
+    print("structs:\n", .{});
+    for (names.structNames) |name| {
+        print("{s}\n", .{name});
     }
-    std.debug.print("------------\n", .{});
+
+    print("errors:\n", .{});
+    for (names.errorNames) |name| {
+        print("{s}\n", .{name});
+    }
+    print("------------\n", .{});
 }
 
 pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
     return switch (typeNode.*) {
         .Void => {
-            std.debug.print("void", .{});
+            print("void", .{});
         },
         .String => {
-            std.debug.print("string", .{});
+            print("string", .{});
         },
         .Char => {
-            std.debug.print("char", .{});
+            print("char", .{});
         },
         .Bool => {
-            std.debug.print("bool", .{});
+            print("bool", .{});
         },
         .DynamicArray => |arr| {
-            std.debug.print("DynamicArray<", .{});
+            print("DynamicArray<", .{});
             printType(compInfo, arr);
-            std.debug.print(">", .{});
+            print(">", .{});
         },
         .StaticArray => |*arr| {
-            std.debug.print("StaticArray<", .{});
+            print("StaticArray<", .{});
             printNode(compInfo, arr.size);
-            std.debug.print(", ", .{});
+            print(", ", .{});
             printType(compInfo, arr.type);
-            std.debug.print(">", .{});
+            print(">", .{});
         },
         .Nullable => |n| {
-            std.debug.print("?", .{});
+            print("?", .{});
             printType(compInfo, n);
         },
         .Number => |*num| {
-            std.debug.print("{s}", .{numberTypeToString(num.*)});
+            print("{s}", .{numberTypeToString(num.*)});
         },
         .Custom => |*custom| {
-            std.debug.print("{s}", .{custom.name});
+            print("{s}", .{custom.name});
             if (custom.generics.len > 0) {
-                std.debug.print("<", .{});
+                print("<", .{});
             }
 
             for (custom.generics, 0..) |generic, index| {
                 printType(compInfo, generic);
 
                 if (index < custom.generics.len - 1) {
-                    std.debug.print(", ", .{});
+                    print(", ", .{});
                 }
             }
 
             if (custom.generics.len > 0) {
-                std.debug.print(">", .{});
+                print(">", .{});
             }
         },
         .Generic => |gen| {
-            std.debug.print("[generic]({s})", .{gen});
+            print("[generic]({s})", .{gen});
         },
         .Function => |func| {
-            std.debug.print("[function](\"{s}\"", .{func.name});
+            print("[function](\"{s}\"", .{func.name});
 
             if (func.generics) |generics| {
                 printGenerics(compInfo, generics);
             }
 
-            std.debug.print(" (", .{});
+            print(" (", .{});
 
             for (func.params, 0..) |param, index| {
-                std.debug.print("({s})[", .{param.name});
+                print("({s})[", .{param.name});
                 printType(compInfo, param.type);
-                std.debug.print("]", .{});
+                print("]", .{});
 
                 if (index < func.params.len - 1) {
-                    std.debug.print(", ", .{});
+                    print(", ", .{});
                 }
             }
 
-            std.debug.print(" ", .{});
+            print(" ", .{});
             printType(compInfo, func.returnType);
 
-            std.debug.print(")", .{});
+            print(")", .{});
         },
         .StaticStructInstance => |inst| {
-            std.debug.print("[static struct instance]({s})", .{inst});
+            print("[static struct instance]({s})", .{inst});
+        },
+        .Error => |err| {
+            print("error ({s})", .{err});
+        },
+        .ErrorVariant => |err| {
+            print("variant [{s}] from ({s})", .{ err.variant, err.from });
         },
     };
 }
@@ -125,29 +137,29 @@ fn numberTypeToString(numType: blitzAst.AstNumberVariants) [*:0]const u8 {
 fn printValue(compInfo: *CompInfo, value: *const blitzAst.AstValues) void {
     switch (value.*) {
         .StaticArray => |arr| {
-            std.debug.print("([", .{});
+            print("([", .{});
 
             for (arr, 0..) |val, index| {
                 printNode(compInfo, val);
 
                 if (index < arr.len - 1) {
-                    std.debug.print(", ", .{});
+                    print(", ", .{});
                 }
             }
 
-            std.debug.print("])", .{});
+            print("])", .{});
         },
         .Number => |*n| {
-            std.debug.print("[{s}]({s})", .{ numberTypeToString(n.type), n.value });
+            print("[{s}]({s})", .{ numberTypeToString(n.type), n.value });
         },
         .String => |s| {
-            std.debug.print("[string](\"{s}\")", .{s});
+            print("[string](\"{s}\")", .{s});
         },
         .Char => |c| {
-            std.debug.print("[char]({c})", .{c});
+            print("[char]({c})", .{c});
         },
         .Bool => |b| {
-            std.debug.print("[bool]({s})", .{if (b) "true" else "false"});
+            print("[bool]({s})", .{if (b) "true" else "false"});
         },
     }
 }
@@ -155,39 +167,39 @@ fn printValue(compInfo: *CompInfo, value: *const blitzAst.AstValues) void {
 pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
     switch (node.*) {
         .IndexValue => |index| {
-            std.debug.print("indexing ", .{});
+            print("indexing ", .{});
             printNode(compInfo, index.value);
-            std.debug.print(" with ", .{});
+            print(" with ", .{});
             printNode(compInfo, index.index);
         },
         .MathOp => |op| {
-            std.debug.print("(", .{});
+            print("(", .{});
             printNode(compInfo, op.left);
-            std.debug.print(") ", .{});
+            print(") ", .{});
 
             switch (op.type) {
-                .Add => std.debug.print("+ADD+", .{}),
-                .Sub => std.debug.print("-SUB-", .{}),
-                .Mult => std.debug.print("*MULT*", .{}),
-                .Div => std.debug.print("/DIV/", .{}),
+                .Add => print("+ADD+", .{}),
+                .Sub => print("-SUB-", .{}),
+                .Mult => print("*MULT*", .{}),
+                .Div => print("/DIV/", .{}),
             }
 
-            std.debug.print(" (", .{});
+            print(" (", .{});
             printNode(compInfo, op.right);
-            std.debug.print(")", .{});
+            print(")", .{});
         },
         .FuncReference => |ref| {
-            std.debug.print("function ({s})", .{ref});
+            print("function ({s})", .{ref});
         },
         .StaticStructInstance => |inst| {
-            std.debug.print("static struct ({s})", .{inst});
+            print("static struct ({s})", .{inst});
         },
         .PropertyAccess => |access| {
-            std.debug.print("accessing {s} from ", .{access.property});
+            print("accessing {s} from ", .{access.property});
             printNode(compInfo, access.value);
         },
         .VarDec => |*dec| {
-            std.debug.print("declare ({s}) ({s}) = ", .{
+            print("declare ({s}) ({s}) = ", .{
                 if (dec.isConst) "const" else "mutable",
                 dec.name,
             });
@@ -195,7 +207,7 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
             printNode(compInfo, dec.setNode);
 
             if (dec.annotation != null) {
-                std.debug.print(" with annotation: ", .{});
+                print(" with annotation: ", .{});
                 printType(compInfo, dec.annotation.?);
             }
         },
@@ -207,127 +219,131 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
         },
         .Seq => |*seq| {
             if (seq.nodes.len == 0) {
-                std.debug.print("(empty seq)", .{});
+                print("(empty seq)", .{});
             } else {
                 printNodes(compInfo, seq.nodes);
             }
         },
         .Cast => |*cast| {
-            std.debug.print("cast ", .{});
+            print("cast ", .{});
             printNode(compInfo, cast.node);
-            std.debug.print(" to ", .{});
+            print(" to ", .{});
             printType(compInfo, cast.toType);
         },
         .Variable => |*variable| {
-            std.debug.print("[variable: ({s})]", .{variable.name});
+            print("[variable: ({s})]", .{variable});
         },
         .StructDec => |dec| {
-            std.debug.print("declare struct ({s})", .{dec.name});
+            print("declare struct ({s})", .{dec.name});
 
             if (dec.generics.len > 0) {
-                std.debug.print(" with generics [", .{});
+                print(" with generics [", .{});
                 printGenerics(compInfo, dec.generics);
-                std.debug.print("]", .{});
+                print("]", .{});
             }
 
             if (dec.attributes.len > 0) {
-                std.debug.print(" with attributes [", .{});
+                print(" with attributes [", .{});
                 printAttributes(compInfo, dec.attributes);
-                std.debug.print("]", .{});
+                print("]", .{});
             }
         },
         .IfStatement => |*statement| {
-            std.debug.print("if ", .{});
+            print("if ", .{});
             printNode(compInfo, statement.condition);
-            std.debug.print(" then -- body --\n", .{});
+            print(" then -- body --\n", .{});
             printNode(compInfo, statement.body);
-            std.debug.print("-- body end --\n", .{});
+            print("-- body end --\n", .{});
         },
         .NoOp => {
-            std.debug.print("(noop)", .{});
+            print("(noop)", .{});
         },
         .FuncDec => |name| {
             const dec = compInfo.getFunction(name).?;
             printFuncDec(compInfo, dec);
         },
         .FuncCall => |call| {
-            std.debug.print("calling ", .{});
+            print("calling ", .{});
             printNode(compInfo, call.func);
-            std.debug.print(" with params [", .{});
+            print(" with params [", .{});
 
             for (call.params, 0..) |param, index| {
                 printNode(compInfo, param);
                 if (index < call.params.len - 1) {
-                    std.debug.print(", ", .{});
+                    print(", ", .{});
                 }
             }
 
-            std.debug.print("]", .{});
+            print("]", .{});
         },
         .ReturnNode => |ret| {
-            std.debug.print("return ", .{});
+            print("return ", .{});
             printNode(compInfo, ret);
         },
         .StructInit => |init| {
-            std.debug.print("initializing ({s})", .{init.name});
+            print("initializing ({s})", .{init.name});
 
             if (init.generics.len > 0) {
-                std.debug.print("[generics: ", .{});
+                print("[generics: ", .{});
 
                 for (init.generics, 0..) |generic, index| {
                     printType(compInfo, generic);
 
                     if (index < init.generics.len - 1) {
-                        std.debug.print(", ", .{});
+                        print(", ", .{});
                     }
                 }
 
-                std.debug.print("]", .{});
+                print("]", .{});
             }
 
-            std.debug.print(" with {{", .{});
+            print(" with {{", .{});
 
             for (init.attributes, 0..) |attr, index| {
-                std.debug.print("{s}: ", .{attr.name});
+                print("{s}: ", .{attr.name});
                 printNode(compInfo, attr.value);
                 if (index < init.attributes.len - 1) {
-                    std.debug.print(", ", .{});
+                    print(", ", .{});
                 }
             }
-            std.debug.print("}}", .{});
+            print("}}", .{});
         },
         .Bang => |bang| {
-            std.debug.print("[bang]!", .{});
+            print("[bang]!", .{});
             printNode(compInfo, bang);
+        },
+        .ErrorDec => |def| printRegisteredError(def),
+        .Error => |err| {
+            print("error type ({s})", .{err});
         },
     }
 }
 
 pub fn printFuncDec(compInfo: *CompInfo, func: *const blitzAst.FuncDecNode) void {
-    std.debug.print("declare function [", .{});
+    print("declare function [", .{});
     printType(compInfo, func.returnType);
-    std.debug.print("] ({s})", .{func.name});
+    print("] ({s})", .{func.name});
     if (func.generics) |generics| {
-        std.debug.print(" with generics [", .{});
+        print(" with generics [", .{});
         printGenerics(compInfo, generics);
-        std.debug.print("]", .{});
+        print("]", .{});
     }
 
-    std.debug.print(" with params [", .{});
+    print(" with params [", .{});
     printParams(compInfo, func.params);
 
-    std.debug.print("] -- body --\n", .{});
+    print("] -- body --\n", .{});
     printNode(compInfo, func.body);
-    std.debug.print("-- body end --\n", .{});
+    print("-- body end --\n", .{});
 }
 
 fn printAttributes(compInfo: *CompInfo, attrs: []blitzAst.StructAttribute) void {
     for (attrs, 0..) |attr, index| {
         if (attr.static) {
-            std.debug.print("(static) ", .{});
+            print("(static) ", .{});
         }
 
-        std.debug.print("{s} ({s}) ", .{ attr.visibility.toString(), attr.name });
+        print("{s} ({s}) ", .{ attr.visibility.toString(), attr.name });
 
         switch (attr.attr) {
             .Function => |func| printFuncDec(compInfo, func),
@@ -335,42 +351,42 @@ fn printAttributes(compInfo: *CompInfo, attrs: []blitzAst.StructAttribute) void 
         }
 
         if (index < attrs.len - 1) {
-            std.debug.print(", ", .{});
+            print(", ", .{});
         }
     }
 }
 
 fn printParams(compInfo: *CompInfo, params: []blitzAst.Parameter) void {
     if (params.len == 0) {
-        std.debug.print("(no params)", .{});
+        print("(no params)", .{});
         return;
     }
 
     for (params, 0..) |param, index| {
-        std.debug.print("[", .{});
+        print("[", .{});
         printType(compInfo, param.type);
-        std.debug.print("]({s})", .{param.name});
+        print("]({s})", .{param.name});
 
         if (index < params.len - 1) {
-            std.debug.print(", ", .{});
+            print(", ", .{});
         }
     }
 }
 
 pub fn printGenerics(compInfo: *CompInfo, generics: []blitzAst.GenericType) void {
     for (generics, 0..) |generic, index| {
-        std.debug.print("[", .{});
+        print("[", .{});
 
         if (generic.restriction) |restriction| {
             printType(compInfo, restriction);
         } else {
-            std.debug.print("any", .{});
+            print("any", .{});
         }
 
-        std.debug.print("]({s})", .{generic.name});
+        print("]({s})", .{generic.name});
 
         if (index < generics.len - 1) {
-            std.debug.print(", ", .{});
+            print(", ", .{});
         }
     }
 }
@@ -378,41 +394,60 @@ pub fn printGenerics(compInfo: *CompInfo, generics: []blitzAst.GenericType) void
 fn printNodes(compInfo: *CompInfo, nodes: []*const blitzAst.AstNode) void {
     for (nodes) |node| {
         printNode(compInfo, node);
-        std.debug.print("\n", .{});
+        print("\n", .{});
+    }
+}
+
+fn printRegisteredError(err: *const blitzAst.ErrorDecNode) void {
+    print("defining error: {s} with variants [ ", .{err.name});
+
+    for (err.variants, 0..) |variant, index| {
+        print("{s}", .{variant});
+        if (index < err.variants.len - 1) {
+            print(", ", .{});
+        }
+    }
+}
+
+pub fn printRegisteredErrors(errors: []*const blitzAst.ErrorDecNode) void {
+    print("--- errors ---\n", .{});
+    for (errors) |err| {
+        printRegisteredError(err);
+        print(" ]\n", .{});
     }
 }
 
 pub fn printRegisteredStructs(compInfo: *CompInfo, structs: [](*blitzAst.StructDecNode)) void {
-    std.debug.print("--- structs ---\n", .{});
+    print("--- structs ---\n", .{});
     for (structs) |s| {
-        std.debug.print("declaring {s}", .{s.name});
+        print("declaring {s}", .{s.name});
 
         if (s.deriveType) |derived| {
-            std.debug.print(" extending ", .{});
+            print(" extending ", .{});
             printType(compInfo, derived);
         }
 
         if (s.generics.len > 0) {
-            std.debug.print(" with generics [", .{});
+            print(" with generics [", .{});
             printGenerics(compInfo, s.generics);
-            std.debug.print("]", .{});
+            print("]", .{});
         }
 
-        std.debug.print(" with attributes [", .{});
+        print(" with attributes [", .{});
         printAttributes(compInfo, s.attributes);
-        std.debug.print("]", .{});
+        print("]", .{});
 
-        std.debug.print("\n", .{});
+        print("\n", .{});
     }
 }
 
 pub fn printTokens(tokens: anytype) void {
     for (tokens) |token| {
-        std.debug.print("{any}", .{token.type});
+        print("{any}", .{token.type});
         if (token.string != null) {
-            std.debug.print(" : {s}\n", .{token.string.?});
+            print(" : {s}\n", .{token.string.?});
         } else {
-            std.debug.print("\n", .{});
+            print("\n", .{});
         }
     }
 }

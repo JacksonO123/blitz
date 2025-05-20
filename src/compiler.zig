@@ -14,8 +14,9 @@ const CompInfo = utils.CompInfo;
 // debug
 const debug = @import("debug.zig");
 const printRegisteredStructs = debug.printRegisteredStructs;
+const printRegisteredErrors = debug.printRegisteredErrors;
 const printAst = debug.printAst;
-const printStructNames = debug.printStructNames;
+const printStructAndErrorNames = debug.printStructAndErrorNames;
 
 const RuntimeError = error{NoInputFile};
 
@@ -41,21 +42,24 @@ pub fn main() !void {
     const tokens = try tokenizer.tokenize(allocator, code);
     defer free.freeTokens(allocator, tokens);
 
-    const structNames = try blitzAst.findStructNames(allocator, tokens);
-    printStructNames(structNames);
+    const names = try blitzAst.findStructAndErrorNames(allocator, tokens);
+    printStructAndErrorNames(names);
 
-    var compInfo = try CompInfo.init(allocator, structNames);
+    var compInfo = try CompInfo.init(allocator, names);
     defer compInfo.deinit();
 
-    const registeredStructs = try blitzAst.registerStructs(allocator, &compInfo, tokens);
-    defer allocator.free(registeredStructs);
-    try compInfo.setStructDecs(registeredStructs);
+    const structsAndErrors = try blitzAst.registerStructsAndErrors(allocator, &compInfo, tokens);
+    defer allocator.free(structsAndErrors.structs);
+    defer allocator.free(structsAndErrors.errors);
+    try compInfo.setStructDecs(structsAndErrors.structs);
+    try compInfo.setErrorDecs(structsAndErrors.errors);
 
     try compInfo.prepareForAst();
 
-    printRegisteredStructs(&compInfo, registeredStructs);
+    printRegisteredStructs(&compInfo, structsAndErrors.structs);
+    printRegisteredErrors(structsAndErrors.errors);
 
-    for (registeredStructs) |s| {
+    for (structsAndErrors.structs) |s| {
         const node: blitzAst.AstNode = .{
             .StructDec = s,
         };

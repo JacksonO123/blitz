@@ -26,6 +26,7 @@ pub const TokenType = enum {
     Prot,
     Static,
     Return,
+    Error,
 
     // symbols
     Colon,
@@ -158,6 +159,7 @@ pub const TokenType = enum {
             .False => "false",
             .Static => "static",
             .Return => "return",
+            .Error => "error",
         };
     }
 };
@@ -384,7 +386,7 @@ fn charsToToken(chars: []u8, allocator: Allocator) !?Token {
 
     if (number) {
         const str = try allocator.dupe(u8, chars);
-        return Token{ .string = str, .type = TokenType.Number };
+        return Token{ .string = str, .type = .Number };
     }
 
     const datatype = isDatatype(chars);
@@ -397,7 +399,7 @@ fn charsToToken(chars: []u8, allocator: Allocator) !?Token {
         return Token{ .string = null, .type = k };
     } else {
         const str = try allocator.dupe(u8, chars);
-        return Token{ .string = str, .type = TokenType.Identifier };
+        return Token{ .string = str, .type = .Identifier };
     }
 }
 
@@ -442,6 +444,7 @@ fn isKeyword(chars: []const u8) ?TokenType {
         TokenTypeMap{ .string = "prot", .token = TokenType.Prot },
         TokenTypeMap{ .string = "static", .token = TokenType.Static },
         TokenTypeMap{ .string = "return", .token = TokenType.Return },
+        TokenTypeMap{ .string = "error", .token = TokenType.Error },
     };
 
     return getTypeFromMap(chars, keywords);

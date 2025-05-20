@@ -86,6 +86,19 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
                 }),
             };
         },
+        .Error => |err| {
+            return .{
+                .Error = try string.cloneString(allocator, err),
+            };
+        },
+        .ErrorVariant => |err| {
+            return .{
+                .ErrorVariant = .{
+                    .from = try string.cloneString(allocator, err.from),
+                    .variant = try string.cloneString(allocator, err.variant),
+                },
+            };
+        },
     }
 }
 
@@ -233,9 +246,7 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
         },
         .Variable => |v| {
             return .{
-                .Variable = .{
-                    .name = try string.cloneString(allocator, v.name),
-                },
+                .Variable = try string.cloneString(allocator, v),
             };
         },
         .StructDec => |dec| {
@@ -335,6 +346,27 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
         .StaticStructInstance => |inst| {
             return .{
                 .StaticStructInstance = try string.cloneString(allocator, inst),
+            };
+        },
+        .ErrorDec => |def| {
+            var newVariants = try ArrayList([]u8).initCapacity(allocator, def.variants.len);
+            defer newVariants.deinit();
+
+            for (def.variants) |variant| {
+                const str = try string.cloneString(allocator, variant);
+                try newVariants.append(str);
+            }
+
+            return .{
+                .ErrorDec = try create(blitzAst.ErrorDecNode, allocator, .{
+                    .name = try string.cloneString(allocator, def.name),
+                    .variants = try newVariants.toOwnedSlice(),
+                }),
+            };
+        },
+        .Error => |err| {
+            return .{
+                .Error = try string.cloneString(allocator, err),
             };
         },
     }
