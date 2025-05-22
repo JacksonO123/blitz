@@ -129,27 +129,21 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                 .value = try cloneAstNodePtr(allocator, compInfo, index.value, replaceGenerics),
             },
         },
-        .MathOp => |op| {
+        .OpExpr => |op| {
             const sides = .{
-                .left = try cloneAstNodePtr(allocator, compInfo, op.left, replaceGenerics),
-                .right = try cloneAstNodePtr(allocator, compInfo, op.right, replaceGenerics),
+                .left = try cloneAstNodePtrMut(allocator, compInfo, op.left, replaceGenerics),
+                .right = try cloneAstNodePtrMut(allocator, compInfo, op.right, replaceGenerics),
             };
 
-            const opTypes = &[_]blitzAst.MathOps{ .Add, .Sub, .Mult, .Div };
+            const opType = op.type;
 
-            inline for (opTypes) |opType| {
-                if (op.type == opType) {
-                    return .{
-                        .MathOp = .{
-                            .type = opType,
-                            .left = sides.left,
-                            .right = sides.right,
-                        },
-                    };
-                }
-            }
-
-            unreachable;
+            return .{
+                .OpExpr = .{
+                    .type = opType,
+                    .left = sides.left,
+                    .right = sides.right,
+                },
+            };
         },
         .FuncReference => |ref| {
             return .{
@@ -225,6 +219,14 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                     .isConst = dec.isConst,
                     .setNode = nodePtr,
                     .annotation = clonedType,
+                },
+            };
+        },
+        .VarSet => |set| {
+            return .{
+                .VarSet = .{
+                    .variable = try string.cloneString(allocator, set.variable),
+                    .setNode = try cloneAstNodePtrMut(allocator, compInfo, set.setNode, replaceGenerics),
                 },
             };
         },
@@ -474,6 +476,11 @@ pub fn cloneFuncDec(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.Fu
 fn cloneAstNodePtr(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst.AstNode, replaceGenerics: bool) (Allocator.Error || CloneError)!*const blitzAst.AstNode {
     const clonedNode = try cloneAstNode(allocator, compInfo, node.*, replaceGenerics);
     return try create(blitzAst.AstNode, allocator, clonedNode);
+}
+
+fn cloneAstNodePtrMut(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst.AstNode, replaceGenerics: bool) (Allocator.Error || CloneError)!*blitzAst.AstNode {
+    const clonedNode = try cloneAstNode(allocator, compInfo, node.*, replaceGenerics);
+    return try createMut(blitzAst.AstNode, allocator, clonedNode);
 }
 
 pub fn cloneAstTypesPtr(allocator: Allocator, compInfo: *CompInfo, types: *const blitzAst.AstTypes, replaceGenerics: bool) !*const blitzAst.AstTypes {

@@ -2,11 +2,12 @@ const std = @import("std");
 const blitz = @import("root").blitz;
 const blitzAst = blitz.ast;
 const utils = blitz.utils;
+const tokenizer = blitz.tokenizer;
 const CompInfo = utils.CompInfo;
 const print = std.debug.print;
 
 pub fn printAst(compInfo: *CompInfo, ast: blitzAst.Ast) void {
-    printNodes(compInfo, ast.root.nodes);
+    printNode(compInfo, ast.root);
 }
 
 pub fn printStructAndErrorNames(names: blitzAst.StructAndErrorNames) void {
@@ -172,12 +173,16 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
             print(" with ", .{});
             printNode(compInfo, index.index);
         },
-        .MathOp => |op| {
+        .OpExpr => |op| {
             print("(", .{});
             printNode(compInfo, op.left);
             print(") ", .{});
 
             switch (op.type) {
+                .BitAnd => print("&BitAnd&", .{}),
+                .BitOr => print("|BitOr|", .{}),
+                .And => print("&&AND&&", .{}),
+                .Or => print("||OR||", .{}),
                 .Add => print("+ADD+", .{}),
                 .Sub => print("-SUB-", .{}),
                 .Mult => print("*MULT*", .{}),
@@ -210,6 +215,10 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
                 print(" with annotation: ", .{});
                 printType(compInfo, dec.annotation.?);
             }
+        },
+        .VarSet => |set| {
+            print("set {s} to ", .{set.variable});
+            printNode(compInfo, set.setNode);
         },
         .Value => |*val| {
             printValue(compInfo, val);
@@ -441,13 +450,17 @@ pub fn printRegisteredStructs(compInfo: *CompInfo, structs: [](*blitzAst.StructD
     }
 }
 
+pub fn printToken(token: tokenizer.Token) void {
+    print("{any}", .{token.type});
+    if (token.string != null) {
+        print(" : {s}\n", .{token.string.?});
+    } else {
+        print("\n", .{});
+    }
+}
+
 pub fn printTokens(tokens: anytype) void {
     for (tokens) |token| {
-        print("{any}", .{token.type});
-        if (token.string != null) {
-            print(" : {s}\n", .{token.string.?});
-        } else {
-            print("\n", .{});
-        }
+        printToken(token);
     }
 }

@@ -26,7 +26,6 @@ pub fn main() !void {
     defer _ = gp.deinit();
     const allocator = gp.allocator();
 
-    // TODO - extend later
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
     if (args.len < 2) {
@@ -43,36 +42,6 @@ pub fn main() !void {
     const tokens = try tokenizer.tokenize(allocator, code);
     defer free.freeTokens(allocator, tokens);
 
-    const names = try blitzAst.findStructAndErrorNames(allocator, tokens);
-    printStructAndErrorNames(names);
-
-    var compInfo = try CompInfo.init(allocator, tokens, names, &code);
-    defer compInfo.deinit();
-
-    // const structsAndErrors = try blitzAst.registerStructsAndErrors(allocator, &compInfo, tokens);
-    // defer allocator.free(structsAndErrors.structs);
-    // defer allocator.free(structsAndErrors.errors);
-    // try compInfo.setStructDecs(structsAndErrors.structs);
-    // try compInfo.setErrorDecs(structsAndErrors.errors);
-
-    try compInfo.prepareForAst();
-
-    // printRegisteredStructs(&compInfo, structsAndErrors.structs);
-    // printRegisteredErrors(structsAndErrors.errors);
-
-    // for (structsAndErrors.structs) |s| {
-    //     const node: blitzAst.AstNode = .{
-    //         .StructDec = s,
-    //     };
-    //     _ = try scanner.scanNode(allocator, &compInfo, &node, true);
-    // }
-
-    var ast = try blitzAst.createAst(allocator, &compInfo);
-    defer ast.deinit();
-
-    std.debug.print("--- code ---\n{s}\n------------\n", .{code});
-    printAst(&compInfo, ast);
-
-    try scanner.typeScan(allocator, ast, &compInfo);
-    std.debug.print("\n", .{});
+    std.debug.print("got:\n", .{});
+    debug.printTokens(tokens);
 }

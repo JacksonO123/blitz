@@ -19,48 +19,69 @@ const printType = debug.printType;
 const printGenerics = debug.printGenerics;
 
 pub const ScanError = error{
+    // misc
     StaticArrayTypeMismatch,
     InvalidCast,
     ExpectedBooleanBang,
-    VariableAnnotationMismatch,
-    UndefinedOrUnknownVariableType,
     ExpectedBooleanIfCondition,
-    FunctionReturnTypeMismatch,
+    UnsupportedFeature,
+    ExpectedUSizeForIndex,
+    ExpectedArrayForIndexTarget,
+
+    // variables
+    VariableAnnotationMismatch,
     VariableAlreadyExists,
+    VoidVariableDec,
+    VariableTypeAndValueTypeMismatch,
+
+    // functions
+    ExpectedFunctionReturn,
     FunctionCallParamTypeMismatch,
     FunctionCallParamCountMismatch,
-    VoidVariableDec,
-    ExpectedFunctionReturn,
+    FunctionReturnTypeMismatch,
+    IdentifierNotAFunction,
+    CannotCallNonFunctionNode,
+    VariableIsUndefined,
+
+    // structs
     StructInitGenericCountMismatch,
     StructInitAttributeCountMismatch,
     StructInitMemberTypeMismatch,
     StructInitAttributeNotFound,
     InvalidProperty,
-    UnsupportedFeature,
-    InvalidPropertySource,
-    IdentifierNotAFunction,
-    CannotCallNonFunctionNode,
     StaticAccessFromStructInstance,
     NonStaticAccessFromStaticStructReference,
     UnexpectedDeriveType,
     SelfUsedOutsideStruct,
     UndefinedStruct,
     RestrictedPropertyAccess,
+
+    // operations
     MathOpOnNonNumberType,
-    MathOpTypeMismatch,
-    ExpectedUSizeForIndex,
-    ExpectedArrayForIndexTarget,
+    OpExprTypeMismatch,
+    ExpectedBoolInBoolOp,
+    InvalidBitOperation,
+    BitMaskWithMismatchingSize,
+    NumberTypeMismatch,
+
+    // generics
     EmptyGenericType,
     CustomGenericMismatch,
     ConflictingGenericParameters,
     GenericRestrictionConflict,
+
+    // errors
     ExpectedUseOfErrorVariants,
+
+    // possibly remove
+    InvalidPropertySource,
 };
 
 pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !void {
     while (compInfo.variableScopes.items.len > 1) compInfo.popScope();
 
-    try scanNodes(allocator, compInfo, ast.root.nodes, true);
+    const nodeType = try scanNode(allocator, compInfo, ast.root, true);
+    free.freeStackType(allocator, &nodeType);
 }
 
 pub fn scanNodes(
@@ -141,16 +162,44 @@ pub fn scanNode(
                 else => return ScanError.ExpectedArrayForIndexTarget,
             };
         },
-        .MathOp => |op| {
+        .OpExpr => |op| {
             const left = try scanNode(allocator, compInfo, op.left, withGenDef);
             defer free.freeStackType(allocator, &left);
             const right = try scanNode(allocator, compInfo, op.right, withGenDef);
             defer free.freeStackType(allocator, &right);
 
-            if (left != .Number or right != .Number) return ScanError.MathOpOnNonNumberType;
-            if (!number.sameType(left.Number, right.Number)) return ScanError.MathOpTypeMismatch;
+            if (std.meta.activeTag(left) != std.meta.activeTag(right)) return ScanError.OpExprTypeMismatch;
 
-            return clone.cloneAstTypes(allocator, compInfo, left, false);
+            switch (op.type) {
+                .BitAnd, .BitOr => {
+                    if (left != .Number) return ScanError.InvalidBitOperation;
+                    if (!compareNumberBitSize(left.Number, right.Number)) return ScanError.BitMaskWithMismatchingSize;
+                    return try clone.cloneAstTypes(allocator, compInfo, left, false);
+                },
+                .And, .Or => {
+                    if (left != .Bool) return ScanError.ExpectedBoolInBoolOp;
+                    return .Bool;
+                },
+                .Add, .Sub, .Mult, .Div => {
+                    if (left != .Number) return ScanError.MathOpOnNonNumberType;
+                    if (@intFromEnum(left.Number) != @intFromEnum(right.Number)) return ScanError.NumberTypeMismatch;
+
+                    if (op.type == .Div) {
+                        if (switch (left.Number) {
+                            .F8, .F16, .F32, .F64, .F128 => true,
+                            else => false,
+                        }) {
+                            return try clone.cloneAstTypes(allocator, compInfo, left, false);
+                        }
+
+                        return .{
+                            .Number = .F32,
+                        };
+                    }
+
+                    return try clone.cloneAstTypes(allocator, compInfo, left, false);
+                },
+            }
         },
         .FuncReference => |ref| {
             const dec = compInfo.getFunction(ref);
@@ -279,6 +328,19 @@ pub fn scanNode(
 
             return .Void;
         },
+        .VarSet => |set| {
+            const varType = compInfo.getVariableType(set.variable);
+            if (varType == null) return ScanError.VariableIsUndefined;
+
+            const setNode = try scanNode(allocator, compInfo, set.setNode, withGenDef);
+            defer free.freeStackType(allocator, &setNode);
+
+            if (!(try matchTypes(allocator, compInfo, varType.?, setNode, withGenDef))) {
+                return ScanError.VariableTypeAndValueTypeMismatch;
+            }
+
+            return .Void;
+        },
         .Variable => |v| {
             if (compInfo.isInStructMethod() and string.compString(v, "self")) {
                 return .{
@@ -292,7 +354,7 @@ pub fn scanNode(
                 return try clone.cloneAstTypes(allocator, compInfo, t, false);
             }
 
-            return ScanError.UndefinedOrUnknownVariableType;
+            return ScanError.VariableIsUndefined;
         },
         .StructDec => |dec| {
             try compInfo.pushRegGenScope();
@@ -466,6 +528,27 @@ pub fn scanNode(
     }
 }
 
+fn compareNumberBitSize(num1: blitzAst.AstNumberVariants, num2: blitzAst.AstNumberVariants) bool {
+    return switch (num1) {
+        .USize => num2 == .USize,
+        .U8 => num2 == .F8 or num2 == .I8,
+        .U16 => num2 == .F16 or num2 == .I16,
+        .U32 => num2 == .F32 or num2 == .I32,
+        .U64 => num2 == .F64 or num2 == .I64,
+        .U128 => num2 == .F128 or num2 == .I128,
+        .I8 => num2 == .U8 or num2 == .F8,
+        .I16 => num2 == .U16 or num2 == .F16,
+        .I32 => num2 == .U32 or num2 == .F32,
+        .I64 => num2 == .U64 or num2 == .F64,
+        .I128 => num2 == .U128 or num2 == .F128,
+        .F8 => num2 == .I8 or num2 == .U8,
+        .F16 => num2 == .I16 or num2 == .U16,
+        .F32 => num2 == .I32 or num2 == .U32,
+        .F64 => num2 == .I64 or num2 == .U64,
+        .F128 => num2 == .I128 or num2 == .U128,
+    };
+}
+
 fn setInitGenerics(allocator: Allocator, compInfo: *CompInfo, genTypes: []*const blitzAst.AstTypes, decGens: []blitzAst.GenericType) !void {
     for (genTypes, 0..) |t, index| {
         const decGen = decGens[index];
@@ -597,11 +680,11 @@ fn validateSelfProps(allocator: Allocator, compInfo: *CompInfo, name: []u8, prop
 
             return validateSelfProps(allocator, compInfo, derivedName, prop);
         }
-    } else {
-        return ScanError.UndefinedStruct;
+
+        return null;
     }
 
-    return null;
+    return ScanError.UndefinedStruct;
 }
 
 fn validateStaticStructProps(allocator: Allocator, compInfo: *CompInfo, name: []u8, prop: []u8) !?blitzAst.AstTypes {
@@ -674,26 +757,26 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
     }
 }
 
-fn matchNumber(num1: blitzAst.AstNumberVariants, num2: blitzAst.AstNumberVariants) bool {
-    return switch (num1) {
-        .U8 => num2 == .U8,
-        .U16 => num2 == .U16,
-        .U32 => num2 == .U32,
-        .U64 => num2 == .U64,
-        .U128 => num2 == .U128,
-        .I8 => num2 == .I8,
-        .I16 => num2 == .I16,
-        .I32 => num2 == .I32,
-        .I64 => num2 == .I64,
-        .I128 => num2 == .I128,
-        .F8 => num2 == .F8,
-        .F16 => num2 == .F16,
-        .F32 => num2 == .F32,
-        .F64 => num2 == .F64,
-        .F128 => num2 == .F128,
-        .USize => num2 == .USize,
-    };
-}
+// fn matchNumber(num1: blitzAst.AstNumberVariants, num2: blitzAst.AstNumberVariants) bool {
+//     return switch (num1) {
+//         .U8 => num2 == .U8,
+//         .U16 => num2 == .U16,
+//         .U32 => num2 == .U32,
+//         .U64 => num2 == .U64,
+//         .U128 => num2 == .U128,
+//         .I8 => num2 == .I8,
+//         .I16 => num2 == .I16,
+//         .I32 => num2 == .I32,
+//         .I64 => num2 == .I64,
+//         .I128 => num2 == .I128,
+//         .F8 => num2 == .F8,
+//         .F16 => num2 == .F16,
+//         .F32 => num2 == .F32,
+//         .F64 => num2 == .F64,
+//         .F128 => num2 == .F128,
+//         .USize => num2 == .USize,
+//     };
+// }
 
 fn isNumber(astType: blitzAst.AstTypes) bool {
     return switch (astType) {
@@ -765,7 +848,7 @@ fn matchTypes(allocator: Allocator, compInfo: *CompInfo, type1: blitzAst.AstType
         .Bool => type2 == .Bool,
         .Char => type2 == .Char,
         .Void => type2 == .Void,
-        .Number => |num| type2 == .Number and matchNumber(num, type2.Number),
+        .Number => |num| type2 == .Number and @intFromEnum(num) == @intFromEnum(type2.Number),
         .DynamicArray => |arr| type2 == .DynamicArray and try matchTypes(allocator, compInfo, arr.*, type2.DynamicArray.*, withGenDef),
         .StaticArray => |arr| a: {
             if (type2 != .StaticArray) {

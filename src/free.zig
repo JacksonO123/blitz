@@ -83,7 +83,7 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             freeNode(allocator, index.index);
             freeNode(allocator, index.value);
         },
-        .MathOp => |op| {
+        .OpExpr => |op| {
             freeNode(allocator, op.left);
             freeNode(allocator, op.right);
         },
@@ -96,7 +96,7 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         .PropertyAccess => |access| {
             freeNode(allocator, access.value);
         },
-        .VarDec => |*dec| {
+        .VarDec => |dec| {
             freeNode(allocator, dec.setNode);
 
             if (dec.annotation) |annotation| {
@@ -105,7 +105,11 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
 
             allocator.free(dec.name);
         },
-        .Seq => |*seq| {
+        .VarSet => |set| {
+            freeNode(allocator, set.setNode);
+            allocator.free(set.variable);
+        },
+        .Seq => |seq| {
             for (seq.nodes) |seqNode| {
                 freeNode(allocator, seqNode);
             }
@@ -117,7 +121,7 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         .Value => |*val| {
             freeValueNode(allocator, val);
         },
-        .Cast => |*cast| {
+        .Cast => |cast| {
             freeNode(allocator, cast.node);
             freeType(allocator, cast.toType);
         },

@@ -19,4 +19,4 @@ const inst = thing{
   }
 };
 
-const val = inst.other.b;
+const val = inst . other . b;

@@ -3,15 +3,20 @@ const blitz = @import("blitz.zig");
 const string = blitz.string;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
+const logger = blitz.logger;
 
 pub const TokenizeError = error{
-    IdentifierWithStartingNumber,
     NumberHasTwoPeriods,
     NoClosingQuote,
+    ExpectedCharacterFoundNothing,
+    UnexpectedCharacter,
     CharTokenTooLong,
+    CharTokenTooShort,
 };
 
 pub const TokenType = enum {
+    const Self = @This();
+
     // keywords
     Const,
     Var,
@@ -39,7 +44,10 @@ pub const TokenType = enum {
     RBrace,
     LAngle,
     RAngle,
-    Ampersand,
+    BitAnd,
+    BitOr,
+    And,
+    Or,
     EqSet,
     Sub,
     Add,
@@ -88,9 +96,10 @@ pub const TokenType = enum {
     DivEq,
     Inc,
     Dec,
+    NewLine,
 
-    pub fn toString(self: *const TokenType) []const u8 {
-        return switch (self.*) {
+    pub fn toString(self: Self) []const u8 {
+        return switch (self) {
             .Const => "const",
             .Var => "var",
             .Pub => "pub",
@@ -112,7 +121,10 @@ pub const TokenType = enum {
             .RBrace => "}",
             .LAngle => "<",
             .RAngle => ">",
-            .Ampersand => "&",
+            .BitAnd => "&",
+            .BitOr => "|",
+            .And => "&&",
+            .Or => "||",
             .EqSet => "=",
             .Sub => "-",
             .Add => "+",
@@ -160,6 +172,7 @@ pub const TokenType = enum {
             .Static => "static",
             .Return => "return",
             .Error => "error",
+            .NewLine => "newline",
         };
     }
 };
@@ -169,167 +182,388 @@ const TokenTypeMap = struct {
     token: TokenType,
 };
 
-const SymbolMap = struct {
-    symbol: u8,
-    token: TokenType,
-};
-
 pub const Token = struct {
+    const Self = @This();
+
     type: TokenType,
     string: ?[]u8,
+
+    pub fn init(tokenType: TokenType) Self {
+        return Self{
+            .type = tokenType,
+            .string = null,
+        };
+    }
+
+    pub fn initStr(tokenType: TokenType, str: []u8) Self {
+        return Self{
+            .type = tokenType,
+            .string = str,
+        };
+    }
+
+    pub fn isOpenToken(self: Self, includeAngle: bool) bool {
+        const temp = switch (self.type) {
+            .LParen, .LBrace, .LBracket => true,
+            else => false,
+        };
+
+        return if (includeAngle) temp or self.type == .LAngle else temp;
+    }
+
+    pub fn isCloseToken(self: Self, includeAngle: bool) bool {
+        const temp = switch (self.type) {
+            .RParen, .RBrace, .RBracket => true,
+            else => false,
+        };
+
+        return if (includeAngle) temp or self.type == .RAngle else temp;
+    }
+};
+
+const TokenizerOut = struct {
+    tokens: []Token,
+    skippedWhitespace: usize,
+};
+
+const LineBounds = struct {
+    start: usize,
+    end: usize,
+};
+
+const CharUtil = struct {
+    const Self = @This();
+
+    index: usize,
+    chars: []const u8,
+    skippedWhitespace: usize,
+    buf: logger.BufferedWriterType,
+
+    pub fn init(chars: []const u8) Self {
+        const buf = logger.getBufferedWriter();
+
+        return Self{
+            .index = 0,
+            .chars = chars,
+            .skippedWhitespace = 0,
+            .buf = buf,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.buf.flush() catch {};
+    }
+
+    pub fn getSlice(self: Self) []const u8 {
+        return self.chars[self.index..];
+    }
+
+    pub fn hasNext(self: Self) bool {
+        return self.index < self.chars.len;
+    }
+
+    pub fn take(self: *Self) !u8 {
+        if (self.index == self.chars.len) {
+            return self.logError(TokenizeError.ExpectedCharacterFoundNothing);
+        }
+
+        const char = self.chars[self.index];
+        self.index += 1;
+        return char;
+    }
+
+    pub fn peak(self: Self) u8 {
+        return self.chars[self.index];
+    }
+
+    pub fn returnChar(self: *Self) void {
+        self.index -= 1;
+    }
+
+    pub fn getChars(self: Self) []const u8 {
+        return self.chars;
+    }
+
+    pub fn logError(self: *Self, err: TokenizeError) TokenizeError {
+        const writer = self.buf.writer();
+        const errStr = tokenizeErrorToString(err);
+
+        const index = self.index - 1;
+        const bounds = getLineBounds(self.chars, index);
+        const charIndex = index - bounds.start;
+        const line = self.chars[bounds.start..bounds.end];
+
+        writer.writeAll("Error: ") catch {};
+        writer.writeAll(errStr) catch {};
+        writer.writeByte('\n') catch {};
+        writer.writeAll(line) catch {};
+        writer.writeByte('\n') catch {};
+
+        var i: usize = 0;
+        while (i < charIndex) : (i += 1) {
+            writer.writeByte(' ') catch {};
+        }
+
+        writer.writeAll(&[_]u8{ '^', '\n' }) catch {};
+
+        return err;
+    }
 };
 
 pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
-    var chars = ArrayList(u8).init(allocator);
-    defer chars.deinit();
-
     var tokens = ArrayList(Token).init(allocator);
     defer tokens.deinit();
+    var charUtil = CharUtil.init(input);
+    defer charUtil.deinit();
 
-    var i: usize = 0;
-    outer: while (i < input.len) : (i += 1) {
-        const char = input[i];
-
-        if (char == '"') {
-            const strEnd = string.findChar(input, i + 1, '\"');
-
-            if (strEnd) |end| {
-                const str = try allocator.dupe(u8, input[i + 1 .. end]);
-                const token = Token{ .type = TokenType.StringToken, .string = str };
-                try tokens.append(token);
-
-                i += str.len + 1;
-
-                continue;
-            }
-
-            return TokenizeError.NoClosingQuote;
-        }
-
-        if (char == '\'') {
-            if (input[i + 2] != '\'') {
-                return TokenizeError.CharTokenTooLong;
-            }
-
-            const str = try allocator.dupe(u8, &[_]u8{input[i + 1]});
-            const token = Token{ .type = TokenType.CharToken, .string = str };
-            try tokens.append(token);
-            i += 2;
-
-            continue;
-        }
-
-        if (i < input.len - 1 and char == '/') {
-            const next = input[i + 1];
-            if (next == '/') {
-                const index = string.findChar(input, i, '\n');
-
-                if (index) |idx| {
-                    i = idx;
-                    continue;
-                }
-
-                break;
-            } else if (next == '*') {
-                var index = string.findChar(input, i, '/');
-                if (index != null) break;
-
-                while (input[index.? - 1] != '*') {
-                    index = string.findChar(input, index.? + 1, '/');
-                    if (index) |newIndex| {
-                        i = newIndex;
-                    } else {
-                        continue :outer;
-                    }
-                }
-
-                continue;
-            }
-        }
-
-        if (i < input.len - 1) {
-            var tokenType: ?TokenType = null;
-
-            if (char == '+' and input[i + 1] == '+') {
-                tokenType = TokenType.Inc;
-            } else if (char == '-' and input[i + 1] == '-') {
-                tokenType = TokenType.Dec;
-            }
-
-            if (tokenType) |tokType| {
-                const firstToken = try charsToToken(chars.items, allocator);
-
-                if (firstToken) |firstTok| {
-                    try tokens.append(firstTok);
-                    chars.clearRetainingCapacity();
-                }
-
-                const token = Token{ .type = tokType, .string = null };
-                try tokens.append(token);
-                i += 1;
-
-                continue;
-            }
-        }
-
-        const postEq = isPostEqSymbol(input, i);
-        if (postEq) |tok| {
-            const firstToken = try charsToToken(chars.items, allocator);
-
-            if (firstToken) |firstTok| {
-                try tokens.append(firstTok);
-                chars.clearRetainingCapacity();
-            }
-
-            i += 1;
+    while (charUtil.hasNext()) {
+        const token = try parseNextToken(allocator, &charUtil);
+        if (token) |tok| {
             try tokens.append(tok);
-
-            continue;
-        }
-
-        if (char == '.') {
-            if (isNumber(chars.items)) {
-                if (string.findChar(chars.items, 0, '.') != null) {
-                    return TokenizeError.NumberHasTwoPeriods;
-                }
-
-                try chars.append(char);
-                continue;
-            } else if (chars.items.len > 0 and std.ascii.isDigit(chars.items[0])) {
-                return TokenizeError.IdentifierWithStartingNumber;
-            }
-        }
-
-        const symbol = isSymbol(char);
-        if (symbol) |sym| {
-            const firstToken = try charsToToken(chars.items, allocator);
-
-            if (firstToken) |firstTok| {
-                try tokens.append(firstTok);
-                chars.clearRetainingCapacity();
-            }
-
-            const secondToken = Token{ .string = null, .type = sym };
-            try tokens.append(secondToken);
-
-            continue;
-        }
-
-        if (std.ascii.isWhitespace(char)) {
-            const token = try charsToToken(chars.items, allocator);
-
-            if (token) |tok| {
-                try tokens.append(tok);
-                chars.clearRetainingCapacity();
-            }
-        }
-
-        if (std.ascii.isAlphanumeric(char) or isValidNameChar(char)) {
-            try chars.append(char);
         }
     }
 
     return tokens.toOwnedSlice();
+}
+
+pub fn tokenizeNumTokens(allocator: Allocator, input: []const u8, numTokens: usize) !TokenizerOut {
+    var tokens = ArrayList(Token).init(allocator);
+    defer tokens.deinit();
+    var charUtil = CharUtil.init(input);
+    defer charUtil.deinit();
+
+    var i: usize = 0;
+    while (i < numTokens and charUtil.hasNext()) {
+        const token = try parseNextToken(allocator, &charUtil);
+        if (token) |tok| {
+            try tokens.append(tok);
+            i += 1;
+        }
+    }
+
+    return .{
+        .tokens = try tokens.toOwnedSlice(),
+        .skippedWhitespace = charUtil.skippedWhitespace,
+    };
+}
+
+fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
+    if (!chars.hasNext()) return null;
+    const first = try chars.take();
+    var charStr = ArrayList(u8).init(allocator);
+    defer charStr.deinit();
+
+    switch (first) {
+        '\n' => return Token.init(.NewLine),
+        ' ' => {
+            chars.skippedWhitespace += 1;
+            return null;
+        },
+        '+' => {
+            if (chars.peak() == '=') {
+                _ = try chars.take();
+                return Token.init(.AddEq);
+            } else if (chars.peak() == '+') {
+                _ = try chars.take();
+                return Token.init(.Inc);
+            }
+
+            return Token.init(.Add);
+        },
+        '-' => {
+            if (chars.peak() == '=') {
+                _ = try chars.take();
+                return Token.init(.SubEq);
+            } else if (chars.peak() == '-') {
+                _ = try chars.take();
+                return Token.init(.Dec);
+            }
+
+            return Token.init(.Sub);
+        },
+        '*' => {
+            if (chars.peak() == '=') {
+                _ = try chars.take();
+                return Token.init(.MultEq);
+            }
+
+            return Token.init(.Mult);
+        },
+        '/' => {
+            if (chars.peak() == '=') {
+                _ = try chars.take();
+                return Token.init(.DivEq);
+            } else if (chars.peak() == '/') {
+                var next = try chars.take();
+                while (next != '\n') {
+                    if (!chars.hasNext()) return null;
+
+                    next = try chars.take();
+                }
+
+                chars.returnChar();
+                return null;
+            }
+            return Token.init(.Div);
+        },
+        ';' => return Token.init(.Semicolon),
+        '{' => return Token.init(.LBrace),
+        '}' => return Token.init(.RBrace),
+        '[' => return Token.init(.LBracket),
+        ']' => return Token.init(.RBracket),
+        '(' => return Token.init(.LParen),
+        ')' => return Token.init(.RParen),
+        ':' => return Token.init(.Colon),
+        ',' => return Token.init(.Comma),
+        '<' => {
+            if (chars.peak() == '=') {
+                _ = try chars.take();
+                return Token.init(.LAngleEq);
+            }
+
+            return Token.init(.LAngle);
+        },
+        '>' => {
+            if (chars.peak() == '=') {
+                _ = try chars.take();
+                return Token.init(.RAngleEq);
+            }
+
+            return Token.init(.RAngle);
+        },
+        '=' => {
+            if (chars.peak() == '=') {
+                _ = try chars.take();
+                return Token.init(.EqComp);
+            }
+
+            return Token.init(.EqSet);
+        },
+        '!' => return Token.init(.Bang),
+        '.' => return Token.init(.Period),
+        '&' => {
+            if (chars.peak() == '&') {
+                _ = try chars.take();
+                return Token.init(.And);
+            }
+            return Token.init(.BitAnd);
+        },
+        '|' => {
+            if (chars.peak() == '|') {
+                _ = try chars.take();
+                return Token.init(.Or);
+            }
+            return Token.init(.BitOr);
+        },
+        '%' => return Token.init(.Mod),
+        '?' => return Token.init(.QuestionMark),
+        '\'' => {
+            var next = try chars.take();
+            if (next == '\\') {
+                next = try chars.take();
+            } else if (next == '\'') {
+                return chars.logError(TokenizeError.CharTokenTooShort);
+            }
+
+            const endTick = try chars.take();
+            if (endTick != '\'') return chars.logError(TokenizeError.CharTokenTooLong);
+
+            const char = try allocator.dupe(u8, &[_]u8{next});
+            return Token.initStr(.CharToken, char);
+        },
+        '"' => {
+            var current = first;
+            var next = try chars.take();
+
+            while (next != '"' or current == '\\') {
+                try charStr.append(next);
+                current = next;
+
+                if (!chars.hasNext()) {
+                    return chars.logError(TokenizeError.NoClosingQuote);
+                }
+                next = try chars.take();
+            }
+
+            return Token.initStr(.StringToken, try charStr.toOwnedSlice());
+        },
+        else => {
+            var char = first;
+
+            var isNumber = false;
+            var foundPeriod = false;
+            while (std.ascii.isDigit(char) or char == '.') {
+                isNumber = true;
+                if (char == '.') {
+                    if (foundPeriod) {
+                        return chars.logError(TokenizeError.NumberHasTwoPeriods);
+                    }
+
+                    foundPeriod = true;
+                }
+
+                try charStr.append(char);
+                char = try chars.take();
+            }
+
+            if (isNumber) {
+                chars.returnChar();
+                return Token.initStr(.Number, try charStr.toOwnedSlice());
+            }
+
+            var isIdent = false;
+            while (std.ascii.isAlphanumeric(char) or isValidNameChar(char)) {
+                isIdent = true;
+                try charStr.append(char);
+
+                if (!chars.hasNext()) break;
+                char = try chars.take();
+            }
+
+            if (isIdent) {
+                chars.returnChar();
+
+                if (isKeyword(charStr.items)) |keywordType| {
+                    return Token.init(keywordType);
+                }
+
+                if (isDatatype(charStr.items)) |dataType| {
+                    return Token.init(dataType);
+                }
+
+                return Token.initStr(.Identifier, try charStr.toOwnedSlice());
+            }
+
+            return chars.logError(TokenizeError.UnexpectedCharacter);
+        },
+    }
+}
+
+fn getLineBounds(chars: []const u8, index: usize) LineBounds {
+    var lineStart: usize = 0;
+    var lineEnd: usize = 0;
+
+    for (chars, 0..) |char, charIndex| {
+        if (char == '\n') {
+            if (charIndex < index) {
+                lineStart = charIndex + 1;
+            } else {
+                lineEnd = charIndex;
+
+                return .{
+                    .start = lineStart,
+                    .end = lineEnd,
+                };
+            }
+        }
+    }
+
+    if (lineEnd < lineStart) lineEnd = chars.len;
+
+    return .{
+        .start = lineStart,
+        .end = lineEnd,
+    };
 }
 
 fn isValidNameChar(char: u8) bool {
@@ -339,89 +573,28 @@ fn isValidNameChar(char: u8) bool {
     };
 }
 
-fn isPostEqSymbol(chars: []const u8, start: usize) ?Token {
-    if (chars.len == 0) return null;
-
-    if (start < chars.len - 1 and chars[start + 1] == '=') {
-        const res = switch (chars[start]) {
-            '=' => TokenType.EqComp,
-            '<' => TokenType.LAngleEq,
-            '>' => TokenType.RAngleEq,
-            '-' => TokenType.SubEq,
-            '+' => TokenType.AddEq,
-            '*' => TokenType.MultEq,
-            '/' => TokenType.DivEq,
-            else => null,
-        };
-
-        if (res) |tok| {
-            return Token{ .type = tok, .string = null };
-        }
-
-        return null;
-    }
-
-    return null;
-}
-
-fn isNumber(chars: []u8) bool {
-    if (chars.len == 0) return false;
-
-    for (chars) |char| {
-        if (!std.ascii.isDigit(char) and char != '.') return false;
-    }
-
-    return true;
-}
-
-fn charsToToken(chars: []u8, allocator: Allocator) !?Token {
-    if (chars.len == 0) return null;
-
-    var number = false;
-
-    if (std.ascii.isDigit(chars[0])) {
-        if (!isNumber(chars)) return TokenizeError.IdentifierWithStartingNumber;
-        number = true;
-    }
-
-    if (number) {
-        const str = try allocator.dupe(u8, chars);
-        return Token{ .string = str, .type = .Number };
-    }
-
-    const datatype = isDatatype(chars);
-    if (datatype) |dt| {
-        return Token{ .string = null, .type = dt };
-    }
-
-    const keyword = isKeyword(chars);
-    if (keyword) |k| {
-        return Token{ .string = null, .type = k };
-    } else {
-        const str = try allocator.dupe(u8, chars);
-        return Token{ .string = str, .type = .Identifier };
-    }
-}
-
 fn isDatatype(chars: []const u8) ?TokenType {
     const datatypes = [_]TokenTypeMap{
-        TokenTypeMap{ .string = "char", .token = TokenType.CharType },
-        TokenTypeMap{ .string = "string", .token = TokenType.StringType },
-        TokenTypeMap{ .string = "bool", .token = TokenType.Bool },
-        TokenTypeMap{ .string = "usize", .token = TokenType.USize },
+        .{ .string = "char", .token = .CharType },
+        .{ .string = "string", .token = .StringType },
+        .{ .string = "bool", .token = .Bool },
         // numbers
-        TokenTypeMap{ .string = "u16", .token = TokenType.U16 },
-        TokenTypeMap{ .string = "u32", .token = TokenType.U32 },
-        TokenTypeMap{ .string = "u64", .token = TokenType.U64 },
-        TokenTypeMap{ .string = "u128", .token = TokenType.U128 },
-        TokenTypeMap{ .string = "i16", .token = TokenType.I16 },
-        TokenTypeMap{ .string = "i32", .token = TokenType.I32 },
-        TokenTypeMap{ .string = "i64", .token = TokenType.I64 },
-        TokenTypeMap{ .string = "i128", .token = TokenType.I128 },
-        TokenTypeMap{ .string = "f16", .token = TokenType.F16 },
-        TokenTypeMap{ .string = "f32", .token = TokenType.F32 },
-        TokenTypeMap{ .string = "f64", .token = TokenType.F64 },
-        TokenTypeMap{ .string = "f128", .token = TokenType.F128 },
+        .{ .string = "usize", .token = .USize },
+        .{ .string = "u8", .token = .U8 },
+        .{ .string = "u16", .token = .U16 },
+        .{ .string = "u32", .token = .U32 },
+        .{ .string = "u64", .token = .U64 },
+        .{ .string = "u128", .token = .U128 },
+        .{ .string = "i8", .token = .I8 },
+        .{ .string = "i16", .token = .I16 },
+        .{ .string = "i32", .token = .I32 },
+        .{ .string = "i64", .token = .I64 },
+        .{ .string = "i128", .token = .I128 },
+        .{ .string = "f8", .token = .F8 },
+        .{ .string = "f16", .token = .F16 },
+        .{ .string = "f32", .token = .F32 },
+        .{ .string = "f64", .token = .F64 },
+        .{ .string = "f128", .token = .F128 },
     };
 
     return getTypeFromMap(chars, datatypes);
@@ -429,22 +602,22 @@ fn isDatatype(chars: []const u8) ?TokenType {
 
 fn isKeyword(chars: []const u8) ?TokenType {
     const keywords = [_]TokenTypeMap{
-        TokenTypeMap{ .string = "var", .token = TokenType.Var },
-        TokenTypeMap{ .string = "const", .token = TokenType.Const },
-        TokenTypeMap{ .string = "fn", .token = TokenType.Fn },
-        TokenTypeMap{ .string = "struct", .token = TokenType.Struct },
-        TokenTypeMap{ .string = "if", .token = TokenType.If },
-        TokenTypeMap{ .string = "for", .token = TokenType.For },
-        TokenTypeMap{ .string = "while", .token = TokenType.While },
-        TokenTypeMap{ .string = "continue", .token = TokenType.Continue },
-        TokenTypeMap{ .string = "break", .token = TokenType.Break },
-        TokenTypeMap{ .string = "true", .token = TokenType.True },
-        TokenTypeMap{ .string = "false", .token = TokenType.False },
-        TokenTypeMap{ .string = "pub", .token = TokenType.Pub },
-        TokenTypeMap{ .string = "prot", .token = TokenType.Prot },
-        TokenTypeMap{ .string = "static", .token = TokenType.Static },
-        TokenTypeMap{ .string = "return", .token = TokenType.Return },
-        TokenTypeMap{ .string = "error", .token = TokenType.Error },
+        .{ .string = "var", .token = .Var },
+        .{ .string = "const", .token = .Const },
+        .{ .string = "fn", .token = .Fn },
+        .{ .string = "struct", .token = .Struct },
+        .{ .string = "if", .token = .If },
+        .{ .string = "for", .token = .For },
+        .{ .string = "while", .token = .While },
+        .{ .string = "continue", .token = .Continue },
+        .{ .string = "break", .token = .Break },
+        .{ .string = "true", .token = .True },
+        .{ .string = "false", .token = .False },
+        .{ .string = "pub", .token = .Pub },
+        .{ .string = "prot", .token = .Prot },
+        .{ .string = "static", .token = .Static },
+        .{ .string = "return", .token = .Return },
+        .{ .string = "error", .token = .Error },
     };
 
     return getTypeFromMap(chars, keywords);
@@ -460,54 +633,13 @@ fn getTypeFromMap(chars: []const u8, map: anytype) ?TokenType {
     return null;
 }
 
-fn isSymbol(char: u8) ?TokenType {
-    const symbols = [_]SymbolMap{
-        SymbolMap{ .symbol = ':', .token = TokenType.Colon },
-        SymbolMap{ .symbol = ';', .token = TokenType.Semicolon },
-        SymbolMap{ .symbol = '(', .token = TokenType.LParen },
-        SymbolMap{ .symbol = ')', .token = TokenType.RParen },
-        SymbolMap{ .symbol = '[', .token = TokenType.LBracket },
-        SymbolMap{ .symbol = ']', .token = TokenType.RBracket },
-        SymbolMap{ .symbol = '{', .token = TokenType.LBrace },
-        SymbolMap{ .symbol = '}', .token = TokenType.RBrace },
-        SymbolMap{ .symbol = '<', .token = TokenType.LAngle },
-        SymbolMap{ .symbol = '>', .token = TokenType.RAngle },
-        SymbolMap{ .symbol = '&', .token = TokenType.Ampersand },
-        SymbolMap{ .symbol = '=', .token = TokenType.EqSet },
-        SymbolMap{ .symbol = '-', .token = TokenType.Sub },
-        SymbolMap{ .symbol = '+', .token = TokenType.Add },
-        SymbolMap{ .symbol = '*', .token = TokenType.Mult },
-        SymbolMap{ .symbol = '/', .token = TokenType.Div },
-        SymbolMap{ .symbol = '%', .token = TokenType.Mod },
-        SymbolMap{ .symbol = '!', .token = TokenType.Bang },
-        SymbolMap{ .symbol = '.', .token = TokenType.Period },
-        SymbolMap{ .symbol = ',', .token = TokenType.Comma },
-        SymbolMap{ .symbol = '?', .token = TokenType.QuestionMark },
+fn tokenizeErrorToString(err: TokenizeError) []const u8 {
+    return switch (err) {
+        TokenizeError.CharTokenTooLong => "char token too long",
+        TokenizeError.CharTokenTooShort => "char token too short",
+        TokenizeError.ExpectedCharacterFoundNothing => "expected character found nothing",
+        TokenizeError.NoClosingQuote => "no closing quote",
+        TokenizeError.NumberHasTwoPeriods => "number has two periods",
+        TokenizeError.UnexpectedCharacter => "unexpected character",
     };
-
-    for (symbols) |symbol| {
-        if (char == symbol.symbol) {
-            return symbol.token;
-        }
-    }
-
-    return null;
-}
-
-pub fn isOpenToken(self: TokenType, includeAngle: bool) bool {
-    const temp = switch (self) {
-        .LParen, .LBrace, .LBracket => true,
-        else => false,
-    };
-
-    return if (includeAngle) temp or self == TokenType.LAngle else temp;
-}
-
-pub fn isCloseToken(self: TokenType, includeAngle: bool) bool {
-    const temp = switch (self) {
-        .RParen, .RBrace, .RBracket => true,
-        else => false,
-    };
-
-    return if (includeAngle) temp or self == TokenType.RAngle else temp;
 }

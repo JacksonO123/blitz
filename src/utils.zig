@@ -4,6 +4,7 @@ const tokenizer = blitz.tokenizer;
 const blitzAst = blitz.ast;
 const string = blitz.string;
 const free = blitz.free;
+const Logger = blitz.logger.Logger;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
@@ -33,9 +34,9 @@ pub fn delimiterIndex(tokens: []tokenizer.Token, start: usize, delimiter: tokeni
     while (i < tokens.len) : (i += 1) {
         if (parens == 0 and tokens[i].type == delimiter) return i;
 
-        if (tokenizer.isOpenToken(tokens[i].type, true)) {
+        if (tokens[i].isOpenToken(true)) {
             parens += 1;
-        } else if (tokenizer.isCloseToken(tokens[i].type, true)) {
+        } else if (tokens[i].isCloseToken(true)) {
             if (parens > 0) {
                 parens -= 1;
             } else if (tokens[i].type != delimiter) return AstError.TokenNotFound;
@@ -76,9 +77,9 @@ pub fn smartDelimiterIndex(tokens: []tokenizer.Token, compInfo: *CompInfo, start
             }
         }
 
-        if (tokenizer.isOpenToken(tokens[current].type, false)) {
+        if (tokens[current].isOpenToken(false)) {
             parens += 1;
-        } else if (tokenizer.isCloseToken(tokens[current].type, false)) {
+        } else if (tokens[current].isCloseToken(false)) {
             if (parens == 0) return AstError.TokenNotFound;
             parens -= 1;
         }
@@ -97,6 +98,7 @@ const Scope = *StringHashMap(*const blitzAst.AstTypes);
 pub const CompInfo = struct {
     const Self = @This();
 
+    allocator: Allocator,
     structNames: [][]u8,
     errorNames: [][]u8,
     availableGenerics: *ArrayList(*ArrayList([]u8)),
@@ -111,9 +113,14 @@ pub const CompInfo = struct {
     genericScopes: *ArrayList(Scope),
     previosAccessedStruct: ?[]u8,
     preAst: bool,
-    allocator: Allocator,
+    tokens: *TokenUtil,
+    logger: *Logger,
 
-    pub fn init(allocator: Allocator, names: blitzAst.StructAndErrorNames) !Self {
+    pub fn init(allocator: Allocator, tokens: []tokenizer.Token, names: blitzAst.StructAndErrorNames, code: *const []u8) !Self {
+        const loggerUtil = try allocator.create(Logger);
+        const tokenUtil = try createMut(TokenUtil, allocator, try TokenUtil.init(allocator, loggerUtil, tokens));
+        loggerUtil.* = Logger.init(allocator, tokenUtil, code);
+
         const availableGenerics = try initPtrT(ArrayList(*ArrayList([]u8)), allocator);
         const availableGenScope = try initPtrT(ArrayList([]u8), allocator);
         try availableGenerics.append(availableGenScope);
@@ -134,6 +141,7 @@ pub const CompInfo = struct {
         try variableScopes.append(baseScope);
 
         return Self{
+            .allocator = allocator,
             .structNames = names.structNames,
             .errorNames = names.errorNames,
             .availableGenerics = availableGenerics,
@@ -146,7 +154,8 @@ pub const CompInfo = struct {
             .genericScopes = genericScopes,
             .previosAccessedStruct = null,
             .preAst = true,
-            .allocator = allocator,
+            .tokens = tokenUtil,
+            .logger = loggerUtil,
         };
     }
 
@@ -215,6 +224,12 @@ pub const CompInfo = struct {
 
         self.genericScopes.deinit();
         self.allocator.destroy(self.genericScopes);
+
+        self.tokens.deinit();
+        self.allocator.destroy(self.tokens);
+
+        self.logger.deinit();
+        self.allocator.destroy(self.logger);
     }
 
     pub fn pushScope(self: *Self) !void {
@@ -264,29 +279,29 @@ pub const CompInfo = struct {
             }
         }
 
-        {
-            var structIt = self.structDecs.valueIterator();
-            while (structIt.next()) |s| {
-                for (s.*.generics) |gen| {
-                    try self.addAvailableGeneric(gen.name);
-                }
-
-                defer {
-                    for (s.*.generics) |gen| {
-                        self.removeAvailableGeneric(gen.name);
-                    }
-                }
-
-                const attributes = s.*.attributes;
-                for (attributes) |attr| {
-                    if (attr.attr != .Function) continue;
-
-                    const f = attr.attr.Function;
-                    free.freeNode(self.allocator, f.body);
-                    f.body = (try blitzAst.createAstNode(self.allocator, self, f.bodyTokens)).node;
-                }
-            }
-        }
+        // {
+        //     var structIt = self.structDecs.valueIterator();
+        //     while (structIt.next()) |s| {
+        //         for (s.*.generics) |gen| {
+        //             try self.addAvailableGeneric(gen.name);
+        //         }
+        //
+        //         defer {
+        //             for (s.*.generics) |gen| {
+        //                 self.removeAvailableGeneric(gen.name);
+        //             }
+        //         }
+        //
+        //         const attributes = s.*.attributes;
+        //         for (attributes) |attr| {
+        //             if (attr.attr != .Function) continue;
+        //
+        //             const f = attr.attr.Function;
+        //             free.freeNode(self.allocator, f.body);
+        //             f.body = (try blitzAst.createAstNode(self.allocator, self, f.bodyTokens)).node;
+        //         }
+        //     }
+        // }
     }
 
     pub fn setPreviousAccessedStruct(self: *Self, name: ?[]u8) void {
@@ -523,5 +538,95 @@ pub const CompInfo = struct {
     pub fn isInStructMethod(self: Self) bool {
         const len = self.distFromStructMethod.items.len;
         return self.getCurrentStruct() != null and len > 0 and self.distFromStructMethod.items[len - 1] > 0;
+    }
+};
+
+pub const TokenUtil = struct {
+    const Self = @This();
+
+    allocator: Allocator,
+    index: usize,
+    currentLine: usize,
+    currentLineToken: usize,
+    tokens: []tokenizer.Token,
+    windows: *ArrayList(usize),
+    logger: *Logger,
+
+    pub fn init(allocator: Allocator, logger: *Logger, tokens: []tokenizer.Token) !Self {
+        const windows = try initPtrT(ArrayList(usize), allocator);
+
+        return Self{
+            .allocator = allocator,
+            .index = 0,
+            .currentLine = 0,
+            .currentLineToken = 0,
+            .tokens = tokens,
+            .windows = windows,
+            .logger = logger,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.windows.deinit();
+        self.allocator.destroy(self.windows);
+    }
+
+    // fn incWindow(self: *Self) void {
+    //     if (self.windows.items.len == 0) return;
+    //
+    //     const index = self.windows.items.len - 1;
+    //     self.windows.items[index] += 1;
+    // }
+    //
+    // pub fn collapseWindow(self: *Self) void {
+    //     if (self.windows.items.len == 0) return;
+    //
+    //     const index = self.windows.items.len - 1;
+    //     self.index -= self.windows.items[index];
+    //     self.windows.pop();
+    // }
+
+    pub fn take(self: *Self) !tokenizer.Token {
+        if (self.index == self.tokens.len) {
+            return self.logger.logError(AstError.ExpectedTokenFoundNothing);
+        }
+
+        const res = self.tokens[self.index];
+        // self.incWindow();
+        self.index += 1;
+        self.currentLineToken += 1;
+
+        if (res.type == .NewLine) {
+            self.currentLine += 1;
+            self.currentLineToken = 0;
+            if (self.hasNext()) return self.take();
+            return res;
+        }
+        return res;
+    }
+
+    pub fn peak(self: Self) !tokenizer.Token {
+        if (self.index < self.tokens.len) {
+            return self.tokens[self.index];
+        }
+
+        return AstError.ExpectedTokenFoundNothing;
+    }
+
+    pub fn returnToken(self: *Self) void {
+        self.index -= 1;
+        self.currentLineToken -= 1;
+    }
+
+    pub fn expectToken(self: *Self, tokenType: tokenizer.TokenType) !void {
+        const token = try self.take();
+        if (token.type != tokenType) {
+            return self.logger.logError(AstError.UnexpectedToken);
+        }
+    }
+
+    pub fn hasNext(self: Self) bool {
+        if (self.index < self.tokens.len) return true;
+        return false;
     }
 };

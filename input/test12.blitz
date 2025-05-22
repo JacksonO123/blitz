@@ -1,0 +1,5 @@
+// const a = 2   * 3  +   false / 5;
+// const a: u32 = 2 * 3 + u32(4 / 5);
+// var b = "testing";
+const b = true;
+b = "what";
