@@ -30,9 +30,9 @@ pub const Logger = struct {
     allocator: Allocator,
     tokens: *TokenUtil,
     buf: BufferedWriterType,
-    code: *const []u8,
+    code: []const u8,
 
-    pub fn init(allocator: Allocator, tokens: *TokenUtil, code: *const []u8) Self {
+    pub fn init(allocator: Allocator, tokens: *TokenUtil, code: []const u8) Self {
         const buf = getBufferedWriter();
 
         return Self{
@@ -52,7 +52,8 @@ pub const Logger = struct {
         const errStr = astErrorToString(err);
 
         const lineBounds = findLineBounds(self.code, self.tokens.currentLine);
-        const line = self.code.*[lineBounds.start..lineBounds.end];
+        const line = self.code[lineBounds.start..lineBounds.end];
+        std.debug.print("line: {s}\n", .{line});
         const res = tokenizer.tokenizeNumTokens(self.allocator, line, self.tokens.currentLineToken) catch {
             return err;
         };
@@ -68,7 +69,8 @@ pub const Logger = struct {
         while (i < tokenOffset) : (i += 1) {
             writer.writeByte(' ') catch {};
         }
-        writer.writeAll(&[_]u8{ '^', '\n' }) catch {};
+        writer.writeByte('^') catch {};
+        writer.writeByte('\n') catch {};
 
         return err;
     }
@@ -82,18 +84,19 @@ fn calculateTokenOffset(tokens: []tokenizer.Token, skippedWhitespace: usize) usi
 
     for (temp) |token| {
         const str = if (token.string != null) token.string.? else token.type.toString();
+        if (token.type == .StringToken) res += 2;
         res += str.len;
     }
 
     return res + skippedWhitespace;
 }
 
-fn findLineBounds(code: *const []u8, line: usize) LineBounds {
+fn findLineBounds(code: []const u8, line: usize) LineBounds {
     var start: usize = 0;
     var end: usize = 0;
     var currentLine: usize = 0;
 
-    for (code.*, 0..) |char, index| {
+    for (code, 0..) |char, index| {
         if (currentLine == line) {
             if (char == '\n' or index == code.len - 1) {
                 end = index;
@@ -137,5 +140,8 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.InvalidExprOperand => "invalid expression operand",
         AstError.ExpectedTokenFoundNothing => "expected token found nothing",
         AstError.ExpectedExpression => "expected expression",
+        AstError.ExpectedIdentifierForFunctionName => "expected identifier for function name",
+        AstError.ExpectedIdentifierForParameterName => "expected identifier for parameter name",
+        AstError.ExpectedIdentifierForGenericType => "expected identifier for generic type",
     };
 }

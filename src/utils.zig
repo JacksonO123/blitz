@@ -122,7 +122,7 @@ pub const CompInfo = struct {
     tokens: *TokenUtil,
     logger: *Logger,
 
-    pub fn init(allocator: Allocator, tokens: []tokenizer.Token, names: blitzAst.StructAndErrorNames, code: *const []u8) !Self {
+    pub fn init(allocator: Allocator, tokens: []tokenizer.Token, names: blitzAst.StructAndErrorNames, code: []const u8) !Self {
         const loggerUtil = try allocator.create(Logger);
         const tokenUtil = try createMut(TokenUtil, allocator, try TokenUtil.init(allocator, loggerUtil, tokens));
         loggerUtil.* = Logger.init(allocator, tokenUtil, code);
@@ -581,37 +581,63 @@ pub const TokenUtil = struct {
         self.allocator.destroy(self.windows);
     }
 
-    // fn incWindow(self: *Self) void {
-    //     if (self.windows.items.len == 0) return;
-    //
-    //     const index = self.windows.items.len - 1;
-    //     self.windows.items[index] += 1;
-    // }
-    //
-    // pub fn collapseWindow(self: *Self) void {
-    //     if (self.windows.items.len == 0) return;
-    //
-    //     const index = self.windows.items.len - 1;
-    //     self.index -= self.windows.items[index];
-    //     self.windows.pop();
-    // }
+    pub fn reset(self: *Self) void {
+        self.index = 0;
+        self.currentLine = 0;
+        self.currentLineToken = 0;
+        self.windows.clearRetainingCapacity();
+    }
+
+    pub fn addWindow(self: *Self) !void {
+        try self.windows.append(0);
+    }
+
+    fn incWindow(self: *Self) void {
+        if (self.windows.items.len == 0) return;
+
+        const index = self.windows.items.len - 1;
+        self.windows.items[index] += 1;
+    }
+
+    pub fn collapseWindow(self: *Self) void {
+        if (self.windows.items.len == 0) return;
+
+        const index = self.windows.items.len - 1;
+        self.index -= self.windows.items[index];
+        _ = self.windows.pop();
+    }
+
+    pub fn getWindowSize(self: Self) usize {
+        if (self.windows.items.len == 0) return 0;
+        const index = self.windows.items.len - 1;
+        return self.windows.items[index];
+    }
 
     pub fn take(self: *Self) !tokenizer.Token {
+        const res = try self.takeFixed();
+
+        if (res.type == .NewLine and self.hasNext()) {
+            return self.take();
+        }
+
+        return res;
+    }
+
+    pub fn takeFixed(self: *Self) !tokenizer.Token {
         if (self.index == self.tokens.len) {
             return self.logger.logError(AstError.ExpectedTokenFoundNothing);
         }
 
         const res = self.tokens[self.index];
-        // self.incWindow();
+        self.incWindow();
         self.index += 1;
         self.currentLineToken += 1;
 
         if (res.type == .NewLine) {
             self.currentLine += 1;
             self.currentLineToken = 0;
-            if (self.hasNext()) return self.take();
-            return res;
         }
+
         return res;
     }
 

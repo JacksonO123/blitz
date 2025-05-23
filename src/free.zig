@@ -109,6 +109,10 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             freeNode(allocator, set.setNode);
             allocator.free(set.variable);
         },
+        .VarEqOp => |op| {
+            freeNode(allocator, op.value);
+            allocator.free(op.variable);
+        },
         .Seq => |seq| {
             for (seq.nodes) |seqNode| {
                 freeNode(allocator, seqNode);

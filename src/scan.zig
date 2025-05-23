@@ -343,6 +343,11 @@ pub fn scanNode(
 
             return .Void;
         },
+        .VarEqOp => |op| {
+            _ = op;
+            // TODO
+            return .Void;
+        },
         .Variable => |v| {
             if (compInfo.isInStructMethod() and string.compString(v, "self")) {
                 return .{

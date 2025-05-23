@@ -230,6 +230,15 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                 },
             };
         },
+        .VarEqOp => |op| {
+            return .{
+                .VarEqOp = .{
+                    .variable = try string.cloneString(allocator, op.variable),
+                    .value = try cloneAstNodePtrMut(allocator, compInfo, op.value, replaceGenerics),
+                    .opType = op.opType,
+                },
+            };
+        },
         .Type => |t| {
             return .{
                 .Type = try cloneAstTypes(allocator, compInfo, t, replaceGenerics),

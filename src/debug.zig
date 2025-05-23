@@ -178,19 +178,35 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
             printNode(compInfo, op.left);
             print(") ", .{});
 
-            switch (op.type) {
-                .BitAnd => print("&BitAnd&", .{}),
-                .BitOr => print("|BitOr|", .{}),
-                .And => print("&&AND&&", .{}),
-                .Or => print("||OR||", .{}),
-                .Add => print("+ADD+", .{}),
-                .Sub => print("-SUB-", .{}),
-                .Mult => print("*MULT*", .{}),
-                .Div => print("/DIV/", .{}),
-            }
+            print("{s}", .{switch (op.type) {
+                .BitAnd => "&BitAnd&",
+                .BitOr => "|BitOr|",
+                .And => "&&AND&&",
+                .Or => "||OR||",
+                .Add => "+ADD+",
+                .Sub => "-SUB-",
+                .Mult => "*MULT*",
+                .Div => "/DIV/",
+            }});
 
             print(" (", .{});
             printNode(compInfo, op.right);
+            print(")", .{});
+        },
+        .VarEqOp => |op| {
+            print("set {s} to result of ({s} {s} ", .{
+                op.variable, op.variable, switch (op.opType) {
+                    .BitOrEq => "|BitOr|",
+                    .BitAndEq => "&BitAnd&",
+                    .AddEq => "+ADD+",
+                    .SubEq => "-SUB-",
+                    .MultEq => "*MULT*",
+                    .DivEq => "/DIV/",
+                    .AndEq => "*MULT*",
+                    .OrEq => "/DIV/",
+                },
+            });
+            printNode(compInfo, op.value);
             print(")", .{});
         },
         .FuncReference => |ref| {

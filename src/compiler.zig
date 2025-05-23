@@ -46,7 +46,7 @@ pub fn main() !void {
     const names = try blitzAst.findStructAndErrorNames(allocator, tokens);
     printStructAndErrorNames(names);
 
-    var compInfo = try CompInfo.init(allocator, tokens, names, &code);
+    var compInfo = try CompInfo.init(allocator, tokens, names, code);
     defer compInfo.deinit();
 
     // const structsAndErrors = try blitzAst.registerStructsAndErrors(allocator, &compInfo, tokens);

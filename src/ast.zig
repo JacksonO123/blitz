@@ -260,11 +260,29 @@ const VarSetNode = struct {
     setNode: *AstNode,
 };
 
+const EqOpTypes = enum {
+    AddEq,
+    SubEq,
+    MultEq,
+    DivEq,
+    BitAndEq,
+    BitOrEq,
+    AndEq,
+    OrEq,
+};
+
+const VarEqOpNode = struct {
+    opType: EqOpTypes,
+    value: *AstNode,
+    variable: []u8,
+};
+
 const AstNodeVariants = enum {
     NoOp,
     Seq,
     VarDec,
     VarSet,
+    VarEqOp,
     Type,
     Value,
     Cast,
@@ -289,6 +307,7 @@ pub const AstNode = union(AstNodeVariants) {
     Seq: SeqNode,
     VarDec: VarDecNode,
     VarSet: VarSetNode,
+    VarEqOp: VarEqOpNode,
     Type: AstTypes,
     Value: AstValues,
     Cast: CastNode,
@@ -332,6 +351,9 @@ pub const AstError = error{
     ExpectedTokenFoundNothing,
     ExpectedExpression,
     ExpectedIdentifierForVariableName,
+    ExpectedIdentifierForFunctionName,
+    ExpectedIdentifierForParameterName,
+    ExpectedIdentifierForGenericType,
 };
 
 const AstNodeOffsetData = struct {
@@ -403,15 +425,21 @@ pub fn createAst(allocator: Allocator, compInfo: *CompInfo) !Ast {
     return Ast.init(allocator, seq);
 }
 
-fn parseSequence(allocator: Allocator, compInfo: *CompInfo) !*const AstNode {
+fn parseSequence(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.Error)!*const AstNode {
     var seq = ArrayList(*const AstNode).init(allocator);
     defer seq.deinit();
 
     while (compInfo.tokens.hasNext()) {
-        const node = try parseStatement(allocator, compInfo);
-        if (node) |n| {
-            try seq.append(n);
+        const peakToken = try compInfo.tokens.peak();
+        if (peakToken.type == .Semicolon or peakToken.type == .NewLine) {
+            _ = try compInfo.tokens.takeFixed();
+            continue;
         }
+
+        const node = try parseStatement(allocator, compInfo);
+        if (node == null) break;
+
+        try seq.append(node.?);
     }
 
     return try create(AstNode, allocator, .{
@@ -421,11 +449,22 @@ fn parseSequence(allocator: Allocator, compInfo: *CompInfo) !*const AstNode {
     });
 }
 
-fn parseStatement(allocator: Allocator, compInfo: *CompInfo) !?*const AstNode {
+fn parseStatement(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
     const first = try compInfo.tokens.take();
     switch (first.type) {
         .Const => return try createVarDecNode(allocator, compInfo, true),
         .Var => return try createVarDecNode(allocator, compInfo, false),
+        .Fn => {
+            try compInfo.pushRegGenScope();
+            defer compInfo.popRegGenScope();
+
+            const func = try parseFuncDef(allocator, compInfo);
+            try compInfo.addFunction(func.name, func);
+
+            return try createMut(AstNode, allocator, .{
+                .FuncDec = try string.cloneString(allocator, func.name),
+            });
+        },
         .Identifier => {
             const next = try compInfo.tokens.take();
             switch (next.type) {
@@ -440,12 +479,33 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) !?*const AstNode {
                         },
                     });
                 },
+                .AddEq => {
+                    const incNode = try parseExpression(allocator, compInfo);
+                    if (incNode == null) return compInfo.logger.logError(AstError.ExpectedExpression);
+
+                    return try createMut(AstNode, allocator, .{
+                        .VarEqOp = .{
+                            .opType = .AddEq,
+                            .value = incNode.?,
+                            .variable = try string.cloneString(allocator, first.string.?),
+                        },
+                    });
+                },
                 else => return try createMut(AstNode, allocator, .{
                     .Variable = try string.cloneString(allocator, first.string.?),
                 }),
             }
         },
-        .Semicolon, .NewLine => return null,
+        .Return => {
+            const value = try parseExpression(allocator, compInfo);
+            if (value == null) return compInfo.logger.logError(AstError.ExpectedExpression);
+            try compInfo.tokens.expectToken(.Semicolon);
+
+            return try createMut(AstNode, allocator, .{
+                .ReturnNode = value.?,
+            });
+        },
+        .RBrace => return null,
         else => return compInfo.logger.logError(AstError.UnexpectedToken),
     }
 }
@@ -483,6 +543,11 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) (Allocator.Error |
                 },
             });
         },
+        .CharToken => {
+            return try createMut(AstNode, allocator, .{
+                .Value = .{ .Char = first.string.?[0] },
+            });
+        },
         .True => return try createBoolNode(allocator, true),
         .False => return try createBoolNode(allocator, false),
         .U8,
@@ -518,6 +583,126 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) (Allocator.Error |
             });
         },
         else => return compInfo.logger.logError(AstError.UnexpectedToken),
+    }
+}
+
+fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo) !*FuncDecNode {
+    var next = try compInfo.tokens.take();
+    var nameStr: []u8 = undefined;
+    var generics: ?[]GenericType = null;
+
+    if (next.type == .LBracket) {
+        generics = try parseGenerics(allocator, compInfo);
+        next = try compInfo.tokens.take();
+    }
+
+    if (next.type == .Identifier) {
+        nameStr = try string.cloneString(allocator, next.string.?);
+    } else {
+        return compInfo.logger.logError(AstError.ExpectedIdentifierForFunctionName);
+    }
+
+    try compInfo.tokens.expectToken(.LParen);
+
+    const params = try parseParams(allocator, compInfo);
+    var returnType: *const AstTypes = undefined;
+
+    const retNext = try compInfo.tokens.peak();
+
+    if (retNext.type == .Colon) {
+        _ = try compInfo.tokens.take();
+        returnType = try parseType(allocator, compInfo);
+    } else {
+        returnType = try create(AstTypes, allocator, @as(AstTypes, AstTypes.Void));
+    }
+
+    try compInfo.tokens.expectToken(.LBrace);
+
+    const index = compInfo.tokens.index;
+    const body: *const AstNode = try parseSequence(allocator, compInfo);
+    const endIndex = compInfo.tokens.index - 1;
+
+    const bodyTokens = compInfo.tokens.tokens[index..endIndex];
+    printTokens(bodyTokens);
+
+    std.debug.print("using {s}\n", .{nameStr});
+
+    return try createMut(FuncDecNode, allocator, .{
+        .name = nameStr,
+        .generics = generics,
+        .params = params,
+        .body = body,
+        .bodyTokens = bodyTokens,
+        .returnType = returnType,
+    });
+}
+
+fn parseGenerics(allocator: Allocator, compInfo: *CompInfo) ![]GenericType {
+    var generics = ArrayList(GenericType).init(allocator);
+    defer generics.deinit();
+
+    var generic = try parseGeneric(allocator, compInfo);
+    while ((try compInfo.tokens.peak()).type == .Comma) {
+        try generics.append(generic);
+        generic = try parseGeneric(allocator, compInfo);
+    }
+
+    try generics.append(generic);
+
+    try compInfo.tokens.expectToken(.RBracket);
+
+    return generics.toOwnedSlice();
+}
+
+fn parseGeneric(allocator: Allocator, compInfo: *CompInfo) !GenericType {
+    const first = try compInfo.tokens.take();
+    switch (first.type) {
+        .Identifier => {
+            var restriction: ?*const AstTypes = null;
+            if ((try compInfo.tokens.peak()).type == .Colon) {
+                _ = try compInfo.tokens.take();
+                restriction = try parseType(allocator, compInfo);
+            }
+
+            return .{
+                .name = try string.cloneString(allocator, first.string.?),
+                .restriction = restriction,
+            };
+        },
+        else => return compInfo.logger.logError(AstError.ExpectedIdentifierForGenericType),
+    }
+}
+
+fn parseParams(allocator: Allocator, compInfo: *CompInfo) ![]Parameter {
+    var params = ArrayList(Parameter).init(allocator);
+    defer params.deinit();
+
+    var param = try parseParam(allocator, compInfo);
+    while ((try compInfo.tokens.peak()).type == .Comma) {
+        try params.append(param);
+        param = try parseParam(allocator, compInfo);
+    }
+
+    try params.append(param);
+
+    try compInfo.tokens.expectToken(.RParen);
+
+    return params.toOwnedSlice();
+}
+
+fn parseParam(allocator: Allocator, compInfo: *CompInfo) !Parameter {
+    const first = try compInfo.tokens.take();
+    switch (first.type) {
+        .Identifier => {
+            try compInfo.tokens.expectToken(.Colon);
+            const paramType = try parseType(allocator, compInfo);
+
+            return .{
+                .name = try string.cloneString(allocator, first.string.?),
+                .type = paramType,
+            };
+        },
+        else => return compInfo.logger.logError(AstError.ExpectedIdentifierForParameterName),
     }
 }
 
@@ -1584,7 +1769,7 @@ fn createVarDecNode(
     allocator: Allocator,
     compInfo: *CompInfo,
     isConst: bool,
-) !?*const AstNode {
+) !?*AstNode {
     const name = try compInfo.tokens.take();
     if (name.type != .Identifier) return AstError.ExpectedIdentifierForVariableName;
 
@@ -1601,7 +1786,7 @@ fn createVarDecNode(
     const setValue = try parseExpression(allocator, compInfo);
     if (setValue == null) return null;
 
-    return try create(AstNode, allocator, .{
+    return try createMut(AstNode, allocator, .{
         .VarDec = .{
             .name = try string.cloneString(allocator, name.string.?),
             .isConst = isConst,
@@ -1772,42 +1957,42 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) !*const AstTypes {
 //     return res;
 // }
 
-fn createAstType(allocator: Allocator, compInfo: *CompInfo, token: tokenizer.Token) !*const AstTypes {
-    const val = switch (token.type) {
-        .Bool => AstTypes.Bool,
-        .StringType => AstTypes.String,
-        .U8 => AstTypes{ .Number = AstNumberVariants.U8 },
-        .U16 => AstTypes{ .Number = AstNumberVariants.U16 },
-        .U32 => AstTypes{ .Number = AstNumberVariants.U32 },
-        .U64 => AstTypes{ .Number = AstNumberVariants.U64 },
-        .U128 => AstTypes{ .Number = AstNumberVariants.U128 },
-        .I8 => AstTypes{ .Number = AstNumberVariants.I8 },
-        .I16 => AstTypes{ .Number = AstNumberVariants.I16 },
-        .I32 => AstTypes{ .Number = AstNumberVariants.I32 },
-        .I64 => AstTypes{ .Number = AstNumberVariants.I64 },
-        .I128 => AstTypes{ .Number = AstNumberVariants.I128 },
-        .F8 => AstTypes{ .Number = AstNumberVariants.F8 },
-        .F16 => AstTypes{ .Number = AstNumberVariants.F16 },
-        .F32 => AstTypes{ .Number = AstNumberVariants.F32 },
-        .F64 => AstTypes{ .Number = AstNumberVariants.F64 },
-        .F128 => AstTypes{ .Number = AstNumberVariants.F128 },
-        .USize => AstTypes{ .Number = AstNumberVariants.USize },
-        .CharType => AstTypes.Char,
-        else => a: {
-            if (token.string) |tokenString| {
-                if (token.type == .Identifier and compInfo.hasRegGeneric(tokenString)) {
-                    break :a AstTypes{
-                        .Generic = tokenString,
-                    };
-                }
-            }
-
-            return AstError.UnknownType;
-        },
-    };
-
-    return create(AstTypes, allocator, val);
-}
+// fn createAstType(allocator: Allocator, compInfo: *CompInfo, token: tokenizer.Token) !*const AstTypes {
+//     const val = switch (token.type) {
+//         .Bool => AstTypes.Bool,
+//         .StringType => AstTypes.String,
+//         .U8 => AstTypes{ .Number = AstNumberVariants.U8 },
+//         .U16 => AstTypes{ .Number = AstNumberVariants.U16 },
+//         .U32 => AstTypes{ .Number = AstNumberVariants.U32 },
+//         .U64 => AstTypes{ .Number = AstNumberVariants.U64 },
+//         .U128 => AstTypes{ .Number = AstNumberVariants.U128 },
+//         .I8 => AstTypes{ .Number = AstNumberVariants.I8 },
+//         .I16 => AstTypes{ .Number = AstNumberVariants.I16 },
+//         .I32 => AstTypes{ .Number = AstNumberVariants.I32 },
+//         .I64 => AstTypes{ .Number = AstNumberVariants.I64 },
+//         .I128 => AstTypes{ .Number = AstNumberVariants.I128 },
+//         .F8 => AstTypes{ .Number = AstNumberVariants.F8 },
+//         .F16 => AstTypes{ .Number = AstNumberVariants.F16 },
+//         .F32 => AstTypes{ .Number = AstNumberVariants.F32 },
+//         .F64 => AstTypes{ .Number = AstNumberVariants.F64 },
+//         .F128 => AstTypes{ .Number = AstNumberVariants.F128 },
+//         .USize => AstTypes{ .Number = AstNumberVariants.USize },
+//         .CharType => AstTypes.Char,
+//         else => a: {
+//             if (token.string) |tokenString| {
+//                 if (token.type == .Identifier and compInfo.hasRegGeneric(tokenString)) {
+//                     break :a AstTypes{
+//                         .Generic = tokenString,
+//                     };
+//                 }
+//             }
+//
+//             return AstError.UnknownType;
+//         },
+//     };
+//
+//     return create(AstTypes, allocator, val);
+// }
 
 pub fn findStructAndErrorNames(allocator: Allocator, tokens: []tokenizer.Token) !StructAndErrorNames {
     var structNames = ArrayList([]u8).init(allocator);
@@ -1848,6 +2033,15 @@ pub fn findStructAndErrorNames(allocator: Allocator, tokens: []tokenizer.Token) 
         .errorNames = try errorNames.toOwnedSlice(),
     };
 }
+
+// pub fn registerStructsAndErrors(allocator: Allocator, compInfo: *CompInfo) !RegisterStructsAndErrorsData {
+//     while (compInfo.tokens.hasNext()) {
+//         const token = try compInfo.tokens.take();
+//         if (token.type != .Struct or token.type != .Error) {
+//             continue;
+//         }
+//     }
+// }
 
 // pub fn registerStructsAndErrors(allocator: Allocator, compInfo: *CompInfo, tokens: []tokenizer.Token) !RegisterStructsAndErrorsData {
 //     var structArr = ArrayList(*StructDecNode).init(allocator);

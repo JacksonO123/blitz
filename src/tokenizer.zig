@@ -46,6 +46,10 @@ pub const TokenType = enum {
     RAngle,
     BitAnd,
     BitOr,
+    BitAndEq,
+    BitOrEq,
+    AndEq,
+    OrEq,
     And,
     Or,
     EqSet,
@@ -123,6 +127,10 @@ pub const TokenType = enum {
             .RAngle => ">",
             .BitAnd => "&",
             .BitOr => "|",
+            .BitAndEq => "&=",
+            .BitOrEq => "|=",
+            .AndEq => "&=",
+            .OrEq => "|=",
             .And => "&&",
             .Or => "||",
             .EqSet => "=",
@@ -444,15 +452,34 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
         '&' => {
             if (chars.peak() == '&') {
                 _ = try chars.take();
+
+                if (chars.peak() == '=') {
+                    _ = try chars.take();
+                    return Token.init(.AndEq);
+                }
+
                 return Token.init(.And);
+            } else if (chars.peak() == '=') {
+                _ = try chars.take();
+                return Token.init(.BitAndEq);
             }
             return Token.init(.BitAnd);
         },
         '|' => {
             if (chars.peak() == '|') {
                 _ = try chars.take();
+
+                if (chars.peak() == '=') {
+                    _ = try chars.take();
+                    return Token.init(.OrEq);
+                }
+
                 return Token.init(.Or);
+            } else if (chars.peak() == '=') {
+                _ = try chars.take();
+                return Token.init(.BitOrEq);
             }
+
             return Token.init(.BitOr);
         },
         '%' => return Token.init(.Mod),
