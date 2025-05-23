@@ -93,7 +93,13 @@ fn initPtrT(comptime T: type, allocator: Allocator) !*T {
     return try createMut(T, allocator, data);
 }
 
-const Scope = *StringHashMap(*const blitzAst.AstTypes);
+const VariableInfo = struct {
+    varType: *const blitzAst.AstTypes,
+    isConst: bool,
+};
+
+const TypeScope = StringHashMap(*const blitzAst.AstTypes);
+const VarScope = StringHashMap(VariableInfo);
 
 pub const CompInfo = struct {
     const Self = @This();
@@ -102,7 +108,7 @@ pub const CompInfo = struct {
     structNames: [][]u8,
     errorNames: [][]u8,
     availableGenerics: *ArrayList(*ArrayList([]u8)),
-    variableScopes: *ArrayList(Scope),
+    variableScopes: *ArrayList(*VarScope),
     functions: *StringHashMap(*const blitzAst.FuncDecNode),
     structDecs: *StringHashMap(*blitzAst.StructDecNode),
     errorDecs: *StringHashMap(*const blitzAst.ErrorDecNode),
@@ -110,8 +116,8 @@ pub const CompInfo = struct {
     // each number describes how far from
     // the struct method a child node is
     distFromStructMethod: *ArrayList(u32),
-    genericScopes: *ArrayList(Scope),
-    previosAccessedStruct: ?[]u8,
+    genericScopes: *ArrayList(*TypeScope),
+    previousAccessedStruct: ?[]u8,
     preAst: bool,
     tokens: *TokenUtil,
     logger: *Logger,
@@ -133,11 +139,11 @@ pub const CompInfo = struct {
         const errors = try initPtrT(StringHashMap(*const blitzAst.ErrorDecNode), allocator);
 
         const genericMap = try initPtrT(StringHashMap(*const blitzAst.AstTypes), allocator);
-        const genericScopes = try initPtrT(ArrayList(Scope), allocator);
+        const genericScopes = try initPtrT(ArrayList(*TypeScope), allocator);
         try genericScopes.append(genericMap);
 
-        const baseScope = try initPtrT(StringHashMap(*const blitzAst.AstTypes), allocator);
-        const variableScopes = try initPtrT(ArrayList(Scope), allocator);
+        const baseScope = try initPtrT(VarScope, allocator);
+        const variableScopes = try initPtrT(ArrayList(*VarScope), allocator);
         try variableScopes.append(baseScope);
 
         return Self{
@@ -152,7 +158,7 @@ pub const CompInfo = struct {
             .currentStructs = currentStructs,
             .distFromStructMethod = distFromStructMethod,
             .genericScopes = genericScopes,
-            .previosAccessedStruct = null,
+            .previousAccessedStruct = null,
             .preAst = true,
             .tokens = tokenUtil,
             .logger = loggerUtil,
@@ -233,7 +239,7 @@ pub const CompInfo = struct {
     }
 
     pub fn pushScope(self: *Self) !void {
-        const newScope = try initPtrT(StringHashMap(*const blitzAst.AstTypes), self.allocator);
+        const newScope = try initPtrT(StringHashMap(VariableInfo), self.allocator);
         try self.variableScopes.append(newScope);
     }
 
@@ -243,7 +249,7 @@ pub const CompInfo = struct {
 
         var scopeIt = scope.valueIterator();
         while (scopeIt.next()) |v| {
-            free.freeType(self.allocator, v.*);
+            free.freeType(self.allocator, v.*.varType);
         }
 
         scope.deinit();
@@ -305,11 +311,11 @@ pub const CompInfo = struct {
     }
 
     pub fn setPreviousAccessedStruct(self: *Self, name: ?[]u8) void {
-        self.previosAccessedStruct = name;
+        self.previousAccessedStruct = name;
     }
 
     pub fn getPreviousAccessedStruct(self: Self) ?[]u8 {
-        return self.previosAccessedStruct;
+        return self.previousAccessedStruct;
     }
 
     pub fn hasStruct(self: Self, name: []u8) bool {
@@ -328,7 +334,7 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn getCurrentGenScope(self: Self) Scope {
+    pub fn getCurrentGenScope(self: Self) *TypeScope {
         return self.genericScopes.getLast();
     }
 
@@ -429,11 +435,11 @@ pub const CompInfo = struct {
         _ = self.availableGenerics.pop();
     }
 
-    pub fn getCurrentScope(self: Self) Scope {
+    pub fn getCurrentScope(self: Self) *VarScope {
         return self.variableScopes.getLast();
     }
 
-    pub fn getPrevScope(self: *Self, current: Scope) ?Scope {
+    pub fn getPrevScope(self: *Self, current: *VarScope) ?*VarScope {
         var i: usize = self.variableScopes.items.len - 1;
 
         while (i > 0) {
@@ -447,9 +453,13 @@ pub const CompInfo = struct {
         return null;
     }
 
-    pub fn setVariableType(self: *Self, name: []u8, astType: *const blitzAst.AstTypes) !void {
+    pub fn setVariableType(self: *Self, name: []u8, astType: *const blitzAst.AstTypes, isConst: bool) !void {
         const scope = self.getCurrentScope();
-        try scope.put(name, astType);
+        const varInfo = VariableInfo{
+            .varType = astType,
+            .isConst = isConst,
+        };
+        try scope.put(name, varInfo);
     }
 
     pub fn removeVariableType(self: *Self, name: []u8) void {
@@ -457,12 +467,12 @@ pub const CompInfo = struct {
         _ = scope.remove(name);
     }
 
-    pub fn getVariableType(self: *Self, name: []u8) ?blitzAst.AstTypes {
-        var scope: ?Scope = self.getCurrentScope();
+    pub fn getVariableType(self: *Self, name: []u8) ?VariableInfo {
+        var scope: ?*VarScope = self.getCurrentScope();
 
         while (scope) |s| {
             if (s.get(name)) |t| {
-                return t.*;
+                return t;
             }
 
             scope = self.getPrevScope(s);

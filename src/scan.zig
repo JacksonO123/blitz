@@ -33,6 +33,7 @@ pub const ScanError = error{
     VariableAlreadyExists,
     VoidVariableDec,
     VariableTypeAndValueTypeMismatch,
+    AssigningToConstVariable,
 
     // functions
     ExpectedFunctionReturn,
@@ -318,12 +319,12 @@ pub fn scanNode(
 
             if (dec.annotation) |annotation| {
                 if (try matchTypes(allocator, compInfo, annotation.*, setType, false)) {
-                    try compInfo.setVariableType(dec.name, setPtr);
+                    try compInfo.setVariableType(dec.name, setPtr, dec.isConst);
                 } else {
                     return ScanError.VariableAnnotationMismatch;
                 }
             } else {
-                try compInfo.setVariableType(dec.name, setPtr);
+                try compInfo.setVariableType(dec.name, setPtr, dec.isConst);
             }
 
             return .Void;
@@ -331,11 +332,12 @@ pub fn scanNode(
         .VarSet => |set| {
             const varType = compInfo.getVariableType(set.variable);
             if (varType == null) return ScanError.VariableIsUndefined;
+            if (varType.?.isConst) return ScanError.AssigningToConstVariable;
 
             const setNode = try scanNode(allocator, compInfo, set.setNode, withGenDef);
             defer free.freeStackType(allocator, &setNode);
 
-            if (!(try matchTypes(allocator, compInfo, varType.?, setNode, withGenDef))) {
+            if (!(try matchTypes(allocator, compInfo, varType.?.varType.*, setNode, withGenDef))) {
                 return ScanError.VariableTypeAndValueTypeMismatch;
             }
 
@@ -351,7 +353,7 @@ pub fn scanNode(
             const varType = compInfo.getVariableType(v);
 
             if (varType) |t| {
-                return try clone.cloneAstTypes(allocator, compInfo, t, false);
+                return try clone.cloneAstTypes(allocator, compInfo, t.varType.*, false);
             }
 
             return ScanError.VariableIsUndefined;
@@ -617,7 +619,7 @@ fn matchParamGenericTypes(allocator: Allocator, compInfo: *CompInfo, custom: bli
 fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const blitzAst.FuncDecNode, withGenDef: bool) !blitzAst.AstTypes {
     for (func.params) |param| {
         const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, param.type, false);
-        try compInfo.setVariableType(param.name, typeClone);
+        try compInfo.setVariableType(param.name, typeClone, false);
     }
 
     {
@@ -747,7 +749,7 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
 
                 for (func.params) |param| {
                     const clonedPtr = try clone.cloneAstTypesPtr(allocator, compInfo, param.type, false);
-                    try compInfo.setVariableType(param.name, clonedPtr);
+                    try compInfo.setVariableType(param.name, clonedPtr, false);
                 }
 
                 const bodyType = try scanNode(allocator, compInfo, func.body, true);
