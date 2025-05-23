@@ -548,6 +548,11 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) (Allocator.Error |
                 .Value = .{ .Char = first.string.?[0] },
             });
         },
+        .Identifier => {
+            return try createMut(AstNode, allocator, .{
+                .Variable = try string.cloneString(allocator, first.string.?),
+            });
+        },
         .True => return try createBoolNode(allocator, true),
         .False => return try createBoolNode(allocator, false),
         .U8,
@@ -1798,26 +1803,29 @@ fn createVarDecNode(
 
 fn parseType(allocator: Allocator, compInfo: *CompInfo) !*const AstTypes {
     const first = try compInfo.tokens.take();
-    const astType = switch (first.type) {
-        .Bool => AstTypes.Bool,
-        .StringType => AstTypes.String,
-        .U8 => AstTypes{ .Number = .U8 },
-        .U16 => AstTypes{ .Number = .U16 },
-        .U32 => AstTypes{ .Number = .U32 },
-        .U64 => AstTypes{ .Number = .U64 },
-        .U128 => AstTypes{ .Number = .U128 },
-        .I8 => AstTypes{ .Number = .I8 },
-        .I16 => AstTypes{ .Number = .I16 },
-        .I32 => AstTypes{ .Number = .I32 },
-        .I64 => AstTypes{ .Number = .I64 },
-        .I128 => AstTypes{ .Number = .I128 },
-        .F8 => AstTypes{ .Number = .F8 },
-        .F16 => AstTypes{ .Number = .F16 },
-        .F32 => AstTypes{ .Number = .F32 },
-        .F64 => AstTypes{ .Number = .F64 },
-        .F128 => AstTypes{ .Number = .F128 },
-        .USize => AstTypes{ .Number = .USize },
+    const astType: AstTypes = switch (first.type) {
+        .Bool => .Bool,
+        .StringType => .String,
+        .U8 => .{ .Number = .U8 },
+        .U16 => .{ .Number = .U16 },
+        .U32 => .{ .Number = .U32 },
+        .U64 => .{ .Number = .U64 },
+        .U128 => .{ .Number = .U128 },
+        .I8 => .{ .Number = .I8 },
+        .I16 => .{ .Number = .I16 },
+        .I32 => .{ .Number = .I32 },
+        .I64 => .{ .Number = .I64 },
+        .I128 => .{ .Number = .I128 },
+        .F8 => .{ .Number = .F8 },
+        .F16 => .{ .Number = .F16 },
+        .F32 => .{ .Number = .F32 },
+        .F64 => .{ .Number = .F64 },
+        .F128 => .{ .Number = .F128 },
+        .USize => .{ .Number = .USize },
         .CharType => .Char,
+        .Identifier => .{
+            .Generic = try string.cloneString(allocator, first.string.?),
+        },
         else => return compInfo.logger.logError(AstError.UnexpectedToken),
     };
 

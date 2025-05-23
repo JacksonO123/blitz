@@ -6,7 +6,9 @@ var b = "testing";
 // const b = true;
 b = "what";
 
-fn [T: u32] thing(num: u32): char {
-  num += 1;
-  return 'h';
+fn [T: u32] thing(val: T): T {
+  val = 'b';
+  return val;
 }
+
+thing('h');
