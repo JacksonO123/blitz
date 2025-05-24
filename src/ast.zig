@@ -220,7 +220,7 @@ pub const FuncDecNode = struct {
 
 const FuncCallNode = struct {
     func: *const AstNode,
-    params: []*const AstNode,
+    params: []*AstNode,
 };
 
 const PropertyAccess = struct {
@@ -491,6 +491,9 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
                         },
                     });
                 },
+                .LParen => {
+                    return try parseFuncCall(allocator, compInfo, first.string.?);
+                },
                 else => return try createMut(AstNode, allocator, .{
                     .Variable = try string.cloneString(allocator, first.string.?),
                 }),
@@ -545,10 +548,19 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) (Allocator.Error |
         },
         .CharToken => {
             return try createMut(AstNode, allocator, .{
-                .Value = .{ .Char = first.string.?[0] },
+                .Value = .{
+                    .Char = first.string.?[0],
+                },
             });
         },
         .Identifier => {
+            const next = try compInfo.tokens.peak();
+            if (next.type == .LParen) {
+                _ = try compInfo.tokens.take();
+
+                return try parseFuncCall(allocator, compInfo, first.string.?);
+            }
+
             return try createMut(AstNode, allocator, .{
                 .Variable = try string.cloneString(allocator, first.string.?),
             });
@@ -589,6 +601,22 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) (Allocator.Error |
         },
         else => return compInfo.logger.logError(AstError.UnexpectedToken),
     }
+}
+
+/// name expected to be cloned
+fn parseFuncCall(allocator: Allocator, compInfo: *CompInfo, name: []u8) !*AstNode {
+    const func = try create(AstNode, allocator, .{
+        .FuncReference = try string.cloneString(allocator, name),
+    });
+
+    const params = try parseFuncCallParams(allocator, compInfo);
+
+    return try createMut(AstNode, allocator, .{
+        .FuncCall = .{
+            .func = func,
+            .params = params,
+        },
+    });
 }
 
 fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo) !*FuncDecNode {
@@ -689,7 +717,6 @@ fn parseParams(allocator: Allocator, compInfo: *CompInfo) ![]Parameter {
     }
 
     try params.append(param);
-
     try compInfo.tokens.expectToken(.RParen);
 
     return params.toOwnedSlice();
@@ -709,6 +736,22 @@ fn parseParam(allocator: Allocator, compInfo: *CompInfo) !Parameter {
         },
         else => return compInfo.logger.logError(AstError.ExpectedIdentifierForParameterName),
     }
+}
+
+fn parseFuncCallParams(allocator: Allocator, compInfo: *CompInfo) ![]*AstNode {
+    var params = ArrayList(*AstNode).init(allocator);
+    defer params.deinit();
+
+    var param = try parseExpression(allocator, compInfo);
+    while ((try compInfo.tokens.peak()).type == .Comma and param != null) {
+        try params.append(param.?);
+        param = try parseExpression(allocator, compInfo);
+    }
+
+    if (param) |p| try params.append(p);
+    try compInfo.tokens.expectToken(.RParen);
+
+    return params.toOwnedSlice();
 }
 
 fn getOpPrecedence(op: OpExprTypes) usize {

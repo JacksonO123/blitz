@@ -116,7 +116,7 @@ fn cloneParameters(allocator: Allocator, compInfo: *CompInfo, params: []blitzAst
         try parameters.append(newParam);
     }
 
-    return try allocator.dupe(blitzAst.Parameter, parameters.items);
+    return parameters.toOwnedSlice();
 }
 
 pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.AstNode, replaceGenerics: bool) !blitzAst.AstNode {
@@ -159,11 +159,9 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                 try newSeq.append(nodePtr);
             }
 
-            const seqSlice = try allocator.dupe(*const blitzAst.AstNode, newSeq.items);
-
             return .{
                 .Seq = .{
-                    .nodes = seqSlice,
+                    .nodes = try newSeq.toOwnedSlice(),
                 },
             };
         },
@@ -311,7 +309,7 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                 call.func,
                 replaceGenerics,
             );
-            const newParams = try cloneNodeArr(allocator, compInfo, call.params, replaceGenerics);
+            const newParams = try cloneNodeArrMut(allocator, compInfo, call.params, replaceGenerics);
 
             return .{
                 .FuncCall = .{
@@ -458,7 +456,19 @@ fn cloneNodeArr(allocator: Allocator, compInfo: *CompInfo, nodes: []*const blitz
         try newNodes.append(nodePtr);
     }
 
-    return try allocator.dupe(*const blitzAst.AstNode, newNodes.items);
+    return newNodes.toOwnedSlice();
+}
+
+fn cloneNodeArrMut(allocator: Allocator, compInfo: *CompInfo, nodes: []*blitzAst.AstNode, replaceGenerics: bool) ![]*blitzAst.AstNode {
+    var newNodes = ArrayList(*blitzAst.AstNode).init(allocator);
+    defer newNodes.deinit();
+
+    for (nodes) |node| {
+        const nodePtr = try cloneAstNodePtrMut(allocator, compInfo, node, replaceGenerics);
+        try newNodes.append(nodePtr);
+    }
+
+    return newNodes.toOwnedSlice();
 }
 
 pub fn cloneFuncDec(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.FuncDecNode, replaceGenerics: bool) !*blitzAst.FuncDecNode {
@@ -519,5 +529,5 @@ pub fn cloneGenerics(allocator: Allocator, compInfo: *CompInfo, generics: []blit
         try clonedGenerics.append(newGeneric);
     }
 
-    return try allocator.dupe(blitzAst.GenericType, clonedGenerics.items);
+    return clonedGenerics.toOwnedSlice();
 }
