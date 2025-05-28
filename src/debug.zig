@@ -255,7 +255,7 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
             print(" to ", .{});
             printType(compInfo, cast.toType);
         },
-        .Variable => |*variable| {
+        .Variable => |variable| {
             print("[variable: ({s})]", .{variable});
         },
         .StructDec => |dec| {
@@ -423,13 +423,15 @@ fn printNodes(compInfo: *CompInfo, nodes: []*const blitzAst.AstNode) void {
     }
 }
 
-fn printRegisteredError(err: *const blitzAst.ErrorDecNode) void {
+pub fn printRegisteredError(err: *const blitzAst.ErrorDecNode) void {
     print("defining error: {s} with variants [ ", .{err.name});
 
-    for (err.variants, 0..) |variant, index| {
-        print("{s}", .{variant});
-        if (index < err.variants.len - 1) {
-            print(", ", .{});
+    if (err.variants) |variants| {
+        for (variants, 0..) |variant, index| {
+            print("{s}", .{variant});
+            if (index < variants.len - 1) {
+                print(", ", .{});
+            }
         }
     }
 }

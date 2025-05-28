@@ -342,7 +342,7 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
             };
         },
         .PropertyAccess => |access| {
-            const value = try cloneAstNodePtr(allocator, compInfo, access.value, replaceGenerics);
+            const value = try cloneAstNodePtrMut(allocator, compInfo, access.value, replaceGenerics);
             const prop = try string.cloneString(allocator, access.property);
 
             return .{
@@ -358,18 +358,16 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
             };
         },
         .ErrorDec => |def| {
-            var newVariants = try ArrayList([]u8).initCapacity(allocator, def.variants.len);
-            defer newVariants.deinit();
+            var newVariants: ?[][]u8 = null;
 
-            for (def.variants) |variant| {
-                const str = try string.cloneString(allocator, variant);
-                try newVariants.append(str);
+            if (def.variants) |variants| {
+                newVariants = try string.cloneStringArray(allocator, variants);
             }
 
             return .{
                 .ErrorDec = try create(blitzAst.ErrorDecNode, allocator, .{
                     .name = try string.cloneString(allocator, def.name),
-                    .variants = try newVariants.toOwnedSlice(),
+                    .variants = newVariants,
                 }),
             };
         },

@@ -53,7 +53,6 @@ pub const Logger = struct {
 
         const lineBounds = findLineBounds(self.code, self.tokens.currentLine);
         const line = self.code[lineBounds.start..lineBounds.end];
-        std.debug.print("line: {s}\n", .{line});
         const res = tokenizer.tokenizeNumTokens(self.allocator, line, self.tokens.currentLineToken) catch {
             return err;
         };
@@ -128,13 +127,12 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.InvalidStructKey => "invalid struct key",
         AstError.FunctionNotFound => "function not found",
         AstError.ExpectedNameForStruct => "expected name for struct",
-        AstError.ExpectedIdentifierPropertyAccess => "expected identifier for struct property access",
         AstError.ExpectedIdentifierPropertyAccessSource => "expected identifier for property access source",
         AstError.ExpectedStructDeriveType => "expected struct derive type",
         AstError.ExpectedIdentifierForDerivedType => "expected identifier for derive type",
         AstError.UndefinedStruct => "undefined struct",
         AstError.VariableNameExistsAsStruct => "variable name exists as struct",
-        AstError.ExpectedIdentifierForErrorType => "expected identifier for struct type",
+        AstError.ExpectedIdentifierForErrorName => "expected identifier for struct type",
         AstError.ExpectedNameForError => "expected name for error",
         AstError.ExpectedIdentifierForVariableName => "expected identifier for variable name",
         AstError.InvalidExprOperand => "invalid expression operand",
@@ -143,5 +141,6 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedIdentifierForFunctionName => "expected identifier for function name",
         AstError.ExpectedIdentifierForParameterName => "expected identifier for parameter name",
         AstError.ExpectedIdentifierForGenericType => "expected identifier for generic type",
+        AstError.ExpectedIdentifierForPropertyAccess => "expected identifier for struct property access",
     };
 }

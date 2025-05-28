@@ -5,6 +5,12 @@ error MyError {
   Variant4,
 }
 
+error MyError1;
+
 fn thing(): MyError {
-  return MyError;
+  return MyError.Variant2;
 }
+
+// fn thing1(): MyError1 {
+//   return MyError1.what;
+// }

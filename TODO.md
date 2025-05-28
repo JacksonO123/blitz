@@ -1,5 +1,7 @@
 # Todo
 
+- [ ] finish rewrites
+- [ ] make suite for testing expected errors
 - [ ] error handling
   - [ ] error definition
   - [ ] return from functions

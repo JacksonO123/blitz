@@ -7,8 +7,8 @@ var b = "testing";
 b = "what";
 
 fn [T: u32] thing(val: T): T {
-  val = 'b';
+  val = true;
   return val;
 }
 
-thing('h');
+thing(false);

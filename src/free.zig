@@ -95,6 +95,7 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         },
         .PropertyAccess => |access| {
             freeNode(allocator, access.value);
+            allocator.free(access.property);
         },
         .VarDec => |dec| {
             freeNode(allocator, dec.setNode);
@@ -187,11 +188,13 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
 pub fn freeErrorDec(allocator: Allocator, dec: *const blitzAst.ErrorDecNode) void {
     allocator.free(dec.name);
 
-    for (dec.variants) |variant| {
-        allocator.free(variant);
-    }
+    if (dec.variants) |variants| {
+        for (variants) |variant| {
+            allocator.free(variant);
+        }
 
-    allocator.free(dec.variants);
+        allocator.free(variants);
+    }
 }
 
 pub fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) void {

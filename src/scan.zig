@@ -73,6 +73,8 @@ pub const ScanError = error{
 
     // errors
     ExpectedUseOfErrorVariants,
+    ErrorDoesNotHaveVariants,
+    ErrorVariantDoesNotExist,
 
     // possibly remove
     InvalidPropertySource,
@@ -214,7 +216,12 @@ pub fn scanNode(
             return ScanError.IdentifierNotAFunction;
         },
         .PropertyAccess => |access| {
+            if (access.value.* == .Error) {
+                compInfo.allowErrorWithoutVariants = true;
+            }
+
             const res = try scanNode(allocator, compInfo, access.value, withGenDef);
+            compInfo.allowErrorWithoutVariants = false;
             defer free.freeStackType(allocator, &res);
 
             const valid = switch (res) {
@@ -278,9 +285,15 @@ pub fn scanNode(
 
                     break :a false;
                 },
-                .Error => |err| a: {
+                .Error => |err| {
                     const errDec = compInfo.getErrorDec(err).?;
-                    if (!blitzAst.variantExists(errDec.variants, access.property)) break :a false;
+                    if (errDec.variants) |variants| {
+                        if (!blitzAst.variantExists(variants, access.property)) {
+                            return ScanError.ErrorVariantDoesNotExist;
+                        }
+                    } else {
+                        return ScanError.ErrorDoesNotHaveVariants;
+                    }
 
                     return .{
                         .ErrorVariant = .{
@@ -526,7 +539,9 @@ pub fn scanNode(
         },
         .Error => |err| {
             const dec = compInfo.getErrorDec(err).?;
-            if (dec.variants.len > 0) return ScanError.ExpectedUseOfErrorVariants;
+            if (dec.variants != null and !compInfo.allowErrorWithoutVariants) {
+                return ScanError.ExpectedUseOfErrorVariants;
+            }
 
             return .{
                 .Error = try string.cloneString(allocator, err),

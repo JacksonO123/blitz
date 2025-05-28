@@ -49,16 +49,16 @@ pub fn main() !void {
     var compInfo = try CompInfo.init(allocator, tokens, names, code);
     defer compInfo.deinit();
 
-    // const structsAndErrors = try blitzAst.registerStructsAndErrors(allocator, &compInfo, tokens);
-    // defer allocator.free(structsAndErrors.structs);
-    // defer allocator.free(structsAndErrors.errors);
-    // try compInfo.setStructDecs(structsAndErrors.structs);
-    // try compInfo.setErrorDecs(structsAndErrors.errors);
+    const structsAndErrors = try blitzAst.registerStructsAndErrors(allocator, &compInfo);
+    defer allocator.free(structsAndErrors.structs);
+    defer allocator.free(structsAndErrors.errors);
+    try compInfo.setStructDecs(structsAndErrors.structs);
+    try compInfo.setErrorDecs(structsAndErrors.errors);
 
     try compInfo.prepareForAst();
 
-    // printRegisteredStructs(&compInfo, structsAndErrors.structs);
-    // printRegisteredErrors(structsAndErrors.errors);
+    printRegisteredStructs(&compInfo, structsAndErrors.structs);
+    printRegisteredErrors(structsAndErrors.errors);
 
     // for (structsAndErrors.structs) |s| {
     //     const node: blitzAst.AstNode = .{

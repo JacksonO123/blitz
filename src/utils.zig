@@ -121,6 +121,7 @@ pub const CompInfo = struct {
     preAst: bool,
     tokens: *TokenUtil,
     logger: *Logger,
+    allowErrorWithoutVariants: bool,
 
     pub fn init(allocator: Allocator, tokens: []tokenizer.Token, names: blitzAst.StructAndErrorNames, code: []const u8) !Self {
         const loggerUtil = try allocator.create(Logger);
@@ -162,6 +163,7 @@ pub const CompInfo = struct {
             .preAst = true,
             .tokens = tokenUtil,
             .logger = loggerUtil,
+            .allowErrorWithoutVariants = false,
         };
     }
 
@@ -308,6 +310,8 @@ pub const CompInfo = struct {
         //         }
         //     }
         // }
+
+        self.tokens.reset();
     }
 
     pub fn setPreviousAccessedStruct(self: *Self, name: ?[]u8) void {
