@@ -109,6 +109,8 @@ pub const CompInfo = struct {
     errorNames: [][]u8,
     availableGenerics: *ArrayList(*ArrayList([]u8)),
     variableScopes: *ArrayList(*VarScope),
+    // how many scopes up the current scope has access
+    scopeLeaks: *ArrayList(usize),
     functions: *StringHashMap(*const blitzAst.FuncDecNode),
     structDecs: *StringHashMap(*blitzAst.StructDecNode),
     errorDecs: *StringHashMap(*const blitzAst.ErrorDecNode),
@@ -147,12 +149,16 @@ pub const CompInfo = struct {
         const variableScopes = try initPtrT(ArrayList(*VarScope), allocator);
         try variableScopes.append(baseScope);
 
+        const scopeLeaks = try initPtrT(ArrayList(usize), allocator);
+        try scopeLeaks.append(0);
+
         return Self{
             .allocator = allocator,
             .structNames = names.structNames,
             .errorNames = names.errorNames,
             .availableGenerics = availableGenerics,
             .variableScopes = variableScopes,
+            .scopeLeaks = scopeLeaks,
             .functions = functions,
             .structDecs = structs,
             .errorDecs = errors,
@@ -215,6 +221,9 @@ pub const CompInfo = struct {
         self.variableScopes.deinit();
         self.allocator.destroy(self.variableScopes);
 
+        self.scopeLeaks.deinit();
+        self.allocator.destroy(self.scopeLeaks);
+
         self.functions.deinit();
         self.allocator.destroy(self.functions);
 
@@ -240,9 +249,16 @@ pub const CompInfo = struct {
         self.allocator.destroy(self.logger);
     }
 
-    pub fn pushScope(self: *Self) !void {
+    pub fn pushScope(self: *Self, leak: bool) !void {
         const newScope = try initPtrT(StringHashMap(VariableInfo), self.allocator);
         try self.variableScopes.append(newScope);
+
+        if (leak) {
+            const index = self.scopeLeaks.items.len - 1;
+            self.scopeLeaks.items[index] += 1;
+        } else {
+            try self.scopeLeaks.append(0);
+        }
     }
 
     /// no guard on empty scope array
@@ -257,6 +273,13 @@ pub const CompInfo = struct {
         scope.deinit();
         self.allocator.destroy(scope);
         _ = self.variableScopes.pop();
+
+        const index = self.scopeLeaks.items.len - 1;
+        if (self.scopeLeaks.items[index] == 0) {
+            _ = self.scopeLeaks.pop();
+        } else {
+            self.scopeLeaks.items[index] -= 1;
+        }
     }
 
     pub fn popScope(self: *Self) void {
@@ -473,13 +496,17 @@ pub const CompInfo = struct {
 
     pub fn getVariableType(self: *Self, name: []u8) ?VariableInfo {
         var scope: ?*VarScope = self.getCurrentScope();
+        const leak = self.scopeLeaks.getLast();
 
-        while (scope) |s| {
-            if (s.get(name)) |t| {
-                return t;
-            }
+        var i: usize = 0;
+        while (i < leak + 1) : (i += 1) {
+            if (scope) |s| {
+                if (s.get(name)) |t| {
+                    return t;
+                }
 
-            scope = self.getPrevScope(s);
+                scope = self.getPrevScope(s);
+            } else break;
         }
 
         return null;

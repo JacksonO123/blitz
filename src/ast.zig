@@ -850,6 +850,11 @@ fn parseParam(allocator: Allocator, compInfo: *CompInfo) !Parameter {
 }
 
 fn parseFuncCallParams(allocator: Allocator, compInfo: *CompInfo) ![]*AstNode {
+    if ((try compInfo.tokens.peak()).type == .RParen) {
+        _ = try compInfo.tokens.take();
+        return &[_]*AstNode{};
+    }
+
     var params = ArrayList(*AstNode).init(allocator);
     defer params.deinit();
 
@@ -891,9 +896,10 @@ fn rotatePrecedence(rootExprNode: *AstNode) ?*AstNode {
 }
 
 fn parseAfterNumber(allocator: Allocator, compInfo: *CompInfo, valueNode: *AstNode) !?*AstNode {
-    const next = try compInfo.tokens.take();
+    const next = try compInfo.tokens.peak();
     switch (next.type) {
         .Add, .Sub, .Mult, .Div, .BitAnd, .BitOr => |opType| {
+            _ = try compInfo.tokens.take();
             const rhs = try parseExpression(allocator, compInfo);
             if (rhs == null) return valueNode;
 

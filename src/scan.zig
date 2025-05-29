@@ -397,7 +397,7 @@ pub fn scanNode(
             return .Void;
         },
         .IfStatement => |statement| {
-            try compInfo.pushScope();
+            try compInfo.pushScope(true);
             const conditionType = try scanNode(allocator, compInfo, statement.condition, withGenDef);
             defer free.freeStackType(allocator, &conditionType);
             if (conditionType != .Bool) return ScanError.ExpectedBooleanIfCondition;
@@ -406,7 +406,7 @@ pub fn scanNode(
             return .Void;
         },
         .FuncDec => |name| {
-            try compInfo.pushScope();
+            try compInfo.pushScope(false);
             defer compInfo.popScope();
 
             const func = compInfo.getFunction(name).?;
@@ -419,8 +419,6 @@ pub fn scanNode(
             return .Void;
         },
         .FuncCall => |call| {
-            try compInfo.pushScope();
-            defer compInfo.popScope();
             try compInfo.pushGenScope();
             defer compInfo.popGenScope();
 
@@ -604,7 +602,12 @@ fn setInitDerivedGenerics(allocator: Allocator, compInfo: *CompInfo, deriveType:
     }
 }
 
-fn matchParamGenericTypes(allocator: Allocator, compInfo: *CompInfo, custom: blitzAst.CustomType, paramType: *const blitzAst.AstTypes) !void {
+fn matchParamGenericTypes(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+    custom: blitzAst.CustomType,
+    paramType: *const blitzAst.AstTypes,
+) !void {
     switch (paramType.*) {
         .Custom => |paramCustom| {
             if (!string.compString(custom.name, paramCustom.name)) return ScanError.FunctionCallParamTypeMismatch;
@@ -637,13 +640,16 @@ fn matchParamGenericTypes(allocator: Allocator, compInfo: *CompInfo, custom: bli
 }
 
 fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const blitzAst.FuncDecNode, withGenDef: bool) !blitzAst.AstTypes {
+    try compInfo.pushScope(false);
+    defer compInfo.popScope();
+
     for (func.params) |param| {
         const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, param.type, false);
         try compInfo.setVariableType(param.name, typeClone, false);
     }
 
     {
-        try compInfo.pushScope();
+        try compInfo.pushScope(true);
         defer compInfo.popScope();
         const bodyType = try scanNode(allocator, compInfo, func.body, withGenDef);
         free.freeStackType(allocator, &bodyType);
@@ -660,6 +666,7 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const
             }
 
             const last = seq.nodes[seq.nodes.len - 1];
+
             const lastType = try scanNode(allocator, compInfo, last, withGenDef);
             defer free.freeStackType(allocator, &lastType);
 
@@ -764,7 +771,7 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
         switch (attr.attr) {
             .Member => {},
             .Function => |func| {
-                try compInfo.pushScope();
+                try compInfo.pushScope(false);
                 defer compInfo.popScope();
 
                 for (func.params) |param| {

@@ -3,6 +3,7 @@ fn [G] test(b: G) {
 }
 
 fn [T] thing(a: T): char {
+  const h: T = 'g';
   test(a);
   return a;
 }
