@@ -354,6 +354,7 @@ pub const AstError = error{
     ExpectedIdentifierForGenericType,
     ExpectedIdentifierForErrorName,
     ExpectedIdentifierForPropertyAccess,
+    ExpectedIdentifierForErrorVariant,
 };
 
 const AstNodeOffsetData = struct {
@@ -560,15 +561,17 @@ fn parseVariants(allocator: Allocator, compInfo: *CompInfo) ![][]u8 {
     defer variants.deinit();
 
     var variant = try compInfo.tokens.take();
-    while ((try compInfo.tokens.take()).type == .Comma) {
-        if (variant.type != .Identifier) break;
+    while (variant.type == .Identifier) {
+        const comma = try compInfo.tokens.take();
+        if (comma.type != .RBrace and comma.type != .Comma) {
+            return compInfo.logger.logError(AstError.UnexpectedToken);
+        }
+
         const variantClone = try string.cloneString(allocator, variant.string.?);
         try variants.append(variantClone);
-        variant = try compInfo.tokens.take();
-    }
 
-    if (variant.type == .Identifier) {
-        try variants.append(variant.string.?);
+        if (comma.type == .RBrace) break;
+        variant = try compInfo.tokens.take();
     }
 
     return variants.toOwnedSlice();
@@ -636,9 +639,18 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) (Allocator.Error |
                 return try parsePropertyAccess(allocator, compInfo, node);
             }
 
-            return try createMut(AstNode, allocator, .{
-                .Variable = try string.cloneString(allocator, first.string.?),
-            });
+            const str = try string.cloneString(allocator, first.string.?);
+            var node: AstNode = undefined;
+
+            if (compInfo.hasStruct(str)) {
+                node = .{ .StaticStructInstance = str };
+            } else if (compInfo.hasError(str)) {
+                node = .{ .Error = str };
+            } else {
+                node = .{ .Variable = str };
+            }
+
+            return try createMut(AstNode, allocator, node);
         },
         .True => return try createBoolNode(allocator, true),
         .False => return try createBoolNode(allocator, false),
@@ -1450,14 +1462,6 @@ pub fn tokenTypeToOpType(tokenType: tokenizer.TokenType) OpExprTypes {
 //         },
 //     }
 // }
-
-pub fn variantExists(variants: [][]u8, variant: []u8) bool {
-    for (variants) |v| {
-        if (string.compString(v, variant)) return true;
-    }
-
-    return false;
-}
 
 // fn parseVariants(allocator: Allocator, compInfo: *CompInfo, tokens: []tokenizer.Token) ![][]u8 {
 //     var errorNames = try ArrayList([]u8).initCapacity(allocator, (tokens.len / 2) + 1);

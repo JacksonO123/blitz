@@ -288,7 +288,7 @@ pub fn scanNode(
                 .Error => |err| {
                     const errDec = compInfo.getErrorDec(err).?;
                     if (errDec.variants) |variants| {
-                        if (!blitzAst.variantExists(variants, access.property)) {
+                        if (!string.inStringArr(variants, access.property)) {
                             return ScanError.ErrorVariantDoesNotExist;
                         }
                     } else {

@@ -2,15 +2,15 @@ error MyError {
   Variant1,
   Variant2,
   Variant3,
-  Variant4,
+  Variant4
 }
 
 error MyError1;
 
 fn thing(): MyError {
-  return MyError.Variant2;
+  return MyError.Variant1;
 }
 
-// fn thing1(): MyError1 {
-//   return MyError1.what;
-// }
+fn thing1(): MyError1 {
+  return MyError1;
+}

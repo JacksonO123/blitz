@@ -30,3 +30,11 @@ pub fn cloneStringArray(allocator: Allocator, arr: [][]u8) ![][]u8 {
 
     return newStrs.toOwnedSlice();
 }
+
+pub fn inStringArr(arr: []const []const u8, str: []const u8) bool {
+    for (arr) |item| {
+        if (compString(item, str)) return true;
+    }
+
+    return false;
+}

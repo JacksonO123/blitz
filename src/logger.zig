@@ -142,5 +142,6 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedIdentifierForParameterName => "expected identifier for parameter name",
         AstError.ExpectedIdentifierForGenericType => "expected identifier for generic type",
         AstError.ExpectedIdentifierForPropertyAccess => "expected identifier for struct property access",
+        AstError.ExpectedIdentifierForErrorVariant => "expected identifier for error variant",
     };
 }
