@@ -60,12 +60,12 @@ pub fn main() !void {
     printRegisteredStructs(&compInfo, structsAndErrors.structs);
     printRegisteredErrors(structsAndErrors.errors);
 
-    // for (structsAndErrors.structs) |s| {
-    //     const node: blitzAst.AstNode = .{
-    //         .StructDec = s,
-    //     };
-    //     _ = try scanner.scanNode(allocator, &compInfo, &node, true);
-    // }
+    for (structsAndErrors.structs) |s| {
+        const node: blitzAst.AstNode = .{
+            .StructDec = s,
+        };
+        _ = try scanner.scanNode(allocator, &compInfo, &node, true);
+    }
 
     var ast = try blitzAst.createAst(allocator, &compInfo);
     defer ast.deinit();

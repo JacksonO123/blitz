@@ -254,6 +254,9 @@ pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void 
             allocator.free(err.from);
             allocator.free(err.variant);
         },
+        .StaticStructInstance => |inst| {
+            allocator.free(inst);
+        },
         else => {},
     }
 }

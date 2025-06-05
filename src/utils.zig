@@ -123,7 +123,10 @@ pub const CompInfo = struct {
     preAst: bool,
     tokens: *TokenUtil,
     logger: *Logger,
-    allowErrorWithoutVariants: bool,
+    scanner: struct {
+        allowErrorWithoutVariants: bool,
+        allowStaticStructInstance: bool,
+    },
 
     pub fn init(allocator: Allocator, tokens: []tokenizer.Token, names: blitzAst.StructAndErrorNames, code: []const u8) !Self {
         const loggerUtil = try allocator.create(Logger);
@@ -169,7 +172,10 @@ pub const CompInfo = struct {
             .preAst = true,
             .tokens = tokenUtil,
             .logger = loggerUtil,
-            .allowErrorWithoutVariants = false,
+            .scanner = .{
+                .allowErrorWithoutVariants = false,
+                .allowStaticStructInstance = false,
+            },
         };
     }
 
@@ -310,29 +316,36 @@ pub const CompInfo = struct {
             }
         }
 
-        // {
-        //     var structIt = self.structDecs.valueIterator();
-        //     while (structIt.next()) |s| {
-        //         for (s.*.generics) |gen| {
-        //             try self.addAvailableGeneric(gen.name);
-        //         }
-        //
-        //         defer {
-        //             for (s.*.generics) |gen| {
-        //                 self.removeAvailableGeneric(gen.name);
-        //             }
-        //         }
-        //
-        //         const attributes = s.*.attributes;
-        //         for (attributes) |attr| {
-        //             if (attr.attr != .Function) continue;
-        //
-        //             const f = attr.attr.Function;
-        //             free.freeNode(self.allocator, f.body);
-        //             f.body = (try blitzAst.createAstNode(self.allocator, self, f.bodyTokens)).node;
-        //         }
-        //     }
-        // }
+        {
+            var structIt = self.structDecs.valueIterator();
+            while (structIt.next()) |s| {
+                for (s.*.generics) |gen| {
+                    try self.addAvailableGeneric(gen.name);
+                }
+
+                defer {
+                    for (s.*.generics) |gen| {
+                        self.removeAvailableGeneric(gen.name);
+                    }
+                }
+
+                const attributes = s.*.attributes;
+                for (attributes) |attr| {
+                    if (attr.attr != .Function) continue;
+
+                    const f = attr.attr.Function;
+                    free.freeNode(self.allocator, f.body);
+
+                    const oldTokens = self.tokens;
+                    self.tokens = try createMut(TokenUtil, self.allocator, try TokenUtil.init(self.allocator, self.logger, f.bodyTokens));
+                    f.body = try blitzAst.parseSequence(self.allocator, self);
+
+                    self.tokens.deinit();
+                    self.allocator.destroy(self.tokens);
+                    self.tokens = oldTokens;
+                }
+            }
+        }
 
         self.tokens.reset();
     }
@@ -647,15 +660,15 @@ pub const TokenUtil = struct {
     pub fn take(self: *Self) !tokenizer.Token {
         const res = try self.takeFixed();
 
-        if (res.type == .NewLine and self.hasNext()) {
-            return self.take();
+        if (res.type == .NewLine) {
+            return try self.take();
         }
 
         return res;
     }
 
     pub fn takeFixed(self: *Self) !tokenizer.Token {
-        if (self.index == self.tokens.len) {
+        if (self.index >= self.tokens.len) {
             return self.logger.logError(AstError.ExpectedTokenFoundNothing);
         }
 
@@ -672,12 +685,34 @@ pub const TokenUtil = struct {
         return res;
     }
 
-    pub fn peak(self: Self) !tokenizer.Token {
-        if (self.index < self.tokens.len) {
-            return self.tokens[self.index];
+    pub fn peakFixed(self: Self) !tokenizer.Token {
+        if (self.index >= self.tokens.len) {
+            return AstError.ExpectedTokenFoundNothing;
         }
 
-        return AstError.ExpectedTokenFoundNothing;
+        return self.tokens[self.index];
+    }
+
+    pub fn peak(self: *Self) !tokenizer.Token {
+        const res = try self.peakFixed();
+
+        if (res.type == .NewLine) {
+            const prevCurrentLineToken = self.currentLineToken;
+
+            self.index += 1;
+            self.currentLine += 1;
+            self.currentLineToken = 0;
+
+            const newRes = self.peak();
+
+            self.index -= 1;
+            self.currentLine -= 1;
+            self.currentLineToken = prevCurrentLineToken;
+
+            return newRes;
+        }
+
+        return res;
     }
 
     pub fn returnToken(self: *Self) void {
@@ -692,8 +727,16 @@ pub const TokenUtil = struct {
         }
     }
 
-    pub fn hasNext(self: Self) bool {
+    pub fn hasNextFixed(self: Self) bool {
         if (self.index < self.tokens.len) return true;
         return false;
+    }
+
+    pub fn hasNext(self: *Self) bool {
+        _ = self.peak() catch {
+            return false;
+        };
+
+        return true;
     }
 };

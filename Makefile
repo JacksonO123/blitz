@@ -1,7 +1,9 @@
 target: .FORCE_DEBUG
 
+TEST_CMD=./test
+
 test: .FORCE_DEBUG
-	./test.sh
+	$(TEST_CMD)
 
 prod: .FORCE_PROD
 

@@ -68,8 +68,7 @@ pub const Logger = struct {
         while (i < tokenOffset) : (i += 1) {
             writer.writeByte(' ') catch {};
         }
-        writer.writeByte('^') catch {};
-        writer.writeByte('\n') catch {};
+        writer.writeAll(&[_]u8{ '^', '\n' }) catch {};
 
         return err;
     }
@@ -129,7 +128,7 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedNameForStruct => "expected name for struct",
         AstError.ExpectedIdentifierPropertyAccessSource => "expected identifier for property access source",
         AstError.ExpectedStructDeriveType => "expected struct derive type",
-        AstError.ExpectedIdentifierForDerivedType => "expected identifier for derive type",
+        AstError.ExpectedIdentifierForDeriveType => "expected identifier for derive type",
         AstError.UndefinedStruct => "undefined struct",
         AstError.VariableNameExistsAsStruct => "variable name exists as struct",
         AstError.ExpectedIdentifierForErrorName => "expected identifier for struct type",
@@ -143,5 +142,9 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedIdentifierForGenericType => "expected identifier for generic type",
         AstError.ExpectedIdentifierForPropertyAccess => "expected identifier for struct property access",
         AstError.ExpectedIdentifierForErrorVariant => "expected identifier for error variant",
+        AstError.ExpectedIdentifierForStructName => "expected identifier for struct name",
+        AstError.ExpectedSizeForStaticArray => "expected size for static array",
+        AstError.ExpectedIdentifierForStructProperty => "expected identifier for struct property",
+        AstError.ExpectedValueForStructProperty => "expected value for struct property",
     };
 }

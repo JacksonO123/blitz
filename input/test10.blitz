@@ -10,7 +10,7 @@ struct square : shape {
   size: u32;
 
   pub fn getShapeArea(): u32 {
-    return self.getArea();
+    return self.getArea() + 1;
   }
 
   fn internalFn() {

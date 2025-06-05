@@ -187,6 +187,10 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
                 .Sub => "-SUB-",
                 .Mult => "*MULT*",
                 .Div => "/DIV/",
+                .LessThan => "<LT<",
+                .GreaterThan => ">GT>",
+                .LessThanEq => "<=LTE<=",
+                .GreaterThanEq => ">=GTE>=",
             }});
 
             print(" (", .{});

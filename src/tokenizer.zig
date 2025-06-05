@@ -46,18 +46,18 @@ pub const TokenType = enum {
     RAngle,
     BitAnd,
     BitOr,
-    BitAndEq,
-    BitOrEq,
-    AndEq,
-    OrEq,
     And,
     Or,
-    EqSet,
     Sub,
     Add,
     Mult,
     Div,
     Mod,
+    BitAndEq,
+    BitOrEq,
+    AndEq,
+    OrEq,
+    EqSet,
     Bang,
     Period,
     Comma,
@@ -246,6 +246,7 @@ const CharUtil = struct {
     chars: []const u8,
     skippedWhitespace: usize,
     buf: logger.BufferedWriterType,
+    allowPeriod: bool,
 
     pub fn init(chars: []const u8) Self {
         const buf = logger.getBufferedWriter();
@@ -255,6 +256,7 @@ const CharUtil = struct {
             .chars = chars,
             .skippedWhitespace = 0,
             .buf = buf,
+            .allowPeriod = false,
         };
     }
 
@@ -280,7 +282,11 @@ const CharUtil = struct {
         return char;
     }
 
-    pub fn peak(self: Self) u8 {
+    pub fn peak(self: Self) !u8 {
+        if (self.index >= self.chars.len) {
+            return TokenizeError.ExpectedCharacterFoundNothing;
+        }
+
         return self.chars[self.index];
     }
 
@@ -361,6 +367,10 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
     var charStr = ArrayList(u8).init(allocator);
     defer charStr.deinit();
 
+    if (first != '.' and chars.allowPeriod) {
+        chars.allowPeriod = false;
+    }
+
     switch (first) {
         '\n' => return Token.init(.NewLine),
         ' ' => {
@@ -368,10 +378,10 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             return null;
         },
         '+' => {
-            if (chars.peak() == '=') {
+            if ((try chars.peak()) == '=') {
                 _ = try chars.take();
                 return Token.init(.AddEq);
-            } else if (chars.peak() == '+') {
+            } else if ((try chars.peak()) == '+') {
                 _ = try chars.take();
                 return Token.init(.Inc);
             }
@@ -379,10 +389,10 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             return Token.init(.Add);
         },
         '-' => {
-            if (chars.peak() == '=') {
+            if ((try chars.peak()) == '=') {
                 _ = try chars.take();
                 return Token.init(.SubEq);
-            } else if (chars.peak() == '-') {
+            } else if ((try chars.peak()) == '-') {
                 _ = try chars.take();
                 return Token.init(.Dec);
             }
@@ -390,7 +400,7 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             return Token.init(.Sub);
         },
         '*' => {
-            if (chars.peak() == '=') {
+            if ((try chars.peak()) == '=') {
                 _ = try chars.take();
                 return Token.init(.MultEq);
             }
@@ -398,10 +408,10 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             return Token.init(.Mult);
         },
         '/' => {
-            if (chars.peak() == '=') {
+            if ((try chars.peak()) == '=') {
                 _ = try chars.take();
                 return Token.init(.DivEq);
-            } else if (chars.peak() == '/') {
+            } else if ((try chars.peak()) == '/') {
                 var next = try chars.take();
                 while (next != '\n') {
                     if (!chars.hasNext()) return null;
@@ -424,7 +434,7 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
         ':' => return Token.init(.Colon),
         ',' => return Token.init(.Comma),
         '<' => {
-            if (chars.peak() == '=') {
+            if ((try chars.peak()) == '=') {
                 _ = try chars.take();
                 return Token.init(.LAngleEq);
             }
@@ -432,7 +442,7 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             return Token.init(.LAngle);
         },
         '>' => {
-            if (chars.peak() == '=') {
+            if ((try chars.peak()) == '=') {
                 _ = try chars.take();
                 return Token.init(.RAngleEq);
             }
@@ -440,7 +450,7 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             return Token.init(.RAngle);
         },
         '=' => {
-            if (chars.peak() == '=') {
+            if ((try chars.peak()) == '=') {
                 _ = try chars.take();
                 return Token.init(.EqComp);
             }
@@ -448,34 +458,47 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             return Token.init(.EqSet);
         },
         '!' => return Token.init(.Bang),
-        '.' => return Token.init(.Period),
+        '.' => {
+            if (!chars.allowPeriod) {
+                return chars.logError(TokenizeError.UnexpectedCharacter);
+            }
+
+            const next = try chars.peak();
+            if (!std.ascii.isAlphabetic(next) and !isValidNameChar(next)) {
+                _ = try chars.take();
+                return chars.logError(TokenizeError.UnexpectedCharacter);
+            }
+
+            chars.allowPeriod = false;
+            return Token.init(.Period);
+        },
         '&' => {
-            if (chars.peak() == '&') {
+            if ((try chars.peak()) == '&') {
                 _ = try chars.take();
 
-                if (chars.peak() == '=') {
+                if ((try chars.peak()) == '=') {
                     _ = try chars.take();
                     return Token.init(.AndEq);
                 }
 
                 return Token.init(.And);
-            } else if (chars.peak() == '=') {
+            } else if ((try chars.peak()) == '=') {
                 _ = try chars.take();
                 return Token.init(.BitAndEq);
             }
             return Token.init(.BitAnd);
         },
         '|' => {
-            if (chars.peak() == '|') {
+            if ((try chars.peak()) == '|') {
                 _ = try chars.take();
 
-                if (chars.peak() == '=') {
+                if ((try chars.peak()) == '=') {
                     _ = try chars.take();
                     return Token.init(.OrEq);
                 }
 
                 return Token.init(.Or);
-            } else if (chars.peak() == '=') {
+            } else if ((try chars.peak()) == '=') {
                 _ = try chars.take();
                 return Token.init(.BitOrEq);
             }
@@ -541,6 +564,7 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             var isIdent = false;
             while (std.ascii.isAlphanumeric(char) or isValidNameChar(char)) {
                 isIdent = true;
+                chars.allowPeriod = true;
                 try charStr.append(char);
 
                 if (!chars.hasNext()) break;
