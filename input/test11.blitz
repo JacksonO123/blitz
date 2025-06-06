@@ -11,6 +11,6 @@ fn thing(): MyError {
   return MyError.Variant1;
 }
 
-fn thing1(): MyError1 {
+fn thing1(): MyError1<u32> {
   return MyError1;
 }

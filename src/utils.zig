@@ -27,25 +27,6 @@ pub fn readRelativeFile(allocator: Allocator, path: []u8) ![]u8 {
     return try file.readToEndAlloc(allocator, maxFileSize);
 }
 
-pub fn delimiterIndex(tokens: []tokenizer.Token, start: usize, delimiter: tokenizer.TokenType) !usize {
-    var parens: u32 = 0;
-
-    var i = start;
-    while (i < tokens.len) : (i += 1) {
-        if (parens == 0 and tokens[i].type == delimiter) return i;
-
-        if (tokens[i].isOpenToken(true)) {
-            parens += 1;
-        } else if (tokens[i].isCloseToken(true)) {
-            if (parens > 0) {
-                parens -= 1;
-            } else if (tokens[i].type != delimiter) return AstError.TokenNotFound;
-        }
-    }
-
-    return AstError.TokenNotFound;
-}
-
 pub fn smartDelimiterIndex(tokens: []tokenizer.Token, compInfo: *CompInfo, start: usize, delimiter: tokenizer.TokenType) !usize {
     var current = start;
     var parens: u32 = 0;

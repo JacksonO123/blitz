@@ -322,16 +322,6 @@ pub const AstNode = union(AstNodeVariants) {
 };
 
 pub const AstError = error{
-    TokenNotFound,
-    InvalidType,
-    UnknownType,
-    ExpectedGenericArgument,
-    InvalidStructKey,
-    FunctionNotFound,
-    UndefinedStruct,
-    VariableNameExistsAsStruct,
-
-    // new errors
     UnexpectedToken,
     InvalidExprOperand,
     ExpectedTokenFoundNothing,
@@ -352,6 +342,7 @@ pub const AstError = error{
     ExpectedIdentifierForStructProperty,
     ExpectedValueForStructProperty,
     ExpectedIdentifierPropertyAccessSource,
+    UnexpectedGenericOnErrorType,
 };
 
 const RegisterStructsAndErrorsResult = struct {
@@ -1401,6 +1392,10 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
                     },
                 };
             } else if (compInfo.hasError(str)) {
+                if (generics.len > 1) {
+                    return AstError.UnexpectedGenericOnErrorType;
+                }
+
                 break :a .{
                     .Error = str,
                 };
@@ -1453,8 +1448,8 @@ pub fn findStructAndErrorNames(allocator: Allocator, tokens: []tokenizer.Token) 
         switch (tokens[i].type) {
             .Struct => {
                 if (tokens[i + 1].type == .LBracket) {
-                    const rBracket = try utils.delimiterIndex(tokens, i + 2, .RBracket);
-                    i = rBracket;
+                    while (i < tokens.len - 1 and tokens[i + 1].type != .RBracket) : (i += 1) {}
+                    i += 1;
                 }
 
                 if (tokens[i + 1].type != .Identifier) {

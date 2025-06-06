@@ -119,18 +119,10 @@ fn findLineBounds(code: []const u8, line: usize) LineBounds {
 fn astErrorToString(errorType: AstError) []const u8 {
     return switch (errorType) {
         AstError.UnexpectedToken => "unexpected token",
-        AstError.TokenNotFound => "token not found",
-        AstError.InvalidType => "invalid type",
-        AstError.UnknownType => "unknown type",
-        AstError.ExpectedGenericArgument => "expected generic argument",
-        AstError.InvalidStructKey => "invalid struct key",
-        AstError.FunctionNotFound => "function not found",
         AstError.ExpectedNameForStruct => "expected name for struct",
         AstError.ExpectedIdentifierPropertyAccessSource => "expected identifier for property access source",
         AstError.ExpectedStructDeriveType => "expected struct derive type",
         AstError.ExpectedIdentifierForDeriveType => "expected identifier for derive type",
-        AstError.UndefinedStruct => "undefined struct",
-        AstError.VariableNameExistsAsStruct => "variable name exists as struct",
         AstError.ExpectedIdentifierForErrorName => "expected identifier for struct type",
         AstError.ExpectedNameForError => "expected name for error",
         AstError.ExpectedIdentifierForVariableName => "expected identifier for variable name",
@@ -146,5 +138,6 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedSizeForStaticArray => "expected size for static array",
         AstError.ExpectedIdentifierForStructProperty => "expected identifier for struct property",
         AstError.ExpectedValueForStructProperty => "expected value for struct property",
+        AstError.UnexpectedGenericOnErrorType => "unexpected generic type",
     };
 }
