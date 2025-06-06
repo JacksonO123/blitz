@@ -345,6 +345,16 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
         .Error => |err| {
             print("error type ({s})", .{err});
         },
+        .Group => |group| {
+            print("[group](", .{});
+            printNode(compInfo, group);
+            print(")", .{});
+        },
+        .Scope => |scope| {
+            print("\n--- entering scope ---\n", .{});
+            printNode(compInfo, scope);
+            print("\n--- exiting scope ---\n", .{});
+        },
     }
 }
 

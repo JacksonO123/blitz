@@ -578,6 +578,15 @@ pub fn scanNode(
                 .Error = try string.cloneString(allocator, err),
             };
         },
+        .Group => |group| {
+            return scanNode(allocator, compInfo, group, withGenDef);
+        },
+        .Scope => |scope| {
+            try compInfo.pushScope(true);
+            defer compInfo.popScope();
+
+            return scanNode(allocator, compInfo, scope, withGenDef);
+        },
     }
 }
 

@@ -25,9 +25,16 @@ fn thing(sh: square) {
 const len = 5;
 
 const s = square {
-  area = len * len,
+  area = (len * len),
   size = len
 };
 
-s.getShapeArea();
+{
+  s.getShapeArea();
+  
+  var b = 2;
+}
+
+// should throw errors
+// b = 3;
 // s.internalFn();

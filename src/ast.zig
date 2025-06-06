@@ -290,6 +290,8 @@ const AstNodeVariants = enum {
     IndexValue,
     ErrorDec,
     Error,
+    Group,
+    Scope,
 };
 pub const AstNode = union(AstNodeVariants) {
     NoOp,
@@ -315,6 +317,8 @@ pub const AstNode = union(AstNodeVariants) {
     IndexValue: IndexValueNode,
     ErrorDec: *const ErrorDecNode,
     Error: []u8,
+    Group: *AstNode,
+    Scope: *const AstNode,
 };
 
 pub const AstError = error{
@@ -528,6 +532,12 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
             }
 
             return try parseStruct(allocator, compInfo);
+        },
+        .LBrace => {
+            const seq = try parseSequence(allocator, compInfo);
+            return try createMut(AstNode, allocator, .{
+                .Scope = seq,
+            });
         },
         else => return compInfo.logger.logError(AstError.UnexpectedToken),
     }
@@ -785,6 +795,18 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
 
             return try createMut(AstNode, allocator, .{
                 .Bang = expr.?,
+            });
+        },
+        .LParen => {
+            const expr = try parseExpression(allocator, compInfo);
+            if (expr == null) {
+                return compInfo.logger.logError(AstError.ExpectedExpression);
+            }
+
+            try compInfo.tokens.expectToken(.RParen);
+
+            return try createMut(AstNode, allocator, .{
+                .Group = expr.?,
             });
         },
         .Identifier => {

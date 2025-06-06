@@ -376,6 +376,16 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                 .Error = try string.cloneString(allocator, err),
             };
         },
+        .Group => |group| {
+            return .{
+                .Group = try cloneAstNodePtrMut(allocator, compInfo, group, replaceGenerics),
+            };
+        },
+        .Scope => |scope| {
+            return .{
+                .Scope = try cloneAstNodePtr(allocator, compInfo, scope, replaceGenerics),
+            };
+        },
     }
 }
 

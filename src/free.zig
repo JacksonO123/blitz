@@ -180,6 +180,12 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         .Error => |err| {
             allocator.free(err);
         },
+        .Group => |group| {
+            freeNode(allocator, group);
+        },
+        .Scope => |scope| {
+            freeNode(allocator, scope);
+        },
     }
 
     allocator.destroy(node);
