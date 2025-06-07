@@ -27,48 +27,6 @@ pub fn readRelativeFile(allocator: Allocator, path: []u8) ![]u8 {
     return try file.readToEndAlloc(allocator, maxFileSize);
 }
 
-pub fn smartDelimiterIndex(tokens: []tokenizer.Token, compInfo: *CompInfo, start: usize, delimiter: tokenizer.TokenType) !usize {
-    var current = start;
-    var parens: u32 = 0;
-    var inGeneric = false;
-    var genericStart: u32 = 0;
-
-    while (current < tokens.len) : (current += 1) {
-        if (parens == 0 and tokens[current].type == delimiter) return current;
-
-        if (tokens[current].type == .RAngle and inGeneric) {
-            parens -= 1;
-            if (parens == genericStart) {
-                genericStart = 0;
-                inGeneric = false;
-            }
-            continue;
-        }
-
-        if (tokens[current].type == .LAngle and current > 0) {
-            const prevToken = tokens[current - 1];
-            if (prevToken.type == .Identifier and compInfo.hasStruct(prevToken.string.?)) {
-                if (!inGeneric) {
-                    genericStart = parens;
-                    inGeneric = true;
-                }
-
-                parens += 1;
-                continue;
-            }
-        }
-
-        if (tokens[current].isOpenToken(false)) {
-            parens += 1;
-        } else if (tokens[current].isCloseToken(false)) {
-            if (parens == 0) return AstError.TokenNotFound;
-            parens -= 1;
-        }
-    }
-
-    return AstError.TokenNotFound;
-}
-
 fn initPtrT(comptime T: type, allocator: Allocator) !*T {
     const data = T.init(allocator);
     return try createMut(T, allocator, data);

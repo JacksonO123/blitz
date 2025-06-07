@@ -314,7 +314,7 @@ pub fn scanNode(
                     break :a false;
                 },
                 .Error => |err| {
-                    const errDec = compInfo.getErrorDec(err).?;
+                    const errDec = compInfo.getErrorDec(err.name).?;
                     if (errDec.variants) |variants| {
                         if (!string.inStringArr(variants, access.property)) {
                             return ScanError.ErrorVariantDoesNotExist;
@@ -325,7 +325,7 @@ pub fn scanNode(
 
                     return .{
                         .ErrorVariant = .{
-                            .from = try string.cloneString(allocator, err),
+                            .from = try string.cloneString(allocator, err.name),
                             .variant = try string.cloneString(allocator, access.property),
                         },
                     };
@@ -575,7 +575,10 @@ pub fn scanNode(
             }
 
             return .{
-                .Error = try string.cloneString(allocator, err),
+                .Error = .{
+                    .name = try string.cloneString(allocator, err),
+                    .payload = null,
+                },
             };
         },
         .Group => |group| {
@@ -966,12 +969,18 @@ fn matchTypes(
             return true;
         },
         .Error => |err| switch (type2) {
-            .Error => |err2| string.compString(err, err2),
-            .ErrorVariant => |err2| string.compString(err, err2.from),
-            else => false,
+            .Error => |err2| string.compString(err.name, err2.name),
+            .ErrorVariant => |err2| string.compString(err.name, err2.from),
+            else => {
+                if (err.payload) |payload| {
+                    return matchTypes(allocator, compInfo, payload.*, type2, withGenDef);
+                }
+
+                return false;
+            },
         },
         .ErrorVariant => |err| switch (type2) {
-            .Error => |err2| string.compString(err.from, err2),
+            .Error => |err2| string.compString(err.from, err2.name),
             .ErrorVariant => |err2| string.compString(err.from, err2.from) and string.compString(err.variant, err2.variant),
             else => false,
         },

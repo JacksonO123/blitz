@@ -139,5 +139,7 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedIdentifierForStructProperty => "expected identifier for struct property",
         AstError.ExpectedValueForStructProperty => "expected value for struct property",
         AstError.UnexpectedGenericOnErrorType => "unexpected generic type",
+        AstError.ExpectedTypeExpression => "expected type expression",
+        AstError.ErrorPayloadMayNotBeError => "error payload may not be error",
     };
 }

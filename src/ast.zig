@@ -63,6 +63,11 @@ const ErrorVariantType = struct {
     variant: []u8,
 };
 
+const ErrorAstType = struct {
+    name: []u8,
+    payload: ?*const AstTypes,
+};
+
 const Types = enum {
     String,
     Bool,
@@ -93,7 +98,7 @@ pub const AstTypes = union(Types) {
     Generic: []u8,
     Function: *const FuncDecNode,
     StaticStructInstance: []u8,
-    Error: []u8,
+    Error: ErrorAstType,
     ErrorVariant: ErrorVariantType,
 };
 
@@ -343,6 +348,8 @@ pub const AstError = error{
     ExpectedValueForStructProperty,
     ExpectedIdentifierPropertyAccessSource,
     UnexpectedGenericOnErrorType,
+    ExpectedTypeExpression,
+    ErrorPayloadMayNotBeError,
 };
 
 const RegisterStructsAndErrorsResult = struct {
@@ -1375,16 +1382,16 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
         .USize => .{ .Number = .USize },
         .CharType => .Char,
         .Identifier => a: {
-            const next = try compInfo.tokens.peak();
-            var generics: []*const AstTypes = &[_]*const AstTypes{};
-
-            if (next.type == .LAngle) {
-                _ = try compInfo.tokens.take();
-                generics = try parseStructInitGenerics(allocator, compInfo);
-            }
-
             const str = try string.cloneString(allocator, first.string.?);
             if (compInfo.hasStruct(str)) {
+                const next = try compInfo.tokens.peak();
+                var generics: []*const AstTypes = &[_]*const AstTypes{};
+
+                if (next.type == .LAngle) {
+                    _ = try compInfo.tokens.take();
+                    generics = try parseStructInitGenerics(allocator, compInfo);
+                }
+
                 break :a .{
                     .Custom = .{
                         .name = str,
@@ -1392,12 +1399,29 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
                     },
                 };
             } else if (compInfo.hasError(str)) {
-                if (generics.len > 1) {
-                    return AstError.UnexpectedGenericOnErrorType;
+                const next = try compInfo.tokens.peak();
+                var generic: ?*const AstTypes = null;
+
+                if (next.type == .LAngle) {
+                    _ = try compInfo.tokens.take();
+                    generic = try parseType(allocator, compInfo);
+
+                    if (generic) |gen| {
+                        if (gen.* == .Error) {
+                            return AstError.ErrorPayloadMayNotBeError;
+                        }
+                    } else {
+                        return AstError.ExpectedTypeExpression;
+                    }
+
+                    try compInfo.tokens.expectToken(.RAngle);
                 }
 
                 break :a .{
-                    .Error = str,
+                    .Error = .{
+                        .name = str,
+                        .payload = generic,
+                    },
                 };
             }
 

@@ -87,8 +87,17 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
             };
         },
         .Error => |err| {
+            var payload: ?*const blitzAst.AstTypes = null;
+
+            if (err.payload) |errPayload| {
+                payload = try cloneAstTypesPtr(allocator, compInfo, errPayload, replaceGenerics);
+            }
+
             return .{
-                .Error = try string.cloneString(allocator, err),
+                .Error = .{
+                    .name = try string.cloneString(allocator, err.name),
+                    .payload = payload,
+                },
             };
         },
         .ErrorVariant => |err| {

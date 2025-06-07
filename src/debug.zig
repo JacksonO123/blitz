@@ -106,7 +106,12 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
             print("[static struct instance]({s})", .{inst});
         },
         .Error => |err| {
-            print("error ({s})", .{err});
+            print("error ({s})", .{err.name});
+            if (err.payload) |payload| {
+                print("[", .{});
+                printType(compInfo, payload);
+                print("]", .{});
+            }
         },
         .ErrorVariant => |err| {
             print("variant [{s}] from ({s})", .{ err.variant, err.from });

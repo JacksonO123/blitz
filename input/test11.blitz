@@ -12,5 +12,7 @@ fn thing(): MyError {
 }
 
 fn thing1(): MyError1<u32> {
-  return MyError1;
+  return 4;
 }
+
+const res = thing1();

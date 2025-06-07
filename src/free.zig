@@ -254,7 +254,10 @@ pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void 
             allocator.free(gen);
         },
         .Error => |err| {
-            allocator.free(err);
+            allocator.free(err.name);
+            if (err.payload) |payload| {
+                freeType(allocator, payload);
+            }
         },
         .ErrorVariant => |err| {
             allocator.free(err.from);
