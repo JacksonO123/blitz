@@ -67,7 +67,7 @@ pub const CompInfo = struct {
         allowStaticStructInstance: bool,
     },
 
-    pub fn init(allocator: Allocator, tokens: []tokenizer.Token, names: blitzAst.StructAndErrorNames, code: []const u8) !Self {
+    pub fn init(allocator: Allocator, tokens: []tokenizer.Token, names: blitzAst.HoistedNames, code: []const u8) !Self {
         const loggerUtil = try allocator.create(Logger);
         const tokenUtil = try createMut(TokenUtil, allocator, try TokenUtil.init(allocator, loggerUtil, tokens));
         loggerUtil.* = Logger.init(allocator, tokenUtil, code);

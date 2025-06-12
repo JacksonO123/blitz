@@ -615,10 +615,8 @@ fn compareNumberBitSize(num1: blitzAst.AstNumberVariants, num2: blitzAst.AstNumb
 }
 
 fn setInitGenerics(allocator: Allocator, compInfo: *CompInfo, genTypes: []*const blitzAst.AstTypes, decGens: []blitzAst.GenericType) !void {
-    for (genTypes, 0..) |t, index| {
-        const decGen = decGens[index];
-
-        if (decGens[index].restriction) |restriction| {
+    for (genTypes, decGens) |t, decGen| {
+        if (decGen.restriction) |restriction| {
             if (!(try matchTypes(allocator, compInfo, t.*, restriction.*, false))) {
                 return ScanError.GenericRestrictionConflict;
             }

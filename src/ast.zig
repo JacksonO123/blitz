@@ -343,6 +343,7 @@ pub const AstError = error{
     ExpectedIdentifierForDeriveType,
     ExpectedNameForError,
     ExpectedNameForStruct,
+    ExpectedNameForFunction,
     ExpectedSizeForStaticArray,
     ExpectedIdentifierForStructProperty,
     ExpectedValueForStructProperty,
@@ -357,7 +358,7 @@ const RegisterStructsAndErrorsResult = struct {
     errors: []*const ErrorDecNode,
 };
 
-pub const StructAndErrorNames = struct {
+pub const HoistedNames = struct {
     structNames: [][]u8,
     errorNames: [][]u8,
 };
@@ -1461,7 +1462,7 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
     return try create(AstTypes, allocator, astType);
 }
 
-pub fn findStructAndErrorNames(allocator: Allocator, tokens: []tokenizer.Token) !StructAndErrorNames {
+pub fn findHoistedNames(allocator: Allocator, tokens: []tokenizer.Token) !HoistedNames {
     var structNames = ArrayList([]u8).init(allocator);
     defer structNames.deinit();
     var errorNames = ArrayList([]u8).init(allocator);

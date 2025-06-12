@@ -10,7 +10,7 @@ pub fn printAst(compInfo: *CompInfo, ast: blitzAst.Ast) void {
     printNode(compInfo, ast.root);
 }
 
-pub fn printStructAndErrorNames(names: blitzAst.StructAndErrorNames) void {
+pub fn printStructAndErrorNames(names: blitzAst.HoistedNames) void {
     print("------------\n", .{});
     print("structs:\n", .{});
     for (names.structNames) |name| {

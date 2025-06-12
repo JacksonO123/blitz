@@ -43,7 +43,7 @@ pub fn main() !void {
     const tokens = try tokenizer.tokenize(allocator, code);
     defer free.freeTokens(allocator, tokens);
 
-    const names = try blitzAst.findStructAndErrorNames(allocator, tokens);
+    const names = try blitzAst.findHoistedNames(allocator, tokens);
     printStructAndErrorNames(names);
 
     var compInfo = try CompInfo.init(allocator, tokens, names, code);
