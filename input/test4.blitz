@@ -1,15 +1,18 @@
+const i = 2;
+
 fn [G] test(b: G) {
   const h: G = b;
+  const l = i;
 }
 
-thing('b');
+// thing('b');
 
 {
   fn [T] thing(a: T): char {
     const h: T = 'g';
-    test(a);
+    // test(a);
     return a;
   }
 }
 
-thing('h');
+// thing('h');

@@ -44,6 +44,7 @@ pub const ScanError = error{
     IdentifierNotAFunction,
     CannotCallNonFunctionNode,
     VariableIsUndefined,
+    FunctionNotInScope,
 
     // structs
     StructInitGenericCountMismatch,
@@ -82,8 +83,9 @@ pub const ScanError = error{
 };
 
 pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !void {
-    while (compInfo.variableScopes.items.len > 1) compInfo.popScope();
+    while (compInfo.variableScopes.count() > 1) compInfo.popScope();
 
+    try scanNodeForFunctions(allocator, compInfo, ast.root);
     const nodeType = try scanNode(allocator, compInfo, ast.root, true);
     free.freeStackType(allocator, &nodeType);
 }
@@ -130,6 +132,7 @@ pub fn scanNode(
         },
         .Value => |val| {
             const valueType: blitzAst.AstTypes = switch (val) {
+                .Null => .Null,
                 .String => .String,
                 .Bool => .Bool,
                 .Char => .Char,
@@ -198,7 +201,7 @@ pub fn scanNode(
 
                     if (op.type == .Div) {
                         if (switch (left.Number) {
-                            .F8, .F16, .F32, .F64, .F128 => true,
+                            .F32, .F64, .F128 => true,
                             else => false,
                         }) {
                             return try clone.cloneAstTypes(allocator, compInfo, left, false);
@@ -228,7 +231,7 @@ pub fn scanNode(
             }
         },
         .FuncReference => |ref| {
-            const dec = compInfo.getFunction(ref);
+            const dec = try compInfo.getFunction(ref);
 
             if (dec) |funcRef| {
                 return .{
@@ -346,7 +349,7 @@ pub fn scanNode(
             return .Void;
         },
         .VarDec => |dec| {
-            if (compInfo.getVariableType(dec.name) != null) {
+            if (compInfo.getVariableTypeFixed(dec.name) != null) {
                 return ScanError.VariableAlreadyExists;
             }
 
@@ -356,15 +359,16 @@ pub fn scanNode(
                 return ScanError.VoidVariableDec;
             }
 
-            const setPtr = try create(blitzAst.AstTypes, allocator, setType);
-
             if (dec.annotation) |annotation| {
                 if (try matchTypes(allocator, compInfo, annotation.*, setType, false)) {
+                    free.freeStackType(allocator, &setType);
+                    const setPtr = try clone.cloneAstTypesPtr(allocator, compInfo, annotation, withGenDef);
                     try compInfo.setVariableType(dec.name, setPtr, dec.isConst);
                 } else {
                     return ScanError.VariableAnnotationMismatch;
                 }
             } else {
+                const setPtr = try create(blitzAst.AstTypes, allocator, setType);
                 try compInfo.setVariableType(dec.name, setPtr, dec.isConst);
             }
 
@@ -426,19 +430,26 @@ pub fn scanNode(
         },
         .IfStatement => |statement| {
             try compInfo.pushScope(true);
+            defer compInfo.popScope();
+            try scanNodeForFunctions(allocator, compInfo, statement.body);
+
             const conditionType = try scanNode(allocator, compInfo, statement.condition, withGenDef);
             defer free.freeStackType(allocator, &conditionType);
             if (conditionType != .Bool) return ScanError.ExpectedBooleanIfCondition;
-            compInfo.popScope();
+
+            const body = try scanNode(allocator, compInfo, statement.body, withGenDef);
+            defer free.freeStackType(allocator, &body);
 
             return .Void;
         },
         .FuncDec => |name| {
-            try compInfo.pushScope(false);
+            try compInfo.pushScope(true);
             defer compInfo.popScope();
 
-            const func = compInfo.getFunction(name).?;
+            const func = compInfo.getFunctionAsGlobal(name).?;
             const isGeneric = func.generics != null;
+
+            try scanNodeForFunctions(allocator, compInfo, func.body);
 
             const scanRes = try scanFuncBodyAndReturn(allocator, compInfo, func, !isGeneric);
             free.freeStackType(allocator, &scanRes);
@@ -508,6 +519,9 @@ pub fn scanNode(
                     free.freeStackType(allocator, &paramTypes[index]);
                 }
             }
+
+            try compInfo.pushScope(false);
+            defer compInfo.popScope();
 
             return try scanFuncBodyAndReturn(allocator, compInfo, func, true);
         },
@@ -587,6 +601,7 @@ pub fn scanNode(
         .Scope => |scope| {
             try compInfo.pushScope(true);
             defer compInfo.popScope();
+            try scanNodeForFunctions(allocator, compInfo, scope);
 
             return scanNode(allocator, compInfo, scope, withGenDef);
         },
@@ -596,18 +611,16 @@ pub fn scanNode(
 fn compareNumberBitSize(num1: blitzAst.AstNumberVariants, num2: blitzAst.AstNumberVariants) bool {
     return switch (num1) {
         .USize => num2 == .USize,
-        .U8 => num2 == .F8 or num2 == .I8,
-        .U16 => num2 == .F16 or num2 == .I16,
+        .U8 => num2 == .I8,
+        .U16 => num2 == .I16,
         .U32 => num2 == .F32 or num2 == .I32,
         .U64 => num2 == .F64 or num2 == .I64,
         .U128 => num2 == .F128 or num2 == .I128,
-        .I8 => num2 == .U8 or num2 == .F8,
-        .I16 => num2 == .U16 or num2 == .F16,
+        .I8 => num2 == .U8,
+        .I16 => num2 == .U16,
         .I32 => num2 == .U32 or num2 == .F32,
         .I64 => num2 == .U64 or num2 == .F64,
         .I128 => num2 == .U128 or num2 == .F128,
-        .F8 => num2 == .I8 or num2 == .U8,
-        .F16 => num2 == .I16 or num2 == .U16,
         .F32 => num2 == .I32 or num2 == .U32,
         .F64 => num2 == .I64 or num2 == .U64,
         .F128 => num2 == .I128 or num2 == .U128,
@@ -688,7 +701,7 @@ fn matchParamGenericTypes(
 }
 
 fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const blitzAst.FuncDecNode, withGenDef: bool) !blitzAst.AstTypes {
-    try compInfo.pushScope(false);
+    try compInfo.pushScope(true);
     defer compInfo.popScope();
 
     for (func.params) |param| {
@@ -699,6 +712,7 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const
     {
         try compInfo.pushScope(true);
         defer compInfo.popScope();
+        try scanNodeForFunctions(allocator, compInfo, func.body);
         const bodyType = try scanNode(allocator, compInfo, func.body, withGenDef);
         free.freeStackType(allocator, &bodyType);
     }
@@ -822,6 +836,8 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
                 try compInfo.pushScope(false);
                 defer compInfo.popScope();
 
+                try scanNodeForFunctions(allocator, compInfo, func.body);
+
                 for (func.params) |param| {
                     const clonedPtr = try clone.cloneAstTypesPtr(allocator, compInfo, param.type, false);
                     try compInfo.setVariableType(param.name, clonedPtr, false);
@@ -833,27 +849,6 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
         }
     }
 }
-
-// fn matchNumber(num1: blitzAst.AstNumberVariants, num2: blitzAst.AstNumberVariants) bool {
-//     return switch (num1) {
-//         .U8 => num2 == .U8,
-//         .U16 => num2 == .U16,
-//         .U32 => num2 == .U32,
-//         .U64 => num2 == .U64,
-//         .U128 => num2 == .U128,
-//         .I8 => num2 == .I8,
-//         .I16 => num2 == .I16,
-//         .I32 => num2 == .I32,
-//         .I64 => num2 == .I64,
-//         .I128 => num2 == .I128,
-//         .F8 => num2 == .F8,
-//         .F16 => num2 == .F16,
-//         .F32 => num2 == .F32,
-//         .F64 => num2 == .F64,
-//         .F128 => num2 == .F128,
-//         .USize => num2 == .USize,
-//     };
-// }
 
 fn isNumber(astType: blitzAst.AstTypes) bool {
     return switch (astType) {
@@ -886,7 +881,7 @@ fn isInt(astType: blitzAst.AstTypes) bool {
 fn isFloat(astType: blitzAst.AstTypes) bool {
     return switch (astType) {
         .Number => |num| switch (num) {
-            .F8, .F16, .F32, .F64, .F128 => true,
+            .F32, .F64, .F128 => true,
             else => false,
         },
         else => false,
@@ -932,6 +927,8 @@ fn matchTypes(
         .Bool => type2 == .Bool,
         .Char => type2 == .Char,
         .Void => type2 == .Void,
+        .Null => type2 == .Nullable or type2 == .Null,
+        .Nullable => |inner| type2 == .Null or try matchTypes(allocator, compInfo, inner.*, type2, withGenDef),
         .Number => |num| type2 == .Number and @intFromEnum(num) == @intFromEnum(type2.Number),
         .DynamicArray => |arr| type2 == .DynamicArray and try matchTypes(allocator, compInfo, arr.*, type2.DynamicArray.*, withGenDef),
         .StaticArray => |arr| {
@@ -940,8 +937,8 @@ fn matchTypes(
             }
 
             const sizeType1 = try scanNode(allocator, compInfo, arr.size, withGenDef);
-            const sizeType2 = try scanNode(allocator, compInfo, type2.StaticArray.size, withGenDef);
             defer free.freeStackType(allocator, &sizeType1);
+            const sizeType2 = try scanNode(allocator, compInfo, type2.StaticArray.size, withGenDef);
             defer free.freeStackType(allocator, &sizeType2);
 
             if (!isInt(sizeType1) or !isInt(sizeType2)) {
@@ -1071,4 +1068,18 @@ fn inferStaticArrType(allocator: Allocator, compInfo: *CompInfo, arr: []*const b
     }
 
     return firstType;
+}
+
+fn scanNodeForFunctions(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst.AstNode) !void {
+    switch (node.*) {
+        .FuncDec => |dec| {
+            try compInfo.addScopedFunction(try string.cloneString(allocator, dec));
+        },
+        .Seq => |seq| {
+            for (seq.nodes) |seqNode| {
+                try scanNodeForFunctions(allocator, compInfo, seqNode);
+            }
+        },
+        else => {},
+    }
 }

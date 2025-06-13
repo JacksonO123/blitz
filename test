@@ -1,32 +1,56 @@
 #! /usr/bin/env bash
 
+INPUT_DIR="examples"
+# INPUT_DIR="input"
+
 function run() {
-  zig run src/compiler.zig -- "input/$1"
+  zig run src/compiler.zig -- "$1"
 }
 
 function run_log() {
-  if [ "$2" == "-l" ]; then
-    run "$1.blitz" 2> ./logs/"$1.txt"
+  filename="$INPUT_DIR/$1.blitz"
+  log=false
+
+  if [ "$1" == "-l" ]; then
+    filename="$INPUT_DIR/$2.blitz"
+    log=true
+  elif [ "$1" == "-p" ]; then
+    shopt -s nullglob
+    pattern="$INPUT_DIR/$2*"
+    matches=($pattern)
+
+    if ((${#matches[@]})); then
+      first_match="${matches[0]}"
+      full_path="$(realpath "$first_match")"
+      filename="$first_match"
+    else
+      echo "No file $pattern found"
+      exit 0
+    fi
+  fi
+
+  if [[ "$log" == true ]]; then
+    run "$INPUT_DIR/$filename.blitz" 2>./logs/"$filename.txt"
   else
-    run "$1.blitz"
+    run "$filename"
   fi
 
   OUT=$(echo $?)
 
   if [ $OUT == 0 ]; then
-    echo "SUCCESS: $1"
+    echo "SUCCESS: $filename"
   else
-    echo "FAIL: $1"
+    echo "FAIL: $filename"
   fi
 }
 
 function run_dbg_build() {
-  blitzc-debug "input/$1"
+  blitzc-debug "$INPUT_DIR/$1"
 }
 
 function run_log_dbg_build() {
   if [ "$2" == "-l" ]; then
-    run_dbg_build "$1.blitz" 2> ./logs/"$1.txt"
+    run_dbg_build "$1.blitz" 2>./logs/"$1.txt"
   else
     run_dbg_build "$1.blitz"
   fi
@@ -40,14 +64,12 @@ function run_log_dbg_build() {
   fi
 }
 
-
 # use multiple methods to check if in project root
 if [[ "$(pwd)" == *\/blitz ]] && [ -e "$(pwd)/build.zig" ] && [ -e "$(pwd)/.zig-cache" ]; then
   if [ "$1" == "" ]; then
-    while IFS="" read -r p || [ -n "$p" ]
-    do
+    while IFS="" read -r p || [ -n "$p" ]; do
       run_log_dbg_build "$p" -l &
-    done < input/working.txt
+    done <input/working.txt
   else
     if [[ "$1" == *\.blitz ]]; then
       echo "expected filename without [.blitz] extension"
@@ -60,6 +82,5 @@ else
   echo "expected to be in project root"
   exit 1
 fi
-
 
 wait

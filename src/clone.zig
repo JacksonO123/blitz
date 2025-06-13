@@ -15,7 +15,7 @@ pub const CloneError = error{
 
 pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.AstTypes, replaceGenerics: bool) (Allocator.Error || CloneError)!blitzAst.AstTypes {
     switch (types) {
-        .String, .Bool, .Char, .Void, .Number => return types,
+        .String, .Bool, .Char, .Void, .Number, .Null => return types,
 
         .DynamicArray => |arr| {
             const newPtr = try cloneAstTypesPtr(allocator, compInfo, arr, replaceGenerics);
@@ -209,6 +209,9 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                             .StaticArray = try cloneNodeArr(allocator, compInfo, arr, replaceGenerics),
                         },
                     };
+                },
+                .Null => {
+                    return .{ .Value = .Null };
                 },
             }
         },

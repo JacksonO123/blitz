@@ -1,0 +1,5 @@
+const h = 2;
+
+{
+  const h = 4;
+}

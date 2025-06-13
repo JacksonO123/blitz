@@ -10,7 +10,7 @@ pub fn printAst(compInfo: *CompInfo, ast: blitzAst.Ast) void {
     printNode(compInfo, ast.root);
 }
 
-pub fn printStructAndErrorNames(names: blitzAst.HoistedNames) void {
+pub fn printHoistedNames(names: blitzAst.HoistedNames) void {
     print("------------\n", .{});
     print("structs:\n", .{});
     for (names.structNames) |name| {
@@ -26,6 +26,9 @@ pub fn printStructAndErrorNames(names: blitzAst.HoistedNames) void {
 
 pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
     return switch (typeNode.*) {
+        .Null => {
+            print("null", .{});
+        },
         .Void => {
             print("void", .{});
         },
@@ -131,8 +134,6 @@ fn numberTypeToString(numType: blitzAst.AstNumberVariants) [*:0]const u8 {
         .I32 => "i32",
         .I64 => "i64",
         .I128 => "i128",
-        .F8 => "f8",
-        .F16 => "f16",
         .F32 => "f32",
         .F64 => "f64",
         .F128 => "f128",
@@ -142,6 +143,9 @@ fn numberTypeToString(numType: blitzAst.AstNumberVariants) [*:0]const u8 {
 
 fn printValue(compInfo: *CompInfo, value: *const blitzAst.AstValues) void {
     switch (value.*) {
+        .Null => {
+            print("null", .{});
+        },
         .StaticArray => |arr| {
             print("([", .{});
 
@@ -293,7 +297,7 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
             print("(noop)", .{});
         },
         .FuncDec => |name| {
-            const dec = compInfo.getFunction(name).?;
+            const dec = compInfo.getFunctionAsGlobal(name).?;
             printFuncDec(compInfo, dec);
         },
         .FuncCall => |call| {

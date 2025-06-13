@@ -36,8 +36,6 @@ pub const AstNumberVariants = enum {
     I32,
     I64,
     I128,
-    F8,
-    F16,
     F32,
     F64,
     F128,
@@ -73,6 +71,7 @@ const Types = enum {
     Bool,
     Char,
     Void,
+    Null,
     Number,
     DynamicArray,
     StaticArray,
@@ -90,6 +89,7 @@ pub const AstTypes = union(Types) {
     Bool,
     Char,
     Void,
+    Null,
     Number: AstNumberVariants,
     DynamicArray: *const AstTypes,
     StaticArray: AstStaticArrayType,
@@ -108,6 +108,7 @@ const StaticTypes = enum {
     Char,
     Number,
     StaticArray,
+    Null,
 };
 
 pub const AstValues = union(StaticTypes) {
@@ -116,6 +117,7 @@ pub const AstValues = union(StaticTypes) {
     Char: u8,
     Number: AstNumber,
     StaticArray: []*const AstNode,
+    Null,
 };
 
 const VarDecNode = struct {
@@ -431,6 +433,22 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
     switch (first.type) {
         .Const => return try createVarDecNode(allocator, compInfo, true),
         .Var => return try createVarDecNode(allocator, compInfo, false),
+        .If => {
+            try compInfo.tokens.expectToken(.LParen);
+            const condition = try parseExpression(allocator, compInfo);
+            if (condition == null) return compInfo.logger.logError(AstError.ExpectedExpression);
+            try compInfo.tokens.expectToken(.RParen);
+
+            try compInfo.tokens.expectToken(.LBrace);
+            const seq = try parseSequence(allocator, compInfo);
+
+            return try createMut(AstNode, allocator, .{
+                .IfStatement = .{
+                    .condition = condition.?,
+                    .body = seq,
+                },
+            });
+        },
         .Fn => {
             try compInfo.pushRegGenScope();
             defer compInfo.popRegGenScope();
@@ -759,14 +777,23 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
 fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Error || AstError)!?*AstNode {
     const first = try compInfo.tokens.take();
     switch (first.type) {
-        .Number => {
-            const numStr = first.string.?;
-            const numType = if (string.findChar(numStr, 0, '.') != null) AstNumberVariants.F32 else AstNumberVariants.U32;
+        .Null => {
+            return try createMut(AstNode, allocator, .{
+                .Value = .Null,
+            });
+        },
+        .Number, .NegNumber => {
+            var numStr = try string.cloneString(allocator, first.string.?);
+            const numType: AstNumberVariants = if (string.findChar(numStr, 0, '.') != null) .F32 else if (first.type == .NegNumber) .I32 else .U32;
+            if (numStr[0] == '-') {
+                numStr = try std.fmt.allocPrint(allocator, "-{s}", .{numStr});
+            }
+
             return try createMut(AstNode, allocator, .{
                 .Value = .{
                     .Number = .{
                         .type = numType,
-                        .value = try string.cloneString(allocator, numStr),
+                        .value = numStr,
                     },
                 },
             });
@@ -849,8 +876,6 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
         .U32,
         .U64,
         .U128,
-        .F8,
-        .F16,
         .F32,
         .F64,
         .F128,
@@ -1375,13 +1400,17 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
         .I32 => .{ .Number = .I32 },
         .I64 => .{ .Number = .I64 },
         .I128 => .{ .Number = .I128 },
-        .F8 => .{ .Number = .F8 },
-        .F16 => .{ .Number = .F16 },
         .F32 => .{ .Number = .F32 },
         .F64 => .{ .Number = .F64 },
         .F128 => .{ .Number = .F128 },
         .USize => .{ .Number = .USize },
         .CharType => .Char,
+        .QuestionMark => a: {
+            const nullable = try parseType(allocator, compInfo);
+            break :a .{
+                .Nullable = nullable,
+            };
+        },
         .Identifier => a: {
             const str = try string.cloneString(allocator, first.string.?);
             if (compInfo.hasStruct(str)) {

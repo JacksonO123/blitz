@@ -17,7 +17,7 @@ const debug = @import("debug.zig");
 const printRegisteredStructs = debug.printRegisteredStructs;
 const printRegisteredErrors = debug.printRegisteredErrors;
 const printAst = debug.printAst;
-const printStructAndErrorNames = debug.printStructAndErrorNames;
+const printHoistedNames = debug.printHoistedNames;
 
 const RuntimeError = error{NoInputFile};
 
@@ -44,7 +44,7 @@ pub fn main() !void {
     defer free.freeTokens(allocator, tokens);
 
     const names = try blitzAst.findHoistedNames(allocator, tokens);
-    printStructAndErrorNames(names);
+    printHoistedNames(names);
 
     var compInfo = try CompInfo.init(allocator, tokens, names, code);
     defer compInfo.deinit();

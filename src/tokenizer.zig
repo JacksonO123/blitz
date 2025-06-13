@@ -79,18 +79,18 @@ pub const TokenType = enum {
     I32,
     I64,
     I128,
-    F8,
-    F16,
     F32,
     F64,
     F128,
     USize,
     StringType,
     Bool,
+    Null,
 
     // other
     Identifier,
     Number,
+    NegNumber,
     EqComp,
     LAngleEq,
     RAngleEq,
@@ -154,8 +154,6 @@ pub const TokenType = enum {
             .I32 => "i32",
             .I64 => "i64",
             .I128 => "i128",
-            .F8 => "f8",
-            .F16 => "f16",
             .F32 => "f32",
             .F64 => "f64",
             .F128 => "f128",
@@ -163,8 +161,10 @@ pub const TokenType = enum {
             .StringType => "string",
             .StringToken => "(string data...)",
             .Bool => "bool",
+            .Null => "null",
             .Identifier => "identifier",
             .Number => "number",
+            .NegNumber => "[-]number",
             .EqComp => "==",
             .LAngleEq => "<=",
             .RAngleEq => ">=",
@@ -389,10 +389,15 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             return Token.init(.Add);
         },
         '-' => {
-            if ((try chars.peak()) == '=') {
+            const nextPeak = try chars.peak();
+            if (std.ascii.isDigit(nextPeak)) {
+                const number = try parseNumber(allocator, chars);
+                chars.returnChar();
+                return Token.initStr(.NegNumber, number);
+            } else if (nextPeak == '=') {
                 _ = try chars.take();
                 return Token.init(.SubEq);
-            } else if ((try chars.peak()) == '-') {
+            } else if (nextPeak == '-') {
                 _ = try chars.take();
                 return Token.init(.Dec);
             }
@@ -538,29 +543,14 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             return Token.initStr(.StringToken, try charStr.toOwnedSlice());
         },
         else => {
-            var char = first;
-
-            var isNumber = false;
-            var foundPeriod = false;
-            while (std.ascii.isDigit(char) or char == '.') {
-                isNumber = true;
-                if (char == '.') {
-                    if (foundPeriod) {
-                        return chars.logError(TokenizeError.NumberHasTwoPeriods);
-                    }
-
-                    foundPeriod = true;
-                }
-
-                try charStr.append(char);
-                char = try chars.take();
-            }
-
-            if (isNumber) {
+            if (std.ascii.isDigit(first)) {
                 chars.returnChar();
-                return Token.initStr(.Number, try charStr.toOwnedSlice());
+                const number = try parseNumber(allocator, chars);
+                chars.returnChar();
+                return Token.initStr(.Number, number);
             }
 
+            var char = first;
             var isIdent = false;
             while (std.ascii.isAlphanumeric(char) or isValidNameChar(char)) {
                 isIdent = true;
@@ -573,6 +563,10 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
 
             if (isIdent) {
                 chars.returnChar();
+
+                if (string.compString(charStr.items, "null")) {
+                    return Token.init(.Null);
+                }
 
                 if (isKeyword(charStr.items)) |keywordType| {
                     return Token.init(keywordType);
@@ -588,6 +582,32 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             return chars.logError(TokenizeError.UnexpectedCharacter);
         },
     }
+}
+
+fn parseNumber(allocator: Allocator, chars: *CharUtil) ![]u8 {
+    var number = ArrayList(u8).init(allocator);
+    defer number.deinit();
+
+    var char = try chars.take();
+    if (char == '.') {
+        return chars.logError(TokenizeError.UnexpectedCharacter);
+    }
+    var foundPeriod = false;
+
+    while (std.ascii.isDigit(char) or char == '.') {
+        if (char == '.') {
+            if (foundPeriod) {
+                return chars.logError(TokenizeError.NumberHasTwoPeriods);
+            }
+
+            foundPeriod = true;
+        }
+
+        try number.append(char);
+        char = try chars.take();
+    }
+
+    return number.toOwnedSlice();
 }
 
 fn getLineBounds(chars: []const u8, index: usize) LineBounds {
@@ -641,8 +661,6 @@ fn isDatatype(chars: []const u8) ?TokenType {
         .{ .string = "i32", .token = .I32 },
         .{ .string = "i64", .token = .I64 },
         .{ .string = "i128", .token = .I128 },
-        .{ .string = "f8", .token = .F8 },
-        .{ .string = "f16", .token = .F16 },
         .{ .string = "f32", .token = .F32 },
         .{ .string = "f64", .token = .F64 },
         .{ .string = "f128", .token = .F128 },
