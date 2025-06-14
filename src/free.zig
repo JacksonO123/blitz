@@ -63,15 +63,15 @@ pub fn freeAttr(allocator: Allocator, attr: blitzAst.StructAttribute) void {
 
 pub fn freeValueNode(allocator: Allocator, node: *const blitzAst.AstValues) void {
     switch (node.*) {
-        .StaticArray => |arr| {
+        .GeneralArray => |arr| {
             freeNodes(allocator, arr);
             allocator.free(arr);
         },
-        .Number => |num| {
-            allocator.free(num.value);
-        },
         .String => |string| {
             allocator.free(string);
+        },
+        .RawNumber => |num| {
+            allocator.free(num);
         },
         else => {},
     }
@@ -236,6 +236,10 @@ pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void 
             freeType(allocator, arr);
         },
         .StaticArray => |arr| {
+            freeType(allocator, arr.type);
+            freeNode(allocator, arr.size);
+        },
+        .GeneralArray => |arr| {
             freeType(allocator, arr.type);
             freeNode(allocator, arr.size);
         },

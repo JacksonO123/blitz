@@ -4,6 +4,7 @@ const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
 const free = blitz.free;
 const string = blitz.string;
+const scanner = blitz.scanner;
 const CompInfo = utils.CompInfo;
 const create = utils.create;
 const createMut = utils.createMut;
@@ -41,12 +42,64 @@ pub const AstNumberVariants = enum {
     F128,
 };
 
-const AstNumber = struct {
-    type: AstNumberVariants,
-    value: []u8,
+pub const AstNumber = union(AstNumberVariants) {
+    const Self = @This();
+
+    U8: u8,
+    U16: u16,
+    U32: u32,
+    U64: u64,
+    U128: u128,
+    USize: usize,
+    I8: i8,
+    I16: i16,
+    I32: i32,
+    I64: i64,
+    I128: i128,
+    F32: f32,
+    F64: f64,
+    F128: f128,
+
+    pub fn toString(self: Self) []const u8 {
+        return switch (self) {
+            .U8 => "u8",
+            .U16 => "u16",
+            .U32 => "u32",
+            .U64 => "u64",
+            .U128 => "u128",
+            .USize => "usize",
+            .I8 => "i8",
+            .I16 => "i16",
+            .I32 => "i32",
+            .I64 => "i64",
+            .I128 => "i128",
+            .F32 => "f32",
+            .F64 => "f64",
+            .F128 => "f128",
+        };
+    }
+
+    pub fn toType(self: Self) AstNumberVariants {
+        return switch (self) {
+            .U8 => .U8,
+            .U16 => .U16,
+            .U32 => .U32,
+            .U64 => .U64,
+            .U128 => .U128,
+            .USize => .USize,
+            .I8 => .I8,
+            .I16 => .I16,
+            .I32 => .I32,
+            .I64 => .I64,
+            .I128 => .I128,
+            .F32 => .F32,
+            .F64 => .F64,
+            .F128 => .F128,
+        };
+    }
 };
 
-const AstStaticArrayType = struct {
+pub const AstStaticArrayType = struct {
     type: *const AstTypes,
     size: *const AstNode,
 };
@@ -73,8 +126,10 @@ const Types = enum {
     Void,
     Null,
     Number,
+    RawNumber,
     DynamicArray,
     StaticArray,
+    GeneralArray,
     Nullable,
     Custom,
     Generic,
@@ -91,8 +146,10 @@ pub const AstTypes = union(Types) {
     Void,
     Null,
     Number: AstNumberVariants,
+    RawNumber,
     DynamicArray: *const AstTypes,
     StaticArray: AstStaticArrayType,
+    GeneralArray: AstStaticArrayType,
     Nullable: *const AstTypes,
     Custom: CustomType,
     Generic: []u8,
@@ -107,7 +164,8 @@ const StaticTypes = enum {
     Bool,
     Char,
     Number,
-    StaticArray,
+    RawNumber,
+    GeneralArray,
     Null,
 };
 
@@ -116,7 +174,8 @@ pub const AstValues = union(StaticTypes) {
     Bool: bool,
     Char: u8,
     Number: AstNumber,
-    StaticArray: []*const AstNode,
+    RawNumber: []u8,
+    GeneralArray: []*const AstNode,
     Null,
 };
 
@@ -777,27 +836,14 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
 fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Error || AstError)!?*AstNode {
     const first = try compInfo.tokens.take();
     switch (first.type) {
-        .Null => {
-            return try createMut(AstNode, allocator, .{
-                .Value = .Null,
-            });
-        },
-        .Number, .NegNumber => {
-            var numStr = try string.cloneString(allocator, first.string.?);
-            const numType: AstNumberVariants = if (string.findChar(numStr, 0, '.') != null) .F32 else if (first.type == .NegNumber) .I32 else .U32;
-            if (numStr[0] == '-') {
-                numStr = try std.fmt.allocPrint(allocator, "-{s}", .{numStr});
-            }
-
-            return try createMut(AstNode, allocator, .{
-                .Value = .{
-                    .Number = .{
-                        .type = numType,
-                        .value = numStr,
-                    },
-                },
-            });
-        },
+        .Null => return try createMut(AstNode, allocator, .{
+            .Value = .Null,
+        }),
+        .Number, .NegNumber => return try createMut(AstNode, allocator, .{
+            .Value = .{
+                .RawNumber = try string.cloneString(allocator, first.string.?),
+            },
+        }),
         .StringToken => {
             const str = first.string.?;
             return try createMut(AstNode, allocator, .{
@@ -806,13 +852,11 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
                 },
             });
         },
-        .CharToken => {
-            return try createMut(AstNode, allocator, .{
-                .Value = .{
-                    .Char = first.string.?[0],
-                },
-            });
-        },
+        .CharToken => return try createMut(AstNode, allocator, .{
+            .Value = .{
+                .Char = first.string.?[0],
+            },
+        }),
         .Bang => {
             const expr = try parseExpression(allocator, compInfo);
             if (expr == null) {
@@ -947,7 +991,7 @@ fn parseArray(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
 
     return try createMut(AstNode, allocator, .{
         .Value = .{
-            .StaticArray = try items.toOwnedSlice(),
+            .GeneralArray = try items.toOwnedSlice(),
         },
     });
 }
@@ -1466,8 +1510,11 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
     if (next.type == .LBracket) {
         _ = try compInfo.tokens.take();
         next = try compInfo.tokens.peak();
+        printToken(next);
 
         if (next.type == .RBracket) {
+            _ = try compInfo.tokens.take();
+
             astType = .{
                 .DynamicArray = try create(AstTypes, allocator, astType),
             };
@@ -1563,5 +1610,17 @@ pub fn registerStructsAndErrors(allocator: Allocator, compInfo: *CompInfo) !Regi
     return .{
         .structs = try structDecs.toOwnedSlice(),
         .errors = try errorDecs.toOwnedSlice(),
+    };
+}
+
+pub fn rawNumberToInferredType(num: []u8) !AstNumber {
+    if (num[0] == '-') {
+        return .{
+            .I32 = std.fmt.parseInt(i32, num, 10) catch return scanner.ScanError.InvalidNumber,
+        };
+    }
+
+    return .{
+        .U32 = std.fmt.parseInt(u32, num, 10) catch return scanner.ScanError.InvalidNumber,
     };
 }

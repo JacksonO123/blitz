@@ -46,8 +46,15 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
             printType(compInfo, arr);
             print(">", .{});
         },
-        .StaticArray => |*arr| {
+        .StaticArray => |arr| {
             print("StaticArray<", .{});
+            printNode(compInfo, arr.size);
+            print(", ", .{});
+            printType(compInfo, arr.type);
+            print(">", .{});
+        },
+        .GeneralArray => |arr| {
+            print("GeneralArray<", .{});
             printNode(compInfo, arr.size);
             print(", ", .{});
             printType(compInfo, arr.type);
@@ -57,8 +64,11 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
             print("?", .{});
             printType(compInfo, n);
         },
-        .Number => |*num| {
-            print("{s}", .{numberTypeToString(num.*)});
+        .Number => |num| {
+            print("{s}", .{numberTypeToString(num)});
+        },
+        .RawNumber => {
+            print("[RawNumber]", .{});
         },
         .Custom => |*custom| {
             print("{s}", .{custom.name});
@@ -146,8 +156,8 @@ fn printValue(compInfo: *CompInfo, value: *const blitzAst.AstValues) void {
         .Null => {
             print("null", .{});
         },
-        .StaticArray => |arr| {
-            print("([", .{});
+        .GeneralArray => |arr| {
+            print("[GeneralArray]([", .{});
 
             for (arr, 0..) |val, index| {
                 printNode(compInfo, val);
@@ -159,8 +169,11 @@ fn printValue(compInfo: *CompInfo, value: *const blitzAst.AstValues) void {
 
             print("])", .{});
         },
-        .Number => |*n| {
-            print("[{s}]({s})", .{ numberTypeToString(n.type), n.value });
+        .Number => |n| {
+            printAstNumber(n);
+        },
+        .RawNumber => |n| {
+            print("[RawNumber]({s})", .{n});
         },
         .String => |s| {
             print("[string](\"{s}\")", .{s});
@@ -171,6 +184,25 @@ fn printValue(compInfo: *CompInfo, value: *const blitzAst.AstValues) void {
         .Bool => |b| {
             print("[bool]({s})", .{if (b) "true" else "false"});
         },
+    }
+}
+
+fn printAstNumber(num: blitzAst.AstNumber) void {
+    switch (num) {
+        .U8 => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .U16 => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .U32 => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .U64 => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .U128 => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .USize => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .I8 => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .I16 => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .I32 => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .I64 => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .I128 => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .F32 => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .F64 => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .F128 => |val| print("[{d}]({s})", .{ val, num.toString() }),
     }
 }
 

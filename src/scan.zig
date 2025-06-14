@@ -20,14 +20,19 @@ const printGenerics = debug.printGenerics;
 
 pub const ScanError = error{
     // misc
-    StaticArrayTypeMismatch,
     InvalidCast,
     ExpectedBooleanBang,
     ExpectedBooleanIfCondition,
     UnsupportedFeature,
     ExpectedUSizeForIndex,
-    ExpectedArrayForIndexTarget,
     StaticStructInstanceCannotBeUsedAsValue,
+    InvalidNumber,
+
+    // arrays
+    StaticArrayTypeMismatch,
+    ExpectedArrayForIndexTarget,
+    ExpectedUSizeOrU32ForStaticArraySize,
+    ExpectedEqualStaticArraySizes,
 
     // variables
     VariableAnnotationMismatch,
@@ -121,6 +126,11 @@ pub fn scanNode(
             };
         },
         .Cast => |cast| {
+            if (cast.node.* == .Value and cast.node.*.Value == .RawNumber) {
+                // TODO add some restrictions for sign
+                return try clone.cloneAstTypes(allocator, compInfo, cast.toType.*, false);
+            }
+
             const nodeType = try scanNode(allocator, compInfo, cast.node, withGenDef);
             defer free.freeStackType(allocator, &nodeType);
 
@@ -136,19 +146,18 @@ pub fn scanNode(
                 .String => .String,
                 .Bool => .Bool,
                 .Char => .Char,
-                .Number => |num| .{ .Number = num.type },
-                .StaticArray => |arr| a: {
-                    const buf = try std.fmt.allocPrint(allocator, "{}", .{arr.len});
-
+                .Number => |num| .{ .Number = num.toType() },
+                .RawNumber => |num| {
+                    if (num[0] == '-') return .{ .Number = .I32 };
+                    return .{ .Number = .U32 };
+                },
+                .GeneralArray => |arr| a: {
                     break :a .{
-                        .StaticArray = .{
+                        .GeneralArray = .{
                             .type = try create(blitzAst.AstTypes, allocator, try inferStaticArrType(allocator, compInfo, arr, withGenDef)),
                             .size = try create(blitzAst.AstNode, allocator, .{
                                 .Value = .{
-                                    .Number = .{
-                                        .type = .USize,
-                                        .value = buf,
-                                    },
+                                    .Number = .{ .USize = arr.len },
                                 },
                             }),
                         },
@@ -930,22 +939,51 @@ fn matchTypes(
         .Null => type2 == .Nullable or type2 == .Null,
         .Nullable => |inner| type2 == .Null or try matchTypes(allocator, compInfo, inner.*, type2, withGenDef),
         .Number => |num| type2 == .Number and @intFromEnum(num) == @intFromEnum(type2.Number),
-        .DynamicArray => |arr| type2 == .DynamicArray and try matchTypes(allocator, compInfo, arr.*, type2.DynamicArray.*, withGenDef),
+        .DynamicArray => |arr| {
+            if (type2 == .GeneralArray) return true;
+            return type2 == .DynamicArray and try matchTypes(allocator, compInfo, arr.*, type2.DynamicArray.*, withGenDef);
+        },
         .StaticArray => |arr| {
-            if (type2 != .StaticArray) {
-                return false;
-            }
+            const array: blitzAst.AstStaticArrayType = switch (type2) {
+                .StaticArray => |staticArr| staticArr,
+                .GeneralArray => |generalArr| generalArr,
+                else => return false,
+            };
 
             const sizeType1 = try scanNode(allocator, compInfo, arr.size, withGenDef);
             defer free.freeStackType(allocator, &sizeType1);
-            const sizeType2 = try scanNode(allocator, compInfo, type2.StaticArray.size, withGenDef);
+            const sizeType2 = try scanNode(allocator, compInfo, array.size, withGenDef);
             defer free.freeStackType(allocator, &sizeType2);
 
             if (!isInt(sizeType1) or !isInt(sizeType2)) {
                 return false;
             }
 
-            return try matchTypes(allocator, compInfo, arr.type.*, type2.StaticArray.type.*, withGenDef);
+            if (type2 == .GeneralArray) {
+                if (arr.size.* != .Value and arr.size.Value != .Number and arr.size.Value != .RawNumber) {
+                    return ScanError.ExpectedUSizeOrU32ForStaticArraySize;
+                }
+
+                var arrSize: blitzAst.AstNumber = undefined;
+                if (arr.size.Value == .Number) {
+                    arrSize = arr.size.Value.Number;
+                } else {
+                    arrSize = try blitzAst.rawNumberToInferredType(arr.size.Value.RawNumber);
+                }
+
+                if (arrSize != .USize and arrSize != .U32) {
+                    return ScanError.ExpectedUSizeOrU32ForStaticArraySize;
+                }
+
+                const num1 = if (arrSize == .U32) @as(usize, arrSize.U32) else arrSize.USize;
+                const num2 = type2.GeneralArray.size.Value.Number.USize;
+
+                if (num1 != num2) {
+                    return ScanError.ExpectedEqualStaticArraySizes;
+                }
+            }
+
+            return try matchTypes(allocator, compInfo, arr.type.*, array.type.*, withGenDef);
         },
         .Custom => |custom| {
             if (type2 == .StaticStructInstance and string.compString(custom.name, type2.StaticStructInstance)) {
@@ -992,7 +1030,7 @@ fn matchTypes(
 
 fn isPrimary(astType: blitzAst.AstTypes) bool {
     return switch (astType) {
-        .String, .Bool, .Char, .Number => true,
+        .String, .Bool, .Char, .Number, .Null => true,
         else => false,
     };
 }

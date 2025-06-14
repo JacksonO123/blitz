@@ -33,7 +33,7 @@ const anyNum2 = -123;
 const numberU16 = u16(32);
 
 // dynamic array - TODO
-// const arr: u32[] = [1, 2, 3];
+const arr: u32[] = [1, 2, 3];
 
 // static array
 const staticArr: u32[4] = [1, 2, 3, 4];
