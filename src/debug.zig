@@ -501,7 +501,7 @@ pub fn printRegisteredErrors(errors: []*const blitzAst.ErrorDecNode) void {
 
 pub fn printRegisteredStructs(compInfo: *CompInfo, structs: [](*blitzAst.StructDecNode)) void {
     print("--- structs ---\n", .{});
-    for (structs) |s| {
+    for (structs, 0..) |s, index| {
         print("declaring {s}", .{s.name});
 
         if (s.deriveType) |derived| {
@@ -520,6 +520,10 @@ pub fn printRegisteredStructs(compInfo: *CompInfo, structs: [](*blitzAst.StructD
         print("]", .{});
 
         print("\n", .{});
+
+        if (index < structs.len - 1) {
+            print("\n", .{});
+        }
     }
 }
 

@@ -13,12 +13,12 @@ struct [T: rectangle<char>] square {
   pub inner: T;
   size: u32;
 
-  pub static fn create(size: u32, inner: T): square<T> {
-    return square<T> {
-      inner,
-      size
-    };
-  }
+   pub static fn create(size: u32, inner: T): square<T> {
+     return square<T> {
+       inner,
+       size
+     };
+   }
 }
 
 const r: rectangle<char> = rectangle<char> {

@@ -1079,11 +1079,13 @@ fn parseStructInitGenerics(allocator: Allocator, compInfo: *CompInfo) ![]*const 
         const genType = try parseType(allocator, compInfo);
         try generics.append(genType);
 
-        current = try compInfo.tokens.take();
+        current = try compInfo.tokens.peak();
         if (current.type == .RAngle) break;
 
         try compInfo.tokens.expectToken(.Comma);
     }
+
+    try compInfo.tokens.expectToken(.RAngle);
 
     return generics.toOwnedSlice();
 }

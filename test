@@ -1,7 +1,7 @@
 #! /usr/bin/env bash
 
-INPUT_DIR="examples"
-# INPUT_DIR="input"
+# INPUT_DIR="examples"
+INPUT_DIR="input"
 
 function run() {
   zig run src/compiler.zig -- "$1"

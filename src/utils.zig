@@ -22,7 +22,7 @@ pub inline fn createMut(comptime T: type, allocator: Allocator, obj: T) Allocato
     return ptr;
 }
 
-pub fn readRelativeFile(allocator: Allocator, path: []u8) ![]u8 {
+pub fn readRelativeFile(allocator: Allocator, path: []const u8) ![]u8 {
     const maxFileSize = 1028 * 4; // arbitrary
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
@@ -59,7 +59,7 @@ pub const CompInfo = struct {
     // each number describes how far from
     // the struct method a child node is
     distFromStructMethod: *ArrayList(u32),
-    genericScopes: *ArrayList(*TypeScope),
+    genericScopes: *ScopeUtil(*TypeScope),
     previousAccessedStruct: ?[]u8,
     preAst: bool,
     tokens: *TokenUtil,
@@ -86,8 +86,9 @@ pub const CompInfo = struct {
         const errors = try initMutPtrT(StringHashMap(*const blitzAst.ErrorDecNode), allocator);
 
         const genericMap = try initMutPtrT(StringHashMap(*const blitzAst.AstTypes), allocator);
-        const genericScopes = try initMutPtrT(ArrayList(*TypeScope), allocator);
-        try genericScopes.append(genericMap);
+        const genericScopesUtil = try ScopeUtil(*TypeScope).init(allocator);
+        const genericScopes = try createMut(ScopeUtil(*TypeScope), allocator, genericScopesUtil);
+        try genericScopes.add(genericMap, false);
 
         const baseFunctionsInScope = try initMutPtrT(ArrayList([]u8), allocator);
         const functionsInScopeUtil = try ScopeUtil(*ArrayList([]u8)).init(allocator);
@@ -97,7 +98,6 @@ pub const CompInfo = struct {
         const baseScope = try initMutPtrT(VarScope, allocator);
         const variableScopesUtil = try ScopeUtil(*VarScope).init(allocator);
         const variableScopes = try createMut(ScopeUtil(*VarScope), allocator, variableScopesUtil);
-        // first scopeLeaks entry happens in here
         try variableScopes.add(baseScope, false);
 
         return Self{
@@ -147,14 +147,6 @@ pub const CompInfo = struct {
             self.allocator.destroy(err.*);
         }
 
-        for (self.genericScopes.items) |gens| {
-            var genericIt = gens.valueIterator();
-            while (genericIt.next()) |gen| {
-                free.freeType(self.allocator, gen.*);
-            }
-            self.allocator.destroy(gens);
-        }
-
         free.freeNestedSlice(u8, self.allocator, self.structNames);
         free.freeNestedSlice(u8, self.allocator, self.errorNames);
 
@@ -183,7 +175,7 @@ pub const CompInfo = struct {
         self.distFromStructMethod.deinit();
         self.allocator.destroy(self.distFromStructMethod);
 
-        self.genericScopes.deinit();
+        self.genericScopes.deinit(freeGenericScope);
         self.allocator.destroy(self.genericScopes);
 
         self.tokens.deinit();
@@ -302,32 +294,17 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn getCurrentGenScope(self: Self) *TypeScope {
-        return self.genericScopes.getLast();
-    }
-
-    pub fn pushGenScope(self: *Self) !void {
+    pub fn pushGenScope(self: *Self, leak: bool) !void {
         const genScope = try initMutPtrT(StringHashMap(*const blitzAst.AstTypes), self.allocator);
-        try self.genericScopes.append(genScope);
+        try self.genericScopes.add(genScope, leak);
     }
 
     pub fn popGenScope(self: *Self) void {
-        if (self.genericScopes.items.len == 1) return;
-
-        const genScope = self.getCurrentGenScope();
-
-        var genScopeIt = genScope.valueIterator();
-        while (genScopeIt.next()) |item| {
-            free.freeType(self.allocator, item.*);
-        }
-
-        genScope.deinit();
-        self.allocator.destroy(genScope);
-        _ = self.genericScopes.pop();
+        self.genericScopes.pop(freeGenericScope);
     }
 
     pub fn setGeneric(self: *Self, name: []u8, gType: *const blitzAst.AstTypes) !void {
-        const genScope = self.getCurrentGenScope();
+        const genScope = self.genericScopes.getCurrentScope();
 
         const value = genScope.get(name);
         if (value) |genValue| {
@@ -349,8 +326,18 @@ pub const CompInfo = struct {
     }
 
     pub fn getGeneric(self: *Self, name: []u8) ?*const blitzAst.AstTypes {
-        const genScope = self.getCurrentGenScope();
-        return genScope.get(name);
+        var genScope: ?*TypeScope = self.genericScopes.getCurrentScope();
+        defer self.genericScopes.resetLeakIndex();
+
+        while (genScope) |s| {
+            if (s.get(name)) |t| {
+                return t;
+            }
+
+            genScope = self.genericScopes.getNextInLeak();
+        }
+
+        return null;
     }
 
     pub fn getCurrentRegGenScope(self: Self) *ArrayList([]u8) {
@@ -801,6 +788,15 @@ fn freeVariableScope(allocator: Allocator, scope: *VarScope) void {
 fn freeScopedFunctionScope(allocator: Allocator, scope: *ArrayList([]u8)) void {
     for (scope.items) |item| {
         allocator.free(item);
+    }
+    scope.deinit();
+    allocator.destroy(scope);
+}
+
+fn freeGenericScope(allocator: Allocator, scope: *TypeScope) void {
+    var genericIt = scope.valueIterator();
+    while (genericIt.next()) |gen| {
+        free.freeType(allocator, gen.*);
     }
     scope.deinit();
     allocator.destroy(scope);

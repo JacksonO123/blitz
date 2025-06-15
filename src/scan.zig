@@ -286,7 +286,7 @@ pub fn scanNode(
                         try genTypeArr.append(typeClone);
                     }
 
-                    try compInfo.pushGenScope();
+                    try compInfo.pushGenScope(false);
                     defer compInfo.popGenScope();
 
                     for (genNameArr.items, genTypeArr.items) |name, genType| {
@@ -302,7 +302,7 @@ pub fn scanNode(
                     break :a false;
                 },
                 .StaticStructInstance => |name| a: {
-                    try compInfo.pushGenScope();
+                    try compInfo.pushGenScope(false);
                     defer compInfo.popGenScope();
                     const propType = try validateStaticStructProps(allocator, compInfo, name, access.property);
 
@@ -428,7 +428,7 @@ pub fn scanNode(
             }
 
             compInfo.enteringStruct();
-            try scanAttributes(allocator, compInfo, dec.attributes);
+            try scanAttributes(allocator, compInfo, dec.attributes, false);
             compInfo.exitingStruct();
 
             for (dec.generics) |generic| {
@@ -467,7 +467,7 @@ pub fn scanNode(
             return .Void;
         },
         .FuncCall => |call| {
-            try compInfo.pushGenScope();
+            try compInfo.pushGenScope(false);
             defer compInfo.popGenScope();
 
             const dec = try scanNode(allocator, compInfo, call.func, withGenDef);
@@ -535,7 +535,7 @@ pub fn scanNode(
             return try scanFuncBodyAndReturn(allocator, compInfo, func, true);
         },
         .StructInit => |init| {
-            try compInfo.pushGenScope();
+            try compInfo.pushGenScope(true);
             defer compInfo.popGenScope();
 
             const structDec = compInfo.getStructDec(init.name).?;
@@ -544,7 +544,7 @@ pub fn scanNode(
                 return ScanError.StructInitGenericCountMismatch;
             }
 
-            try setInitGenerics(allocator, compInfo, init.generics, structDec.generics);
+            try setInitGenerics(allocator, compInfo, init.generics, structDec.generics, withGenDef);
 
             if (structDec.deriveType) |derive| {
                 try setInitDeriveGenerics(allocator, compInfo, derive);
@@ -572,7 +572,7 @@ pub fn scanNode(
                 const attrType = try scanNode(allocator, compInfo, attrNode.?, withGenDef);
                 defer free.freeStackType(allocator, &attrType);
 
-                if (!try matchTypes(allocator, compInfo, attr.attr.Member.*, attrType, true)) {
+                if (!try matchTypes(allocator, compInfo, attr.attr.Member.*, attrType, withGenDef)) {
                     return ScanError.StructInitMemberTypeMismatch;
                 }
             }
@@ -636,15 +636,21 @@ fn compareNumberBitSize(num1: blitzAst.AstNumberVariants, num2: blitzAst.AstNumb
     };
 }
 
-fn setInitGenerics(allocator: Allocator, compInfo: *CompInfo, genTypes: []*const blitzAst.AstTypes, decGens: []blitzAst.GenericType) !void {
+fn setInitGenerics(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+    genTypes: []*const blitzAst.AstTypes,
+    decGens: []blitzAst.GenericType,
+    withGenDef: bool,
+) !void {
     for (genTypes, decGens) |t, decGen| {
         if (decGen.restriction) |restriction| {
-            if (!(try matchTypes(allocator, compInfo, t.*, restriction.*, false))) {
+            if (!(try matchTypes(allocator, compInfo, t.*, restriction.*, withGenDef))) {
                 return ScanError.GenericRestrictionConflict;
             }
         }
 
-        const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, t, false);
+        const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, t, withGenDef);
         try compInfo.setGeneric(decGen.name, typeClone);
     }
 }
@@ -837,7 +843,7 @@ fn validateCustomProps(allocator: Allocator, compInfo: *CompInfo, custom: blitzA
     return ScanError.InvalidPropertySource;
 }
 
-fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.StructAttribute) !void {
+fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.StructAttribute, withGenDef: bool) !void {
     for (attrs) |attr| {
         switch (attr.attr) {
             .Member => {},
@@ -852,7 +858,7 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
                     try compInfo.setVariableType(param.name, clonedPtr, false);
                 }
 
-                const bodyType = try scanNode(allocator, compInfo, func.body, true);
+                const bodyType = try scanNode(allocator, compInfo, func.body, withGenDef);
                 free.freeStackType(allocator, &bodyType);
             },
         }
@@ -906,8 +912,9 @@ fn matchTypes(
 ) !bool {
     if (type1 == .Generic and type2 == .Generic) {
         if (withGenDef) {
-            // TODO - maybe check this
-            return string.compString(type1.Generic, type2.Generic);
+            const genType1 = compInfo.getGeneric(type1.Generic).?;
+            const genType2 = compInfo.getGeneric(type2.Generic).?;
+            return matchTypes(allocator, compInfo, genType1.*, genType2.*, withGenDef);
         }
 
         return true;
