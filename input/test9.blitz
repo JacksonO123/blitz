@@ -9,12 +9,12 @@ struct [G] rectangle : shape<G> {
   pub nothing: G;
 }
 
-struct [T: rectangle<char>] square {
+struct [T: rectangle<char>, G] square {
   pub inner: T;
   size: u32;
 
-   pub static fn create(size: u32, inner: T): square<T> {
-     return square<T> {
+   pub static fn [G] create(size: G, inner: T): square<T, G> {
+     return square<T, G> {
        inner,
        size
      };
@@ -31,6 +31,8 @@ const r: rectangle<char> = rectangle<char> {
   nothing = 'o'
 };
 
-const s: square<rectangle<char>> = square.create(10, r);
+// const n = 10.0;
+const n = 10;
+const s: square<rectangle<char>, u32> = square.create(n, r);
 
 const a: char = s.inner.nothing;

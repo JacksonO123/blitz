@@ -77,6 +77,7 @@ pub const ScanError = error{
     CustomGenericMismatch,
     ConflictingGenericParameters,
     GenericRestrictionConflict,
+    UnexpectedRecursiveGeneric,
 
     // errors
     ExpectedUseOfErrorVariants,
@@ -149,6 +150,19 @@ pub fn scanNode(
                 .Number => |num| .{ .Number = num.toType() },
                 .RawNumber => |num| {
                     if (num[0] == '-') return .{ .Number = .I32 };
+
+                    var hasPeriod = false;
+                    for (num) |char| {
+                        if (char == '.') {
+                            hasPeriod = true;
+                            break;
+                        }
+                    }
+
+                    if (hasPeriod) {
+                        return .{ .Number = .F32 };
+                    }
+
                     return .{ .Number = .U32 };
                 },
                 .GeneralArray => |arr| a: {
@@ -562,6 +576,7 @@ pub fn scanNode(
                 for (init.attributes) |initAttr| {
                     if (string.compString(initAttr.name, attr.name)) {
                         attrNode = initAttr.value;
+                        break;
                     }
                 }
 
@@ -913,7 +928,15 @@ fn matchTypes(
     if (type1 == .Generic and type2 == .Generic) {
         if (withGenDef) {
             const genType1 = compInfo.getGeneric(type1.Generic).?;
+            if (genType1.* == .Generic and string.compString(type1.Generic, genType1.Generic)) {
+                return ScanError.UnexpectedRecursiveGeneric;
+            }
+
             const genType2 = compInfo.getGeneric(type2.Generic).?;
+            if (genType2.* == .Generic and string.compString(type2.Generic, genType2.Generic)) {
+                return ScanError.UnexpectedRecursiveGeneric;
+            }
+
             return matchTypes(allocator, compInfo, genType1.*, genType2.*, withGenDef);
         }
 
@@ -921,8 +944,14 @@ fn matchTypes(
     }
 
     if (type1 == .Generic) {
+        if (!withGenDef) return true;
+
         const genType = compInfo.getGeneric(type1.Generic);
         if (genType) |gType| {
+            if (gType.* == .Generic and string.compString(gType.Generic, type1.Generic)) {
+                return ScanError.UnexpectedRecursiveGeneric;
+            }
+
             return matchTypes(allocator, compInfo, gType.*, type2, withGenDef);
         } else if (withGenDef) {
             return ScanError.EmptyGenericType;
@@ -930,8 +959,14 @@ fn matchTypes(
     }
 
     if (type2 == .Generic) {
+        if (!withGenDef) return true;
+
         const genType = compInfo.getGeneric(type2.Generic);
         if (genType) |gType| {
+            if (gType.* == .Generic and string.compString(gType.Generic, type2.Generic)) {
+                return ScanError.UnexpectedRecursiveGeneric;
+            }
+
             return matchTypes(allocator, compInfo, type1, gType.*, withGenDef);
         } else if (withGenDef) {
             return ScanError.EmptyGenericType;
