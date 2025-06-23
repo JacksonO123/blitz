@@ -27,6 +27,8 @@ pub const ScanError = error{
     ExpectedUSizeForIndex,
     StaticStructInstanceCannotBeUsedAsValue,
     InvalidNumber,
+    IfStatementMayOnlyHaveOneElse,
+    ElseBranchOutOfOrder,
 
     // arrays
     StaticArrayTypeMismatch,
@@ -463,6 +465,10 @@ pub fn scanNode(
             const body = try scanNode(allocator, compInfo, statement.body, withGenDef);
             defer free.freeStackType(allocator, &body);
 
+            if (statement.fallback) |fallback| {
+                try scanIfFallback(allocator, compInfo, fallback, withGenDef);
+            }
+
             return .Void;
         },
         .FuncDec => |name| {
@@ -629,6 +635,29 @@ pub fn scanNode(
 
             return scanNode(allocator, compInfo, scope, withGenDef);
         },
+    }
+}
+
+fn scanIfFallback(allocator: Allocator, compInfo: *CompInfo, fallback: *const blitzAst.IfFallback, withGenDef: bool) !void {
+    if (fallback.condition == null and fallback.fallback != null) {
+        const nextFallback = fallback.fallback.?;
+        if (nextFallback.condition == null) {
+            return ScanError.IfStatementMayOnlyHaveOneElse;
+        } else {
+            return ScanError.ElseBranchOutOfOrder;
+        }
+    }
+
+    if (fallback.condition) |condition| {
+        const nodeType = try scanNode(allocator, compInfo, condition, withGenDef);
+        free.freeStackType(allocator, &nodeType);
+    }
+
+    const bodyType = try scanNode(allocator, compInfo, fallback.body, withGenDef);
+    free.freeStackType(allocator, &bodyType);
+
+    if (fallback.fallback) |innerFallback| {
+        try scanIfFallback(allocator, compInfo, innerFallback, withGenDef);
     }
 }
 

@@ -273,10 +273,16 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
             const bodyPtr = try cloneAstNodePtr(allocator, compInfo, statement.body, replaceGenerics);
             const conditionPtr = try cloneAstNodePtr(allocator, compInfo, statement.condition, replaceGenerics);
 
+            var newFallback: ?*const blitzAst.IfFallback = null;
+            if (statement.fallback) |fallback| {
+                newFallback = try cloneIfFallback(allocator, compInfo, fallback, replaceGenerics);
+            }
+
             return .{
                 .IfStatement = .{
                     .body = bodyPtr,
                     .condition = conditionPtr,
+                    .fallback = newFallback,
                 },
             };
         },
@@ -356,6 +362,24 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
             .Scope = try cloneAstNodePtr(allocator, compInfo, scope, replaceGenerics),
         },
     }
+}
+
+fn cloneIfFallback(allocator: Allocator, compInfo: *CompInfo, fallback: *const blitzAst.IfFallback, replaceGenerics: bool) !*const blitzAst.IfFallback {
+    var newCondition: ?*const blitzAst.AstNode = null;
+    if (fallback.condition) |condition| {
+        newCondition = try cloneAstNodePtr(allocator, compInfo, condition, replaceGenerics);
+    }
+
+    var newFallback: ?*const blitzAst.IfFallback = null;
+    if (fallback.fallback) |innerFallback| {
+        newFallback = try cloneIfFallback(allocator, compInfo, innerFallback, replaceGenerics);
+    }
+
+    return try create(blitzAst.IfFallback, allocator, .{
+        .condition = newCondition,
+        .body = try cloneAstNodePtr(allocator, compInfo, fallback.body, replaceGenerics),
+        .fallback = newFallback,
+    });
 }
 
 fn cloneStructAttrDec(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.StructAttribute, replaceGenerics: bool) ![]blitzAst.StructAttribute {

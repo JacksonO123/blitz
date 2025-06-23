@@ -318,12 +318,16 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
                 print("]", .{});
             }
         },
-        .IfStatement => |*statement| {
+        .IfStatement => |statement| {
             print("if ", .{});
             printNode(compInfo, statement.condition);
             print(" then -- body --\n", .{});
             printNode(compInfo, statement.body);
             print("-- body end --\n", .{});
+
+            if (statement.fallback) |fallback| {
+                printIfFallback(compInfo, fallback);
+            }
         },
         .NoOp => {
             print("(noop)", .{});
@@ -396,6 +400,23 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
             printNode(compInfo, scope);
             print("\n--- exiting scope ---\n", .{});
         },
+    }
+}
+
+fn printIfFallback(compInfo: *CompInfo, fallback: *const blitzAst.IfFallback) void {
+    print("else ", .{});
+
+    if (fallback.condition) |condition| {
+        print(" if ", .{});
+        printNode(compInfo, condition);
+    }
+
+    print("-- body --\n", .{});
+    printNode(compInfo, fallback.body);
+    print(" -- body end -- ", .{});
+
+    if (fallback.fallback) |innerFallback| {
+        printIfFallback(compInfo, innerFallback);
     }
 }
 

@@ -16,7 +16,7 @@ function run_log() {
     log=true
   elif [ "$1" == "-p" ]; then
     shopt -s nullglob
-    pattern="$INPUT_DIR/$2*"
+    pattern="$INPUT_DIR/*$2*"
     matches=($pattern)
 
     if ((${#matches[@]})); then
@@ -76,7 +76,7 @@ if [[ "$(pwd)" == *\/blitz ]] && [ -e "$(pwd)/build.zig" ] && [ -e "$(pwd)/.zig-
       exit 0
     fi
 
-    run_log "$1"
+    run_log $@
   fi
 else
   echo "expected to be in project root"

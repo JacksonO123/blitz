@@ -42,5 +42,5 @@ const staticArr: u32[4] = [1, 2, 3, 4];
 var numOrNull: ?u32 = null;
 numOrNull = 4;
 
-// see other examples for more
-// complicated datatypes
+// structs, dynamic arrays, static arrays are automatically converted to references
+// where it makes sense

@@ -250,9 +250,16 @@ pub const GenericType = struct {
     restriction: ?*const AstTypes,
 };
 
+pub const IfFallback = struct {
+    condition: ?*const AstNode,
+    body: *const AstNode,
+    fallback: ?*const IfFallback,
+};
+
 const IfStatementNode = struct {
     condition: *const AstNode,
     body: *const AstNode,
+    fallback: ?*const IfFallback,
 };
 
 pub const Parameter = struct {
@@ -487,7 +494,7 @@ pub fn parseSequence(allocator: Allocator, compInfo: *CompInfo) (AstError || All
     });
 }
 
-fn parseStatement(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
+fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.Error)!?*AstNode {
     const first = try compInfo.tokens.take();
     switch (first.type) {
         .Const => return try createVarDecNode(allocator, compInfo, true),
@@ -501,10 +508,13 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
             try compInfo.tokens.expectToken(.LBrace);
             const seq = try parseSequence(allocator, compInfo);
 
+            const fallback = try parseIfChain(allocator, compInfo);
+
             return try createMut(AstNode, allocator, .{
                 .IfStatement = .{
                     .condition = condition.?,
                     .body = seq,
+                    .fallback = fallback,
                 },
             });
         },
@@ -617,6 +627,39 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
         },
         else => return compInfo.logger.logError(AstError.UnexpectedToken),
     }
+}
+
+fn parseIfChain(allocator: Allocator, compInfo: *CompInfo) !?*const IfFallback {
+    if (!compInfo.tokens.hasNext()) return null;
+
+    const next = try compInfo.tokens.peak();
+    if (next.type != .Else) return null;
+    _ = try compInfo.tokens.take();
+
+    var condition: ?*const AstNode = null;
+
+    const nextNext = try compInfo.tokens.peak();
+    if (nextNext.type == .If) {
+        _ = try compInfo.tokens.take();
+        try compInfo.tokens.expectToken(.LParen);
+
+        condition = try parseExpression(allocator, compInfo);
+        if (condition == null) {
+            return compInfo.logger.logError(AstError.ExpectedExpression);
+        }
+
+        try compInfo.tokens.expectToken(.RParen);
+    }
+
+    try compInfo.tokens.expectToken(.LBrace);
+    const body = try parseSequence(allocator, compInfo);
+    const fallback = try parseIfChain(allocator, compInfo);
+
+    return try create(IfFallback, allocator, .{
+        .condition = condition,
+        .body = body,
+        .fallback = fallback,
+    });
 }
 
 fn parseStruct(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {

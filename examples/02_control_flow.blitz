@@ -1,0 +1,12 @@
+// if statements
+
+const a = true;
+if (a) {
+  // branch
+} else if (!a) {
+  // branch
+} else if (!!a) {
+  // branch
+} else {
+  // branch
+}

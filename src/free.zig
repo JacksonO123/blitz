@@ -136,9 +136,12 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         .StructDec => |dec| {
             freeStructDec(allocator, dec);
         },
-        .IfStatement => |*statement| {
+        .IfStatement => |statement| {
             freeNode(allocator, statement.condition);
             freeNode(allocator, statement.body);
+            if (statement.fallback) |fallback| {
+                freeIfFallback(allocator, fallback);
+            }
         },
         .NoOp => {},
         .FuncDec => |name| {
@@ -189,6 +192,19 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
     }
 
     allocator.destroy(node);
+}
+
+fn freeIfFallback(allocator: Allocator, fallback: *const blitzAst.IfFallback) void {
+    if (fallback.condition) |condition| {
+        freeNode(allocator, condition);
+    }
+
+    if (fallback.fallback) |innerFallback| {
+        freeIfFallback(allocator, innerFallback);
+    }
+
+    freeNode(allocator, fallback.body);
+    allocator.destroy(fallback);
 }
 
 pub fn freeErrorDec(allocator: Allocator, dec: *const blitzAst.ErrorDecNode) void {
