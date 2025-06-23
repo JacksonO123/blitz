@@ -131,7 +131,6 @@ fn cloneParameters(allocator: Allocator, compInfo: *CompInfo, params: []blitzAst
 pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.AstNode, replaceGenerics: bool) !blitzAst.AstNode {
     switch (node) {
         .NoOp => return node,
-
         .IndexValue => |index| return .{
             .IndexValue = .{
                 .index = try cloneAstNodePtr(allocator, compInfo, index.index, replaceGenerics),
@@ -152,6 +151,16 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                     .left = sides.left,
                     .right = sides.right,
                 },
+            };
+        },
+        .IncOne => |val| {
+            return .{
+                .IncOne = try cloneAstNodePtr(allocator, compInfo, val, replaceGenerics),
+            };
+        },
+        .DecOne => |val| {
+            return .{
+                .DecOne = try cloneAstNodePtr(allocator, compInfo, val, replaceGenerics),
             };
         },
         .FuncReference => |ref| {
@@ -283,6 +292,22 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                     .body = bodyPtr,
                     .condition = conditionPtr,
                     .fallback = newFallback,
+                },
+            };
+        },
+        .ForLoop => |loop| {
+            var newInitNode: ?*const blitzAst.AstNode = null;
+
+            if (loop.initNode) |init| {
+                newInitNode = try cloneAstNodePtr(allocator, compInfo, init, replaceGenerics);
+            }
+
+            return .{
+                .ForLoop = .{
+                    .initNode = newInitNode,
+                    .condition = try cloneAstNodePtr(allocator, compInfo, loop.condition, replaceGenerics),
+                    .incNode = try cloneAstNodePtr(allocator, compInfo, loop.incNode, replaceGenerics),
+                    .body = try cloneAstNodePtr(allocator, compInfo, loop.body, replaceGenerics),
                 },
             };
         },

@@ -219,7 +219,7 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
             printNode(compInfo, op.left);
             print(") ", .{});
 
-            print("{s}", .{switch (op.type) {
+            print("({s})", .{switch (op.type) {
                 .BitAnd => "&BitAnd&",
                 .BitOr => "|BitOr|",
                 .And => "&&AND&&",
@@ -237,6 +237,16 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
             print(" (", .{});
             printNode(compInfo, op.right);
             print(")", .{});
+        },
+        .IncOne => |val| {
+            print("(", .{});
+            printNode(compInfo, val);
+            print("++)", .{});
+        },
+        .DecOne => |val| {
+            print("(", .{});
+            printNode(compInfo, val);
+            print("--)", .{});
         },
         .VarEqOp => |op| {
             print("set {s} to result of ({s} {s} ", .{
@@ -329,6 +339,24 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
                 printIfFallback(compInfo, fallback);
             }
         },
+        .ForLoop => |loop| {
+            print("for loop with", .{});
+
+            if (loop.initNode) |init| {
+                print(" init ", .{});
+                printNode(compInfo, init);
+            }
+
+            print(" with condition ", .{});
+            printNode(compInfo, loop.condition);
+
+            print(" with inc ", .{});
+            printNode(compInfo, loop.incNode);
+
+            print(" -- body --\n", .{});
+            printNode(compInfo, loop.body);
+            print(" -- body end --\n", .{});
+        },
         .NoOp => {
             print("(noop)", .{});
         },
@@ -413,7 +441,7 @@ fn printIfFallback(compInfo: *CompInfo, fallback: *const blitzAst.IfFallback) vo
 
     print("-- body --\n", .{});
     printNode(compInfo, fallback.body);
-    print(" -- body end -- ", .{});
+    print(" -- body end --\n", .{});
 
     if (fallback.fallback) |innerFallback| {
         printIfFallback(compInfo, innerFallback);
@@ -435,7 +463,7 @@ pub fn printFuncDec(compInfo: *CompInfo, func: *const blitzAst.FuncDecNode) void
 
     print("] -- body --\n", .{});
     printNode(compInfo, func.body);
-    print("-- body end --\n", .{});
+    print(" -- body end --\n", .{});
 }
 
 fn printAttributes(compInfo: *CompInfo, attrs: []blitzAst.StructAttribute) void {

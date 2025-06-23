@@ -339,6 +339,13 @@ const VarEqOpNode = struct {
     variable: []u8,
 };
 
+const ForLoopNode = struct {
+    initNode: ?*const AstNode,
+    condition: *const AstNode,
+    incNode: *const AstNode,
+    body: *const AstNode,
+};
+
 const AstNodeVariants = enum {
     NoOp,
     Seq,
@@ -365,6 +372,9 @@ const AstNodeVariants = enum {
     Error,
     Group,
     Scope,
+    ForLoop,
+    IncOne,
+    DecOne,
 };
 pub const AstNode = union(AstNodeVariants) {
     NoOp,
@@ -390,8 +400,11 @@ pub const AstNode = union(AstNodeVariants) {
     IndexValue: IndexValueNode,
     ErrorDec: *const ErrorDecNode,
     Error: []u8,
-    Group: *AstNode,
+    Group: *const AstNode,
     Scope: *const AstNode,
+    ForLoop: ForLoopNode,
+    IncOne: *const AstNode,
+    DecOne: *const AstNode,
 };
 
 pub const AstError = error{
@@ -527,6 +540,44 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
 
             return try createMut(AstNode, allocator, .{
                 .FuncDec = try string.cloneString(allocator, func.name),
+            });
+        },
+        .For => {
+            try compInfo.tokens.expectToken(.LParen);
+
+            var initNode: ?*const AstNode = null;
+
+            const next = try compInfo.tokens.peak();
+            if (next.type != .Semicolon) {
+                initNode = try parseStatement(allocator, compInfo);
+            }
+
+            try compInfo.tokens.expectToken(.Semicolon);
+
+            const condition = try parseExpression(allocator, compInfo);
+            if (condition == null) {
+                return compInfo.logger.logError(AstError.ExpectedExpression);
+            }
+
+            try compInfo.tokens.expectToken(.Semicolon);
+
+            const incNode = try parseExpression(allocator, compInfo);
+            if (incNode == null) {
+                return compInfo.logger.logError(AstError.ExpectedExpression);
+            }
+
+            try compInfo.tokens.expectToken(.RParen);
+            try compInfo.tokens.expectToken(.LBrace);
+
+            const body = try parseSequence(allocator, compInfo);
+
+            return try createMut(AstNode, allocator, .{
+                .ForLoop = .{
+                    .initNode = initNode,
+                    .condition = condition.?,
+                    .incNode = incNode.?,
+                    .body = body,
+                },
             });
         },
         .Identifier => {
@@ -851,6 +902,7 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
             }
 
             _ = try compInfo.tokens.take();
+
             const after = try parseExpression(allocator, compInfo);
             if (after == null) {
                 return compInfo.logger.logError(AstError.ExpectedExpression);
@@ -862,6 +914,18 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
                     .left = expr.?,
                     .right = after.?,
                 },
+            });
+        },
+        .Inc => {
+            _ = try compInfo.tokens.take();
+            return try createMut(AstNode, allocator, .{
+                .IncOne = expr.?,
+            });
+        },
+        .Dec => {
+            _ = try compInfo.tokens.take();
+            return try createMut(AstNode, allocator, .{
+                .DecOne = expr.?,
             });
         },
         else => {},
@@ -934,7 +998,11 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
                     compInfo.tokens.returnToken();
                     return try parsePropertyAccess(allocator, compInfo);
                 },
-                .LBrace, .LAngle => return try parseStructInit(allocator, compInfo, first.string.?),
+                .LBrace, .LAngle => {
+                    if (compInfo.hasStruct(first.string.?)) {
+                        return try parseStructInit(allocator, compInfo, first.string.?);
+                    }
+                },
                 .LBracket => {
                     _ = try compInfo.tokens.take();
                     const index = try parseExpression(allocator, compInfo);

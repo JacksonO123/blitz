@@ -87,6 +87,15 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             freeNode(allocator, op.left);
             freeNode(allocator, op.right);
         },
+        .IncOne,
+        .DecOne,
+        .Bang,
+        .ReturnNode,
+        .Group,
+        .Scope,
+        => |val| {
+            freeNode(allocator, val);
+        },
         .FuncReference => |ref| {
             allocator.free(ref);
         },
@@ -143,6 +152,15 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
                 freeIfFallback(allocator, fallback);
             }
         },
+        .ForLoop => |loop| {
+            if (loop.initNode) |init| {
+                freeNode(allocator, init);
+            }
+
+            freeNode(allocator, loop.condition);
+            freeNode(allocator, loop.incNode);
+            freeNode(allocator, loop.body);
+        },
         .NoOp => {},
         .FuncDec => |name| {
             allocator.free(name);
@@ -155,9 +173,6 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             }
 
             allocator.free(call.params);
-        },
-        .ReturnNode => |ret| {
-            freeNode(allocator, ret);
         },
         .StructInit => |init| {
             allocator.free(init.name);
@@ -174,20 +189,11 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             allocator.free(init.attributes);
             allocator.free(init.generics);
         },
-        .Bang => |bang| {
-            freeNode(allocator, bang);
-        },
         .ErrorDec => |dec| {
             freeErrorDec(allocator, dec);
         },
         .Error => |err| {
             allocator.free(err);
-        },
-        .Group => |group| {
-            freeNode(allocator, group);
-        },
-        .Scope => |scope| {
-            freeNode(allocator, scope);
         },
     }
 

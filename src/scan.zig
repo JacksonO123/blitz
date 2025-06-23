@@ -36,6 +36,9 @@ pub const ScanError = error{
     ExpectedUSizeOrU32ForStaticArraySize,
     ExpectedEqualStaticArraySizes,
 
+    // loops
+    ExpectedBooleanForLoopCondition,
+
     // variables
     VariableAnnotationMismatch,
     VariableAlreadyExists,
@@ -255,6 +258,15 @@ pub fn scanNode(
                 },
             }
         },
+        .IncOne,
+        .DecOne,
+        .Group,
+        .ReturnNode,
+        => |val| {
+            const valType = try scanNode(allocator, compInfo, val, withGenDef);
+            defer free.freeStackType(allocator, &valType);
+            return try clone.cloneAstTypes(allocator, compInfo, valType, withGenDef);
+        },
         .FuncReference => |ref| {
             const dec = try compInfo.getFunction(ref);
 
@@ -366,9 +378,6 @@ pub fn scanNode(
             // TODO - update with builtin prop types (array.length, array.push, etc)
             return .Void;
         },
-        .ReturnNode => |ret| {
-            return try scanNode(allocator, compInfo, ret, withGenDef);
-        },
         .Seq => |seq| {
             try scanNodes(allocator, compInfo, seq.nodes, withGenDef);
             return .Void;
@@ -468,6 +477,29 @@ pub fn scanNode(
             if (statement.fallback) |fallback| {
                 try scanIfFallback(allocator, compInfo, fallback, withGenDef);
             }
+
+            return .Void;
+        },
+        .ForLoop => |loop| {
+            try compInfo.pushScope(true);
+            defer compInfo.popScope();
+
+            if (loop.initNode) |init| {
+                const initType = try scanNode(allocator, compInfo, init, withGenDef);
+                free.freeStackType(allocator, &initType);
+            }
+
+            const conditionType = try scanNode(allocator, compInfo, loop.condition, withGenDef);
+            defer free.freeStackType(allocator, &conditionType);
+            if (conditionType != .Bool) {
+                return ScanError.ExpectedBooleanForLoopCondition;
+            }
+
+            const incType = try scanNode(allocator, compInfo, loop.incNode, withGenDef);
+            free.freeStackType(allocator, &incType);
+
+            const bodyType = try scanNode(allocator, compInfo, loop.body, withGenDef);
+            free.freeStackType(allocator, &bodyType);
 
             return .Void;
         },
@@ -624,9 +656,6 @@ pub fn scanNode(
                     .payload = null,
                 },
             };
-        },
-        .Group => |group| {
-            return scanNode(allocator, compInfo, group, withGenDef);
         },
         .Scope => |scope| {
             try compInfo.pushScope(true);
