@@ -415,10 +415,11 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             return Token.init(.Mult);
         },
         '/' => {
-            if ((try chars.peak()) == '=') {
+            const nextPeak = try chars.peak();
+            if (nextPeak == '=') {
                 _ = try chars.take();
                 return Token.init(.DivEq);
-            } else if ((try chars.peak()) == '/') {
+            } else if (nextPeak == '/') {
                 var next = try chars.take();
                 while (next != '\n') {
                     if (!chars.hasNext()) return null;

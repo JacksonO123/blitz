@@ -1543,7 +1543,7 @@ fn createBoolNode(allocator: Allocator, value: bool) !*AstNode {
 fn createVarDecNode(allocator: Allocator, compInfo: *CompInfo, isConst: bool) !?*AstNode {
     const name = try compInfo.tokens.take();
     if (name.type != .Identifier) {
-        return AstError.ExpectedIdentifierForVariableName;
+        return compInfo.logger.logError(AstError.ExpectedIdentifierForVariableName);
     }
 
     var annotation: ?*const AstTypes = null;

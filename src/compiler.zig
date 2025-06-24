@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 pub const blitz = @import("blitz.zig");
 const tokenizer = blitz.tokenizer;
 const blitzAst = blitz.ast;
@@ -22,7 +23,8 @@ const printHoistedNames = debug.printHoistedNames;
 const RuntimeError = error{NoInputFile};
 
 pub fn main() !void {
-    var gp = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
+    const dbg = builtin.mode == .Debug;
+    var gp = std.heap.GeneralPurposeAllocator(.{ .safety = dbg }){};
     defer _ = gp.deinit();
     const allocator = gp.allocator();
 

@@ -13,6 +13,11 @@ const LineBounds = struct {
     end: usize,
 };
 
+const SurroundingBounds = struct {
+    before: LineBounds,
+    after: LineBounds,
+};
+
 const size = 4096;
 pub const BufferedWriterType = std.io.BufferedWriter(size, std.fs.File.Writer);
 
@@ -51,16 +56,26 @@ pub const Logger = struct {
         const writer = self.buf.writer();
         const errStr = astErrorToString(err);
 
+        const numSurroundingLines = 1;
+        const contextBlock = findSurroundingLines(self.code, self.tokens.currentLine, numSurroundingLines);
+        const beforeLines = self.code[contextBlock.before.start..contextBlock.before.end];
+        const afterLines = self.code[contextBlock.after.start..contextBlock.after.end];
+
         const lineBounds = findLineBounds(self.code, self.tokens.currentLine);
         const line = self.code[lineBounds.start..lineBounds.end];
-        const res = tokenizer.tokenizeNumTokens(self.allocator, line, self.tokens.currentLineToken) catch {
+
+        const tokenizeRes = tokenizer.tokenizeNumTokens(self.allocator, line, self.tokens.currentLineToken) catch {
             return err;
         };
-        const tokenOffset = calculateTokenOffset(res.tokens, res.skippedWhitespace);
+        const tokenOffset = calculateTokenOffset(tokenizeRes.tokens, tokenizeRes.skippedWhitespace);
 
         writer.writeAll("Error: ") catch {};
         writer.writeAll(errStr) catch {};
         writer.writeByte('\n') catch {};
+        if (beforeLines.len > 0) {
+            writer.writeAll(beforeLines) catch {};
+            writer.writeByte('\n') catch {};
+        }
         writer.writeAll(line) catch {};
         writer.writeByte('\n') catch {};
 
@@ -69,6 +84,11 @@ pub const Logger = struct {
             writer.writeByte(' ') catch {};
         }
         writer.writeAll(&[_]u8{ '^', '\n' }) catch {};
+
+        if (afterLines.len > 0) {
+            writer.writeAll(afterLines) catch {};
+            writer.writeByte('\n') catch {};
+        }
 
         return err;
     }
@@ -89,29 +109,88 @@ fn calculateTokenOffset(tokens: []tokenizer.Token, skippedWhitespace: usize) usi
     return res + skippedWhitespace;
 }
 
+fn findSurroundingLines(code: []const u8, line: usize, numSurroundingLines: usize) SurroundingBounds {
+    var surroundingBefore = numSurroundingLines;
+
+    if (line < numSurroundingLines) {
+        surroundingBefore = line;
+    }
+
+    var currentLine: usize = 0;
+    var beforeStart: ?usize = null;
+    var beforeEnd: usize = 0;
+    var afterStart: ?usize = null;
+    var afterEnd: usize = 0;
+
+    for (code, 0..) |char, index| {
+        if (index == code.len - 1) {
+            afterEnd = index;
+            break;
+        }
+
+        if (currentLine + surroundingBefore + 1 == line and beforeStart == null) {
+            beforeStart = index;
+        } else if (currentLine + 1 == line and char == '\n') {
+            beforeEnd = index;
+        } else if (currentLine == line + 1 and afterStart == null) {
+            afterStart = index;
+        } else if (line + numSurroundingLines == currentLine and char == '\n') {
+            afterEnd = index;
+            break;
+        }
+
+        if (char == '\n') currentLine += 1;
+    }
+
+    if (beforeStart != null) {
+        while (code[beforeStart.?] == '\n') beforeStart = beforeStart.? + 1;
+    }
+
+    if (afterStart) |start| {
+        while (code[afterStart.?] == '\n') afterStart = afterStart.? + 1;
+
+        if (start + 1 == afterEnd) {
+            afterEnd = start;
+        }
+    }
+
+    return .{
+        .before = .{
+            .start = if (beforeStart) |start| start else 0,
+            .end = beforeEnd,
+        },
+        .after = .{
+            .start = if (afterStart) |start| start else 0,
+            .end = if (afterStart == null) 0 else afterEnd,
+        },
+    };
+}
+
 fn findLineBounds(code: []const u8, line: usize) LineBounds {
-    var start: usize = 0;
+    var start: ?usize = null;
     var end: usize = 0;
     var currentLine: usize = 0;
 
     for (code, 0..) |char, index| {
+        if (index == code.len - 1) {
+            end = index;
+            break;
+        }
+
         if (currentLine == line) {
-            if (char == '\n' or index == code.len - 1) {
+            if (start == null) {
+                start = index;
+            } else if (char == '\n') {
                 end = index;
                 break;
             }
         }
 
-        if (char == '\n') {
-            currentLine += 1;
-            start = index + 1;
-        }
+        if (char == '\n') currentLine += 1;
     }
 
-    if (start > end) end = start;
-
     return .{
-        .start = start,
+        .start = if (start) |s| s else 0,
         .end = end,
     };
 }
