@@ -311,6 +311,14 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                 },
             };
         },
+        .WhileLoop => |loop| {
+            return .{
+                .WhileLoop = .{
+                    .condition = try cloneAstNodePtr(allocator, compInfo, loop.condition, replaceGenerics),
+                    .body = try cloneAstNodePtr(allocator, compInfo, loop.body, replaceGenerics),
+                },
+            };
+        },
         .FuncDec => |dec| return .{
             .FuncDec = try string.cloneString(allocator, dec),
         },

@@ -16,3 +16,10 @@ if (a) {
 for (var i = 0; i < 10; i++) {
   // body
 }
+
+// while loops
+
+var b = true;
+while (b) {
+  b = false;
+}

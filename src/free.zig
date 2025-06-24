@@ -161,6 +161,10 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             freeNode(allocator, loop.incNode);
             freeNode(allocator, loop.body);
         },
+        .WhileLoop => |loop| {
+            freeNode(allocator, loop.condition);
+            freeNode(allocator, loop.body);
+        },
         .NoOp => {},
         .FuncDec => |name| {
             allocator.free(name);

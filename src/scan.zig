@@ -37,7 +37,7 @@ pub const ScanError = error{
     ExpectedEqualStaticArraySizes,
 
     // loops
-    ExpectedBooleanForLoopCondition,
+    ExpectedBooleanLoopCondition,
 
     // variables
     VariableAnnotationMismatch,
@@ -492,11 +492,23 @@ pub fn scanNode(
             const conditionType = try scanNode(allocator, compInfo, loop.condition, withGenDef);
             defer free.freeStackType(allocator, &conditionType);
             if (conditionType != .Bool) {
-                return ScanError.ExpectedBooleanForLoopCondition;
+                return ScanError.ExpectedBooleanLoopCondition;
             }
 
             const incType = try scanNode(allocator, compInfo, loop.incNode, withGenDef);
             free.freeStackType(allocator, &incType);
+
+            const bodyType = try scanNode(allocator, compInfo, loop.body, withGenDef);
+            free.freeStackType(allocator, &bodyType);
+
+            return .Void;
+        },
+        .WhileLoop => |loop| {
+            const conditionType = try scanNode(allocator, compInfo, loop.condition, withGenDef);
+            defer free.freeStackType(allocator, &conditionType);
+            if (conditionType != .Bool) {
+                return ScanError.ExpectedBooleanLoopCondition;
+            }
 
             const bodyType = try scanNode(allocator, compInfo, loop.body, withGenDef);
             free.freeStackType(allocator, &bodyType);

@@ -333,7 +333,7 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
             printNode(compInfo, statement.condition);
             print(" then -- body --\n", .{});
             printNode(compInfo, statement.body);
-            print("-- body end --\n", .{});
+            print(" -- body end --\n", .{});
 
             if (statement.fallback) |fallback| {
                 printIfFallback(compInfo, fallback);
@@ -353,6 +353,13 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
             print(" with inc ", .{});
             printNode(compInfo, loop.incNode);
 
+            print(" -- body --\n", .{});
+            printNode(compInfo, loop.body);
+            print(" -- body end --\n", .{});
+        },
+        .WhileLoop => |loop| {
+            print("while ", .{});
+            printNode(compInfo, loop.condition);
             print(" -- body --\n", .{});
             printNode(compInfo, loop.body);
             print(" -- body end --\n", .{});

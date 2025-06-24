@@ -346,6 +346,11 @@ const ForLoopNode = struct {
     body: *const AstNode,
 };
 
+const WhileLoopNode = struct {
+    condition: *const AstNode,
+    body: *const AstNode,
+};
+
 const AstNodeVariants = enum {
     NoOp,
     Seq,
@@ -372,9 +377,10 @@ const AstNodeVariants = enum {
     Error,
     Group,
     Scope,
-    ForLoop,
     IncOne,
     DecOne,
+    ForLoop,
+    WhileLoop,
 };
 pub const AstNode = union(AstNodeVariants) {
     NoOp,
@@ -402,9 +408,10 @@ pub const AstNode = union(AstNodeVariants) {
     Error: []u8,
     Group: *const AstNode,
     Scope: *const AstNode,
-    ForLoop: ForLoopNode,
     IncOne: *const AstNode,
     DecOne: *const AstNode,
+    ForLoop: ForLoopNode,
+    WhileLoop: WhileLoopNode,
 };
 
 pub const AstError = error{
@@ -576,6 +583,26 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
                     .initNode = initNode,
                     .condition = condition.?,
                     .incNode = incNode.?,
+                    .body = body,
+                },
+            });
+        },
+        .While => {
+            try compInfo.tokens.expectToken(.LParen);
+
+            const condition = try parseExpression(allocator, compInfo);
+            if (condition == null) {
+                return compInfo.logger.logError(AstError.ExpectedExpression);
+            }
+
+            try compInfo.tokens.expectToken(.RParen);
+            try compInfo.tokens.expectToken(.LBrace);
+
+            const body = try parseSequence(allocator, compInfo);
+
+            return try createMut(AstNode, allocator, .{
+                .WhileLoop = .{
+                    .condition = condition.?,
                     .body = body,
                 },
             });
