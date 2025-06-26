@@ -68,6 +68,7 @@ pub const ScanError = error{
     SelfUsedOutsideStruct,
     UndefinedStruct,
     RestrictedPropertyAccess,
+    StructDefinedInLowerScope,
 
     // operations
     MathOpOnNonNumberType,
@@ -441,6 +442,14 @@ pub fn scanNode(
             }
 
             return ScanError.VariableIsUndefined;
+        },
+        .StructPlaceholder => {
+            const scopeDepth = compInfo.getScopeDepth();
+            if (scopeDepth != 1) {
+                return ScanError.StructDefinedInLowerScope;
+            }
+
+            return .Void;
         },
         .StructDec => |dec| {
             try compInfo.pushRegGenScope();

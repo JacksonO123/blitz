@@ -313,6 +313,9 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
         .Variable => |variable| {
             print("[variable: ({s})]", .{variable});
         },
+        .StructPlaceholder => {
+            print("struct dec", .{});
+        },
         .StructDec => |dec| {
             print("declare struct ({s})", .{dec.name});
 

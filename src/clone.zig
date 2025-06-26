@@ -130,7 +130,7 @@ fn cloneParameters(allocator: Allocator, compInfo: *CompInfo, params: []blitzAst
 
 pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.AstNode, replaceGenerics: bool) !blitzAst.AstNode {
     switch (node) {
-        .NoOp => return node,
+        .NoOp, .StructPlaceholder => return node,
         .IndexValue => |index| return .{
             .IndexValue = .{
                 .index = try cloneAstNodePtr(allocator, compInfo, index.index, replaceGenerics),

@@ -353,6 +353,7 @@ const WhileLoopNode = struct {
 
 const AstNodeVariants = enum {
     NoOp,
+    StructPlaceholder,
     Seq,
     VarDec,
     VarSet,
@@ -384,6 +385,7 @@ const AstNodeVariants = enum {
 };
 pub const AstNode = union(AstNodeVariants) {
     NoOp,
+    StructPlaceholder,
     Seq: SeqNode,
     VarDec: VarDecNode,
     VarSet: VarSetNode,
@@ -692,7 +694,7 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
                     current = try compInfo.tokens.take();
                 }
 
-                return try createMut(AstNode, allocator, .NoOp);
+                return try createMut(AstNode, allocator, .StructPlaceholder);
             }
 
             return try parseStruct(allocator, compInfo);

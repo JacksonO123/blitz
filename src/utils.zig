@@ -188,6 +188,10 @@ pub const CompInfo = struct {
         self.allocator.destroy(self.functionsInScope);
     }
 
+    pub fn getScopeDepth(self: Self) usize {
+        return self.variableScopes.scopes.items.len;
+    }
+
     pub fn pushScope(self: *Self, leak: bool) !void {
         const scope = try initMutPtrT(StringHashMap(VariableInfo), self.allocator);
         try self.variableScopes.add(scope, leak);
