@@ -530,18 +530,12 @@ pub fn scanNode(
             defer compInfo.popScope();
             try compInfo.addCaptureScope();
 
+            std.debug.print("scanning: {s}\n", .{name});
             const func = compInfo.getFunctionAsGlobal(name).?;
             const isGeneric = func.generics != null;
 
-            try scanNodeForFunctions(allocator, compInfo, func.body);
-
             const scanRes = try scanFuncBodyAndReturn(allocator, compInfo, func, !isGeneric);
             free.freeStackType(allocator, &scanRes);
-
-            const scope = compInfo.consumeCapture();
-            if (scope) |s| {
-                try applyCapturedValues(allocator, func, s);
-            }
 
             // TODO - replace with function type for anonymous functions sorta thing
             return .Void;
@@ -613,16 +607,12 @@ pub fn scanNode(
             defer compInfo.popScope();
 
             if (func.capturedValues) |captured| {
-                std.debug.print("captured: {d}\n", .{captured.count()});
-
                 var captureIt = captured.iterator();
                 while (captureIt.next()) |item| {
                     const clonedType = try clone.cloneAstTypesPtr(allocator, compInfo, item.value_ptr.*.varType, withGenDef);
-                    std.debug.print("\nsetting: {s}\n", .{item.key_ptr.*});
+                    std.debug.print("setting: {s}\n", .{item.key_ptr.*});
                     try compInfo.setVariableType(item.key_ptr.*, clonedType, true);
                 }
-            } else {
-                std.debug.print("no capture\n", .{});
             }
 
             return try scanFuncBodyAndReturn(allocator, compInfo, func, true);
@@ -711,6 +701,8 @@ pub fn scanNode(
 fn applyCapturedValues(allocator: Allocator, func: *blitzAst.FuncDecNode, scope: *utils.CaptureScope) !void {
     if (func.capturedValues) |captured| {
         utils.freeCaptureScopes(allocator, captured);
+        captured.deinit();
+        allocator.destroy(captured);
     }
 
     func.capturedValues = scope;
@@ -837,7 +829,7 @@ fn matchParamGenericTypes(
     }
 }
 
-fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const blitzAst.FuncDecNode, withGenDef: bool) !blitzAst.AstTypes {
+fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitzAst.FuncDecNode, withGenDef: bool) !blitzAst.AstTypes {
     try compInfo.pushScope(true);
     defer compInfo.popScope();
 
@@ -846,12 +838,19 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const
         try compInfo.setVariableType(param.name, typeClone, false);
     }
 
-    {
-        try compInfo.pushScope(true);
-        defer compInfo.popScope();
-        try scanNodeForFunctions(allocator, compInfo, func.body);
-        const bodyType = try scanNode(allocator, compInfo, func.body, withGenDef);
-        free.freeStackType(allocator, &bodyType);
+    try scanNodeForFunctions(allocator, compInfo, func.body);
+    const bodyType = try scanNode(allocator, compInfo, func.body, withGenDef);
+    free.freeStackType(allocator, &bodyType);
+
+    const scope = compInfo.consumeCapture();
+    if (scope) |s| {
+        std.debug.print("SCOPE\n", .{});
+        var it = s.iterator();
+        while (it.next()) |val| {
+            std.debug.print("({s}) -> ...\n", .{val.key_ptr.*});
+        }
+
+        try applyCapturedValues(allocator, func, s);
     }
 
     switch (func.body.*) {

@@ -471,6 +471,16 @@ pub fn printFuncDec(compInfo: *CompInfo, func: *const blitzAst.FuncDecNode) void
     print(" with params [", .{});
     printParams(compInfo, func.params);
 
+    if (func.capturedValues) |captured| {
+        print("] capturing [", .{});
+        var captureIt = captured.iterator();
+        while (captureIt.next()) |item| {
+            print("({s}: ", .{item.key_ptr.*});
+            printType(compInfo, item.value_ptr.*.varType);
+            print(")", .{});
+        }
+    }
+
     print("] -- body --\n", .{});
     printNode(compInfo, func.body);
     print(" -- body end --\n", .{});

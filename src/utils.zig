@@ -215,6 +215,10 @@ pub const CompInfo = struct {
         self.popScopedFunctionScope();
     }
 
+    pub fn popCaptureScope(self: *Self) void {
+        self.captureScopes.pop(freeCaptureScopes);
+    }
+
     pub fn addCaptureScope(self: *Self) !void {
         try self.variableScopes.addCaptureIndex();
         const newScope = try initMutPtrT(StringHashMap(VariableInfo), self.allocator);
@@ -452,19 +456,21 @@ pub const CompInfo = struct {
         while (scope) |s| {
             if (s.get(name)) |t| {
                 if (capture) {
-                    const clonedType = try clone.cloneAstTypesPtr(self.allocator, self, t.varType, replaceGenerics);
-                    const varInfo = VariableInfo{
-                        .varType = clonedType,
-                        .isConst = t.isConst,
-                    };
                     const captureScope = self.captureScopes.getCurrentScope();
                     if (captureScope) |capScope| {
+                        const clonedType = try clone.cloneAstTypesPtr(self.allocator, self, t.varType, replaceGenerics);
+                        const varInfo = VariableInfo{
+                            .varType = clonedType,
+                            .isConst = t.isConst,
+                        };
+
                         const existing = capScope.get(name);
 
                         if (existing) |exist| {
                             free.freeType(self.allocator, exist.varType);
                         }
 
+                        std.debug.print("saving: {s}\n", .{name});
                         try capScope.put(name, varInfo);
                     }
                 }
@@ -516,7 +522,9 @@ pub const CompInfo = struct {
         defer self.functionsInScope.resetLeakIndex();
 
         while (scope) |s| {
+            std.debug.print("scope contains:\n", .{});
             for (s.items) |item| {
+                std.debug.print("- {s}\n", .{item});
                 if (string.compString(item, name)) return true;
             }
 
@@ -531,7 +539,7 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn getFunction(self: Self, name: []u8) !?*const blitzAst.FuncDecNode {
+    pub fn getFunction(self: Self, name: []u8) !?*blitzAst.FuncDecNode {
         if (!self.functionInScope(name)) {
             return ScanError.FunctionNotInScope;
         }

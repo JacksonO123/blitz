@@ -153,7 +153,7 @@ pub const AstTypes = union(Types) {
     Nullable: *const AstTypes,
     Custom: CustomType,
     Generic: []u8,
-    Function: *const FuncDecNode,
+    Function: *FuncDecNode,
     StaticStructInstance: []u8,
     Error: ErrorAstType,
     ErrorVariant: ErrorVariantType,
@@ -705,6 +705,7 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
         },
         .LBrace => {
             const seq = try parseSequence(allocator, compInfo);
+            try compInfo.tokens.expectToken(.RBrace);
             return try createMut(AstNode, allocator, .{
                 .Scope = seq,
             });

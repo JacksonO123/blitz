@@ -7,3 +7,15 @@ fn thing(b: u32): u32 {
 {
   thing(2);
 }
+
+fn testGen(value: u32): u32 {
+  fn temp(newValue: u32): u32 {
+    return value - newValue;
+  }
+
+  return temp(3);
+}
+
+{
+  testGen(4);
+}

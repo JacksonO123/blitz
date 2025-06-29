@@ -81,7 +81,7 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
             }
 
             return .{
-                .Function = try create(blitzAst.FuncDecNode, allocator, .{
+                .Function = try createMut(blitzAst.FuncDecNode, allocator, .{
                     .generics = clonedGenerics,
                     .name = name,
                     .params = params,
