@@ -43,6 +43,12 @@ pub fn freeFuncDec(allocator: Allocator, func: *const blitzAst.FuncDecNode) void
     freeNode(allocator, func.body);
     freeType(allocator, func.returnType);
 
+    if (func.capturedValues) |captured| {
+        utils.freeCaptureScopes(allocator, captured);
+        captured.deinit();
+        allocator.destroy(captured);
+    }
+
     allocator.destroy(func);
 }
 

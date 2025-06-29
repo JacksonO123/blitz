@@ -274,6 +274,7 @@ pub const FuncDecNode = struct {
     body: *const AstNode,
     bodyTokens: []tokenizer.Token,
     returnType: *const AstTypes,
+    capturedValues: ?*utils.CaptureScope,
 };
 
 const FuncCallNode = struct {
@@ -503,6 +504,10 @@ pub fn parseSequence(allocator: Allocator, compInfo: *CompInfo) (AstError || All
             continue;
         }
 
+        if (peakToken.type == .RBrace) {
+            break;
+        }
+
         const node = try parseStatement(allocator, compInfo);
         if (node == null) break;
 
@@ -657,7 +662,6 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
                 .ReturnNode = value.?,
             });
         },
-        .RBrace => return null,
         .Error => {
             if (!compInfo.preAst) {
                 _ = try compInfo.tokens.take();
@@ -1338,9 +1342,10 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo) !*FuncDecNode {
 
     const index = compInfo.tokens.index;
     const body: *const AstNode = try parseSequence(allocator, compInfo);
-    const endIndex = compInfo.tokens.index - 1;
-
+    const endIndex = compInfo.tokens.index;
     const bodyTokens = compInfo.tokens.tokens[index..endIndex];
+
+    try compInfo.tokens.expectToken(.RBrace);
 
     return try createMut(FuncDecNode, allocator, .{
         .name = nameStr,
@@ -1349,6 +1354,7 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo) !*FuncDecNode {
         .body = body,
         .bodyTokens = bodyTokens,
         .returnType = returnType,
+        .capturedValues = null,
     });
 }
 

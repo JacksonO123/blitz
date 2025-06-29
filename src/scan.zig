@@ -95,7 +95,7 @@ pub const ScanError = error{
 };
 
 pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !void {
-    while (compInfo.variableScopes.count() > 1) compInfo.popScope();
+    while (compInfo.variableScopes.scopes.items.len > 1) compInfo.popScope();
 
     try scanNodeForFunctions(allocator, compInfo, ast.root);
     const nodeType = try scanNode(allocator, compInfo, ast.root, true);
@@ -410,7 +410,7 @@ pub fn scanNode(
             return .Void;
         },
         .VarSet => |set| {
-            const varType = compInfo.getVariableType(set.variable);
+            const varType = try compInfo.getVariableType(set.variable, withGenDef);
             if (varType == null) return ScanError.VariableIsUndefined;
             if (varType.?.isConst) return ScanError.AssigningToConstVariable;
 
@@ -435,12 +435,13 @@ pub fn scanNode(
                 };
             }
 
-            const varType = compInfo.getVariableType(v);
+            const varType = try compInfo.getVariableType(v, withGenDef);
 
             if (varType) |t| {
                 return try clone.cloneAstTypes(allocator, compInfo, t.varType.*, false);
             }
 
+            std.debug.print("undefined: {s}\n", .{v});
             return ScanError.VariableIsUndefined;
         },
         .StructPlaceholder => {
@@ -527,6 +528,7 @@ pub fn scanNode(
         .FuncDec => |name| {
             try compInfo.pushScope(true);
             defer compInfo.popScope();
+            try compInfo.addCaptureScope();
 
             const func = compInfo.getFunctionAsGlobal(name).?;
             const isGeneric = func.generics != null;
@@ -535,6 +537,9 @@ pub fn scanNode(
 
             const scanRes = try scanFuncBodyAndReturn(allocator, compInfo, func, !isGeneric);
             free.freeStackType(allocator, &scanRes);
+
+            // const scope = compInfo.consumeCapture();
+            // applyCapturedValues(allocator, func, scope);
 
             // TODO - replace with function type for anonymous functions sorta thing
             return .Void;
@@ -688,6 +693,14 @@ pub fn scanNode(
     }
 }
 
+fn applyCapturedValues(allocator: Allocator, func: *const blitzAst.FuncDecNode, scope: utils.CaptureScope) !void {
+    if (func.capturedValues) |captured| {
+        utils.freeCaptureScopes(allocator, &captured);
+    }
+
+    func.capturedValues = scope;
+}
+
 fn scanIfFallback(allocator: Allocator, compInfo: *CompInfo, fallback: *const blitzAst.IfFallback, withGenDef: bool) !void {
     if (fallback.condition == null and fallback.fallback != null) {
         const nextFallback = fallback.fallback.?;
@@ -837,7 +850,6 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *const
             }
 
             const last = seq.nodes[seq.nodes.len - 1];
-
             const lastType = try scanNode(allocator, compInfo, last, withGenDef);
             defer free.freeStackType(allocator, &lastType);
 

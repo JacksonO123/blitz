@@ -75,6 +75,11 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
             const returnType = try cloneAstTypesPtr(allocator, compInfo, func.returnType, replaceGenerics);
             const bodyPtr = try cloneAstNodePtr(allocator, compInfo, func.body, replaceGenerics);
 
+            var capturedValues: ?*utils.CaptureScope = null;
+            if (func.capturedValues) |values| {
+                capturedValues = try cloneCaptureScope(allocator, values);
+            }
+
             return .{
                 .Function = try create(blitzAst.FuncDecNode, allocator, .{
                     .generics = clonedGenerics,
@@ -83,6 +88,7 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
                     .returnType = returnType,
                     .body = bodyPtr,
                     .bodyTokens = func.bodyTokens,
+                    .capturedValues = capturedValues,
                 }),
             };
         },
@@ -109,6 +115,15 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
             };
         },
     }
+}
+
+fn cloneCaptureScope(allocator: Allocator, scope: *const utils.CaptureScope) !*utils.CaptureScope {
+    const newScope = try utils.initMutPtrT(utils.CaptureScope, allocator);
+    var keyIt = scope.iterator();
+    while (keyIt.next()) |item| {
+        try newScope.put(item.key_ptr.*, item.value_ptr.*);
+    }
+    return newScope;
 }
 
 fn cloneParameters(allocator: Allocator, compInfo: *CompInfo, params: []blitzAst.Parameter, replaceGenerics: bool) ![]blitzAst.Parameter {
@@ -516,6 +531,11 @@ pub fn cloneFuncDec(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.Fu
         generics = try cloneGenerics(allocator, compInfo, decGenerics, replaceGenerics);
     }
 
+    var capturedValues: ?*utils.CaptureScope = null;
+    if (dec.capturedValues) |values| {
+        capturedValues = try cloneCaptureScope(allocator, values);
+    }
+
     return try createMut(blitzAst.FuncDecNode, allocator, .{
         .body = bodyPtr,
         .bodyTokens = dec.bodyTokens,
@@ -523,6 +543,7 @@ pub fn cloneFuncDec(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.Fu
         .params = params,
         .generics = generics,
         .returnType = returnType,
+        .capturedValues = capturedValues,
     });
 }
 
