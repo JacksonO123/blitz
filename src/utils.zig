@@ -54,7 +54,7 @@ pub const CompInfo = struct {
     variableScopes: *ScopeUtil(*VarScope),
     captureScopes: *ScopeUtil(*CaptureScope),
     // how many scopes up the current scope has access
-    functions: *StringHashMap(*const blitzAst.FuncDecNode),
+    functions: *StringHashMap(*blitzAst.FuncDecNode),
     functionsInScope: *ScopeUtil(*ArrayList([]u8)),
     structDecs: *StringHashMap(*blitzAst.StructDecNode),
     errorDecs: *StringHashMap(*const blitzAst.ErrorDecNode),
@@ -83,7 +83,7 @@ pub const CompInfo = struct {
 
         const currentStructs = try initMutPtrT(ArrayList([]u8), allocator);
         const distFromStructMethod = try initMutPtrT(ArrayList(u32), allocator);
-        const functions = try initMutPtrT(StringHashMap(*const blitzAst.FuncDecNode), allocator);
+        const functions = try initMutPtrT(StringHashMap(*blitzAst.FuncDecNode), allocator);
         const structs = try initMutPtrT(StringHashMap(*blitzAst.StructDecNode), allocator);
 
         const errors = try initMutPtrT(StringHashMap(*const blitzAst.ErrorDecNode), allocator);
@@ -217,10 +217,12 @@ pub const CompInfo = struct {
 
     pub fn addCaptureScope(self: *Self) !void {
         try self.variableScopes.addCaptureIndex();
+        const newScope = try initMutPtrT(StringHashMap(VariableInfo), self.allocator);
+        try self.captureScopes.add(newScope, false);
     }
 
-    pub fn consumeCapture(self: *Self) CaptureScope {
-        return self.captureIndexes.release();
+    pub fn consumeCapture(self: *Self) ?*CaptureScope {
+        return self.captureScopes.release();
     }
 
     pub fn pushScopedFunctionScope(self: *Self, leak: bool) !void {
@@ -423,7 +425,7 @@ pub const CompInfo = struct {
         _ = self.availableGenerics.pop();
     }
 
-    pub fn setVariableType(self: *Self, name: []u8, astType: *const blitzAst.AstTypes, isConst: bool) !void {
+    pub fn setVariableType(self: *Self, name: []const u8, astType: *const blitzAst.AstTypes, isConst: bool) !void {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
@@ -443,24 +445,29 @@ pub const CompInfo = struct {
     }
 
     pub fn getVariableType(self: *Self, name: []u8, replaceGenerics: bool) !?VariableInfo {
-        _ = replaceGenerics;
         var scope: ?*VarScope = self.variableScopes.getCurrentScope();
         defer self.variableScopes.resetLeakIndex();
         var capture = false;
 
         while (scope) |s| {
             if (s.get(name)) |t| {
-                // if (capture) {
-                //     const clonedType = try clone.cloneAstTypesPtr(self.allocator, self, t.varType, replaceGenerics);
-                //     const varInfo = VariableInfo{
-                //         .varType = clonedType,
-                //         .isConst = t.isConst,
-                //     };
-                //     const captureScope = self.captureScopes.getCurrentScope();
-                //     if (captureScope) |capScope| {
-                //         try capScope.put(name, varInfo);
-                //     }
-                // }
+                if (capture) {
+                    const clonedType = try clone.cloneAstTypesPtr(self.allocator, self, t.varType, replaceGenerics);
+                    const varInfo = VariableInfo{
+                        .varType = clonedType,
+                        .isConst = t.isConst,
+                    };
+                    const captureScope = self.captureScopes.getCurrentScope();
+                    if (captureScope) |capScope| {
+                        const existing = capScope.get(name);
+
+                        if (existing) |exist| {
+                            free.freeType(self.allocator, exist.varType);
+                        }
+
+                        try capScope.put(name, varInfo);
+                    }
+                }
 
                 return t;
             }
@@ -500,7 +507,7 @@ pub const CompInfo = struct {
         self.allocator.destroy(scope);
     }
 
-    pub fn addFunction(self: *Self, name: []u8, dec: *const blitzAst.FuncDecNode) !void {
+    pub fn addFunction(self: *Self, name: []u8, dec: *blitzAst.FuncDecNode) !void {
         try self.functions.put(name, dec);
     }
 
@@ -532,7 +539,7 @@ pub const CompInfo = struct {
         return self.getFunctionAsGlobal(name);
     }
 
-    pub fn getFunctionAsGlobal(self: Self, name: []u8) ?*const blitzAst.FuncDecNode {
+    pub fn getFunctionAsGlobal(self: Self, name: []u8) ?*blitzAst.FuncDecNode {
         return self.functions.get(name);
     }
 
@@ -810,7 +817,6 @@ fn ScopeUtil(comptime T: type) type {
             self.current = self.scopes.items.len;
         }
 
-        /// NOTE - use at your own risk, may introduce state without base scope
         pub fn release(self: *Self) ?T {
             if (self.scopes.items.len == 0) return null;
 
