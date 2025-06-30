@@ -441,7 +441,6 @@ pub fn scanNode(
                 return try clone.cloneAstTypes(allocator, compInfo, t.varType.*, false);
             }
 
-            std.debug.print("undefined: {s}\n", .{v});
             return ScanError.VariableIsUndefined;
         },
         .StructPlaceholder => {
@@ -530,7 +529,6 @@ pub fn scanNode(
             defer compInfo.popScope();
             try compInfo.addCaptureScope();
 
-            std.debug.print("scanning: {s}\n", .{name});
             const func = compInfo.getFunctionAsGlobal(name).?;
             const isGeneric = func.generics != null;
 
@@ -610,7 +608,6 @@ pub fn scanNode(
                 var captureIt = captured.iterator();
                 while (captureIt.next()) |item| {
                     const clonedType = try clone.cloneAstTypesPtr(allocator, compInfo, item.value_ptr.*.varType, withGenDef);
-                    std.debug.print("setting: {s}\n", .{item.key_ptr.*});
                     try compInfo.setVariableType(item.key_ptr.*, clonedType, true);
                 }
             }
@@ -700,7 +697,7 @@ pub fn scanNode(
 
 fn applyCapturedValues(allocator: Allocator, func: *blitzAst.FuncDecNode, scope: *utils.CaptureScope) !void {
     if (func.capturedValues) |captured| {
-        utils.freeCaptureScopes(allocator, captured);
+        utils.freeVariableCaptures(allocator, captured);
         captured.deinit();
         allocator.destroy(captured);
     }
@@ -844,11 +841,11 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitz
 
     const scope = compInfo.consumeCapture();
     if (scope) |s| {
-        std.debug.print("SCOPE\n", .{});
-        var it = s.iterator();
-        while (it.next()) |val| {
-            std.debug.print("({s}) -> ...\n", .{val.key_ptr.*});
-        }
+        // std.debug.print("SCOPE\n", .{});
+        // var it = s.iterator();
+        // while (it.next()) |val| {
+        //     std.debug.print("({s}) -> ...\n", .{val.key_ptr.*});
+        // }
 
         try applyCapturedValues(allocator, func, s);
     }
@@ -864,10 +861,11 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitz
             }
 
             const last = seq.nodes[seq.nodes.len - 1];
-            const lastType = try scanNode(allocator, compInfo, last, withGenDef);
-            defer free.freeStackType(allocator, &lastType);
 
             if (last.* == .ReturnNode or func.returnType.* != .Void) {
+                const lastType = try scanNode(allocator, compInfo, last, withGenDef);
+                defer free.freeStackType(allocator, &lastType);
+
                 if (!try matchTypes(allocator, compInfo, func.returnType.*, lastType, withGenDef)) {
                     return ScanError.FunctionReturnTypeMismatch;
                 }

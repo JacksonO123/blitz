@@ -8,7 +8,7 @@ fn thing(b: u32): u32 {
   thing(2);
 }
 
-fn testGen(value: u32): u32 {
+fn testCapture(value: u32): u32 {
   fn temp(newValue: u32): u32 {
     return value - newValue;
   }
@@ -17,5 +17,5 @@ fn testGen(value: u32): u32 {
 }
 
 {
-  testGen(4);
+  testCapture(4);
 }

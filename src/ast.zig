@@ -1659,7 +1659,6 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
     if (next.type == .LBracket) {
         _ = try compInfo.tokens.take();
         next = try compInfo.tokens.peak();
-        printToken(next);
 
         if (next.type == .RBracket) {
             _ = try compInfo.tokens.take();
