@@ -1,7 +1,7 @@
 #! /usr/bin/env bash
 
-INPUT_DIR="examples"
-# INPUT_DIR="input"
+# INPUT_DIR="examples"
+INPUT_DIR="input"
 
 function run() {
   zig run src/compiler.zig -- "$1"
@@ -30,7 +30,7 @@ function run_log() {
   fi
 
   if [[ "$log" == true ]]; then
-    run "$INPUT_DIR/$filename.blitz" 2>./logs/"$filename.txt"
+    run "$INPUT_DIR/$filename.blitz" 2>"./logs/$filename.txt"
   else
     run "$filename"
   fi

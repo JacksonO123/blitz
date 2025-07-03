@@ -471,13 +471,7 @@ pub const CompInfo = struct {
             self.availableGenerics.scopes.items[0].clearRetainingCapacity();
         }
 
-        const genScope = self.availableGenerics.getCurrentScope();
-
-        if (genScope) |s| {
-            s.deinit();
-            self.allocator.destroy(s);
-            _ = self.availableGenerics.pop(freeAvailableGenerics);
-        }
+        _ = self.availableGenerics.pop(freeAvailableGenerics);
     }
 
     pub fn setVariableType(self: *Self, name: []const u8, astType: *const blitzAst.AstTypes, isConst: bool) !void {
@@ -962,5 +956,6 @@ fn freeGenericScope(allocator: Allocator, scope: *TypeScope) void {
 
 fn freeAvailableGenerics(allocator: Allocator, scope: *AvailableGenScope) void {
     _ = allocator;
-    scope.deinit();
+    _ = scope;
+    // no operation needed
 }

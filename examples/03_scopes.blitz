@@ -9,20 +9,12 @@ fn thing(b: u32): u32 {
 }
 
 fn [T] testCapture(value: T): T {
-  fn temp(newValue: T): T {
-    return newValue + 0.5;
+  fn [G] temp(newValue: G): G {
+    return newValue + value;
   }
 
-  return temp(3);
+  return temp(value);
 }
-
-// fn testCapture(value: u32): u32 {
-//   fn temp(newValue: u32): u32 {
-//     return value + newValue;
-//   }
-// 
-//   return temp(5);
-// }
 
 {
   testCapture(4);

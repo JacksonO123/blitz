@@ -563,7 +563,7 @@ pub fn scanNode(
             return .Void;
         },
         .FuncCall => |call| {
-            try compInfo.pushGenScope(false);
+            try compInfo.pushGenScope(true);
             defer compInfo.popGenScope();
 
             const dec = try scanNode(allocator, compInfo, call.func, withGenDef);
@@ -644,7 +644,7 @@ pub fn scanNode(
                 }
             }
 
-            return try scanFuncBodyAndReturn(allocator, compInfo, func, true);
+            return try scanFuncBodyAndReturn(allocator, compInfo, func, withGenDef);
         },
         .StructInit => |init| {
             try compInfo.pushGenScope(true);
@@ -885,6 +885,7 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitz
     if (scope) |s| {
         try applyVariableCaptures(allocator, func, s);
     }
+
     const genScope = compInfo.consumeGenericCaptures();
     if (genScope) |s| {
         try applyGenericCaptures(allocator, func, s);
