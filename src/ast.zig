@@ -275,6 +275,7 @@ pub const FuncDecNode = struct {
     bodyTokens: []tokenizer.Token,
     returnType: *const AstTypes,
     capturedValues: ?*utils.CaptureScope,
+    capturedTypes: ?*utils.TypeScope,
 };
 
 const FuncCallNode = struct {
@@ -546,7 +547,7 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
             });
         },
         .Fn => {
-            try compInfo.pushRegGenScope();
+            try compInfo.pushRegGenScope(true);
             defer compInfo.popRegGenScope();
 
             const func = try parseFuncDef(allocator, compInfo);
@@ -1356,6 +1357,7 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo) !*FuncDecNode {
         .bodyTokens = bodyTokens,
         .returnType = returnType,
         .capturedValues = null,
+        .capturedTypes = null,
     });
 }
 

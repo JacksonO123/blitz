@@ -54,7 +54,7 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
         },
         .Generic => |generic| {
             if (replaceGenerics) {
-                const genType = compInfo.getGeneric(generic);
+                const genType = try compInfo.getGeneric(generic);
                 if (genType) |gType| return cloneAstTypes(allocator, compInfo, gType.*, replaceGenerics);
                 return CloneError.GenericNotFound;
             }
@@ -80,6 +80,11 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
                 capturedValues = try cloneCaptureScope(allocator, values);
             }
 
+            var capturedTypes: ?*utils.TypeScope = null;
+            if (func.capturedTypes) |captured| {
+                capturedTypes = try cloneGenericScope(allocator, captured);
+            }
+
             return .{
                 .Function = try createMut(blitzAst.FuncDecNode, allocator, .{
                     .generics = clonedGenerics,
@@ -89,6 +94,7 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
                     .body = bodyPtr,
                     .bodyTokens = func.bodyTokens,
                     .capturedValues = capturedValues,
+                    .capturedTypes = capturedTypes,
                 }),
             };
         },
@@ -119,8 +125,17 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
 
 fn cloneCaptureScope(allocator: Allocator, scope: *const utils.CaptureScope) !*utils.CaptureScope {
     const newScope = try utils.initMutPtrT(utils.CaptureScope, allocator);
-    var keyIt = scope.iterator();
-    while (keyIt.next()) |item| {
+    var it = scope.iterator();
+    while (it.next()) |item| {
+        try newScope.put(item.key_ptr.*, item.value_ptr.*);
+    }
+    return newScope;
+}
+
+fn cloneGenericScope(allocator: Allocator, scope: *const utils.TypeScope) !*utils.TypeScope {
+    const newScope = try utils.initMutPtrT(utils.TypeScope, allocator);
+    var it = scope.iterator();
+    while (it.next()) |item| {
         try newScope.put(item.key_ptr.*, item.value_ptr.*);
     }
     return newScope;
@@ -536,6 +551,11 @@ pub fn cloneFuncDec(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.Fu
         capturedValues = try cloneCaptureScope(allocator, values);
     }
 
+    var capturedTypes: ?*utils.TypeScope = null;
+    if (dec.capturedTypes) |captured| {
+        capturedTypes = try cloneGenericScope(allocator, captured);
+    }
+
     return try createMut(blitzAst.FuncDecNode, allocator, .{
         .body = bodyPtr,
         .bodyTokens = dec.bodyTokens,
@@ -544,6 +564,7 @@ pub fn cloneFuncDec(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.Fu
         .generics = generics,
         .returnType = returnType,
         .capturedValues = capturedValues,
+        .capturedTypes = capturedTypes,
     });
 }
 

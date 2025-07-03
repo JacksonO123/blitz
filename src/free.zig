@@ -49,6 +49,12 @@ pub fn freeFuncDec(allocator: Allocator, func: *const blitzAst.FuncDecNode) void
         allocator.destroy(captured);
     }
 
+    if (func.capturedTypes) |captured| {
+        utils.freeGenericCaptures(allocator, captured);
+        captured.deinit();
+        allocator.destroy(captured);
+    }
+
     allocator.destroy(func);
 }
 

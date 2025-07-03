@@ -72,6 +72,7 @@ pub const ScanError = error{
 
     // operations
     MathOpOnNonNumberType,
+    MathOpTypeMismatch,
     ExpectedBoolInBoolOp,
     InvalidBitOperation,
     BitMaskWithMismatchingSize,
@@ -221,9 +222,28 @@ pub fn scanNode(
                     return .Bool;
                 },
                 .Add, .Sub, .Mult, .Div => {
-                    if (left != .Number or right != .Number) {
-                        return ScanError.MathOpOnNonNumberType;
+                    if (left == .Generic) {
+                        if (right != .Number and right != .Generic) {
+                            return ScanError.MathOpOnNonNumberType;
+                        }
+
+                        if (try matchTypes(allocator, compInfo, left, right, withGenDef)) {
+                            return clone.cloneAstTypes(allocator, compInfo, right, withGenDef);
+                        } else {
+                            return ScanError.MathOpTypeMismatch;
+                        }
+                    } else if (right == .Generic) {
+                        if (left != .Number and left != .Generic) {
+                            return ScanError.MathOpOnNonNumberType;
+                        }
+
+                        if (try matchTypes(allocator, compInfo, left, right, withGenDef)) {
+                            return clone.cloneAstTypes(allocator, compInfo, left, withGenDef);
+                        } else {
+                            return ScanError.MathOpTypeMismatch;
+                        }
                     }
+
                     if (@intFromEnum(left.Number) != @intFromEnum(right.Number)) {
                         return ScanError.NumberTypeMismatch;
                     }
@@ -452,7 +472,7 @@ pub fn scanNode(
             return .Void;
         },
         .StructDec => |dec| {
-            try compInfo.pushRegGenScope();
+            try compInfo.pushRegGenScope(false);
             try compInfo.addCurrentStruct(dec.name);
             defer _ = compInfo.popCurrentStruct();
             defer compInfo.popRegGenScope();
@@ -527,12 +547,16 @@ pub fn scanNode(
         .FuncDec => |name| {
             try compInfo.pushScope(true);
             defer compInfo.popScope();
+            try compInfo.pushGenScope(true);
+            defer compInfo.popGenScope();
+
             try compInfo.addCaptureScope();
+            defer compInfo.popCaptureScope();
+            try compInfo.addGenericCaptureScope();
+            defer compInfo.popGenericCaptureScope();
 
             const func = compInfo.getFunctionAsGlobal(name).?;
-            const isGeneric = func.generics != null;
-
-            const scanRes = try scanFuncBodyAndReturn(allocator, compInfo, func, !isGeneric);
+            const scanRes = try scanFuncBodyAndReturn(allocator, compInfo, func, false);
             free.freeStackType(allocator, &scanRes);
 
             // TODO - replace with function type for anonymous functions sorta thing
@@ -577,7 +601,7 @@ pub fn scanNode(
                     .Generic => |generic| {
                         const typePtr = try create(blitzAst.AstTypes, allocator, paramTypes[index]);
 
-                        if (compInfo.getGeneric(generic)) |gen| {
+                        if (try compInfo.getGeneric(generic)) |gen| {
                             if (!(try matchTypes(allocator, compInfo, paramTypes[index], gen.*, false))) {
                                 return ScanError.GenericRestrictionConflict;
                             }
@@ -609,6 +633,14 @@ pub fn scanNode(
                 while (captureIt.next()) |item| {
                     const clonedType = try clone.cloneAstTypesPtr(allocator, compInfo, item.value_ptr.*.varType, withGenDef);
                     try compInfo.setVariableType(item.key_ptr.*, clonedType, true);
+                }
+            }
+
+            if (func.capturedTypes) |captured| {
+                var captureIt = captured.iterator();
+                while (captureIt.next()) |item| {
+                    const clonedType = try clone.cloneAstTypesPtr(allocator, compInfo, item.value_ptr.*, withGenDef);
+                    try compInfo.setGeneric(item.key_ptr.*, clonedType);
                 }
             }
 
@@ -695,7 +727,7 @@ pub fn scanNode(
     }
 }
 
-fn applyCapturedValues(allocator: Allocator, func: *blitzAst.FuncDecNode, scope: *utils.CaptureScope) !void {
+fn applyVariableCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scope: *utils.CaptureScope) !void {
     if (func.capturedValues) |captured| {
         utils.freeVariableCaptures(allocator, captured);
         captured.deinit();
@@ -703,6 +735,16 @@ fn applyCapturedValues(allocator: Allocator, func: *blitzAst.FuncDecNode, scope:
     }
 
     func.capturedValues = scope;
+}
+
+fn applyGenericCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scope: *utils.TypeScope) !void {
+    if (func.capturedTypes) |captured| {
+        utils.freeGenericCaptures(allocator, captured);
+        captured.deinit();
+        allocator.destroy(captured);
+    }
+
+    func.capturedTypes = scope;
 }
 
 fn scanIfFallback(allocator: Allocator, compInfo: *CompInfo, fallback: *const blitzAst.IfFallback, withGenDef: bool) !void {
@@ -806,7 +848,7 @@ fn matchParamGenericTypes(
                     .Generic => |generic| {
                         const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, paramGen, false);
 
-                        const genType = compInfo.getGeneric(generic);
+                        const genType = try compInfo.getGeneric(generic);
                         if (genType) |t| {
                             if (!(try matchTypes(allocator, compInfo, t.*, typeClone.*, true))) {
                                 return ScanError.ConflictingGenericParameters;
@@ -839,15 +881,13 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitz
     const bodyType = try scanNode(allocator, compInfo, func.body, withGenDef);
     free.freeStackType(allocator, &bodyType);
 
-    const scope = compInfo.consumeCapture();
+    const scope = compInfo.consumeVariableCaptures();
     if (scope) |s| {
-        // std.debug.print("SCOPE\n", .{});
-        // var it = s.iterator();
-        // while (it.next()) |val| {
-        //     std.debug.print("({s}) -> ...\n", .{val.key_ptr.*});
-        // }
-
-        try applyCapturedValues(allocator, func, s);
+        try applyVariableCaptures(allocator, func, s);
+    }
+    const genScope = compInfo.consumeGenericCaptures();
+    if (genScope) |s| {
+        try applyGenericCaptures(allocator, func, s);
     }
 
     switch (func.body.*) {
@@ -1030,12 +1070,12 @@ fn matchTypes(
 ) !bool {
     if (type1 == .Generic and type2 == .Generic) {
         if (withGenDef) {
-            const genType1 = compInfo.getGeneric(type1.Generic).?;
+            const genType1 = (try compInfo.getGeneric(type1.Generic)).?;
             if (genType1.* == .Generic and string.compString(type1.Generic, genType1.Generic)) {
                 return ScanError.UnexpectedRecursiveGeneric;
             }
 
-            const genType2 = compInfo.getGeneric(type2.Generic).?;
+            const genType2 = (try compInfo.getGeneric(type2.Generic)).?;
             if (genType2.* == .Generic and string.compString(type2.Generic, genType2.Generic)) {
                 return ScanError.UnexpectedRecursiveGeneric;
             }
@@ -1049,7 +1089,7 @@ fn matchTypes(
     if (type1 == .Generic) {
         if (!withGenDef) return true;
 
-        const genType = compInfo.getGeneric(type1.Generic);
+        const genType = try compInfo.getGeneric(type1.Generic);
         if (genType) |gType| {
             if (gType.* == .Generic and string.compString(gType.Generic, type1.Generic)) {
                 return ScanError.UnexpectedRecursiveGeneric;
@@ -1064,7 +1104,7 @@ fn matchTypes(
     if (type2 == .Generic) {
         if (!withGenDef) return true;
 
-        const genType = compInfo.getGeneric(type2.Generic);
+        const genType = try compInfo.getGeneric(type2.Generic);
         if (genType) |gType| {
             if (gType.* == .Generic and string.compString(gType.Generic, type2.Generic)) {
                 return ScanError.UnexpectedRecursiveGeneric;
