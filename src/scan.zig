@@ -222,8 +222,8 @@ pub fn scanNode(
                     return .Bool;
                 },
                 .Add, .Sub, .Mult, .Div => {
-                    if (left == .Generic) {
-                        if (right != .Number and right != .Generic) {
+                    if (left == .Generic or left == .Any) {
+                        if (right != .Number and right != .Generic and right != .Any) {
                             return ScanError.MathOpOnNonNumberType;
                         }
 
@@ -232,8 +232,8 @@ pub fn scanNode(
                         } else {
                             return ScanError.MathOpTypeMismatch;
                         }
-                    } else if (right == .Generic) {
-                        if (left != .Number and left != .Generic) {
+                    } else if (right == .Generic or right == .Any) {
+                        if (left != .Number and left != .Generic and left != .Any) {
                             return ScanError.MathOpOnNonNumberType;
                         }
 
@@ -314,6 +314,7 @@ pub fn scanNode(
             defer free.freeStackType(allocator, &res);
 
             const valid = switch (res) {
+                .Generic => return .Any,
                 .DynamicArray => builtins.validateDynamicArrayProps(access.property),
                 .StaticArray => builtins.validateStaticArrayProps(access.property),
                 .String => builtins.validateStringProps(access.property),
@@ -1069,6 +1070,8 @@ fn matchTypes(
     type2: blitzAst.AstTypes,
     withGenDef: bool,
 ) !bool {
+    if (type1 == .Any or type2 == .Any) return true;
+
     if (type1 == .Generic and type2 == .Generic) {
         if (withGenDef) {
             const genType1 = (try compInfo.getGeneric(type1.Generic)).?;

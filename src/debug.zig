@@ -26,21 +26,12 @@ pub fn printHoistedNames(names: blitzAst.HoistedNames) void {
 
 pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
     return switch (typeNode.*) {
-        .Null => {
-            print("null", .{});
-        },
-        .Void => {
-            print("void", .{});
-        },
-        .String => {
-            print("string", .{});
-        },
-        .Char => {
-            print("char", .{});
-        },
-        .Bool => {
-            print("bool", .{});
-        },
+        .Any => print("any", .{}),
+        .Null => print("null", .{}),
+        .Void => print("void", .{}),
+        .String => print("string", .{}),
+        .Char => print("char", .{}),
+        .Bool => print("bool", .{}),
         .DynamicArray => |arr| {
             print("DynamicArray<", .{});
             printType(compInfo, arr);

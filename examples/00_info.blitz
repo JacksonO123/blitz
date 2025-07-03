@@ -1,0 +1,18 @@
+// blitz is both an interpreted and statically compiled language
+// this is so it can be embedded or used in a higher performance
+// context
+
+// depending on the compiler type, certain features may be enabled
+// or disabled
+// interpreter disabled features: pointers
+// the compiler will automatically handle references for you in an
+// efficient way, use pointers when you feel like it i guess
+
+// misc features
+
+// scopes are defined anywhere with {, and } tokens
+// scopes can be defined wherever by using { }
+
+{
+  // some code in a new scope
+}
