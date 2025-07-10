@@ -6,10 +6,10 @@ const string = blitz.string;
 const free = blitz.free;
 const scanner = blitz.scanner;
 const clone = blitz.clone;
-const Logger = blitz.logger.Logger;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
+const Logger = blitz.logger.Logger;
 const AstError = blitzAst.AstError;
 const ScanError = scanner.ScanError;
 
@@ -44,6 +44,11 @@ const AvailableGenScope = ArrayList([]u8);
 pub const TypeScope = StringHashMap(*const blitzAst.AstTypes);
 const VarScope = StringHashMap(VariableInfo);
 pub const CaptureScope = StringHashMap(VariableInfo);
+pub const ReturnInfo = struct {
+    retType: ?*const blitzAst.AstTypes,
+    inFunction: bool,
+    exhaustive: bool,
+};
 
 pub const CompInfo = struct {
     const Self = @This();
@@ -73,6 +78,7 @@ pub const CompInfo = struct {
         allowErrorWithoutVariants: bool,
         allowStaticStructInstance: bool,
     },
+    returnInfo: *ReturnInfo,
 
     pub fn init(allocator: Allocator, tokens: []tokenizer.Token, names: blitzAst.HoistedNames, code: []const u8) !Self {
         const loggerUtil = try allocator.create(Logger);
@@ -116,6 +122,12 @@ pub const CompInfo = struct {
         const genericCaptures = try createMut(ScopeUtil(*TypeScope), allocator, genericCapturesUtil);
         try genericCaptures.add(genericCaptureBase, false);
 
+        const returnInfo = try createMut(ReturnInfo, allocator, .{
+            .retType = null,
+            .inFunction = false,
+            .exhaustive = true,
+        });
+
         return Self{
             .allocator = allocator,
             .structNames = names.structNames,
@@ -139,6 +151,7 @@ pub const CompInfo = struct {
                 .allowErrorWithoutVariants = false,
                 .allowStaticStructInstance = false,
             },
+            .returnInfo = returnInfo,
         };
     }
 
@@ -166,6 +179,11 @@ pub const CompInfo = struct {
         for (self.currentStructs.items) |item| {
             self.allocator.free(item);
         }
+
+        if (self.returnInfo.retType) |retType| {
+            free.freeType(self.allocator, retType);
+        }
+        self.allocator.destroy(self.returnInfo);
 
         self.availableGenerics.deinit(freeAvailableGenerics);
         self.allocator.destroy(self.availableGenerics);
@@ -264,6 +282,53 @@ pub const CompInfo = struct {
         if (scope) |s| {
             try s.append(name);
         }
+    }
+
+    pub fn newRetInfo(self: *Self) !*ReturnInfo {
+        const oldRetInfo = self.returnInfo;
+        self.returnInfo = try createMut(ReturnInfo, self.allocator, .{
+            .retType = null,
+            .inFunction = true,
+            .exhaustive = true,
+        });
+        return oldRetInfo;
+    }
+
+    pub fn swapFreeRetInfo(self: *Self, oldRetInfo: *ReturnInfo) void {
+        if (self.returnInfo.retType) |retType| {
+            free.freeType(self.allocator, retType);
+        }
+        self.allocator.destroy(self.returnInfo);
+        self.returnInfo = oldRetInfo;
+    }
+
+    /// IMPORTANT - invalidates prev
+    pub fn collapseReturnInfo(self: *Self, prev: *ReturnInfo, withGenDef: bool) !void {
+        if (prev.retType) |retType| {
+            if (self.returnInfo.retType) |firstRetType| {
+                if (!(try scanner.matchTypes(self.allocator, self, retType.*, firstRetType.*, withGenDef))) {
+                    return ScanError.FunctionReturnsHaveDifferentTypes;
+                }
+
+                free.freeType(self.allocator, retType);
+            } else {
+                self.returnInfo.retType = retType;
+            }
+        }
+
+        self.allocator.destroy(prev);
+        std.debug.print("{} and {}\n", .{ self.returnInfo.exhaustive, prev.exhaustive });
+        self.returnInfo.exhaustive = self.returnInfo.exhaustive and prev.exhaustive;
+    }
+
+    pub fn setInFunction(self: *Self, inFunction: bool) bool {
+        const prev = self.returnInfo.inFunction;
+        self.returnInfo.inFunction = inFunction;
+        return prev;
+    }
+
+    pub fn revertInFunction(self: *Self, inFunction: bool) void {
+        self.returnInfo.inFunction = inFunction;
     }
 
     pub fn prepareForAst(self: *Self) !void {

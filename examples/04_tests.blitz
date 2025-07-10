@@ -1,0 +1,9 @@
+fn testing(input: bool): bool {
+  if (input) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+const a = testing(false);

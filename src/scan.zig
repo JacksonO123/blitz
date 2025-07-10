@@ -18,6 +18,11 @@ const printNode = debug.printNode;
 const printType = debug.printType;
 const printGenerics = debug.printGenerics;
 
+pub const RetNodeInfo = struct {
+    node: *const blitzAst.AstNode,
+    conditional: bool,
+};
+
 pub const ScanError = error{
     // misc
     InvalidCast,
@@ -55,6 +60,10 @@ pub const ScanError = error{
     CannotCallNonFunctionNode,
     VariableIsUndefined,
     FunctionNotInScope,
+    FunctionReturnsHaveDifferentTypes,
+    FunctionReturnIsNotExhaustive,
+    FunctionMissingReturn,
+    UnexpectedReturnStatement,
 
     // structs
     StructInitGenericCountMismatch,
@@ -282,10 +291,28 @@ pub fn scanNode(
         .IncOne,
         .DecOne,
         .Group,
-        .ReturnNode,
         => |val| {
             const valType = try scanNode(allocator, compInfo, val, withGenDef);
             defer free.freeStackType(allocator, &valType);
+            return try clone.cloneAstTypes(allocator, compInfo, valType, withGenDef);
+        },
+        .ReturnNode => |ret| {
+            if (!compInfo.returnInfo.inFunction) {
+                return ScanError.UnexpectedReturnStatement;
+            }
+
+            const valType = try scanNode(allocator, compInfo, ret, withGenDef);
+
+            if (compInfo.returnInfo.retType) |retType| {
+                if (!(try matchTypes(allocator, compInfo, retType.*, valType, withGenDef))) {
+                    return ScanError.FunctionReturnsHaveDifferentTypes;
+                }
+                free.freeStackType(allocator, &valType);
+            } else {
+                const typePtr = try create(blitzAst.AstTypes, allocator, valType);
+                compInfo.returnInfo.retType = typePtr;
+            }
+
             return try clone.cloneAstTypes(allocator, compInfo, valType, withGenDef);
         },
         .FuncReference => |ref| {
@@ -496,6 +523,7 @@ pub fn scanNode(
             try compInfo.pushScope(true);
             defer compInfo.popScope();
             try scanNodeForFunctions(allocator, compInfo, statement.body);
+            const prev = try compInfo.newRetInfo();
 
             const conditionType = try scanNode(allocator, compInfo, statement.condition, withGenDef);
             defer free.freeStackType(allocator, &conditionType);
@@ -505,8 +533,17 @@ pub fn scanNode(
             defer free.freeStackType(allocator, &body);
 
             if (statement.fallback) |fallback| {
+                if (compInfo.returnInfo.retType == null) {
+                    compInfo.returnInfo.exhaustive = false;
+                }
+
                 try scanIfFallback(allocator, compInfo, fallback, withGenDef);
+            } else {
+                std.debug.print("here 2\n", .{});
+                compInfo.returnInfo.exhaustive = false;
             }
+
+            try compInfo.collapseReturnInfo(prev, withGenDef);
 
             return .Void;
         },
@@ -550,6 +587,8 @@ pub fn scanNode(
             defer compInfo.popScope();
             try compInfo.pushGenScope(true);
             defer compInfo.popGenScope();
+            const lastRetInfo = try compInfo.newRetInfo();
+            defer compInfo.swapFreeRetInfo(lastRetInfo);
 
             try compInfo.addCaptureScope();
             defer compInfo.popCaptureScope();
@@ -564,8 +603,13 @@ pub fn scanNode(
             return .Void;
         },
         .FuncCall => |call| {
+            const prev = compInfo.setInFunction(true);
+            defer compInfo.revertInFunction(prev);
+
             try compInfo.pushGenScope(true);
             defer compInfo.popGenScope();
+            const lastRetInfo = try compInfo.newRetInfo();
+            defer compInfo.swapFreeRetInfo(lastRetInfo);
 
             const dec = try scanNode(allocator, compInfo, call.func, withGenDef);
             if (dec != .Function) return ScanError.CannotCallNonFunctionNode;
@@ -749,6 +793,8 @@ fn applyGenericCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scope
 }
 
 fn scanIfFallback(allocator: Allocator, compInfo: *CompInfo, fallback: *const blitzAst.IfFallback, withGenDef: bool) !void {
+    const prev = try compInfo.newRetInfo();
+
     if (fallback.condition == null and fallback.fallback != null) {
         const nextFallback = fallback.fallback.?;
         if (nextFallback.condition == null) {
@@ -765,6 +811,13 @@ fn scanIfFallback(allocator: Allocator, compInfo: *CompInfo, fallback: *const bl
 
     const bodyType = try scanNode(allocator, compInfo, fallback.body, withGenDef);
     free.freeStackType(allocator, &bodyType);
+
+    if (compInfo.returnInfo.retType == null) {
+        std.debug.print("here 1\n", .{});
+        compInfo.returnInfo.exhaustive = false;
+    }
+
+    try compInfo.collapseReturnInfo(prev, withGenDef);
 
     if (fallback.fallback) |innerFallback| {
         try scanIfFallback(allocator, compInfo, innerFallback, withGenDef);
@@ -892,36 +945,20 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitz
         try applyGenericCaptures(allocator, func, s);
     }
 
-    switch (func.body.*) {
-        .Seq => |seq| {
-            if (seq.nodes.len == 0) {
-                if (func.returnType.* == .Void) {
-                    return .Void;
-                } else {
-                    return ScanError.ExpectedFunctionReturn;
-                }
-            }
+    if (func.returnType.* != .Void) {
+        if (!compInfo.returnInfo.exhaustive) {
+            return ScanError.FunctionReturnIsNotExhaustive;
+        }
 
-            const last = seq.nodes[seq.nodes.len - 1];
-
-            if (last.* == .ReturnNode or func.returnType.* != .Void) {
-                const lastType = try scanNode(allocator, compInfo, last, withGenDef);
-                defer free.freeStackType(allocator, &lastType);
-
-                if (!try matchTypes(allocator, compInfo, func.returnType.*, lastType, withGenDef)) {
-                    return ScanError.FunctionReturnTypeMismatch;
-                }
-            }
-        },
-        .ReturnNode => |ret| {
-            const retType = try scanNode(allocator, compInfo, ret, withGenDef);
-            defer free.freeStackType(allocator, &retType);
-
-            if (!try matchTypes(allocator, compInfo, func.returnType.*, retType, withGenDef)) {
+        if (compInfo.returnInfo.retType) |retType| {
+            if (!try matchTypes(allocator, compInfo, func.returnType.*, retType.*, withGenDef)) {
                 return ScanError.FunctionReturnTypeMismatch;
             }
-        },
-        else => if (func.returnType.* != .Void) return ScanError.FunctionReturnTypeMismatch,
+        } else {
+            return ScanError.FunctionMissingReturn;
+        }
+    } else if (compInfo.returnInfo.retType != null) {
+        return ScanError.FunctionReturnTypeMismatch;
     }
 
     return clone.cloneAstTypes(allocator, compInfo, func.returnType.*, withGenDef);
@@ -1063,7 +1100,7 @@ fn isFloat(astType: blitzAst.AstTypes) bool {
     };
 }
 
-fn matchTypes(
+pub fn matchTypes(
     allocator: Allocator,
     compInfo: *CompInfo,
     type1: blitzAst.AstTypes,

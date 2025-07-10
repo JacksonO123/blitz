@@ -68,3 +68,15 @@ fn [T] testCapture(value: T): T {
 {
   testCapture(4);
 }
+
+// recursive functions
+
+fn fibonacci(num: u32): u32 {
+  if (num <= 1) {
+    return num;
+  }
+
+  return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+fibonacci(5);

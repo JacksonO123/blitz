@@ -21,7 +21,7 @@ const printType = debug.printType;
 const printFuncDec = debug.printFuncDec;
 const printGenerics = debug.printGenerics;
 
-const SeqNode = struct {
+pub const SeqNode = struct {
     nodes: []*const AstNode,
 };
 
@@ -537,6 +537,7 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
 
             try compInfo.tokens.expectToken(.LBrace);
             const seq = try parseSequence(allocator, compInfo);
+            try compInfo.tokens.expectToken(.RBrace);
 
             const fallback = try parseIfChain(allocator, compInfo);
 
@@ -713,7 +714,9 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
                 .Scope = seq,
             });
         },
-        else => return compInfo.logger.logError(AstError.UnexpectedToken),
+        else => {
+            return compInfo.logger.logError(AstError.UnexpectedToken);
+        },
     }
 }
 
@@ -806,16 +809,20 @@ fn parseStructAttributes(allocator: Allocator, compInfo: *CompInfo) ![]StructAtt
     var attributes = ArrayList(StructAttribute).init(allocator);
     defer attributes.deinit();
 
-    while ((try compInfo.tokens.peak()).type != .RBrace) {
+    var current = try compInfo.tokens.peak();
+    while (current.type != .RBrace) {
         const attr = try parseStructAttribute(allocator, compInfo);
         try attributes.append(attr);
 
         if (attr.attr == .Member) {
             try compInfo.tokens.expectToken(.Semicolon);
         }
+
+        current = try compInfo.tokens.peak();
+        if (current.type == .RBrace) break;
     }
 
-    _ = try compInfo.tokens.take();
+    try compInfo.tokens.expectToken(.RBrace);
 
     return attributes.toOwnedSlice();
 }
@@ -933,6 +940,8 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
         .Mod,
         .LAngle,
         .RAngle,
+        .LAngleEq,
+        .RAngleEq,
         => {
             if (expr == null) {
                 return compInfo.logger.logError(AstError.ExpectedExpression);
@@ -1175,13 +1184,14 @@ fn parseStructInitAttributes(allocator: Allocator, compInfo: *CompInfo) ![]Attri
         const param = try parseStructInitAttribute(allocator, compInfo);
         try attributes.append(param);
 
-        current = try compInfo.tokens.take();
+        current = try compInfo.tokens.peak();
         if (current.type == .RBrace) break;
 
-        compInfo.tokens.returnToken();
         try compInfo.tokens.expectToken(.Comma);
         current = try compInfo.tokens.peak();
     }
+
+    try compInfo.tokens.expectToken(.RBrace);
 
     return attributes.toOwnedSlice();
 }
@@ -1243,6 +1253,7 @@ fn parsePropertyAccess(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
     if (first.type != .Identifier) {
         return AstError.ExpectedIdentifierForPropertyAccess;
     }
+
     const source = try getIdentNode(allocator, compInfo, first.string.?);
     return try parsePropertyAccessUtil(allocator, compInfo, source);
 }
@@ -1262,8 +1273,10 @@ fn parsePropertyAccessUtil(allocator: Allocator, compInfo: *CompInfo, node: *Ast
         },
     });
 
-    const next = try compInfo.tokens.take();
-    if (next.type == .LParen) {
+    var ran = false;
+    var next = try compInfo.tokens.take();
+    while (next.type == .LParen) {
+        ran = true;
         const params = try parseFuncCallParams(allocator, compInfo);
         access = try createMut(AstNode, allocator, .{
             .FuncCall = .{
@@ -1271,7 +1284,11 @@ fn parsePropertyAccessUtil(allocator: Allocator, compInfo: *CompInfo, node: *Ast
                 .params = params,
             },
         });
-    } else if (next.type == .LBracket) {
+        next = try compInfo.tokens.take();
+    }
+
+    while (next.type == .LBracket) {
+        ran = true;
         const expr = try parseExpression(allocator, compInfo);
         if (expr == null) {
             return compInfo.logger.logError(AstError.ExpectedExpression);
@@ -1285,11 +1302,13 @@ fn parsePropertyAccessUtil(allocator: Allocator, compInfo: *CompInfo, node: *Ast
         });
 
         try compInfo.tokens.expectToken(.RBracket);
-    } else {
-        compInfo.tokens.returnToken();
+        next = try compInfo.tokens.take();
     }
 
-    if ((try compInfo.tokens.peak()).type == .Period) {
+    compInfo.tokens.returnToken();
+
+    const temp = try compInfo.tokens.peak();
+    if (temp.type == .Period) {
         return parsePropertyAccessUtil(allocator, compInfo, access);
     }
 
@@ -1421,7 +1440,7 @@ fn parseParams(allocator: Allocator, compInfo: *CompInfo) ![]Parameter {
         try compInfo.tokens.expectToken(.Comma);
     }
 
-    _ = try compInfo.tokens.take();
+    try compInfo.tokens.expectToken(.RParen);
 
     return params.toOwnedSlice();
 }

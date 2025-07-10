@@ -20,7 +20,7 @@ t.arr[usize(3)];
 
 testing.thing()[usize(4)];
 
-/* u32[] */
+// u32[]
 // u32[][][]
 // ?u32
 // Custom<?u32[][]>
