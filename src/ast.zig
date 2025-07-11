@@ -492,11 +492,11 @@ const opPrecedence = [_]OpExprTypes{
 };
 
 pub fn createAst(allocator: Allocator, compInfo: *CompInfo) !Ast {
-    const seq = try parseSequence(allocator, compInfo);
+    const seq = try parseSequence(allocator, compInfo, false);
     return Ast.init(allocator, seq);
 }
 
-pub fn parseSequence(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.Error)!*const AstNode {
+pub fn parseSequence(allocator: Allocator, compInfo: *CompInfo, fromBlock: bool) (AstError || Allocator.Error)!*const AstNode {
     var seq = ArrayList(*const AstNode).init(allocator);
     defer seq.deinit();
 
@@ -508,7 +508,11 @@ pub fn parseSequence(allocator: Allocator, compInfo: *CompInfo) (AstError || All
         }
 
         if (peakToken.type == .RBrace) {
-            break;
+            if (fromBlock) {
+                break;
+            } else {
+                return compInfo.logger.logError(AstError.UnexpectedToken);
+            }
         }
 
         const node = try parseStatement(allocator, compInfo);
@@ -536,7 +540,7 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
             try compInfo.tokens.expectToken(.RParen);
 
             try compInfo.tokens.expectToken(.LBrace);
-            const seq = try parseSequence(allocator, compInfo);
+            const seq = try parseSequence(allocator, compInfo, true);
             try compInfo.tokens.expectToken(.RBrace);
 
             const fallback = try parseIfChain(allocator, compInfo);
@@ -586,8 +590,8 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
 
             try compInfo.tokens.expectToken(.RParen);
             try compInfo.tokens.expectToken(.LBrace);
-
-            const body = try parseSequence(allocator, compInfo);
+            const body = try parseSequence(allocator, compInfo, true);
+            try compInfo.tokens.expectToken(.RBrace);
 
             return try createMut(AstNode, allocator, .{
                 .ForLoop = .{
@@ -609,7 +613,7 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
             try compInfo.tokens.expectToken(.RParen);
             try compInfo.tokens.expectToken(.LBrace);
 
-            const body = try parseSequence(allocator, compInfo);
+            const body = try parseSequence(allocator, compInfo, true);
 
             return try createMut(AstNode, allocator, .{
                 .WhileLoop = .{
@@ -708,7 +712,7 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
             return try parseStruct(allocator, compInfo);
         },
         .LBrace => {
-            const seq = try parseSequence(allocator, compInfo);
+            const seq = try parseSequence(allocator, compInfo, true);
             try compInfo.tokens.expectToken(.RBrace);
             return try createMut(AstNode, allocator, .{
                 .Scope = seq,
@@ -743,7 +747,8 @@ fn parseIfChain(allocator: Allocator, compInfo: *CompInfo) !?*const IfFallback {
     }
 
     try compInfo.tokens.expectToken(.LBrace);
-    const body = try parseSequence(allocator, compInfo);
+    const body = try parseSequence(allocator, compInfo, true);
+    try compInfo.tokens.expectToken(.RBrace);
     const fallback = try parseIfChain(allocator, compInfo);
 
     return try create(IfFallback, allocator, .{
@@ -1364,7 +1369,7 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo) !*FuncDecNode {
     try compInfo.tokens.expectToken(.LBrace);
 
     const index = compInfo.tokens.index;
-    const body: *const AstNode = try parseSequence(allocator, compInfo);
+    const body: *const AstNode = try parseSequence(allocator, compInfo, true);
     const endIndex = compInfo.tokens.index;
     const bodyTokens = compInfo.tokens.tokens[index..endIndex];
 

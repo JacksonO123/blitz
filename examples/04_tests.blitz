@@ -1,4 +1,4 @@
-fn testing(input: bool): bool {
+fn testingExhaustiveIf(input: bool): bool {
   if (input) {
     return true;
   } else {
@@ -6,4 +6,14 @@ fn testing(input: bool): bool {
   }
 }
 
-const a = testing(false);
+const a = testingExhaustiveIf(false);
+
+fn testForReturn(input: u32): bool {
+  return true;
+
+  for (var i = 0; i < input; i++) {
+    return true;
+  }
+}
+
+const b = testForReturn(2);

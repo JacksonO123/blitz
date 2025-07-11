@@ -297,21 +297,24 @@ pub fn scanNode(
             return try clone.cloneAstTypes(allocator, compInfo, valType, withGenDef);
         },
         .ReturnNode => |ret| {
-            if (!compInfo.returnInfo.inFunction) {
+            if (!compInfo.returnInfo.info.inFunction) {
                 return ScanError.UnexpectedReturnStatement;
             }
 
             const valType = try scanNode(allocator, compInfo, ret, withGenDef);
 
-            if (compInfo.returnInfo.retType) |retType| {
+            if (compInfo.returnInfo.info.retType) |retType| {
                 if (!(try matchTypes(allocator, compInfo, retType.*, valType, withGenDef))) {
                     return ScanError.FunctionReturnsHaveDifferentTypes;
                 }
                 free.freeStackType(allocator, &valType);
             } else {
                 const typePtr = try create(blitzAst.AstTypes, allocator, valType);
-                compInfo.returnInfo.retType = typePtr;
+                compInfo.returnInfo.info.retType = typePtr;
             }
+
+            compInfo.returnInfo.info.exhaustive = true;
+            compInfo.returnInfo.info.lockExhaustive = true;
 
             return try clone.cloneAstTypes(allocator, compInfo, valType, withGenDef);
         },
@@ -523,7 +526,7 @@ pub fn scanNode(
             try compInfo.pushScope(true);
             defer compInfo.popScope();
             try scanNodeForFunctions(allocator, compInfo, statement.body);
-            const prev = try compInfo.newRetInfo();
+            const prev = try compInfo.returnInfo.newInfo(false);
 
             const conditionType = try scanNode(allocator, compInfo, statement.condition, withGenDef);
             defer free.freeStackType(allocator, &conditionType);
@@ -532,24 +535,24 @@ pub fn scanNode(
             const body = try scanNode(allocator, compInfo, statement.body, withGenDef);
             defer free.freeStackType(allocator, &body);
 
+            try compInfo.returnInfo.collapse(compInfo, prev, withGenDef);
+
             if (statement.fallback) |fallback| {
-                if (compInfo.returnInfo.retType == null) {
-                    compInfo.returnInfo.exhaustive = false;
+                if (compInfo.returnInfo.info.retType == null) {
+                    compInfo.returnInfo.setExhaustive(false);
                 }
 
                 try scanIfFallback(allocator, compInfo, fallback, withGenDef);
             } else {
-                std.debug.print("here 2\n", .{});
-                compInfo.returnInfo.exhaustive = false;
+                compInfo.returnInfo.setExhaustive(false);
             }
-
-            try compInfo.collapseReturnInfo(prev, withGenDef);
 
             return .Void;
         },
         .ForLoop => |loop| {
             try compInfo.pushScope(true);
             defer compInfo.popScope();
+            const prev = try compInfo.returnInfo.newInfo(false);
 
             if (loop.initNode) |init| {
                 const initType = try scanNode(allocator, compInfo, init, withGenDef);
@@ -567,6 +570,12 @@ pub fn scanNode(
 
             const bodyType = try scanNode(allocator, compInfo, loop.body, withGenDef);
             free.freeStackType(allocator, &bodyType);
+
+            try compInfo.returnInfo.collapse(compInfo, prev, withGenDef);
+
+            if (compInfo.returnInfo.info.retType != null) {
+                compInfo.returnInfo.setExhaustive(false);
+            }
 
             return .Void;
         },
@@ -587,8 +596,8 @@ pub fn scanNode(
             defer compInfo.popScope();
             try compInfo.pushGenScope(true);
             defer compInfo.popGenScope();
-            const lastRetInfo = try compInfo.newRetInfo();
-            defer compInfo.swapFreeRetInfo(lastRetInfo);
+            const lastRetInfo = try compInfo.returnInfo.newInfo(true);
+            defer compInfo.returnInfo.swapFree(lastRetInfo);
 
             try compInfo.addCaptureScope();
             defer compInfo.popCaptureScope();
@@ -603,13 +612,13 @@ pub fn scanNode(
             return .Void;
         },
         .FuncCall => |call| {
-            const prev = compInfo.setInFunction(true);
-            defer compInfo.revertInFunction(prev);
+            const prev = compInfo.returnInfo.setInFunction(true);
+            defer compInfo.returnInfo.revertInFunction(prev);
 
             try compInfo.pushGenScope(true);
             defer compInfo.popGenScope();
-            const lastRetInfo = try compInfo.newRetInfo();
-            defer compInfo.swapFreeRetInfo(lastRetInfo);
+            const lastRetInfo = try compInfo.returnInfo.newInfo(true);
+            defer compInfo.returnInfo.swapFree(lastRetInfo);
 
             const dec = try scanNode(allocator, compInfo, call.func, withGenDef);
             if (dec != .Function) return ScanError.CannotCallNonFunctionNode;
@@ -793,7 +802,7 @@ fn applyGenericCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scope
 }
 
 fn scanIfFallback(allocator: Allocator, compInfo: *CompInfo, fallback: *const blitzAst.IfFallback, withGenDef: bool) !void {
-    const prev = try compInfo.newRetInfo();
+    const prev = try compInfo.returnInfo.newInfo(false);
 
     if (fallback.condition == null and fallback.fallback != null) {
         const nextFallback = fallback.fallback.?;
@@ -812,12 +821,11 @@ fn scanIfFallback(allocator: Allocator, compInfo: *CompInfo, fallback: *const bl
     const bodyType = try scanNode(allocator, compInfo, fallback.body, withGenDef);
     free.freeStackType(allocator, &bodyType);
 
-    if (compInfo.returnInfo.retType == null) {
-        std.debug.print("here 1\n", .{});
-        compInfo.returnInfo.exhaustive = false;
+    if (compInfo.returnInfo.info.retType == null) {
+        compInfo.returnInfo.setExhaustive(false);
     }
 
-    try compInfo.collapseReturnInfo(prev, withGenDef);
+    try compInfo.returnInfo.collapse(compInfo, prev, withGenDef);
 
     if (fallback.fallback) |innerFallback| {
         try scanIfFallback(allocator, compInfo, innerFallback, withGenDef);
@@ -946,18 +954,18 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitz
     }
 
     if (func.returnType.* != .Void) {
-        if (!compInfo.returnInfo.exhaustive) {
+        if (!compInfo.returnInfo.info.exhaustive) {
             return ScanError.FunctionReturnIsNotExhaustive;
         }
 
-        if (compInfo.returnInfo.retType) |retType| {
+        if (compInfo.returnInfo.info.retType) |retType| {
             if (!try matchTypes(allocator, compInfo, func.returnType.*, retType.*, withGenDef)) {
                 return ScanError.FunctionReturnTypeMismatch;
             }
         } else {
             return ScanError.FunctionMissingReturn;
         }
-    } else if (compInfo.returnInfo.retType != null) {
+    } else if (compInfo.returnInfo.info.retType != null) {
         return ScanError.FunctionReturnTypeMismatch;
     }
 

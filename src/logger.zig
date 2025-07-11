@@ -72,10 +72,12 @@ pub const Logger = struct {
         writer.writeAll("Error: ") catch {};
         writer.writeAll(errStr) catch {};
         writer.writeByte('\n') catch {};
+
         if (beforeLines.len > 0) {
             writer.writeAll(beforeLines) catch {};
             writer.writeByte('\n') catch {};
         }
+
         writer.writeAll(line) catch {};
         writer.writeByte('\n') catch {};
 

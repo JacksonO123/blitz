@@ -44,11 +44,6 @@ const AvailableGenScope = ArrayList([]u8);
 pub const TypeScope = StringHashMap(*const blitzAst.AstTypes);
 const VarScope = StringHashMap(VariableInfo);
 pub const CaptureScope = StringHashMap(VariableInfo);
-pub const ReturnInfo = struct {
-    retType: ?*const blitzAst.AstTypes,
-    inFunction: bool,
-    exhaustive: bool,
-};
 
 pub const CompInfo = struct {
     const Self = @This();
@@ -122,11 +117,8 @@ pub const CompInfo = struct {
         const genericCaptures = try createMut(ScopeUtil(*TypeScope), allocator, genericCapturesUtil);
         try genericCaptures.add(genericCaptureBase, false);
 
-        const returnInfo = try createMut(ReturnInfo, allocator, .{
-            .retType = null,
-            .inFunction = false,
-            .exhaustive = true,
-        });
+        const returnInfoUtil = try ReturnInfo.init(allocator);
+        const returnInfo = try createMut(ReturnInfo, allocator, returnInfoUtil);
 
         return Self{
             .allocator = allocator,
@@ -180,9 +172,7 @@ pub const CompInfo = struct {
             self.allocator.free(item);
         }
 
-        if (self.returnInfo.retType) |retType| {
-            free.freeType(self.allocator, retType);
-        }
+        self.returnInfo.deinit();
         self.allocator.destroy(self.returnInfo);
 
         self.availableGenerics.deinit(freeAvailableGenerics);
@@ -284,53 +274,6 @@ pub const CompInfo = struct {
         }
     }
 
-    pub fn newRetInfo(self: *Self) !*ReturnInfo {
-        const oldRetInfo = self.returnInfo;
-        self.returnInfo = try createMut(ReturnInfo, self.allocator, .{
-            .retType = null,
-            .inFunction = true,
-            .exhaustive = true,
-        });
-        return oldRetInfo;
-    }
-
-    pub fn swapFreeRetInfo(self: *Self, oldRetInfo: *ReturnInfo) void {
-        if (self.returnInfo.retType) |retType| {
-            free.freeType(self.allocator, retType);
-        }
-        self.allocator.destroy(self.returnInfo);
-        self.returnInfo = oldRetInfo;
-    }
-
-    /// IMPORTANT - invalidates prev
-    pub fn collapseReturnInfo(self: *Self, prev: *ReturnInfo, withGenDef: bool) !void {
-        if (prev.retType) |retType| {
-            if (self.returnInfo.retType) |firstRetType| {
-                if (!(try scanner.matchTypes(self.allocator, self, retType.*, firstRetType.*, withGenDef))) {
-                    return ScanError.FunctionReturnsHaveDifferentTypes;
-                }
-
-                free.freeType(self.allocator, retType);
-            } else {
-                self.returnInfo.retType = retType;
-            }
-        }
-
-        self.allocator.destroy(prev);
-        std.debug.print("{} and {}\n", .{ self.returnInfo.exhaustive, prev.exhaustive });
-        self.returnInfo.exhaustive = self.returnInfo.exhaustive and prev.exhaustive;
-    }
-
-    pub fn setInFunction(self: *Self, inFunction: bool) bool {
-        const prev = self.returnInfo.inFunction;
-        self.returnInfo.inFunction = inFunction;
-        return prev;
-    }
-
-    pub fn revertInFunction(self: *Self, inFunction: bool) void {
-        self.returnInfo.inFunction = inFunction;
-    }
-
     pub fn prepareForAst(self: *Self) !void {
         self.preAst = false;
 
@@ -376,7 +319,7 @@ pub const CompInfo = struct {
 
                     const oldTokens = self.tokens;
                     self.tokens = try createMut(TokenUtil, self.allocator, try TokenUtil.init(self.allocator, self.logger, f.bodyTokens));
-                    f.body = try blitzAst.parseSequence(self.allocator, self);
+                    f.body = try blitzAst.parseSequence(self.allocator, self, true);
 
                     self.tokens.deinit();
                     self.allocator.destroy(self.tokens);
@@ -757,31 +700,6 @@ pub const TokenUtil = struct {
         self.windows.clearRetainingCapacity();
     }
 
-    pub fn addWindow(self: *Self) !void {
-        try self.windows.append(0);
-    }
-
-    fn incWindow(self: *Self) void {
-        if (self.windows.items.len == 0) return;
-
-        const index = self.windows.items.len - 1;
-        self.windows.items[index] += 1;
-    }
-
-    pub fn collapseWindow(self: *Self) void {
-        if (self.windows.items.len == 0) return;
-
-        const index = self.windows.items.len - 1;
-        self.index -= self.windows.items[index];
-        _ = self.windows.pop();
-    }
-
-    pub fn getWindowSize(self: Self) usize {
-        if (self.windows.items.len == 0) return 0;
-        const index = self.windows.items.len - 1;
-        return self.windows.items[index];
-    }
-
     pub fn take(self: *Self) !tokenizer.Token {
         const res = try self.takeFixed();
 
@@ -798,7 +716,6 @@ pub const TokenUtil = struct {
         }
 
         const res = self.tokens[self.index];
-        self.incWindow();
         self.index += 1;
         self.currentLineToken += 1;
 
@@ -994,6 +911,92 @@ fn ScopeUtil(comptime T: type) type {
         }
     };
 }
+
+pub const ReturnInfoData = struct {
+    retType: ?*const blitzAst.AstTypes,
+    inFunction: bool,
+    exhaustive: bool,
+    lockExhaustive: bool,
+};
+
+pub const ReturnInfo = struct {
+    const Self = @This();
+
+    allocator: Allocator,
+    info: *ReturnInfoData,
+
+    pub fn init(allocator: Allocator) !Self {
+        const info = try createMut(ReturnInfoData, allocator, .{
+            .retType = null,
+            .inFunction = false,
+            .exhaustive = true,
+            .lockExhaustive = false,
+        });
+
+        return .{
+            .allocator = allocator,
+            .info = info,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.allocator.destroy(self.info);
+    }
+
+    pub fn newInfo(self: *Self, isFunction: bool) !*ReturnInfoData {
+        const oldRetInfo = self.info;
+        self.info = try createMut(ReturnInfoData, self.allocator, .{
+            .retType = null,
+            .inFunction = oldRetInfo.inFunction or isFunction,
+            .exhaustive = true,
+            .lockExhaustive = false,
+        });
+        return oldRetInfo;
+    }
+
+    pub fn swapFree(self: *Self, oldRetInfo: *ReturnInfoData) void {
+        if (self.info.retType) |retType| {
+            free.freeType(self.allocator, retType);
+        }
+        self.allocator.destroy(self.info);
+        self.info = oldRetInfo;
+    }
+
+    /// IMPORTANT - invalidates prev
+    pub fn collapse(self: *Self, compInfo: *CompInfo, prev: *ReturnInfoData, withGenDef: bool) !void {
+        if (prev.retType) |retType| {
+            if (self.info.retType) |firstRetType| {
+                if (!(try scanner.matchTypes(self.allocator, compInfo, retType.*, firstRetType.*, withGenDef))) {
+                    return ScanError.FunctionReturnsHaveDifferentTypes;
+                }
+
+                free.freeType(self.allocator, retType);
+            } else {
+                self.info.retType = retType;
+            }
+        }
+
+        self.info.exhaustive = self.info.exhaustive and prev.exhaustive;
+        self.info.lockExhaustive = prev.lockExhaustive;
+        self.allocator.destroy(prev);
+    }
+
+    pub fn setExhaustive(self: *Self, exhaustive: bool) void {
+        if (!self.info.lockExhaustive) {
+            self.info.exhaustive = exhaustive;
+        }
+    }
+
+    pub fn setInFunction(self: *Self, inFunction: bool) bool {
+        const prev = self.info.inFunction;
+        self.info.inFunction = inFunction;
+        return prev;
+    }
+
+    pub fn revertInFunction(self: *Self, inFunction: bool) void {
+        self.info.inFunction = inFunction;
+    }
+};
 
 fn freeVariableScope(allocator: Allocator, scope: *VarScope) void {
     var scopeIt = scope.valueIterator();
