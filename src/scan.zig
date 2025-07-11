@@ -292,8 +292,13 @@ pub fn scanNode(
         .DecOne,
         .Group,
         => |val| {
+            const prev = try compInfo.returnInfo.newInfo(false);
+
             const valType = try scanNode(allocator, compInfo, val, withGenDef);
             defer free.freeStackType(allocator, &valType);
+
+            try compInfo.returnInfo.collapse(compInfo, prev, withGenDef);
+
             return try clone.cloneAstTypes(allocator, compInfo, valType, withGenDef);
         },
         .ReturnNode => |ret| {
@@ -538,7 +543,7 @@ pub fn scanNode(
             try compInfo.returnInfo.collapse(compInfo, prev, withGenDef);
 
             if (statement.fallback) |fallback| {
-                if (compInfo.returnInfo.info.retType == null) {
+                if (!compInfo.returnInfo.hasType()) {
                     compInfo.returnInfo.setExhaustive(false);
                 }
 
@@ -572,14 +577,15 @@ pub fn scanNode(
             free.freeStackType(allocator, &bodyType);
 
             try compInfo.returnInfo.collapse(compInfo, prev, withGenDef);
-
-            if (compInfo.returnInfo.info.retType != null) {
+            if (compInfo.returnInfo.hasType()) {
                 compInfo.returnInfo.setExhaustive(false);
             }
 
             return .Void;
         },
         .WhileLoop => |loop| {
+            const prev = try compInfo.returnInfo.newInfo(false);
+
             const conditionType = try scanNode(allocator, compInfo, loop.condition, withGenDef);
             defer free.freeStackType(allocator, &conditionType);
             if (conditionType != .Bool) {
@@ -588,6 +594,11 @@ pub fn scanNode(
 
             const bodyType = try scanNode(allocator, compInfo, loop.body, withGenDef);
             free.freeStackType(allocator, &bodyType);
+
+            try compInfo.returnInfo.collapse(compInfo, prev, withGenDef);
+            if (compInfo.returnInfo.hasType()) {
+                compInfo.returnInfo.setExhaustive(false);
+            }
 
             return .Void;
         },

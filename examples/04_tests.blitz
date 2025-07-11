@@ -14,6 +14,16 @@ fn testForReturn(input: u32): bool {
   for (var i = 0; i < input; i++) {
     return true;
   }
+
+  while (true) {
+    return true;
+  }
+
+  // return true;
+  
+  // {
+    // return false;
+  // }
 }
 
 const b = testForReturn(2);

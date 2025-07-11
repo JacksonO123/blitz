@@ -612,8 +612,8 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
 
             try compInfo.tokens.expectToken(.RParen);
             try compInfo.tokens.expectToken(.LBrace);
-
             const body = try parseSequence(allocator, compInfo, true);
+            try compInfo.tokens.expectToken(.RBrace);
 
             return try createMut(AstNode, allocator, .{
                 .WhileLoop = .{

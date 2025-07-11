@@ -996,6 +996,10 @@ pub const ReturnInfo = struct {
     pub fn revertInFunction(self: *Self, inFunction: bool) void {
         self.info.inFunction = inFunction;
     }
+
+    pub fn hasType(self: Self) bool {
+        return self.info.retType != null;
+    }
 };
 
 fn freeVariableScope(allocator: Allocator, scope: *VarScope) void {
