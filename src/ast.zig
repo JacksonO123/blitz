@@ -387,6 +387,7 @@ const AstNodeVariants = enum {
     ForLoop,
     WhileLoop,
 };
+
 pub const AstNode = union(AstNodeVariants) {
     NoOp,
     StructPlaceholder,

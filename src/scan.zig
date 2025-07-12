@@ -785,7 +785,11 @@ pub fn scanNode(
         .Scope => |scope| {
             try compInfo.pushScope(true);
             defer compInfo.popScope();
+            const prev = try compInfo.returnInfo.newInfo(false);
+
             try scanNodeForFunctions(allocator, compInfo, scope);
+
+            try compInfo.returnInfo.collapse(compInfo, prev, withGenDef);
 
             return scanNode(allocator, compInfo, scope, withGenDef);
         },
