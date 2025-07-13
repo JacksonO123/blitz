@@ -607,6 +607,8 @@ pub fn scanNode(
             defer compInfo.popScope();
             try compInfo.pushGenScope(true);
             defer compInfo.popGenScope();
+            const prev = compInfo.returnInfo.setInFunction(true);
+            defer compInfo.returnInfo.revertInFunction(prev);
             const lastRetInfo = try compInfo.returnInfo.newInfo(true);
             defer compInfo.returnInfo.swapFree(lastRetInfo);
 
@@ -1068,8 +1070,12 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
         switch (attr.attr) {
             .Member => {},
             .Function => |func| {
+                const prev = compInfo.returnInfo.setInFunction(true);
+                defer compInfo.returnInfo.revertInFunction(prev);
                 try compInfo.pushScope(false);
                 defer compInfo.popScope();
+                const lastRetInfo = try compInfo.returnInfo.newInfo(true);
+                defer compInfo.returnInfo.swapFree(lastRetInfo);
 
                 try scanNodeForFunctions(allocator, compInfo, func.body);
 
