@@ -1,11 +1,16 @@
 // functions are hoisted on a scope level and can be called wherever
 // in that scope or lower
 
-// basic void function with params
+// basic void function with params and constant params (useful for references)
 
-fn myFunc(count: u32) {
+fn myFunc(count: u32, position: const u16) {
+  count = 2;
   // only the most efficient of things
 }
+
+const a = 1;
+const b = u16(2);
+myFunc(a, b);
 
 // function with params and return
 
@@ -16,8 +21,7 @@ fn myFunc2(): u32 {
 // generic function
 // note: generic functions can define a generic type, then that
 // generic type can be used however you like until you call the
-// function, where it maps the type to a parameter 
-// TODO - or input generic
+// function, where it maps the type to a parameter or input generic
 // then the function will be scanned again with the new restriction
 
 fn [T] myFunc3(value: T): T {
@@ -38,7 +42,7 @@ struct MyStruct {
   size: u32;
 }
 
-fn [T: myStruct] myFunc4(value: T): u32 {
+fn [T: myStruct] myFunc4(value: const T): u32 {
   return value.size;
 }
 
@@ -71,12 +75,12 @@ fn [T] testCapture(value: T): T {
 
 // recursive functions
 
-fn fibonacci(num: u32): u32 {
-  if (num <= 1) {
-    return num;
-  }
-
-  return fibonacci(n - 1) + fibonacci(n - 2);
-}
-
-fibonacci(5);
+// fn fibonacci(num: u32): u32 {
+//   if (num <= 1) {
+//     return num;
+//   }
+// 
+//   return fibonacci(num - 1) + fibonacci(num - 2);
+// }
+// 
+// fibonacci(5);

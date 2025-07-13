@@ -161,6 +161,11 @@ pub const AstTypes = union(Types) {
     ErrorVariant: ErrorVariantType,
 };
 
+pub const AstTypeInfo = struct {
+    astType: AstTypes,
+    isConst: bool,
+};
+
 const StaticTypes = enum {
     String,
     Bool,
@@ -267,6 +272,7 @@ const IfStatementNode = struct {
 pub const Parameter = struct {
     name: []u8,
     type: *const AstTypes,
+    isConst: bool,
 };
 
 pub const FuncDecNode = struct {
@@ -321,8 +327,8 @@ pub const ErrorDecNode = struct {
     variants: ?[][]u8,
 };
 
-const VarSetNode = struct {
-    variable: []u8,
+const ValueSetNode = struct {
+    value: *const AstNode,
     setNode: *AstNode,
 };
 
@@ -360,7 +366,7 @@ const AstNodeVariants = enum {
     StructPlaceholder,
     Seq,
     VarDec,
-    VarSet,
+    ValueSet,
     VarEqOp,
     Type,
     Value,
@@ -393,7 +399,7 @@ pub const AstNode = union(AstNodeVariants) {
     StructPlaceholder,
     Seq: SeqNode,
     VarDec: VarDecNode,
-    VarSet: VarSetNode,
+    ValueSet: ValueSetNode,
     VarEqOp: VarEqOpNode,
     Type: AstTypes,
     Value: AstValues,
@@ -631,9 +637,11 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
                     if (setNode == null) return compInfo.logger.logError(AstError.ExpectedExpression);
 
                     return try createMut(AstNode, allocator, .{
-                        .VarSet = .{
+                        .ValueSet = .{
                             .setNode = setNode.?,
-                            .variable = try string.cloneString(allocator, first.string.?),
+                            .value = try create(AstNode, allocator, .{
+                                .Variable = try string.cloneString(allocator, first.string.?),
+                            }),
                         },
                     });
                 },
@@ -1279,10 +1287,8 @@ fn parsePropertyAccessUtil(allocator: Allocator, compInfo: *CompInfo, node: *Ast
         },
     });
 
-    var ran = false;
     var next = try compInfo.tokens.take();
     while (next.type == .LParen) {
-        ran = true;
         const params = try parseFuncCallParams(allocator, compInfo);
         access = try createMut(AstNode, allocator, .{
             .FuncCall = .{
@@ -1294,7 +1300,6 @@ fn parsePropertyAccessUtil(allocator: Allocator, compInfo: *CompInfo, node: *Ast
     }
 
     while (next.type == .LBracket) {
-        ran = true;
         const expr = try parseExpression(allocator, compInfo);
         if (expr == null) {
             return compInfo.logger.logError(AstError.ExpectedExpression);
@@ -1309,6 +1314,20 @@ fn parsePropertyAccessUtil(allocator: Allocator, compInfo: *CompInfo, node: *Ast
 
         try compInfo.tokens.expectToken(.RBracket);
         next = try compInfo.tokens.take();
+    }
+
+    if (next.type == .EqSet) {
+        const expr = try parseExpression(allocator, compInfo);
+        if (expr == null) {
+            return compInfo.logger.logError(AstError.ExpectedExpression);
+        }
+
+        return try createMut(AstNode, allocator, .{
+            .ValueSet = .{
+                .value = access,
+                .setNode = expr.?,
+            },
+        });
     }
 
     compInfo.tokens.returnToken();
@@ -1458,12 +1477,21 @@ fn parseParam(allocator: Allocator, compInfo: *CompInfo) !Parameter {
         return compInfo.logger.logError(AstError.ExpectedIdentifierForParameterName);
     }
 
+    var isConst = false;
+
     try compInfo.tokens.expectToken(.Colon);
+    const nextPeak = try compInfo.tokens.peak();
+    if (nextPeak.type == .Const) {
+        isConst = true;
+        _ = try compInfo.tokens.take();
+    }
+
     const paramType = try parseType(allocator, compInfo);
 
     return .{
         .name = try string.cloneString(allocator, first.string.?),
         .type = paramType,
+        .isConst = isConst,
     };
 }
 

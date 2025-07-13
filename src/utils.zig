@@ -35,6 +35,13 @@ pub fn initMutPtrT(comptime T: type, allocator: Allocator) !*T {
     return try createMut(T, allocator, data);
 }
 
+pub inline fn astTypesToInfo(astType: blitzAst.AstTypes, isConst: bool) blitzAst.AstTypeInfo {
+    return .{
+        .isConst = isConst,
+        .astType = astType,
+    };
+}
+
 const VariableInfo = struct {
     varType: *const blitzAst.AstTypes,
     isConst: bool,

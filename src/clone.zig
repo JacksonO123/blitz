@@ -150,6 +150,7 @@ fn cloneParameters(allocator: Allocator, compInfo: *CompInfo, params: []blitzAst
         const newParam: blitzAst.Parameter = .{
             .name = try string.cloneString(allocator, param.name),
             .type = typePtr,
+            .isConst = param.isConst,
         };
 
         try parameters.append(newParam);
@@ -250,9 +251,9 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                 },
             };
         },
-        .VarSet => |set| return .{
-            .VarSet = .{
-                .variable = try string.cloneString(allocator, set.variable),
+        .ValueSet => |set| return .{
+            .ValueSet = .{
+                .value = try cloneAstNodePtr(allocator, compInfo, set.value, replaceGenerics),
                 .setNode = try cloneAstNodePtrMut(allocator, compInfo, set.setNode, replaceGenerics),
             },
         },

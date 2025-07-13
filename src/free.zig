@@ -128,9 +128,9 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
 
             allocator.free(dec.name);
         },
-        .VarSet => |set| {
+        .ValueSet => |set| {
+            freeNode(allocator, set.value);
             freeNode(allocator, set.setNode);
-            allocator.free(set.variable);
         },
         .VarEqOp => |op| {
             freeNode(allocator, op.value);
@@ -310,6 +310,10 @@ pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void 
         },
         else => {},
     }
+}
+
+pub fn freeAstTypeInfo(allocator: Allocator, info: blitzAst.AstTypeInfo) void {
+    freeStackType(allocator, &info.astType);
 }
 
 pub fn freeType(allocator: Allocator, typeNode: *const blitzAst.AstTypes) void {

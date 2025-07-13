@@ -19,7 +19,7 @@ const printType = debug.printType;
 const printGenerics = debug.printGenerics;
 
 pub const RetNodeInfo = struct {
-    node: *const blitzAst.AstNode,
+    node: blitzAst.AstNode,
     conditional: bool,
 };
 
@@ -64,6 +64,7 @@ pub const ScanError = error{
     FunctionReturnIsNotExhaustive,
     FunctionMissingReturn,
     UnexpectedReturnStatement,
+    ExpectedMutableParameter,
 
     // structs
     StructInitGenericCountMismatch,
@@ -109,7 +110,7 @@ pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !v
 
     try scanNodeForFunctions(allocator, compInfo, ast.root);
     const nodeType = try scanNode(allocator, compInfo, ast.root, true);
-    free.freeStackType(allocator, &nodeType);
+    free.freeAstTypeInfo(allocator, nodeType);
 }
 
 pub fn scanNodes(
@@ -120,7 +121,7 @@ pub fn scanNodes(
 ) (ScanError || Allocator.Error || clone.CloneError)!void {
     for (nodes) |node| {
         const nodeType = try scanNode(allocator, compInfo, node, withGenDef);
-        free.freeStackType(allocator, &nodeType);
+        free.freeAstTypeInfo(allocator, nodeType);
     }
 }
 
@@ -129,43 +130,43 @@ pub fn scanNode(
     compInfo: *CompInfo,
     node: *const blitzAst.AstNode,
     withGenDef: bool,
-) (Allocator.Error || ScanError || clone.CloneError)!blitzAst.AstTypes {
+) (Allocator.Error || ScanError || clone.CloneError)!blitzAst.AstTypeInfo {
     switch (node.*) {
-        .NoOp, .ErrorDec => return .Void,
+        .NoOp, .ErrorDec => return utils.astTypesToInfo(.Void, true),
 
         .StaticStructInstance => |inst| {
             if (!compInfo.scanner.allowStaticStructInstance) {
                 return ScanError.StaticStructInstanceCannotBeUsedAsValue;
             }
 
-            return .{
+            return utils.astTypesToInfo(.{
                 .StaticStructInstance = try string.cloneString(allocator, inst),
-            };
+            }, true);
         },
         .Cast => |cast| {
             if (cast.node.* == .Value and cast.node.*.Value == .RawNumber) {
                 // TODO add some restrictions for sign
-                return try clone.cloneAstTypes(allocator, compInfo, cast.toType.*, false);
+                return utils.astTypesToInfo(try clone.cloneAstTypes(allocator, compInfo, cast.toType.*, false), false);
             }
 
             const nodeType = try scanNode(allocator, compInfo, cast.node, withGenDef);
-            defer free.freeStackType(allocator, &nodeType);
+            defer free.freeAstTypeInfo(allocator, nodeType);
 
-            if (isPrimary(nodeType) and isPrimary(cast.toType.*)) {
-                return try clone.cloneAstTypes(allocator, compInfo, cast.toType.*, false);
+            if (isPrimary(nodeType.astType) and isPrimary(cast.toType.*)) {
+                return utils.astTypesToInfo(try clone.cloneAstTypes(allocator, compInfo, cast.toType.*, false), false);
             }
 
             return ScanError.InvalidCast;
         },
         .Value => |val| {
-            const valueType: blitzAst.AstTypes = switch (val) {
+            const valueRes: blitzAst.AstTypes = switch (val) {
                 .Null => .Null,
                 .String => .String,
                 .Bool => .Bool,
                 .Char => .Char,
                 .Number => |num| .{ .Number = num.toType() },
                 .RawNumber => |num| {
-                    if (num[0] == '-') return .{ .Number = .I32 };
+                    if (num[0] == '-') return utils.astTypesToInfo(.{ .Number = .I32 }, false);
 
                     var hasPeriod = false;
                     for (num) |char| {
@@ -176,15 +177,16 @@ pub fn scanNode(
                     }
 
                     if (hasPeriod) {
-                        return .{ .Number = .F32 };
+                        return utils.astTypesToInfo(.{ .Number = .F32 }, false);
                     }
 
-                    return .{ .Number = .U32 };
+                    return utils.astTypesToInfo(.{ .Number = .U32 }, false);
                 },
-                .GeneralArray => |arr| a: {
-                    break :a .{
+                .GeneralArray => |arr| {
+                    const inferredType = try inferStaticArrType(allocator, compInfo, arr, withGenDef);
+                    const generalArrType = blitzAst.AstTypes{
                         .GeneralArray = .{
-                            .type = try create(blitzAst.AstTypes, allocator, try inferStaticArrType(allocator, compInfo, arr, withGenDef)),
+                            .type = try create(blitzAst.AstTypes, allocator, inferredType.astType),
                             .size = try create(blitzAst.AstNode, allocator, .{
                                 .Value = .{
                                     .Number = .{ .USize = arr.len },
@@ -192,99 +194,101 @@ pub fn scanNode(
                             }),
                         },
                     };
+
+                    return utils.astTypesToInfo(generalArrType, inferredType.isConst);
                 },
             };
 
-            return valueType;
+            return utils.astTypesToInfo(valueRes, false);
         },
-        .Type => |t| return t,
-        .IndexValue => |index| {
-            const indexType = try scanNode(allocator, compInfo, index.index, withGenDef);
-            defer free.freeStackType(allocator, &indexType);
-            const valueType = try scanNode(allocator, compInfo, index.value, withGenDef);
-            defer free.freeStackType(allocator, &valueType);
+        .Type => |t| return utils.astTypesToInfo(t, false),
+        .IndexValue => |indexInfo| {
+            const indexType = try scanNode(allocator, compInfo, indexInfo.index, withGenDef);
+            defer free.freeAstTypeInfo(allocator, indexType);
+            const valueType = try scanNode(allocator, compInfo, indexInfo.value, withGenDef);
+            defer free.freeAstTypeInfo(allocator, valueType);
 
-            if (indexType == .Number and indexType.Number != .USize) {
+            if (indexType.astType == .Number and indexType.astType.Number != .USize) {
                 return ScanError.ExpectedUSizeForIndex;
             }
 
-            return switch (valueType) {
-                .StaticArray => |arr| try clone.cloneAstTypes(allocator, compInfo, arr.type.*, false),
-                .DynamicArray => |arr| try clone.cloneAstTypes(allocator, compInfo, arr.*, false),
+            return switch (valueType.astType) {
+                .StaticArray => |arr| utils.astTypesToInfo(try clone.cloneAstTypes(allocator, compInfo, arr.type.*, false), valueType.isConst),
+                .DynamicArray => |arr| utils.astTypesToInfo(try clone.cloneAstTypes(allocator, compInfo, arr.*, false), valueType.isConst),
                 else => return ScanError.ExpectedArrayForIndexTarget,
             };
         },
         .OpExpr => |op| {
             const left = try scanNode(allocator, compInfo, op.left, withGenDef);
-            defer free.freeStackType(allocator, &left);
+            defer free.freeAstTypeInfo(allocator, left);
             const right = try scanNode(allocator, compInfo, op.right, withGenDef);
-            defer free.freeStackType(allocator, &right);
+            defer free.freeAstTypeInfo(allocator, right);
 
             switch (op.type) {
                 .BitAnd, .BitOr => {
-                    if (left != .Number or right != .Number) return ScanError.InvalidBitOperation;
-                    if (!compareNumberBitSize(left.Number, right.Number)) return ScanError.BitMaskWithMismatchingSize;
-                    return try clone.cloneAstTypes(allocator, compInfo, left, false);
+                    if (left.astType != .Number or right.astType != .Number) return ScanError.InvalidBitOperation;
+                    if (!compareNumberBitSize(left.astType.Number, right.astType.Number)) return ScanError.BitMaskWithMismatchingSize;
+                    return utils.astTypesToInfo(try clone.cloneAstTypes(allocator, compInfo, left.astType, false), false);
                 },
                 .And, .Or => {
-                    if (left != .Bool or right != .Bool) return ScanError.ExpectedBoolInBoolOp;
-                    return .Bool;
+                    if (left.astType != .Bool or right.astType != .Bool) return ScanError.ExpectedBoolInBoolOp;
+                    return utils.astTypesToInfo(.Bool, false);
                 },
                 .Add, .Sub, .Mult, .Div => {
-                    if (left == .Generic or left == .Any) {
-                        if (right != .Number and right != .Generic and right != .Any) {
+                    if (left.astType == .Generic or left.astType == .Any) {
+                        if (right.astType != .Number and right.astType != .Generic and right.astType != .Any) {
                             return ScanError.MathOpOnNonNumberType;
                         }
 
-                        if (try matchTypes(allocator, compInfo, left, right, withGenDef)) {
-                            return clone.cloneAstTypes(allocator, compInfo, right, withGenDef);
+                        if (try matchTypes(allocator, compInfo, left.astType, right.astType, withGenDef)) {
+                            return utils.astTypesToInfo(try clone.cloneAstTypes(allocator, compInfo, right.astType, withGenDef), false);
                         } else {
                             return ScanError.MathOpTypeMismatch;
                         }
-                    } else if (right == .Generic or right == .Any) {
-                        if (left != .Number and left != .Generic and left != .Any) {
+                    } else if (right.astType == .Generic or right.astType == .Any) {
+                        if (left.astType != .Number and left.astType != .Generic and left.astType != .Any) {
                             return ScanError.MathOpOnNonNumberType;
                         }
 
-                        if (try matchTypes(allocator, compInfo, left, right, withGenDef)) {
-                            return clone.cloneAstTypes(allocator, compInfo, left, withGenDef);
+                        if (try matchTypes(allocator, compInfo, left.astType, right.astType, withGenDef)) {
+                            return utils.astTypesToInfo(try clone.cloneAstTypes(allocator, compInfo, left.astType, withGenDef), false);
                         } else {
                             return ScanError.MathOpTypeMismatch;
                         }
                     }
 
-                    if (@intFromEnum(left.Number) != @intFromEnum(right.Number)) {
+                    if (@intFromEnum(left.astType.Number) != @intFromEnum(right.astType.Number)) {
                         return ScanError.NumberTypeMismatch;
                     }
 
                     if (op.type == .Div) {
-                        if (switch (left.Number) {
+                        if (switch (left.astType.Number) {
                             .F32, .F64, .F128 => true,
                             else => false,
                         }) {
-                            return try clone.cloneAstTypes(allocator, compInfo, left, false);
+                            return utils.astTypesToInfo(try clone.cloneAstTypes(allocator, compInfo, left.astType, false), false);
                         }
 
-                        return .{
+                        return utils.astTypesToInfo(.{
                             .Number = .F32,
-                        };
+                        }, false);
                     }
 
-                    return try clone.cloneAstTypes(allocator, compInfo, left, false);
+                    return utils.astTypesToInfo(try clone.cloneAstTypes(allocator, compInfo, left.astType, false), false);
                 },
                 .LessThan,
                 .GreaterThan,
                 .LessThanEq,
                 .GreaterThanEq,
                 => {
-                    if (left != .Number or right != .Number) {
+                    if (left.astType != .Number or right.astType != .Number) {
                         return ScanError.ComparisonOnNonNumberType;
                     }
-                    if (@intFromEnum(left.Number) != @intFromEnum(right.Number)) {
+                    if (@intFromEnum(left.astType.Number) != @intFromEnum(right.astType.Number)) {
                         return ScanError.NumberTypeMismatch;
                     }
 
-                    return .Bool;
+                    return utils.astTypesToInfo(.Bool, false);
                 },
             }
         },
@@ -292,14 +296,10 @@ pub fn scanNode(
         .DecOne,
         .Group,
         => |val| {
-            const prev = try compInfo.returnInfo.newInfo(false);
-
             const valType = try scanNode(allocator, compInfo, val, withGenDef);
-            defer free.freeStackType(allocator, &valType);
+            defer free.freeAstTypeInfo(allocator, valType);
 
-            try compInfo.returnInfo.collapse(compInfo, prev, withGenDef);
-
-            return try clone.cloneAstTypes(allocator, compInfo, valType, withGenDef);
+            return utils.astTypesToInfo(try clone.cloneAstTypes(allocator, compInfo, valType.astType, withGenDef), false);
         },
         .ReturnNode => |ret| {
             if (!compInfo.returnInfo.info.inFunction) {
@@ -309,27 +309,27 @@ pub fn scanNode(
             const valType = try scanNode(allocator, compInfo, ret, withGenDef);
 
             if (compInfo.returnInfo.info.retType) |retType| {
-                if (!(try matchTypes(allocator, compInfo, retType.*, valType, withGenDef))) {
+                if (!(try matchTypes(allocator, compInfo, retType.*, valType.astType, withGenDef))) {
                     return ScanError.FunctionReturnsHaveDifferentTypes;
                 }
-                free.freeStackType(allocator, &valType);
+                free.freeAstTypeInfo(allocator, valType);
             } else {
-                const typePtr = try create(blitzAst.AstTypes, allocator, valType);
+                const typePtr = try create(blitzAst.AstTypes, allocator, valType.astType);
                 compInfo.returnInfo.info.retType = typePtr;
             }
 
             compInfo.returnInfo.info.exhaustive = true;
             compInfo.returnInfo.info.lockExhaustive = true;
 
-            return try clone.cloneAstTypes(allocator, compInfo, valType, withGenDef);
+            return utils.astTypesToInfo(try clone.cloneAstTypes(allocator, compInfo, valType.astType, withGenDef), true);
         },
         .FuncReference => |ref| {
             const dec = try compInfo.getFunction(ref);
 
             if (dec) |funcRef| {
-                return .{
+                return utils.astTypesToInfo(.{
                     .Function = funcRef,
-                };
+                }, true);
             }
 
             return ScanError.IdentifierNotAFunction;
@@ -343,13 +343,13 @@ pub fn scanNode(
                 compInfo.scanner.allowStaticStructInstance = true;
             }
 
-            const res = try scanNode(allocator, compInfo, access.value, withGenDef);
+            const valueInfo = try scanNode(allocator, compInfo, access.value, withGenDef);
             compInfo.scanner.allowStaticStructInstance = false;
             compInfo.scanner.allowErrorWithoutVariants = false;
-            defer free.freeStackType(allocator, &res);
+            defer free.freeAstTypeInfo(allocator, valueInfo);
 
-            const valid = switch (res) {
-                .Generic => return .Any,
+            const valid: bool = switch (valueInfo.astType) {
+                .Generic => return utils.astTypesToInfo(.Any, valueInfo.isConst),
                 .DynamicArray => builtins.validateDynamicArrayProps(access.property),
                 .StaticArray => builtins.validateStaticArrayProps(access.property),
                 .String => builtins.validateStringProps(access.property),
@@ -381,7 +381,7 @@ pub fn scanNode(
                     const propType = try validateCustomProps(allocator, compInfo, custom, access.property, withGenDef);
 
                     if (propType) |t| {
-                        return t;
+                        return utils.astTypesToInfo(t, valueInfo.isConst);
                     }
 
                     break :a false;
@@ -405,7 +405,7 @@ pub fn scanNode(
                             }
                         }
 
-                        return t;
+                        return utils.astTypesToInfo(t, valueInfo.isConst);
                     }
 
                     break :a false;
@@ -420,12 +420,12 @@ pub fn scanNode(
                         return ScanError.ErrorDoesNotHaveVariants;
                     }
 
-                    return .{
+                    return utils.astTypesToInfo(.{
                         .ErrorVariant = .{
                             .from = try string.cloneString(allocator, err.name),
                             .variant = try string.cloneString(allocator, access.property),
                         },
-                    };
+                    }, valueInfo.isConst);
                 },
                 else => false,
             };
@@ -433,11 +433,11 @@ pub fn scanNode(
             if (!valid) return ScanError.InvalidProperty;
 
             // TODO - update with builtin prop types (array.length, array.push, etc)
-            return .Void;
+            return utils.astTypesToInfo(.Void, true);
         },
         .Seq => |seq| {
             try scanNodes(allocator, compInfo, seq.nodes, withGenDef);
-            return .Void;
+            return utils.astTypesToInfo(.Void, true);
         },
         .VarDec => |dec| {
             if (compInfo.getVariableTypeFixed(dec.name) != null) {
@@ -446,55 +446,92 @@ pub fn scanNode(
 
             const setType = try scanNode(allocator, compInfo, dec.setNode, withGenDef);
 
-            if (setType == .Void) {
+            if (setType.astType == .Void) {
                 return ScanError.VoidVariableDec;
             }
 
             if (dec.annotation) |annotation| {
-                if (try matchTypes(allocator, compInfo, annotation.*, setType, false)) {
-                    free.freeStackType(allocator, &setType);
+                if (try matchTypes(allocator, compInfo, annotation.*, setType.astType, false)) {
+                    free.freeAstTypeInfo(allocator, setType);
                     const setPtr = try clone.cloneAstTypesPtr(allocator, compInfo, annotation, withGenDef);
                     try compInfo.setVariableType(dec.name, setPtr, dec.isConst);
                 } else {
                     return ScanError.VariableAnnotationMismatch;
                 }
             } else {
-                const setPtr = try create(blitzAst.AstTypes, allocator, setType);
+                const setPtr = try create(blitzAst.AstTypes, allocator, setType.astType);
                 try compInfo.setVariableType(dec.name, setPtr, dec.isConst);
             }
 
-            return .Void;
+            return utils.astTypesToInfo(.Void, true);
         },
-        .VarSet => |set| {
-            const varType = try compInfo.getVariableType(set.variable, withGenDef);
-            if (varType == null) return ScanError.VariableIsUndefined;
-            if (varType.?.isConst) return ScanError.AssigningToConstVariable;
+        .ValueSet => |set| {
+            const valType = try scanNode(allocator, compInfo, set.value, withGenDef);
+            if (valType.isConst) return ScanError.AssigningToConstVariable;
 
             const setNode = try scanNode(allocator, compInfo, set.setNode, withGenDef);
-            defer free.freeStackType(allocator, &setNode);
+            defer free.freeAstTypeInfo(allocator, setNode);
 
-            if (!(try matchTypes(allocator, compInfo, varType.?.varType.*, setNode, withGenDef))) {
+            if (!(try matchTypes(allocator, compInfo, valType.astType, setNode.astType, withGenDef))) {
                 return ScanError.VariableTypeAndValueTypeMismatch;
             }
 
-            return .Void;
+            return utils.astTypesToInfo(.Void, true);
         },
         .VarEqOp => |op| {
-            _ = op;
-            // TODO
-            return .Void;
+            switch (op.opType) {
+                .AddEq, .SubEq, .MultEq, .DivEq => {
+                    const variable = if (try compInfo.getVariableType(op.variable, withGenDef)) |val|
+                        val
+                    else {
+                        return ScanError.VariableIsUndefined;
+                    };
+
+                    if (variable.isConst) {
+                        return ScanError.AssigningToConstVariable;
+                    }
+
+                    const left = variable.varType.*;
+                    const right = try scanNode(allocator, compInfo, op.value, withGenDef);
+
+                    if (left == .Generic or left == .Any) {
+                        if (right.astType != .Number and right.astType != .Generic and right.astType != .Any) {
+                            return ScanError.MathOpOnNonNumberType;
+                        }
+
+                        if (!(try matchTypes(allocator, compInfo, left, right.astType, withGenDef))) {
+                            return ScanError.MathOpTypeMismatch;
+                        }
+                    } else if (right.astType == .Generic or right.astType == .Any) {
+                        if (left != .Number and left != .Generic and left != .Any) {
+                            return ScanError.MathOpOnNonNumberType;
+                        }
+
+                        if (!(try matchTypes(allocator, compInfo, left, right.astType, withGenDef))) {
+                            return ScanError.MathOpTypeMismatch;
+                        }
+                    }
+
+                    if (@intFromEnum(left.Number) != @intFromEnum(right.astType.Number)) {
+                        return ScanError.NumberTypeMismatch;
+                    }
+                },
+                else => {},
+            }
+
+            return utils.astTypesToInfo(.Void, true);
         },
         .Variable => |v| {
             if (compInfo.isInStructMethod() and string.compString(v, "self")) {
-                return .{
+                return utils.astTypesToInfo(.{
                     .StaticStructInstance = try string.cloneString(allocator, v),
-                };
+                }, true);
             }
 
             const varType = try compInfo.getVariableType(v, withGenDef);
 
             if (varType) |t| {
-                return try clone.cloneAstTypes(allocator, compInfo, t.varType.*, false);
+                return utils.astTypesToInfo(try clone.cloneAstTypes(allocator, compInfo, t.varType.*, false), t.isConst);
             }
 
             return ScanError.VariableIsUndefined;
@@ -505,7 +542,7 @@ pub fn scanNode(
                 return ScanError.StructDefinedInLowerScope;
             }
 
-            return .Void;
+            return utils.astTypesToInfo(.Void, false);
         },
         .StructDec => |dec| {
             try compInfo.pushRegGenScope(false);
@@ -525,7 +562,7 @@ pub fn scanNode(
                 compInfo.removeAvailableGeneric(generic.name);
             }
 
-            return .Void;
+            return utils.astTypesToInfo(.Void, true);
         },
         .IfStatement => |statement| {
             try compInfo.pushScope(true);
@@ -534,11 +571,11 @@ pub fn scanNode(
             const prev = try compInfo.returnInfo.newInfo(false);
 
             const conditionType = try scanNode(allocator, compInfo, statement.condition, withGenDef);
-            defer free.freeStackType(allocator, &conditionType);
-            if (conditionType != .Bool) return ScanError.ExpectedBooleanIfCondition;
+            defer free.freeAstTypeInfo(allocator, conditionType);
+            if (conditionType.astType != .Bool) return ScanError.ExpectedBooleanIfCondition;
 
             const body = try scanNode(allocator, compInfo, statement.body, withGenDef);
-            defer free.freeStackType(allocator, &body);
+            defer free.freeAstTypeInfo(allocator, body);
 
             try compInfo.returnInfo.collapse(compInfo, prev, withGenDef);
 
@@ -552,7 +589,7 @@ pub fn scanNode(
                 compInfo.returnInfo.setExhaustive(false);
             }
 
-            return .Void;
+            return utils.astTypesToInfo(.Void, true);
         },
         .ForLoop => |loop| {
             try compInfo.pushScope(true);
@@ -561,46 +598,46 @@ pub fn scanNode(
 
             if (loop.initNode) |init| {
                 const initType = try scanNode(allocator, compInfo, init, withGenDef);
-                free.freeStackType(allocator, &initType);
+                free.freeAstTypeInfo(allocator, initType);
             }
 
             const conditionType = try scanNode(allocator, compInfo, loop.condition, withGenDef);
-            defer free.freeStackType(allocator, &conditionType);
-            if (conditionType != .Bool) {
+            defer free.freeAstTypeInfo(allocator, conditionType);
+            if (conditionType.astType != .Bool) {
                 return ScanError.ExpectedBooleanLoopCondition;
             }
 
             const incType = try scanNode(allocator, compInfo, loop.incNode, withGenDef);
-            free.freeStackType(allocator, &incType);
+            free.freeAstTypeInfo(allocator, incType);
 
             const bodyType = try scanNode(allocator, compInfo, loop.body, withGenDef);
-            free.freeStackType(allocator, &bodyType);
+            free.freeAstTypeInfo(allocator, bodyType);
 
             try compInfo.returnInfo.collapse(compInfo, prev, withGenDef);
             if (compInfo.returnInfo.hasType()) {
                 compInfo.returnInfo.setExhaustive(false);
             }
 
-            return .Void;
+            return utils.astTypesToInfo(.Void, true);
         },
         .WhileLoop => |loop| {
             const prev = try compInfo.returnInfo.newInfo(false);
 
             const conditionType = try scanNode(allocator, compInfo, loop.condition, withGenDef);
-            defer free.freeStackType(allocator, &conditionType);
-            if (conditionType != .Bool) {
+            defer free.freeAstTypeInfo(allocator, conditionType);
+            if (conditionType.astType != .Bool) {
                 return ScanError.ExpectedBooleanLoopCondition;
             }
 
             const bodyType = try scanNode(allocator, compInfo, loop.body, withGenDef);
-            free.freeStackType(allocator, &bodyType);
+            free.freeAstTypeInfo(allocator, bodyType);
 
             try compInfo.returnInfo.collapse(compInfo, prev, withGenDef);
             if (compInfo.returnInfo.hasType()) {
                 compInfo.returnInfo.setExhaustive(false);
             }
 
-            return .Void;
+            return utils.astTypesToInfo(.Void, true);
         },
         .FuncDec => |name| {
             try compInfo.pushScope(true);
@@ -622,7 +659,7 @@ pub fn scanNode(
             free.freeStackType(allocator, &scanRes);
 
             // TODO - replace with function type for anonymous functions sorta thing
-            return .Void;
+            return utils.astTypesToInfo(.Void, true);
         },
         .FuncCall => |call| {
             const prev = compInfo.returnInfo.setInFunction(true);
@@ -634,8 +671,8 @@ pub fn scanNode(
             defer compInfo.returnInfo.swapFree(lastRetInfo);
 
             const dec = try scanNode(allocator, compInfo, call.func, withGenDef);
-            if (dec != .Function) return ScanError.CannotCallNonFunctionNode;
-            const func = dec.Function;
+            if (dec.astType != .Function) return ScanError.CannotCallNonFunctionNode;
+            const func = dec.astType.Function;
 
             const prevAccessed = compInfo.getPreviousAccessedStruct();
             if (prevAccessed) |accessed| {
@@ -651,7 +688,7 @@ pub fn scanNode(
                 }
             }
 
-            const paramTypes = try allocator.alloc(blitzAst.AstTypes, call.params.len);
+            const paramTypes = try allocator.alloc(blitzAst.AstTypeInfo, call.params.len);
             defer allocator.free(paramTypes);
             for (call.params, 0..) |param, index| {
                 paramTypes[index] = try scanNode(allocator, compInfo, param, withGenDef);
@@ -661,15 +698,15 @@ pub fn scanNode(
                 return ScanError.FunctionCallParamCountMismatch;
             }
 
-            for (func.params, 0..) |param, index| {
+            for (func.params, paramTypes) |param, paramType| {
                 var isGeneric = false;
 
                 switch (param.type.*) {
                     .Generic => |generic| {
-                        const typePtr = try create(blitzAst.AstTypes, allocator, paramTypes[index]);
+                        const typePtr = try create(blitzAst.AstTypes, allocator, paramType.astType);
 
                         if (try compInfo.getGeneric(generic)) |gen| {
-                            if (!(try matchTypes(allocator, compInfo, paramTypes[index], gen.*, false))) {
+                            if (!(try matchTypes(allocator, compInfo, paramType.astType, gen.*, false))) {
                                 return ScanError.GenericRestrictionConflict;
                             }
                         }
@@ -678,17 +715,21 @@ pub fn scanNode(
                         isGeneric = true;
                     },
                     .Custom => |custom| {
-                        try matchParamGenericTypes(allocator, compInfo, custom, &paramTypes[index]);
+                        try matchParamGenericTypes(allocator, compInfo, custom, &paramType.astType);
                     },
                     else => {},
                 }
 
-                if (!try matchTypes(allocator, compInfo, param.type.*, paramTypes[index], false)) {
+                if (!try matchTypes(allocator, compInfo, param.type.*, paramType.astType, false)) {
                     return ScanError.FunctionCallParamTypeMismatch;
                 }
 
+                if (!isPrimary(paramType.astType) and paramType.isConst and !param.isConst) {
+                    return ScanError.ExpectedMutableParameter;
+                }
+
                 if (!isGeneric) {
-                    free.freeStackType(allocator, &paramTypes[index]);
+                    free.freeAstTypeInfo(allocator, paramType);
                 }
             }
 
@@ -711,7 +752,8 @@ pub fn scanNode(
                 }
             }
 
-            return try scanFuncBodyAndReturn(allocator, compInfo, func, withGenDef);
+            const bodyReturnScanRes = try scanFuncBodyAndReturn(allocator, compInfo, func, withGenDef);
+            return utils.astTypesToInfo(bodyReturnScanRes, false);
         },
         .StructInit => |init| {
             try compInfo.pushGenScope(true);
@@ -750,26 +792,26 @@ pub fn scanNode(
                 }
 
                 const attrType = try scanNode(allocator, compInfo, attrNode.?, withGenDef);
-                defer free.freeStackType(allocator, &attrType);
+                defer free.freeAstTypeInfo(allocator, attrType);
 
-                if (!try matchTypes(allocator, compInfo, attr.attr.Member.*, attrType, withGenDef)) {
+                if (!try matchTypes(allocator, compInfo, attr.attr.Member.*, attrType.astType, withGenDef)) {
                     return ScanError.StructInitMemberTypeMismatch;
                 }
             }
 
-            return .{
+            return utils.astTypesToInfo(.{
                 .Custom = .{
                     .generics = try clone.cloneTypesArr(allocator, compInfo, init.generics, false),
                     .name = try string.cloneString(allocator, init.name),
                 },
-            };
+            }, false);
         },
         .Bang => |bang| {
             const bangType = try scanNode(allocator, compInfo, bang, withGenDef);
-            defer free.freeStackType(allocator, &bangType);
-            if (bangType != .Bool) return ScanError.ExpectedBooleanBang;
+            defer free.freeAstTypeInfo(allocator, bangType);
+            if (bangType.astType != .Bool) return ScanError.ExpectedBooleanBang;
 
-            return .Bool;
+            return utils.astTypesToInfo(.Bool, false);
         },
         .Error => |err| {
             const dec = compInfo.getErrorDec(err).?;
@@ -777,12 +819,12 @@ pub fn scanNode(
                 return ScanError.ExpectedUseOfErrorVariants;
             }
 
-            return .{
+            return utils.astTypesToInfo(.{
                 .Error = .{
                     .name = try string.cloneString(allocator, err),
                     .payload = null,
                 },
-            };
+            }, true);
         },
         .Scope => |scope| {
             try compInfo.pushScope(true);
@@ -832,11 +874,11 @@ fn scanIfFallback(allocator: Allocator, compInfo: *CompInfo, fallback: *const bl
 
     if (fallback.condition) |condition| {
         const nodeType = try scanNode(allocator, compInfo, condition, withGenDef);
-        free.freeStackType(allocator, &nodeType);
+        free.freeAstTypeInfo(allocator, nodeType);
     }
 
     const bodyType = try scanNode(allocator, compInfo, fallback.body, withGenDef);
-    free.freeStackType(allocator, &bodyType);
+    free.freeAstTypeInfo(allocator, bodyType);
 
     if (compInfo.returnInfo.info.retType == null) {
         compInfo.returnInfo.setExhaustive(false);
@@ -953,12 +995,12 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitz
 
     for (func.params) |param| {
         const typeClone = try clone.cloneAstTypesPtr(allocator, compInfo, param.type, false);
-        try compInfo.setVariableType(param.name, typeClone, false);
+        try compInfo.setVariableType(param.name, typeClone, param.isConst);
     }
 
     try scanNodeForFunctions(allocator, compInfo, func.body);
     const bodyType = try scanNode(allocator, compInfo, func.body, withGenDef);
-    free.freeStackType(allocator, &bodyType);
+    free.freeAstTypeInfo(allocator, bodyType);
 
     const scope = compInfo.consumeVariableCaptures();
     if (scope) |s| {
@@ -1085,7 +1127,7 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.S
                 }
 
                 const bodyType = try scanNode(allocator, compInfo, func.body, withGenDef);
-                free.freeStackType(allocator, &bodyType);
+                free.freeAstTypeInfo(allocator, bodyType);
             },
         }
     }
@@ -1206,11 +1248,11 @@ pub fn matchTypes(
             };
 
             const sizeType1 = try scanNode(allocator, compInfo, arr.size, withGenDef);
-            defer free.freeStackType(allocator, &sizeType1);
+            defer free.freeAstTypeInfo(allocator, sizeType1);
             const sizeType2 = try scanNode(allocator, compInfo, array.size, withGenDef);
-            defer free.freeStackType(allocator, &sizeType2);
+            defer free.freeAstTypeInfo(allocator, sizeType2);
 
-            if (!isInt(sizeType1) or !isInt(sizeType2)) {
+            if (!isInt(sizeType1.astType) or !isInt(sizeType2.astType)) {
                 return false;
             }
 
@@ -1285,7 +1327,8 @@ pub fn matchTypes(
 
 fn isPrimary(astType: blitzAst.AstTypes) bool {
     return switch (astType) {
-        .String, .Bool, .Char, .Number, .Null => true,
+        .String, .Bool, .Char, .Number, .Null, .RawNumber => true,
+        .Nullable => |inner| isPrimary(inner.*),
         else => false,
     };
 }
@@ -1346,21 +1389,24 @@ fn getStructPropType(compInfo: *CompInfo, allowNonStatic: bool, inst: []u8, prop
     return ScanError.InvalidProperty;
 }
 
-fn inferStaticArrType(allocator: Allocator, compInfo: *CompInfo, arr: []*const blitzAst.AstNode, withGenDef: bool) !blitzAst.AstTypes {
-    if (arr.len == 0) return .Void;
+fn inferStaticArrType(allocator: Allocator, compInfo: *CompInfo, arr: []*const blitzAst.AstNode, withGenDef: bool) !blitzAst.AstTypeInfo {
+    if (arr.len == 0) return utils.astTypesToInfo(.Void, true);
 
     const firstType = try scanNode(allocator, compInfo, arr[0], withGenDef);
+    var isConst = firstType.isConst;
 
     for (arr[1..]) |item| {
         const exprType = try scanNode(allocator, compInfo, item, withGenDef);
-        defer free.freeStackType(allocator, &exprType);
+        defer free.freeAstTypeInfo(allocator, exprType);
 
-        if (!try matchTypes(allocator, compInfo, exprType, firstType, false)) {
+        isConst = isConst or exprType.isConst;
+
+        if (!try matchTypes(allocator, compInfo, exprType.astType, firstType.astType, false)) {
             return ScanError.StaticArrayTypeMismatch;
         }
     }
 
-    return firstType;
+    return utils.astTypesToInfo(firstType.astType, isConst);
 }
 
 fn scanNodeForFunctions(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst.AstNode) !void {

@@ -2,7 +2,7 @@ struct [T] square {
   pub value: T;
 }
 
-fn [T] thing(a: square<T>, val: T): T {
+fn [T] thing(a: const square<T>, val: T): T {
   return a.value;
 }
 

@@ -278,8 +278,10 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
                 printType(compInfo, dec.annotation.?);
             }
         },
-        .VarSet => |set| {
-            print("set {s} to ", .{set.variable});
+        .ValueSet => |set| {
+            print("set ", .{});
+            printNode(compInfo, set.value);
+            print(" to ", .{});
             printNode(compInfo, set.setNode);
         },
         .Value => |*val| {
@@ -503,6 +505,10 @@ fn printParams(compInfo: *CompInfo, params: []blitzAst.Parameter) void {
     }
 
     for (params, 0..) |param, index| {
+        if (param.isConst) {
+            print("const ", .{});
+        }
+
         print("[", .{});
         printType(compInfo, param.type);
         print("]({s})", .{param.name});
