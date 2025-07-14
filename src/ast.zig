@@ -452,6 +452,7 @@ pub const AstError = error{
     UnexpectedGenericOnErrorType,
     ExpectedTypeExpression,
     ErrorPayloadMayNotBeError,
+    UnexpectedGeneric,
 };
 
 const RegisterStructsAndErrorsResult = struct {
@@ -561,9 +562,6 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
             });
         },
         .Fn => {
-            try compInfo.pushRegGenScope(true);
-            defer compInfo.popRegGenScope();
-
             const func = try parseFuncDef(allocator, compInfo);
             try compInfo.addFunction(func.name, func);
 
@@ -768,6 +766,9 @@ fn parseIfChain(allocator: Allocator, compInfo: *CompInfo) !?*const IfFallback {
 }
 
 fn parseStruct(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
+    try compInfo.pushParsedGenericsScope();
+    defer compInfo.popParsedGenericsScope();
+
     var deriveType: ?*const AstTypes = null;
     var generics: []GenericType = &[_]GenericType{};
 
@@ -777,10 +778,6 @@ fn parseStruct(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
         first = try compInfo.tokens.take();
     } else if (first.type != .Identifier) {
         return compInfo.logger.logError(AstError.ExpectedIdentifierForStructName);
-    }
-
-    for (generics) |generic| {
-        try compInfo.addAvailableGeneric(generic.name);
     }
 
     var next = try compInfo.tokens.take();
@@ -803,10 +800,6 @@ fn parseStruct(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
     }
 
     const attributes = try parseStructAttributes(allocator, compInfo);
-
-    for (generics) |generic| {
-        compInfo.removeAvailableGeneric(generic.name);
-    }
 
     return try createMut(AstNode, allocator, .{
         .StructDec = try createMut(StructDecNode, allocator, .{
@@ -1357,6 +1350,9 @@ fn parseFuncCall(allocator: Allocator, compInfo: *CompInfo, name: []u8) !*AstNod
 }
 
 fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo) !*FuncDecNode {
+    try compInfo.pushParsedGenericsScope();
+    defer compInfo.popParsedGenericsScope();
+
     var next = try compInfo.tokens.take();
     var nameStr: []u8 = undefined;
     var generics: ?[]GenericType = null;
@@ -1432,9 +1428,11 @@ fn parseGeneric(allocator: Allocator, compInfo: *CompInfo) !GenericType {
     if (first.type != .Identifier) {
         return compInfo.logger.logError(AstError.ExpectedIdentifierForGenericType);
     }
+    try compInfo.addParsedGeneric(first.string.?);
 
     var restriction: ?*const AstTypes = null;
-    if ((try compInfo.tokens.peak()).type == .Colon) {
+    const current = try compInfo.tokens.peak();
+    if (current.type == .Colon) {
         _ = try compInfo.tokens.take();
         restriction = try parseType(allocator, compInfo);
     }
@@ -1703,6 +1701,10 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
                         .payload = generic,
                     },
                 };
+            }
+
+            if (!compInfo.hasParsedGeneric(str)) {
+                return compInfo.logger.logError(AstError.UnexpectedGeneric);
             }
 
             break :a .{

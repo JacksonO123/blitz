@@ -1,5 +1,9 @@
 # Todo
 
+## Next
+
+- [ ] add back available generics, it is only used during parsing of generic types
+
 - [ ] make properties on const structs immutable
 - [ ] anonymous functions
 - [ ] maybe make passing ast type info structs better by passing pointers instead

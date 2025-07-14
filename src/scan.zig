@@ -545,22 +545,12 @@ pub fn scanNode(
             return utils.astTypesToInfo(.Void, false);
         },
         .StructDec => |dec| {
-            try compInfo.pushRegGenScope(false);
             try compInfo.addCurrentStruct(dec.name);
             defer _ = compInfo.popCurrentStruct();
-            defer compInfo.popRegGenScope();
-
-            for (dec.generics) |generic| {
-                try compInfo.addAvailableGeneric(generic.name);
-            }
 
             compInfo.enteringStruct();
             try scanAttributes(allocator, compInfo, dec.attributes, false);
             compInfo.exitingStruct();
-
-            for (dec.generics) |generic| {
-                compInfo.removeAvailableGeneric(generic.name);
-            }
 
             return utils.astTypesToInfo(.Void, true);
         },
@@ -655,6 +645,7 @@ pub fn scanNode(
             defer compInfo.popGenericCaptureScope();
 
             const func = compInfo.getFunctionAsGlobal(name).?;
+
             const scanRes = try scanFuncBodyAndReturn(allocator, compInfo, func, false);
             free.freeStackType(allocator, &scanRes);
 

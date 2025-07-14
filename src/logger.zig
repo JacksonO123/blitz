@@ -223,5 +223,6 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedTypeExpression => "expected type expression",
         AstError.ErrorPayloadMayNotBeError => "error payload may not be error",
         AstError.ExpectedNameForFunction => "expected name for function",
+        AstError.UnexpectedGeneric => "unexpected generic",
     };
 }

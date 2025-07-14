@@ -42,7 +42,7 @@ struct MyStruct {
   size: u32;
 }
 
-fn [T: myStruct] myFunc4(value: const T): u32 {
+fn [T: MyStruct] myFunc4(value: const T): u32 {
   return value.size;
 }
 
