@@ -266,9 +266,9 @@ pub const CompInfo = struct {
         }
     }
 
-    pub fn pushParsedGenericsScope(self: *Self) !void {
+    pub fn pushParsedGenericsScope(self: *Self, leak: bool) !void {
         const newScope = try initMutPtrT(StringListScope, self.allocator);
-        try self.parsedGenerics.add(newScope, true);
+        try self.parsedGenerics.add(newScope, leak);
     }
 
     pub fn popParsedGenericsScope(self: *Self) void {
@@ -329,6 +329,13 @@ pub const CompInfo = struct {
             var structIt = self.structDecs.valueIterator();
             while (structIt.next()) |s| {
                 const attributes = s.*.attributes;
+                try self.pushParsedGenericsScope(false);
+                defer self.popParsedGenericsScope();
+
+                for (s.*.generics) |g| {
+                    try self.addParsedGeneric(g.name);
+                }
+
                 for (attributes) |attr| {
                     if (attr.attr != .Function) continue;
 

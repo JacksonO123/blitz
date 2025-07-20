@@ -562,7 +562,7 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
             });
         },
         .Fn => {
-            const func = try parseFuncDef(allocator, compInfo);
+            const func = try parseFuncDef(allocator, compInfo, false);
             try compInfo.addFunction(func.name, func);
 
             return try createMut(AstNode, allocator, .{
@@ -766,7 +766,7 @@ fn parseIfChain(allocator: Allocator, compInfo: *CompInfo) !?*const IfFallback {
 }
 
 fn parseStruct(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
-    try compInfo.pushParsedGenericsScope();
+    try compInfo.pushParsedGenericsScope(false);
     defer compInfo.popParsedGenericsScope();
 
     var deriveType: ?*const AstTypes = null;
@@ -873,7 +873,7 @@ fn parseStructAttributeUtil(allocator: Allocator, compInfo: *CompInfo, visibilit
             };
         },
         .Fn => {
-            const def = try parseFuncDef(allocator, compInfo);
+            const def = try parseFuncDef(allocator, compInfo, true);
 
             return .{
                 .name = try string.cloneString(allocator, def.name),
@@ -1349,8 +1349,8 @@ fn parseFuncCall(allocator: Allocator, compInfo: *CompInfo, name: []u8) !*AstNod
     });
 }
 
-fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo) !*FuncDecNode {
-    try compInfo.pushParsedGenericsScope();
+fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo, structFn: bool) !*FuncDecNode {
+    try compInfo.pushParsedGenericsScope(structFn);
     defer compInfo.popParsedGenericsScope();
 
     var next = try compInfo.tokens.take();
