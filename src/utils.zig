@@ -6,6 +6,7 @@ const string = blitz.string;
 const free = blitz.free;
 const scanner = blitz.scanner;
 const clone = blitz.clone;
+const builtins = blitz.builtins;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
@@ -35,11 +36,24 @@ pub fn initMutPtrT(comptime T: type, allocator: Allocator) !*T {
     return try createMut(T, allocator, data);
 }
 
-pub inline fn astTypesToInfo(astType: blitzAst.AstTypes, isConst: bool) blitzAst.AstTypeInfo {
+pub inline fn astTypesPtrToInfo(astType: *const blitzAst.AstTypes, isConst: bool) blitzAst.AstTypeInfo {
     return .{
         .isConst = isConst,
         .astType = astType,
     };
+}
+
+pub inline fn astTypesToInfo(allocator: Allocator, astType: blitzAst.AstTypes, isConst: bool) !blitzAst.AstTypeInfo {
+    const ptr = try create(blitzAst.AstTypes, allocator, astType);
+    return .{
+        .isConst = isConst,
+        .astType = ptr,
+    };
+}
+
+/// IMPORTANT: supports values 0 - 16
+pub fn intToHex(num: usize) u8 {
+    return if (num < 10) ('0' + @as(u8, @intCast(num))) else ('a' + @as(u8, @intCast(num - 10)));
 }
 
 fn initScopeUtil(comptime T: type, allocator: Allocator) !*ScopeUtil(*T) {
@@ -89,6 +103,7 @@ pub const CompInfo = struct {
         allowStaticStructInstance: bool,
     },
     returnInfo: *ReturnInfo,
+    builtins: builtins.BuiltinFuncMemo,
 
     pub fn init(allocator: Allocator, tokens: []tokenizer.Token, names: blitzAst.HoistedNames, code: []const u8) !Self {
         const loggerUtil = try allocator.create(Logger);
@@ -136,6 +151,14 @@ pub const CompInfo = struct {
                 .allowStaticStructInstance = false,
             },
             .returnInfo = returnInfo,
+            .builtins = .{
+                .dynArr = .{
+                    .push = null,
+                    .pop = null,
+                    .pushFront = null,
+                    .popFront = null,
+                },
+            },
         };
     }
 
@@ -163,6 +186,8 @@ pub const CompInfo = struct {
         for (self.currentStructs.items) |item| {
             self.allocator.free(item);
         }
+
+        free.freeBuiltins(self.allocator, self.builtins);
 
         self.returnInfo.deinit();
         self.allocator.destroy(self.returnInfo);
@@ -953,7 +978,7 @@ pub const ReturnInfo = struct {
     pub fn collapse(self: *Self, compInfo: *CompInfo, prev: *ReturnInfoData, withGenDef: bool) !void {
         if (prev.retType) |retType| {
             if (self.info.retType) |firstRetType| {
-                if (!(try scanner.matchTypes(self.allocator, compInfo, retType.*, firstRetType.*, withGenDef))) {
+                if (!(try scanner.matchTypes(self.allocator, compInfo, retType, firstRetType, withGenDef))) {
                     return ScanError.FunctionReturnsHaveDifferentTypes;
                 }
 
@@ -992,7 +1017,7 @@ pub const ReturnInfo = struct {
 fn freeVariableScope(allocator: Allocator, scope: *VarScope) void {
     var scopeIt = scope.valueIterator();
     while (scopeIt.next()) |v| {
-        free.freeType(allocator, v.*.varType);
+        free.freeType(allocator, v.varType);
     }
 }
 

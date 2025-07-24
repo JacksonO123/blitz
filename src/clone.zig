@@ -95,6 +95,7 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
                     .bodyTokens = func.bodyTokens,
                     .capturedValues = capturedValues,
                     .capturedTypes = capturedTypes,
+                    .builtin = func.builtin,
                 }),
             };
         },
@@ -491,12 +492,12 @@ pub fn cloneStructAttributeUnion(allocator: Allocator, compInfo: *CompInfo, stru
     };
 }
 
-pub fn cloneStructAttributeUnionType(allocator: Allocator, compInfo: *CompInfo, structAttrUnion: blitzAst.StructAttributeUnion, replaceGenerics: bool) !blitzAst.AstTypes {
+pub fn cloneStructAttributeUnionType(allocator: Allocator, compInfo: *CompInfo, structAttrUnion: blitzAst.StructAttributeUnion, replaceGenerics: bool) !*const blitzAst.AstTypes {
     return switch (structAttrUnion) {
-        .Function => |func| .{
+        .Function => |func| try create(blitzAst.AstTypes, allocator, .{
             .Function = func,
-        },
-        .Member => |member| try cloneAstTypes(allocator, compInfo, member.*, replaceGenerics),
+        }),
+        .Member => |member| try cloneAstTypesPtr(allocator, compInfo, member, replaceGenerics),
     };
 }
 
@@ -566,6 +567,7 @@ pub fn cloneFuncDec(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.Fu
         .returnType = returnType,
         .capturedValues = capturedValues,
         .capturedTypes = capturedTypes,
+        .builtin = dec.builtin,
     });
 }
 

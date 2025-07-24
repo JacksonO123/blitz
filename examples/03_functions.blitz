@@ -39,7 +39,7 @@ myFunc3(3);
 // parent struct
 
 struct MyStruct {
-  size: u32;
+  pub size: u32;
 }
 
 fn [T: MyStruct] myFunc4(value: const T): u32 {

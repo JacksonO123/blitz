@@ -12,7 +12,7 @@ pub fn findChar(items: []const u8, start: usize, item: u8) ?usize {
     return null;
 }
 
-pub inline fn cloneString(allocator: Allocator, string: []u8) ![]u8 {
+pub inline fn cloneString(allocator: Allocator, string: []const u8) ![]u8 {
     return try allocator.dupe(u8, string);
 }
 

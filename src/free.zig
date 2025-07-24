@@ -3,6 +3,7 @@ const blitz = @import("root").blitz;
 const blitzAst = blitz.ast;
 const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
+const builtins = blitz.builtins;
 const Allocator = std.mem.Allocator;
 const CompInfo = utils.CompInfo;
 
@@ -18,14 +19,30 @@ pub fn freeNestedSlice(comptime T: type, allocator: Allocator, slices: [][]T) vo
     allocator.free(slices);
 }
 
-pub fn freeFuncDec(allocator: Allocator, func: *const blitzAst.FuncDecNode) void {
-    allocator.free(func.name);
-
-    for (func.params) |param| {
-        freeType(allocator, param.type);
+pub fn shallowFreeFuncDecParams(allocator: Allocator, params: []blitzAst.Parameter) void {
+    for (params) |param| {
         allocator.free(param.name);
     }
+}
 
+pub fn freeBuiltinFuncDec(allocator: Allocator, func: *const blitzAst.FuncDecNode) void {
+    freeFuncDecUtil(allocator, func, true);
+}
+
+pub fn freeFuncDec(allocator: Allocator, func: *const blitzAst.FuncDecNode) void {
+    freeFuncDecUtil(allocator, func, false);
+}
+
+pub fn freeFuncDecUtil(allocator: Allocator, func: *const blitzAst.FuncDecNode, builtin: bool) void {
+    allocator.free(func.name);
+    if (builtin) {
+        shallowFreeFuncDecParams(allocator, func.params);
+    } else {
+        for (func.params) |param| {
+            freeType(allocator, param.type);
+            allocator.free(param.name);
+        }
+    }
     allocator.free(func.params);
 
     if (func.generics) |generics| {
@@ -313,7 +330,7 @@ pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void 
 }
 
 pub fn freeAstTypeInfo(allocator: Allocator, info: blitzAst.AstTypeInfo) void {
-    freeStackType(allocator, &info.astType);
+    freeType(allocator, info.astType);
 }
 
 pub fn freeType(allocator: Allocator, typeNode: *const blitzAst.AstTypes) void {
@@ -341,4 +358,11 @@ pub fn freeTokenArr(allocator: Allocator, tokens: []tokenizer.Token) void {
             allocator.free(str);
         }
     }
+}
+
+pub fn freeBuiltins(allocator: Allocator, memos: builtins.BuiltinFuncMemo) void {
+    if (memos.dynArr.push) |push| freeBuiltinFuncDec(allocator, push);
+    if (memos.dynArr.pop) |pop| freeBuiltinFuncDec(allocator, pop);
+    if (memos.dynArr.pushFront) |pushFront| freeBuiltinFuncDec(allocator, pushFront);
+    if (memos.dynArr.popFront) |popFront| freeBuiltinFuncDec(allocator, popFront);
 }

@@ -162,7 +162,7 @@ pub const AstTypes = union(Types) {
 };
 
 pub const AstTypeInfo = struct {
-    astType: AstTypes,
+    astType: *const AstTypes,
     isConst: bool,
 };
 
@@ -284,6 +284,7 @@ pub const FuncDecNode = struct {
     returnType: *const AstTypes,
     capturedValues: ?*utils.CaptureScope,
     capturedTypes: ?*utils.TypeScope,
+    builtin: bool,
 };
 
 const FuncCallNode = struct {
@@ -1133,6 +1134,15 @@ fn getIdentNode(allocator: Allocator, compInfo: *CompInfo, str: []u8) !*AstNode 
 }
 
 fn parseArray(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
+    if ((try compInfo.tokens.peak()).type == .RBracket) {
+        _ = try compInfo.tokens.take();
+        return try createMut(AstNode, allocator, .{
+            .Value = .{
+                .GeneralArray = &[_]*const AstNode{},
+            },
+        });
+    }
+
     var items = ArrayList(*const AstNode).init(allocator);
     defer items.deinit();
 
@@ -1400,6 +1410,7 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo, structFn: bool) !*Fun
         .returnType = returnType,
         .capturedValues = null,
         .capturedTypes = null,
+        .builtin = false,
     });
 }
 
@@ -1745,7 +1756,7 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
     return try create(AstTypes, allocator, astType);
 }
 
-pub fn findHoistedNames(allocator: Allocator, tokens: []tokenizer.Token) !HoistedNames {
+pub fn findStructAndErrorNames(allocator: Allocator, tokens: []tokenizer.Token) !HoistedNames {
     var structNames = ArrayList([]u8).init(allocator);
     defer structNames.deinit();
     var errorNames = ArrayList([]u8).init(allocator);

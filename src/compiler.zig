@@ -18,7 +18,7 @@ const debug = @import("debug.zig");
 const printRegisteredStructs = debug.printRegisteredStructs;
 const printRegisteredErrors = debug.printRegisteredErrors;
 const printAst = debug.printAst;
-const printHoistedNames = debug.printHoistedNames;
+const printStructAndErrorNames = debug.printStructAndErrorNames;
 
 const RuntimeError = error{NoInputFile};
 
@@ -45,8 +45,8 @@ pub fn main() !void {
     const tokens = try tokenizer.tokenize(allocator, code);
     defer free.freeTokens(allocator, tokens);
 
-    const names = try blitzAst.findHoistedNames(allocator, tokens);
-    printHoistedNames(names);
+    const names = try blitzAst.findStructAndErrorNames(allocator, tokens);
+    printStructAndErrorNames(names);
 
     var compInfo = try CompInfo.init(allocator, tokens, names, code);
     defer compInfo.deinit();
@@ -66,7 +66,8 @@ pub fn main() !void {
         const node: blitzAst.AstNode = .{
             .StructDec = s,
         };
-        _ = try scanner.scanNode(allocator, &compInfo, &node, true);
+        const nodeType = try scanner.scanNode(allocator, &compInfo, &node, true);
+        free.freeAstTypeInfo(allocator, nodeType);
     }
 
     var ast = try blitzAst.createAst(allocator, &compInfo);

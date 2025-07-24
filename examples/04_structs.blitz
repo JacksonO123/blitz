@@ -1,0 +1,11 @@
+var a: u32[] = [];
+a.pop();
+
+struct M {}
+const b = M {};
+
+fn thing(c: const M): M {
+  return c;
+}
+
+var h = thing(b);

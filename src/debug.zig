@@ -10,7 +10,7 @@ pub fn printAst(compInfo: *CompInfo, ast: blitzAst.Ast) void {
     printNode(compInfo, ast.root);
 }
 
-pub fn printHoistedNames(names: blitzAst.HoistedNames) void {
+pub fn printStructAndErrorNames(names: blitzAst.HoistedNames) void {
     print("------------\n", .{});
     print("structs:\n", .{});
     for (names.structNames) |name| {
@@ -479,7 +479,7 @@ pub fn printFuncDec(compInfo: *CompInfo, func: *const blitzAst.FuncDecNode) void
     print(" -- body end --\n", .{});
 }
 
-fn printAttributes(compInfo: *CompInfo, attrs: []blitzAst.StructAttribute) void {
+pub fn printAttributes(compInfo: *CompInfo, attrs: []blitzAst.StructAttribute) void {
     for (attrs, 0..) |attr, index| {
         if (attr.static) {
             print("(static) ", .{});
@@ -602,7 +602,7 @@ pub fn printToken(token: tokenizer.Token) void {
     }
 }
 
-pub fn printTokens(tokens: anytype) void {
+pub fn printTokens(tokens: []const tokenizer.Token) void {
     for (tokens) |token| {
         printToken(token);
     }

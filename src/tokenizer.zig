@@ -14,7 +14,7 @@ pub const TokenizeError = error{
     CharTokenTooShort,
 };
 
-pub const TokenType = enum {
+pub const TokenType = enum(u16) {
     const Self = @This();
 
     // keywords
@@ -63,10 +63,17 @@ pub const TokenType = enum {
     Period,
     Comma,
     QuestionMark,
-    True,
-    False,
     StringToken,
     CharToken,
+    EqComp,
+    LAngleEq,
+    RAngleEq,
+    SubEq,
+    AddEq,
+    MultEq,
+    DivEq,
+    Inc,
+    Dec,
 
     // datatypes
     CharType,
@@ -87,20 +94,13 @@ pub const TokenType = enum {
     StringType,
     Bool,
     Null,
+    True,
+    False,
 
     // other
     Identifier,
     Number,
     NegNumber,
-    EqComp,
-    LAngleEq,
-    RAngleEq,
-    SubEq,
-    AddEq,
-    MultEq,
-    DivEq,
-    Inc,
-    Dec,
     NewLine,
 
     pub fn toString(self: Self) []const u8 {
