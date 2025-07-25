@@ -361,8 +361,17 @@ pub fn freeTokenArr(allocator: Allocator, tokens: []tokenizer.Token) void {
 }
 
 pub fn freeBuiltins(allocator: Allocator, memos: builtins.BuiltinFuncMemo) void {
-    if (memos.dynArr.push) |push| freeBuiltinFuncDec(allocator, push);
-    if (memos.dynArr.pop) |pop| freeBuiltinFuncDec(allocator, pop);
-    if (memos.dynArr.pushFront) |pushFront| freeBuiltinFuncDec(allocator, pushFront);
-    if (memos.dynArr.popFront) |popFront| freeBuiltinFuncDec(allocator, popFront);
+    const dyn = memos.dynArr;
+    const fns = .{
+        dyn.push,
+        dyn.pop,
+        dyn.pushFront,
+        dyn.popFront,
+    };
+
+    inline for (fns) |func| {
+        if (func) |dec| {
+            freeBuiltinFuncDec(allocator, dec);
+        }
+    }
 }
