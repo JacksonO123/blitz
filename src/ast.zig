@@ -100,13 +100,13 @@ pub const AstNumber = union(AstNumberVariants) {
 };
 
 pub const AstStaticArrayType = struct {
-    type: *const AstTypes,
+    type: AstTypeInfo,
     size: *const AstNode,
 };
 
 pub const CustomType = struct {
     name: []u8,
-    generics: []*const AstTypes,
+    generics: []AstTypeInfo,
 };
 
 const ErrorVariantType = struct {
@@ -116,7 +116,7 @@ const ErrorVariantType = struct {
 
 const ErrorAstType = struct {
     name: []u8,
-    payload: ?*const AstTypes,
+    payload: ?AstTypeInfo,
 };
 
 const Types = enum {
@@ -149,10 +149,10 @@ pub const AstTypes = union(Types) {
     Any,
     Number: AstNumberVariants,
     RawNumber,
-    DynamicArray: *const AstTypes,
+    DynamicArray: AstTypeInfo,
     StaticArray: AstStaticArrayType,
     GeneralArray: AstStaticArrayType,
-    Nullable: *const AstTypes,
+    Nullable: AstTypeInfo,
     Custom: CustomType,
     Generic: []u8,
     Function: *FuncDecNode,
@@ -190,12 +190,12 @@ const VarDecNode = struct {
     name: []u8,
     isConst: bool,
     setNode: *const AstNode,
-    annotation: ?*const AstTypes,
+    annotation: ?AstTypeInfo,
 };
 
 const CastNode = struct {
     node: *const AstNode,
-    toType: *const AstTypes,
+    toType: AstTypeInfo,
 };
 
 const MemberVisibility = enum {
@@ -220,7 +220,7 @@ pub const StructAttributeVariants = enum {
 };
 
 pub const StructAttributeUnion = union(StructAttributeVariants) {
-    Member: *const AstTypes,
+    Member: AstTypeInfo,
     Function: *FuncDecNode,
 };
 
@@ -238,7 +238,7 @@ pub const StructDecNode = struct {
     generics: []GenericType,
     attributes: []StructAttribute,
     totalMemberList: []StructAttribute,
-    deriveType: ?*const AstTypes,
+    deriveType: ?AstTypeInfo,
 };
 
 pub const AttributeDefinition = struct {
@@ -249,12 +249,12 @@ pub const AttributeDefinition = struct {
 const StructInitNode = struct {
     name: []u8,
     attributes: []AttributeDefinition,
-    generics: []*const AstTypes,
+    generics: []AstTypeInfo,
 };
 
 pub const GenericType = struct {
     name: []u8,
-    restriction: ?*const AstTypes,
+    restriction: ?AstTypeInfo,
 };
 
 pub const IfFallback = struct {
@@ -271,8 +271,7 @@ const IfStatementNode = struct {
 
 pub const Parameter = struct {
     name: []u8,
-    type: *const AstTypes,
-    isConst: bool,
+    type: AstTypeInfo,
 };
 
 pub const FuncDecNode = struct {
@@ -281,7 +280,7 @@ pub const FuncDecNode = struct {
     params: []Parameter,
     body: *const AstNode,
     bodyTokens: []tokenizer.Token,
-    returnType: *const AstTypes,
+    returnType: AstTypeInfo,
     capturedValues: ?*utils.CaptureScope,
     capturedTypes: ?*utils.TypeScope,
     builtin: bool,
@@ -770,7 +769,7 @@ fn parseStruct(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
     try compInfo.pushParsedGenericsScope(false);
     defer compInfo.popParsedGenericsScope();
 
-    var deriveType: ?*const AstTypes = null;
+    var deriveType: ?AstTypeInfo = null;
     var generics: []GenericType = &[_]GenericType{};
 
     var first = try compInfo.tokens.take();
@@ -1172,7 +1171,7 @@ fn parseArray(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
 
 fn parseStructInit(allocator: Allocator, compInfo: *CompInfo, name: []u8) !*AstNode {
     const next = try compInfo.tokens.take();
-    var generics: []*const AstTypes = &[_]*const AstTypes{};
+    var generics: []AstTypeInfo = &[_]AstTypeInfo{};
 
     if (next.type == .LAngle) {
         generics = try parseStructInitGenerics(allocator, compInfo);
@@ -1245,8 +1244,8 @@ fn parseStructInitAttribute(allocator: Allocator, compInfo: *CompInfo) !Attribut
     };
 }
 
-fn parseStructInitGenerics(allocator: Allocator, compInfo: *CompInfo) ![]*const AstTypes {
-    var generics = ArrayList(*const AstTypes).init(allocator);
+fn parseStructInitGenerics(allocator: Allocator, compInfo: *CompInfo) ![]AstTypeInfo {
+    var generics = ArrayList(AstTypeInfo).init(allocator);
     defer generics.deinit();
 
     var current = try compInfo.tokens.peak();
@@ -1381,7 +1380,7 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo, structFn: bool) !*Fun
     try compInfo.tokens.expectToken(.LParen);
 
     const params = try parseParams(allocator, compInfo);
-    var returnType: *const AstTypes = undefined;
+    var returnType: AstTypeInfo = undefined;
 
     const retNext = try compInfo.tokens.peak();
 
@@ -1389,7 +1388,7 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo, structFn: bool) !*Fun
         _ = try compInfo.tokens.take();
         returnType = try parseType(allocator, compInfo);
     } else {
-        returnType = try create(AstTypes, allocator, @as(AstTypes, AstTypes.Void));
+        returnType = try utils.astTypesToInfo(allocator, .Void, true);
     }
 
     try compInfo.tokens.expectToken(.LBrace);
@@ -1441,7 +1440,7 @@ fn parseGeneric(allocator: Allocator, compInfo: *CompInfo) !GenericType {
     }
     try compInfo.addParsedGeneric(first.string.?);
 
-    var restriction: ?*const AstTypes = null;
+    var restriction: ?AstTypeInfo = null;
     const current = try compInfo.tokens.peak();
     if (current.type == .Colon) {
         _ = try compInfo.tokens.take();
@@ -1486,21 +1485,12 @@ fn parseParam(allocator: Allocator, compInfo: *CompInfo) !Parameter {
         return compInfo.logger.logError(AstError.ExpectedIdentifierForParameterName);
     }
 
-    var isConst = false;
-
     try compInfo.tokens.expectToken(.Colon);
-    const nextPeak = try compInfo.tokens.peak();
-    if (nextPeak.type == .Const) {
-        isConst = true;
-        _ = try compInfo.tokens.take();
-    }
-
     const paramType = try parseType(allocator, compInfo);
 
     return .{
         .name = try string.cloneString(allocator, first.string.?),
         .type = paramType,
-        .isConst = isConst,
     };
 }
 
@@ -1577,9 +1567,9 @@ pub fn tokenTypeToOpType(tokenType: tokenizer.TokenType) OpExprTypes {
     };
 }
 
-pub fn mergeMembers(allocator: Allocator, compInfo: *CompInfo, attrs: []StructAttribute, derive: *const AstTypes) ![]StructAttribute {
+pub fn mergeMembers(allocator: Allocator, compInfo: *CompInfo, attrs: []StructAttribute, derive: AstTypeInfo) ![]StructAttribute {
     var res = try ArrayList(StructAttribute).initCapacity(allocator, attrs.len);
-    const structName = switch (derive.*) {
+    const structName = switch (derive.astType.*) {
         .Custom => |custom| custom.name,
         .StaticStructInstance => |inst| inst,
         else => unreachable,
@@ -1621,7 +1611,7 @@ fn createVarDecNode(allocator: Allocator, compInfo: *CompInfo, isConst: bool) !?
         return compInfo.logger.logError(AstError.ExpectedIdentifierForVariableName);
     }
 
-    var annotation: ?*const AstTypes = null;
+    var annotation: ?AstTypeInfo = null;
 
     const next = try compInfo.tokens.take();
     if (next.type == .Colon) {
@@ -1644,8 +1634,13 @@ fn createVarDecNode(allocator: Allocator, compInfo: *CompInfo, isConst: bool) !?
     });
 }
 
-fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.Error)!*const AstTypes {
-    const first = try compInfo.tokens.take();
+fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.Error)!AstTypeInfo {
+    var first = try compInfo.tokens.take();
+    const isConst = first.type == .Const;
+    if (isConst) {
+        first = try compInfo.tokens.take();
+    }
+
     var astType: AstTypes = switch (first.type) {
         .Bool => .Bool,
         .StringType => .String,
@@ -1674,7 +1669,7 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
             const str = try string.cloneString(allocator, first.string.?);
             if (compInfo.hasStruct(str)) {
                 const next = try compInfo.tokens.peak();
-                var generics: []*const AstTypes = &[_]*const AstTypes{};
+                var generics: []AstTypeInfo = &[_]AstTypeInfo{};
 
                 if (next.type == .LAngle) {
                     _ = try compInfo.tokens.take();
@@ -1689,14 +1684,14 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
                 };
             } else if (compInfo.hasError(str)) {
                 const next = try compInfo.tokens.peak();
-                var generic: ?*const AstTypes = null;
+                var generic: ?AstTypeInfo = null;
 
                 if (next.type == .LAngle) {
                     _ = try compInfo.tokens.take();
                     generic = try parseType(allocator, compInfo);
 
                     if (generic) |gen| {
-                        if (gen.* == .Error) {
+                        if (gen.astType.* == .Error) {
                             return AstError.ErrorPayloadMayNotBeError;
                         }
                     } else {
@@ -1715,7 +1710,7 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
             }
 
             if (!compInfo.hasParsedGeneric(str)) {
-                return compInfo.logger.logError(AstError.UnexpectedGeneric);
+                return AstError.UnexpectedGeneric;
             }
 
             break :a .{
@@ -1734,7 +1729,7 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
             _ = try compInfo.tokens.take();
 
             astType = .{
-                .DynamicArray = try create(AstTypes, allocator, astType),
+                .DynamicArray = try utils.astTypesToInfo(allocator, astType, isConst),
             };
         } else {
             const size = try parseExpression(allocator, compInfo);
@@ -1746,14 +1741,14 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
 
             astType = .{
                 .StaticArray = .{
-                    .type = try create(AstTypes, allocator, astType),
+                    .type = try utils.astTypesToInfo(allocator, astType, isConst),
                     .size = size.?,
                 },
             };
         }
     }
 
-    return try create(AstTypes, allocator, astType);
+    return try utils.astTypesToInfo(allocator, astType, isConst);
 }
 
 pub fn findStructAndErrorNames(allocator: Allocator, tokens: []tokenizer.Token) !HoistedNames {

@@ -39,7 +39,7 @@ pub fn freeFuncDecUtil(allocator: Allocator, func: *const blitzAst.FuncDecNode, 
         shallowFreeFuncDecParams(allocator, func.params);
     } else {
         for (func.params) |param| {
-            freeType(allocator, param.type);
+            freeAstTypeInfo(allocator, param.type);
             allocator.free(param.name);
         }
     }
@@ -50,7 +50,7 @@ pub fn freeFuncDecUtil(allocator: Allocator, func: *const blitzAst.FuncDecNode, 
             allocator.free(generic.name);
 
             if (generic.restriction) |rest| {
-                freeType(allocator, rest);
+                freeAstTypeInfo(allocator, rest);
             }
         }
 
@@ -58,7 +58,7 @@ pub fn freeFuncDecUtil(allocator: Allocator, func: *const blitzAst.FuncDecNode, 
     }
 
     freeNode(allocator, func.body);
-    freeType(allocator, func.returnType);
+    freeAstTypeInfo(allocator, func.returnType);
 
     if (func.capturedValues) |captured| {
         utils.freeVariableCaptures(allocator, captured);
@@ -85,7 +85,7 @@ pub fn freeAttr(allocator: Allocator, attr: blitzAst.StructAttribute) void {
     allocator.free(attr.name);
 
     switch (attr.attr) {
-        .Member => |mem| freeType(allocator, mem),
+        .Member => |mem| freeAstTypeInfo(allocator, mem),
         .Function => |func| freeFuncDec(allocator, func),
     }
 }
@@ -140,7 +140,7 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             freeNode(allocator, dec.setNode);
 
             if (dec.annotation) |annotation| {
-                freeType(allocator, annotation);
+                freeAstTypeInfo(allocator, annotation);
             }
 
             allocator.free(dec.name);
@@ -167,7 +167,7 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         },
         .Cast => |cast| {
             freeNode(allocator, cast.node);
-            freeType(allocator, cast.toType);
+            freeAstTypeInfo(allocator, cast.toType);
         },
         .Variable => |variable| {
             allocator.free(variable);
@@ -216,7 +216,7 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             }
 
             for (init.generics) |generic| {
-                freeType(allocator, generic);
+                freeAstTypeInfo(allocator, generic);
             }
 
             allocator.free(init.attributes);
@@ -263,7 +263,7 @@ pub fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) v
 
     for (dec.generics) |generic| {
         if (generic.restriction) |restriction| {
-            freeType(allocator, restriction);
+            freeAstTypeInfo(allocator, restriction);
         }
         allocator.free(generic.name);
     }
@@ -275,7 +275,7 @@ pub fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) v
     allocator.free(dec.totalMemberList);
 
     if (dec.deriveType) |derived| {
-        freeType(allocator, derived);
+        freeAstTypeInfo(allocator, derived);
     }
 }
 
@@ -288,22 +288,22 @@ pub fn freeNodes(allocator: Allocator, nodes: []*const blitzAst.AstNode) void {
 pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void {
     switch (node.*) {
         .DynamicArray => |arr| {
-            freeType(allocator, arr);
+            freeAstTypeInfo(allocator, arr);
         },
         .StaticArray => |arr| {
-            freeType(allocator, arr.type);
+            freeAstTypeInfo(allocator, arr.type);
             freeNode(allocator, arr.size);
         },
         .GeneralArray => |arr| {
-            freeType(allocator, arr.type);
+            freeAstTypeInfo(allocator, arr.type);
             freeNode(allocator, arr.size);
         },
         .Nullable => |nullable| {
-            freeType(allocator, nullable);
+            freeAstTypeInfo(allocator, nullable);
         },
         .Custom => |custom| {
             for (custom.generics) |generic| {
-                freeType(allocator, generic);
+                freeAstTypeInfo(allocator, generic);
             }
 
             allocator.free(custom.generics);
@@ -315,7 +315,7 @@ pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void 
         .Error => |err| {
             allocator.free(err.name);
             if (err.payload) |payload| {
-                freeType(allocator, payload);
+                freeAstTypeInfo(allocator, payload);
             }
         },
         .ErrorVariant => |err| {

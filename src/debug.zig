@@ -24,6 +24,13 @@ pub fn printStructAndErrorNames(names: blitzAst.HoistedNames) void {
     print("------------\n", .{});
 }
 
+pub fn printTypeInfo(compInfo: *CompInfo, info: blitzAst.AstTypeInfo) void {
+    if (info.isConst) {
+        print("const ", .{});
+    }
+    printType(compInfo, info.astType);
+}
+
 pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
     return switch (typeNode.*) {
         .Any => print("any", .{}),
@@ -34,26 +41,26 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
         .Bool => print("bool", .{}),
         .DynamicArray => |arr| {
             print("DynamicArray<", .{});
-            printType(compInfo, arr);
+            printTypeInfo(compInfo, arr);
             print(">", .{});
         },
         .StaticArray => |arr| {
             print("StaticArray<", .{});
             printNode(compInfo, arr.size);
             print(", ", .{});
-            printType(compInfo, arr.type);
+            printTypeInfo(compInfo, arr.type);
             print(">", .{});
         },
         .GeneralArray => |arr| {
             print("GeneralArray<", .{});
             printNode(compInfo, arr.size);
             print(", ", .{});
-            printType(compInfo, arr.type);
+            printTypeInfo(compInfo, arr.type);
             print(">", .{});
         },
         .Nullable => |n| {
             print("?", .{});
-            printType(compInfo, n);
+            printTypeInfo(compInfo, n);
         },
         .Number => |num| {
             print("{s}", .{numberTypeToString(num)});
@@ -68,7 +75,7 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
             }
 
             for (custom.generics, 0..) |generic, index| {
-                printType(compInfo, generic);
+                printTypeInfo(compInfo, generic);
 
                 if (index < custom.generics.len - 1) {
                     print(", ", .{});
@@ -93,7 +100,7 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
 
             for (func.params, 0..) |param, index| {
                 print("({s})[", .{param.name});
-                printType(compInfo, param.type);
+                printTypeInfo(compInfo, param.type);
                 print("]", .{});
 
                 if (index < func.params.len - 1) {
@@ -102,7 +109,7 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
             }
 
             print(" ", .{});
-            printType(compInfo, func.returnType);
+            printTypeInfo(compInfo, func.returnType);
 
             print(")", .{});
         },
@@ -113,7 +120,7 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
             print("error ({s})", .{err.name});
             if (err.payload) |payload| {
                 print("[", .{});
-                printType(compInfo, payload);
+                printTypeInfo(compInfo, payload);
                 print("]", .{});
             }
         },
@@ -275,7 +282,7 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
 
             if (dec.annotation != null) {
                 print(" with annotation: ", .{});
-                printType(compInfo, dec.annotation.?);
+                printTypeInfo(compInfo, dec.annotation.?);
             }
         },
         .ValueSet => |set| {
@@ -301,7 +308,7 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
             print("cast ", .{});
             printNode(compInfo, cast.node);
             print(" to ", .{});
-            printType(compInfo, cast.toType);
+            printTypeInfo(compInfo, cast.toType);
         },
         .Variable => |variable| {
             print("[variable: ({s})]", .{variable});
@@ -392,7 +399,7 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
                 print("[generics: ", .{});
 
                 for (init.generics, 0..) |generic, index| {
-                    printType(compInfo, generic);
+                    printTypeInfo(compInfo, generic);
 
                     if (index < init.generics.len - 1) {
                         print(", ", .{});
@@ -453,7 +460,7 @@ fn printIfFallback(compInfo: *CompInfo, fallback: *const blitzAst.IfFallback) vo
 
 pub fn printFuncDec(compInfo: *CompInfo, func: *const blitzAst.FuncDecNode) void {
     print("declare function [", .{});
-    printType(compInfo, func.returnType);
+    printTypeInfo(compInfo, func.returnType);
     print("] ({s})", .{func.name});
     if (func.generics) |generics| {
         print(" with generics [", .{});
@@ -469,7 +476,7 @@ pub fn printFuncDec(compInfo: *CompInfo, func: *const blitzAst.FuncDecNode) void
         var captureIt = captured.iterator();
         while (captureIt.next()) |item| {
             print("({s}: ", .{item.key_ptr.*});
-            printType(compInfo, item.value_ptr.*.varType);
+            printTypeInfo(compInfo, item.value_ptr.*);
             print(")", .{});
         }
     }
@@ -489,7 +496,7 @@ pub fn printAttributes(compInfo: *CompInfo, attrs: []blitzAst.StructAttribute) v
 
         switch (attr.attr) {
             .Function => |func| printFuncDec(compInfo, func),
-            .Member => |mem| printType(compInfo, mem),
+            .Member => |mem| printTypeInfo(compInfo, mem),
         }
 
         if (index < attrs.len - 1) {
@@ -505,12 +512,8 @@ fn printParams(compInfo: *CompInfo, params: []blitzAst.Parameter) void {
     }
 
     for (params, 0..) |param, index| {
-        if (param.isConst) {
-            print("const ", .{});
-        }
-
         print("[", .{});
-        printType(compInfo, param.type);
+        printTypeInfo(compInfo, param.type);
         print("]({s})", .{param.name});
 
         if (index < params.len - 1) {
@@ -524,7 +527,7 @@ pub fn printGenerics(compInfo: *CompInfo, generics: []blitzAst.GenericType) void
         print("[", .{});
 
         if (generic.restriction) |restriction| {
-            printType(compInfo, restriction);
+            printTypeInfo(compInfo, restriction);
         } else {
             print("any", .{});
         }
@@ -572,7 +575,7 @@ pub fn printRegisteredStructs(compInfo: *CompInfo, structs: [](*blitzAst.StructD
 
         if (s.deriveType) |derived| {
             print(" extending ", .{});
-            printType(compInfo, derived);
+            printTypeInfo(compInfo, derived);
         }
 
         if (s.generics.len > 0) {

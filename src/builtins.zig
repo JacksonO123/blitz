@@ -31,7 +31,7 @@ fn toNumSig(allocator: Allocator, num: blitzAst.AstNumberVariants) !*const blitz
     return try create(blitzAst.AstTypes, allocator, .{ .Number = num });
 }
 
-fn paramsFromTypes(allocator: Allocator, paramTypes: []const *const blitzAst.AstTypes) ![]blitzAst.Parameter {
+fn paramsFromTypes(allocator: Allocator, paramTypes: []const blitzAst.AstTypeInfo) ![]blitzAst.Parameter {
     var res = try allocator.alloc(blitzAst.Parameter, paramTypes.len);
 
     for (paramTypes, 0..) |param, index| {
@@ -39,7 +39,6 @@ fn paramsFromTypes(allocator: Allocator, paramTypes: []const *const blitzAst.Ast
         res[index] = .{
             .name = try string.cloneString(allocator, &[_]u8{hex}),
             .type = param,
-            .isConst = true,
         };
     }
 
@@ -50,8 +49,8 @@ fn toFuncSignature(
     allocator: Allocator,
     compInfo: *CompInfo,
     name: []const u8,
-    paramTypes: []const *const blitzAst.AstTypes,
-    returnType: *const blitzAst.AstTypes,
+    paramTypes: []const blitzAst.AstTypeInfo,
+    returnType: blitzAst.AstTypeInfo,
     withGenDef: bool,
 ) !*blitzAst.FuncDecNode {
     const params = try paramsFromTypes(allocator, paramTypes);
@@ -62,7 +61,7 @@ fn toFuncSignature(
         .params = params,
         .body = try create(blitzAst.AstNode, allocator, .NoOp),
         .bodyTokens = &[_]tokenizer.Token{},
-        .returnType = try clone.cloneAstTypesPtr(allocator, compInfo, returnType, withGenDef),
+        .returnType = try clone.cloneAstTypeInfo(allocator, compInfo, returnType, withGenDef),
         .capturedValues = null,
         .capturedTypes = null,
         .builtin = true,
@@ -73,8 +72,8 @@ fn updateBuiltinFn(
     allocator: Allocator,
     compInfo: *CompInfo,
     builtinFn: *?*blitzAst.FuncDecNode,
-    params: []const *const blitzAst.AstTypes,
-    returnType: *const blitzAst.AstTypes,
+    params: []const blitzAst.AstTypeInfo,
+    returnType: blitzAst.AstTypeInfo,
     withGenDef: bool,
 ) !*const blitzAst.AstTypes {
     if (builtinFn.*) |builtin| {
@@ -98,15 +97,43 @@ pub fn getDynamicArrayPropType(
     allocator: Allocator,
     compInfo: *CompInfo,
     str: []u8,
-    itemType: *const blitzAst.AstTypes,
+    itemType: blitzAst.AstTypeInfo,
     withGenDef: bool,
 ) !*const blitzAst.AstTypes {
-    const pushParams = &[_]*const blitzAst.AstTypes{itemType};
-    const popParams = &[_]*const blitzAst.AstTypes{};
-    const pushFn = try updateBuiltinFn(allocator, compInfo, &compInfo.builtins.dynArr.push, pushParams, &.Void, withGenDef);
-    const pushFrontFn = try updateBuiltinFn(allocator, compInfo, &compInfo.builtins.dynArr.pushFront, pushParams, &.Void, withGenDef);
-    const popFn = try updateBuiltinFn(allocator, compInfo, &compInfo.builtins.dynArr.pop, popParams, itemType, withGenDef);
-    const popFrontFn = try updateBuiltinFn(allocator, compInfo, &compInfo.builtins.dynArr.popFront, popParams, itemType, withGenDef);
+    const pushParams = &[_]blitzAst.AstTypeInfo{itemType};
+    const popParams = &[_]blitzAst.AstTypeInfo{};
+    const pushFn = try updateBuiltinFn(
+        allocator,
+        compInfo,
+        &compInfo.builtins.dynArr.push,
+        pushParams,
+        utils.astTypesPtrToInfo(&.Void, true),
+        withGenDef,
+    );
+    const pushFrontFn = try updateBuiltinFn(
+        allocator,
+        compInfo,
+        &compInfo.builtins.dynArr.pushFront,
+        pushParams,
+        utils.astTypesPtrToInfo(&.Void, true),
+        withGenDef,
+    );
+    const popFn = try updateBuiltinFn(
+        allocator,
+        compInfo,
+        &compInfo.builtins.dynArr.pop,
+        popParams,
+        itemType,
+        withGenDef,
+    );
+    const popFrontFn = try updateBuiltinFn(
+        allocator,
+        compInfo,
+        &compInfo.builtins.dynArr.popFront,
+        popParams,
+        itemType,
+        withGenDef,
+    );
 
     const props = &[_]PropInfo{
         .{

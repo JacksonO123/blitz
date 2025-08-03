@@ -1,4 +1,2 @@
-const thing: u32[5] = [4, 3, 5, 2, 1];
-const thing2: u32 = 2;
-
-const b = thing[usize(thing2)];
+const a = 2;
+var b = a;

@@ -64,14 +64,9 @@ fn initScopeUtil(comptime T: type, allocator: Allocator) !*ScopeUtil(*T) {
     return scopePtr;
 }
 
-const VariableInfo = struct {
-    varType: *const blitzAst.AstTypes,
-    isConst: bool,
-};
-
-pub const TypeScope = StringHashMap(*const blitzAst.AstTypes);
-const VarScope = StringHashMap(VariableInfo);
-pub const CaptureScope = StringHashMap(VariableInfo);
+pub const TypeScope = StringHashMap(blitzAst.AstTypeInfo);
+const VarScope = StringHashMap(blitzAst.AstTypeInfo);
+pub const CaptureScope = StringHashMap(blitzAst.AstTypeInfo);
 const StringListScope = ArrayList([]u8);
 
 pub const CompInfo = struct {
@@ -237,7 +232,7 @@ pub const CompInfo = struct {
     }
 
     pub fn pushScope(self: *Self, leak: bool) !void {
-        const scope = try initMutPtrT(StringHashMap(VariableInfo), self.allocator);
+        const scope = try initMutPtrT(VarScope, self.allocator);
         try self.variableScopes.add(scope, leak);
         try self.pushScopedFunctionScope(leak);
     }
@@ -249,17 +244,17 @@ pub const CompInfo = struct {
 
     pub fn addCaptureScope(self: *Self) !void {
         try self.variableScopes.addCaptureIndex();
-        const newScope = try initMutPtrT(StringHashMap(VariableInfo), self.allocator);
+        const newScope = try initMutPtrT(CaptureScope, self.allocator);
         try self.variableCaptures.add(newScope, false);
     }
 
     pub fn popCaptureScope(self: *Self) void {
-        self.variableCaptures.pop(freeVariableScope);
+        self.variableCaptures.pop(freeVariableCaptures);
     }
 
     pub fn addGenericCaptureScope(self: *Self) !void {
         try self.genericScopes.addCaptureIndex();
-        const newScope = try initMutPtrT(StringHashMap(*const blitzAst.AstTypes), self.allocator);
+        const newScope = try initMutPtrT(TypeScope, self.allocator);
         try self.genericCaptures.add(newScope, false);
     }
 
@@ -406,7 +401,7 @@ pub const CompInfo = struct {
     }
 
     pub fn pushGenScope(self: *Self, leak: bool) !void {
-        const genScope = try initMutPtrT(StringHashMap(*const blitzAst.AstTypes), self.allocator);
+        const genScope = try initMutPtrT(TypeScope, self.allocator);
         try self.genericScopes.add(genScope, leak);
     }
 
@@ -414,31 +409,20 @@ pub const CompInfo = struct {
         self.genericScopes.pop(freeGenericScope);
     }
 
-    pub fn setGeneric(self: *Self, name: []const u8, gType: *const blitzAst.AstTypes) !void {
+    pub fn setGeneric(self: *Self, name: []const u8, gType: blitzAst.AstTypeInfo) !void {
         const genScope = self.genericScopes.getCurrentScope();
 
         if (genScope) |scope| {
             const value = scope.get(name);
             if (value) |genValue| {
-                free.freeType(self.allocator, genValue);
+                free.freeAstTypeInfo(self.allocator, genValue);
             }
 
             try scope.put(name, gType);
         }
     }
 
-    pub fn removeGeneric(self: *Self, name: []u8) void {
-        const genScope = self.getCurrentGenScope();
-        const gType = genScope.get(name);
-
-        if (gType) |generic| {
-            free.freeNode(self.allocator, generic);
-        }
-
-        self.genericScopes.remove(name);
-    }
-
-    pub fn getGeneric(self: *Self, name: []u8) !?*const blitzAst.AstTypes {
+    pub fn getGeneric(self: *Self, name: []u8) !?blitzAst.AstTypeInfo {
         var genScope: ?*TypeScope = self.genericScopes.getCurrentScope();
         defer self.genericScopes.resetLeakIndex();
         var capture = false;
@@ -449,11 +433,11 @@ pub const CompInfo = struct {
 
                 const captureScope = self.genericCaptures.getCurrentScope();
                 if (captureScope) |capScope| {
-                    const clonedType = try clone.cloneAstTypesPtr(self.allocator, self, t, true);
+                    const clonedType = try clone.cloneAstTypeInfo(self.allocator, self, t, true);
                     const existing = capScope.get(name);
 
                     if (existing) |exist| {
-                        free.freeType(self.allocator, exist);
+                        free.freeAstTypeInfo(self.allocator, exist);
                     }
 
                     try capScope.put(name, clonedType);
@@ -494,15 +478,11 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn setVariableType(self: *Self, name: []const u8, astType: *const blitzAst.AstTypes, isConst: bool) !void {
+    pub fn setVariableType(self: *Self, name: []const u8, info: blitzAst.AstTypeInfo) !void {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
-            const varInfo = VariableInfo{
-                .varType = astType,
-                .isConst = isConst,
-            };
-            try s.put(name, varInfo);
+            try s.put(name, info);
         }
     }
 
@@ -513,7 +493,7 @@ pub const CompInfo = struct {
         }
     }
 
-    pub fn getVariableType(self: *Self, name: []u8, replaceGenerics: bool) !?VariableInfo {
+    pub fn getVariableType(self: *Self, name: []u8, replaceGenerics: bool) !?blitzAst.AstTypeInfo {
         var scope: ?*VarScope = self.variableScopes.getCurrentScope();
         defer self.variableScopes.resetLeakIndex();
         var capture = false;
@@ -524,19 +504,14 @@ pub const CompInfo = struct {
 
                 const captureScope = self.variableCaptures.getCurrentScope();
                 if (captureScope) |capScope| {
-                    const clonedType = try clone.cloneAstTypesPtr(self.allocator, self, t.varType, replaceGenerics);
-                    const varInfo = VariableInfo{
-                        .varType = clonedType,
-                        .isConst = t.isConst,
-                    };
-
+                    const clonedType = try clone.cloneAstTypeInfo(self.allocator, self, t, replaceGenerics);
                     const existing = capScope.get(name);
 
                     if (existing) |exist| {
-                        free.freeType(self.allocator, exist.varType);
+                        free.freeAstTypeInfo(self.allocator, exist);
                     }
 
-                    try capScope.put(name, varInfo);
+                    try capScope.put(name, clonedType);
                 }
 
                 return t;
@@ -554,7 +529,7 @@ pub const CompInfo = struct {
         return null;
     }
 
-    pub fn getVariableTypeFixed(self: *Self, name: []u8) ?VariableInfo {
+    pub fn getVariableTypeFixed(self: *Self, name: []u8) ?blitzAst.AstTypeInfo {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
@@ -1017,11 +992,16 @@ pub const ReturnInfo = struct {
 fn freeVariableScope(allocator: Allocator, scope: *VarScope) void {
     var scopeIt = scope.valueIterator();
     while (scopeIt.next()) |v| {
-        free.freeType(allocator, v.varType);
+        free.freeAstTypeInfo(allocator, v.*);
     }
 }
 
-pub const freeVariableCaptures = freeVariableScope;
+pub fn freeVariableCaptures(allocator: Allocator, scope: *CaptureScope) void {
+    var scopeIt = scope.valueIterator();
+    while (scopeIt.next()) |v| {
+        free.freeAstTypeInfo(allocator, v.*);
+    }
+}
 
 pub const freeGenericCaptures = freeGenericScope;
 
@@ -1034,7 +1014,7 @@ fn freeScopedFunctionScope(allocator: Allocator, scope: *StringListScope) void {
 fn freeGenericScope(allocator: Allocator, scope: *TypeScope) void {
     var genericIt = scope.valueIterator();
     while (genericIt.next()) |gen| {
-        free.freeType(allocator, gen.*);
+        free.freeAstTypeInfo(allocator, gen.*);
     }
 }
 
