@@ -15,4 +15,4 @@ fn thing1(): MyError1<u32> {
   return 4;
 }
 
-const res = thing1();
+let res = thing1();

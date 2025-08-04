@@ -14,17 +14,17 @@ struct square : shape {
   }
 
   fn internalFn() {
-    const b = 2;
+    let b = 2;
   }
 }
 
 fn thing(sh: square) {
-  const a = 2;
+  let a = 2;
 }
 
-const len = 5;
+let len = 5;
 
-const s = square {
+let s = square {
   area = (len * len),
   size = len
 };
@@ -32,7 +32,7 @@ const s = square {
 {
   s.getShapeArea();
   
-  var b = 2;
+  let mut b = 2;
 }
 
 // should throw errors

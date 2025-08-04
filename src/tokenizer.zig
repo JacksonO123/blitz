@@ -18,8 +18,8 @@ pub const TokenType = enum(u16) {
     const Self = @This();
 
     // keywords
-    Const,
-    Var,
+    Let,
+    Mut,
     Fn,
     Struct,
     If,
@@ -105,8 +105,8 @@ pub const TokenType = enum(u16) {
 
     pub fn toString(self: Self) []const u8 {
         return switch (self) {
-            .Const => "const",
-            .Var => "var",
+            .Let => "let",
+            .Mut => "mut",
             .Pub => "pub",
             .Prot => "prot",
             .Fn => "fn",
@@ -674,8 +674,8 @@ fn isDatatype(chars: []const u8) ?TokenType {
 
 fn isKeyword(chars: []const u8) ?TokenType {
     const keywords = [_]TokenTypeMap{
-        .{ .string = "var", .token = .Var },
-        .{ .string = "const", .token = .Const },
+        .{ .string = "let", .token = .Let },
+        .{ .string = "mut", .token = .Mut },
         .{ .string = "fn", .token = .Fn },
         .{ .string = "struct", .token = .Struct },
         .{ .string = "if", .token = .If },

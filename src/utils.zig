@@ -900,7 +900,7 @@ fn ScopeUtil(comptime T: type) type {
 }
 
 pub const ReturnInfoData = struct {
-    retType: ?*const blitzAst.AstTypes,
+    retType: ?blitzAst.AstTypeInfo,
     inFunction: bool,
     exhaustive: bool,
     lockExhaustive: bool,
@@ -943,7 +943,7 @@ pub const ReturnInfo = struct {
 
     pub fn swapFree(self: *Self, oldRetInfo: *ReturnInfoData) void {
         if (self.info.retType) |retType| {
-            free.freeType(self.allocator, retType);
+            free.freeAstTypeInfo(self.allocator, retType);
         }
         self.allocator.destroy(self.info);
         self.info = oldRetInfo;
@@ -957,7 +957,7 @@ pub const ReturnInfo = struct {
                     return ScanError.FunctionReturnsHaveDifferentTypes;
                 }
 
-                free.freeType(self.allocator, retType);
+                free.freeAstTypeInfo(self.allocator, retType);
             } else {
                 self.info.retType = retType;
             }

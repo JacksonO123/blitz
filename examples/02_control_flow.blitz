@@ -1,6 +1,6 @@
 // if statements
 
-const a = true;
+let a = true;
 if (a) {
   // branch
 } else if (!a) {
@@ -13,13 +13,13 @@ if (a) {
 
 // for loops
 
-for (var i = 0; i < 10; i++) {
+for (let mut i = 0; i < 10; i++) {
   // body
 }
 
 // while loops
 
-var b = true;
+let mut b = true;
 while (b) {
   b = false;
 }

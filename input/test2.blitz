@@ -1,8 +1,8 @@
-// const thing: u32[5] = [true, 3, 5, 2, 1];
-const thing: u32[5] = [4, 3, 5, 2, 1];
-const thing2: u32 = 2;
+// let thing: u32[5] = [true, 3, 5, 2, 1];
+let thing: u32[5] = [4, 3, 5, 2, 1];
+let thing2: u32 = 2;
 
-const b = thing[usize(thing2)];
+let b = thing[usize(thing2)];
 
 struct testing {
   pub arr: u32[5];
@@ -12,7 +12,7 @@ struct testing {
   }
 }
 
-const t = testing {
+let t = testing {
   arr = [5, 4, 3, 2, 1],
 };
 

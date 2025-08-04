@@ -251,7 +251,7 @@ pub fn scanNode(
                             return ScanError.MathOpOnNonNumberType;
                         }
 
-                        if (try matchTypes(allocator, compInfo, left.astType, right.astType, withGenDef)) {
+                        if (try matchTypes(allocator, compInfo, left, right, withGenDef)) {
                             return utils.astTypesPtrToInfo(try clone.cloneAstTypesPtr(allocator, compInfo, right.astType, withGenDef), false);
                         } else {
                             return ScanError.MathOpTypeMismatch;
@@ -261,7 +261,7 @@ pub fn scanNode(
                             return ScanError.MathOpOnNonNumberType;
                         }
 
-                        if (try matchTypes(allocator, compInfo, left.astType, right.astType, withGenDef)) {
+                        if (try matchTypes(allocator, compInfo, left, right, withGenDef)) {
                             return utils.astTypesPtrToInfo(try clone.cloneAstTypesPtr(allocator, compInfo, left.astType, withGenDef), false);
                         } else {
                             return ScanError.MathOpTypeMismatch;
@@ -318,12 +318,12 @@ pub fn scanNode(
             const valType = try scanNode(allocator, compInfo, ret, withGenDef);
 
             if (compInfo.returnInfo.info.retType) |retType| {
-                if (!(try matchTypes(allocator, compInfo, retType, valType.astType, withGenDef))) {
+                if (!(try matchTypes(allocator, compInfo, retType, valType, withGenDef))) {
                     return ScanError.FunctionReturnsHaveDifferentTypes;
                 }
                 free.freeAstTypeInfo(allocator, valType);
             } else {
-                compInfo.returnInfo.info.retType = valType.astType;
+                compInfo.returnInfo.info.retType = valType;
             }
 
             compInfo.returnInfo.info.exhaustive = true;
@@ -472,7 +472,7 @@ pub fn scanNode(
                     return ScanError.NonPrimitiveTypeConstMismatch;
                 }
 
-                if (try matchTypes(allocator, compInfo, annotation.astType, setType.astType, false)) {
+                if (try matchTypes(allocator, compInfo, annotation, setType, false)) {
                     free.freeAstTypeInfo(allocator, setType);
                     var annotationClone = try clone.cloneAstTypeInfo(allocator, compInfo, annotation, withGenDef);
                     annotationClone.isConst = dec.isConst;
@@ -495,7 +495,7 @@ pub fn scanNode(
             const setType = try scanNode(allocator, compInfo, set.setNode, withGenDef);
             defer free.freeAstTypeInfo(allocator, setType);
 
-            if (!(try matchTypes(allocator, compInfo, valType.astType, setType.astType, withGenDef))) {
+            if (!(try matchTypes(allocator, compInfo, valType, setType, withGenDef))) {
                 return ScanError.VariableTypeAndValueTypeMismatch;
             }
 
@@ -526,7 +526,7 @@ pub fn scanNode(
                             return ScanError.MathOpOnNonNumberType;
                         }
 
-                        if (!(try matchTypes(allocator, compInfo, left.astType, right.astType, withGenDef))) {
+                        if (!(try matchTypes(allocator, compInfo, left, right, withGenDef))) {
                             return ScanError.MathOpTypeMismatch;
                         }
                     } else if (right.astType.* == .Generic or right.astType.* == .Any) {
@@ -534,7 +534,7 @@ pub fn scanNode(
                             return ScanError.MathOpOnNonNumberType;
                         }
 
-                        if (!(try matchTypes(allocator, compInfo, left.astType, right.astType, withGenDef))) {
+                        if (!(try matchTypes(allocator, compInfo, left, right, withGenDef))) {
                             return ScanError.MathOpTypeMismatch;
                         }
                     }
@@ -727,7 +727,7 @@ pub fn scanNode(
                         const typePtr = try clone.cloneAstTypeInfo(allocator, compInfo, paramType, withGenDef);
 
                         if (try compInfo.getGeneric(generic)) |gen| {
-                            if (!(try matchTypes(allocator, compInfo, paramType.astType, gen.astType, false))) {
+                            if (!(try matchTypes(allocator, compInfo, paramType, gen, false))) {
                                 return ScanError.GenericRestrictionConflict;
                             }
                         }
@@ -741,7 +741,7 @@ pub fn scanNode(
                     else => {},
                 }
 
-                if (!try matchTypes(allocator, compInfo, param.type.astType, paramType.astType, false)) {
+                if (!try matchTypes(allocator, compInfo, param.type, paramType, false)) {
                     return ScanError.FunctionCallParamTypeMismatch;
                 }
 
@@ -818,7 +818,7 @@ pub fn scanNode(
                 const attrType = try scanNode(allocator, compInfo, attrNode.?, withGenDef);
                 defer free.freeAstTypeInfo(allocator, attrType);
 
-                if (!try matchTypes(allocator, compInfo, attr.attr.Member.astType, attrType.astType, withGenDef)) {
+                if (!try matchTypes(allocator, compInfo, attr.attr.Member, attrType, withGenDef)) {
                     return ScanError.StructInitMemberTypeMismatch;
                 }
             }
@@ -948,7 +948,7 @@ fn setInitGenerics(
 ) !void {
     for (genTypes, decGens) |t, decGen| {
         if (decGen.restriction) |restriction| {
-            if (!(try matchTypes(allocator, compInfo, t.astType, restriction.astType, withGenDef))) {
+            if (!(try matchTypes(allocator, compInfo, t, restriction, withGenDef))) {
                 return ScanError.GenericRestrictionConflict;
             }
         }
@@ -972,7 +972,7 @@ fn setInitDeriveGenerics(allocator: Allocator, compInfo: *CompInfo, deriveType: 
         const clonedType = try clone.cloneAstTypeInfo(allocator, compInfo, gen, true);
 
         if (decGen.restriction) |restriction| {
-            if (!(try matchTypes(allocator, compInfo, clonedType.astType, restriction.astType, true))) {
+            if (!(try matchTypes(allocator, compInfo, clonedType, restriction, true))) {
                 return ScanError.GenericRestrictionConflict;
             }
         }
@@ -1000,7 +1000,7 @@ fn matchParamGenericTypes(
 
                         const genType = try compInfo.getGeneric(generic);
                         if (genType) |t| {
-                            if (!(try matchTypes(allocator, compInfo, t.astType, typeClone.astType, true))) {
+                            if (!(try matchTypes(allocator, compInfo, t, typeClone, true))) {
                                 return ScanError.ConflictingGenericParameters;
                             }
                         }
@@ -1047,7 +1047,7 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitz
         }
 
         if (compInfo.returnInfo.info.retType) |retType| {
-            if (!try matchTypes(allocator, compInfo, func.returnType.astType, retType, withGenDef)) {
+            if (!try matchTypes(allocator, compInfo, func.returnType, retType, withGenDef)) {
                 return ScanError.FunctionReturnTypeMismatch;
             }
         } else {
@@ -1200,31 +1200,42 @@ fn isFloat(astType: blitzAst.AstTypes) bool {
     };
 }
 
+/// match types as if fromType is being set to toType to match mutability
 pub fn matchTypes(
     allocator: Allocator,
     compInfo: *CompInfo,
-    type1Param: *const blitzAst.AstTypes,
-    type2Param: *const blitzAst.AstTypes,
+    toType: blitzAst.AstTypeInfo,
+    fromType: blitzAst.AstTypeInfo,
     withGenDef: bool,
 ) !bool {
-    const type1 = type1Param.*;
-    const type2 = type2Param.*;
+    const type1 = toType.astType.*;
+    const type2 = fromType.astType.*;
 
     if (type1 == .Any or type2 == .Any) return true;
 
     if (type1 == .Generic and type2 == .Generic) {
         if (withGenDef) {
-            const genType1 = (try compInfo.getGeneric(type1.Generic)).?;
-            if (genType1.astType.* == .Generic and string.compString(type1.Generic, genType1.astType.Generic)) {
-                return ScanError.UnexpectedRecursiveGeneric;
+            var genType1 = try compInfo.getGeneric(type1.Generic);
+            if (genType1) |*gType| {
+                gType.*.isConst = toType.isConst;
+                if (gType.*.astType.* == .Generic and string.compString(type1.Generic, gType.*.astType.Generic)) {
+                    return ScanError.UnexpectedRecursiveGeneric;
+                }
+            } else if (withGenDef) {
+                return ScanError.EmptyGenericType;
             }
 
-            const genType2 = (try compInfo.getGeneric(type2.Generic)).?;
-            if (genType2.astType.* == .Generic and string.compString(type2.Generic, genType2.astType.Generic)) {
-                return ScanError.UnexpectedRecursiveGeneric;
+            var genType2 = try compInfo.getGeneric(type2.Generic);
+            if (genType2) |*gType| {
+                gType.*.isConst = fromType.isConst;
+                if (gType.*.astType.* == .Generic and string.compString(type2.Generic, gType.*.astType.Generic)) {
+                    return ScanError.UnexpectedRecursiveGeneric;
+                }
+            } else if (withGenDef) {
+                return ScanError.EmptyGenericType;
             }
 
-            return matchTypes(allocator, compInfo, genType1.astType, genType2.astType, withGenDef);
+            return matchTypes(allocator, compInfo, genType1.?, genType2.?, withGenDef);
         }
 
         return true;
@@ -1233,31 +1244,37 @@ pub fn matchTypes(
     if (type1 == .Generic) {
         if (!withGenDef) return true;
 
-        const genType = try compInfo.getGeneric(type1.Generic);
-        if (genType) |gType| {
-            if (gType.astType.* == .Generic and string.compString(gType.astType.Generic, type1.Generic)) {
+        var genType = try compInfo.getGeneric(type1.Generic);
+        if (genType) |*gType| {
+            gType.*.isConst = toType.isConst;
+            if (gType.*.astType.* == .Generic and string.compString(gType.*.astType.Generic, type1.Generic)) {
                 return ScanError.UnexpectedRecursiveGeneric;
             }
 
-            return matchTypes(allocator, compInfo, gType.astType, type2Param, withGenDef);
+            return matchTypes(allocator, compInfo, gType.*, fromType, withGenDef);
         } else if (withGenDef) {
             return ScanError.EmptyGenericType;
-        } else return true;
+        }
+
+        return true;
     }
 
     if (type2 == .Generic) {
         if (!withGenDef) return true;
 
-        const genType = try compInfo.getGeneric(type2.Generic);
-        if (genType) |gType| {
-            if (gType.astType.* == .Generic and string.compString(gType.astType.Generic, type2.Generic)) {
+        var genType = try compInfo.getGeneric(type2.Generic);
+        if (genType) |*gType| {
+            gType.*.isConst = fromType.isConst;
+            if (gType.*.astType.* == .Generic and string.compString(gType.*.astType.Generic, type2.Generic)) {
                 return ScanError.UnexpectedRecursiveGeneric;
             }
 
-            return matchTypes(allocator, compInfo, type1Param, gType.astType, withGenDef);
+            return matchTypes(allocator, compInfo, toType, gType.*, withGenDef);
         } else if (withGenDef) {
             return ScanError.EmptyGenericType;
-        } else return true;
+        }
+
+        return true;
     }
 
     return switch (type1) {
@@ -1266,17 +1283,18 @@ pub fn matchTypes(
         .Char => type2 == .Char,
         .Void => type2 == .Void,
         .Null => type2 == .Nullable or type2 == .Null,
-        .Nullable => |inner| type2 == .Null or try matchTypes(allocator, compInfo, inner.astType, type2Param, withGenDef),
+        .Nullable => |inner| type2 == .Null or try matchTypes(allocator, compInfo, inner, fromType, withGenDef),
         .Number => |num| type2 == .Number and @intFromEnum(num) == @intFromEnum(type2.Number),
         .DynamicArray => |arr| {
-            if (type2 == .GeneralArray) return true;
-            return type2 == .DynamicArray and try matchTypes(allocator, compInfo, arr.astType, type2.DynamicArray.astType, withGenDef);
+            if (type2 == .GeneralArray) return matchConstState(toType, fromType, true);
+            const res = type2 == .DynamicArray and try matchTypes(allocator, compInfo, arr, type2.DynamicArray, withGenDef);
+            return matchConstState(toType, fromType, res);
         },
         .StaticArray => |arr| {
             const array: blitzAst.AstStaticArrayType = switch (type2) {
                 .StaticArray => |staticArr| staticArr,
                 .GeneralArray => |generalArr| generalArr,
-                else => return false,
+                else => return matchConstState(toType, fromType, false),
             };
 
             const sizeType1 = try scanNode(allocator, compInfo, arr.size, withGenDef);
@@ -1285,7 +1303,7 @@ pub fn matchTypes(
             defer free.freeAstTypeInfo(allocator, sizeType2);
 
             if (!isInt(sizeType1.astType) or !isInt(sizeType2.astType)) {
-                return false;
+                return matchConstState(toType, fromType, false);
             }
 
             if (type2 == .GeneralArray) {
@@ -1312,33 +1330,35 @@ pub fn matchTypes(
                 }
             }
 
-            return try matchTypes(allocator, compInfo, arr.type.astType, array.type.astType, withGenDef);
+            const matches = try matchTypes(allocator, compInfo, arr.type, array.type, withGenDef);
+            return matchConstState(toType, fromType, matches);
         },
         .Custom => |custom| {
             if (type2 == .StaticStructInstance and string.compString(custom.name, type2.StaticStructInstance)) {
-                return true;
+                return matchConstState(toType, fromType, true);
             }
 
-            if (type2 != .Custom) return false;
-            if (!string.compString(type1.Custom.name, type2.Custom.name)) return false;
-            if (custom.generics.len != type2.Custom.generics.len) return false;
+            if (type2 != .Custom) return matchConstState(toType, fromType, false);
+            if (!string.compString(type1.Custom.name, type2.Custom.name)) return matchConstState(toType, fromType, false);
+            if (custom.generics.len != type2.Custom.generics.len) return matchConstState(toType, fromType, false);
 
             for (custom.generics, 0..) |gen, index| {
-                const genMatch = try matchTypes(allocator, compInfo, gen.astType, type2.Custom.generics[index].astType, withGenDef);
+                const genMatch = try matchTypes(allocator, compInfo, gen, type2.Custom.generics[index], withGenDef);
                 if (!genMatch) return ScanError.CustomGenericMismatch;
             }
 
-            return true;
+            return matchConstState(toType, fromType, true);
         },
         .Error => |err| switch (type2) {
             .Error => |err2| string.compString(err.name, err2.name),
             .ErrorVariant => |err2| string.compString(err.name, err2.from),
             else => {
                 if (err.payload) |payload| {
-                    return matchTypes(allocator, compInfo, payload.astType, type2Param, withGenDef);
+                    const matches = try matchTypes(allocator, compInfo, payload, fromType, withGenDef);
+                    return matchConstState(toType, fromType, matches);
                 }
 
-                return false;
+                return matchConstState(toType, fromType, false);
             },
         },
         .ErrorVariant => |err| switch (type2) {
@@ -1348,13 +1368,22 @@ pub fn matchTypes(
         },
         .StaticStructInstance => |inst| {
             if (type2 == .Custom and string.compString(inst, type2.Custom.name)) {
-                return true;
+                return matchConstState(toType, fromType, true);
             }
 
-            return false;
+            return matchConstState(toType, fromType, false);
         },
-        else => false,
+        else => matchConstState(toType, fromType, false),
     };
+}
+
+fn matchConstState(toType: blitzAst.AstTypeInfo, fromType: blitzAst.AstTypeInfo, typesMatched: bool) bool {
+    const primitive = isPrimitive(toType.astType);
+    if (!primitive and !toType.isConst and fromType.isConst) {
+        return false;
+    }
+
+    return typesMatched;
 }
 
 fn isPrimitive(astType: *const blitzAst.AstTypes) bool {
@@ -1433,7 +1462,7 @@ fn inferGeneralArrayType(allocator: Allocator, compInfo: *CompInfo, arr: []*cons
 
         isConst = isConst or exprType.isConst;
 
-        if (!try matchTypes(allocator, compInfo, exprType.astType, firstType.astType, false)) {
+        if (!try matchTypes(allocator, compInfo, exprType, firstType, false)) {
             return ScanError.StaticArrayTypeMismatch;
         }
     }

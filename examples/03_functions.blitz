@@ -3,13 +3,13 @@
 
 // basic void function with params and constant params (useful for references)
 
-fn myFunc(count: u32, position: const u16) {
+fn myFunc(count: mut u32, position: u16) {
   count = 2;
   // only the most efficient of things
 }
 
-const a = 1;
-const b = u16(2);
+let a = 1;
+let b = u16(2);
 myFunc(a, b);
 
 // function with params and return
@@ -42,11 +42,11 @@ struct MyStruct {
   pub size: u32;
 }
 
-fn [T: MyStruct] myFunc4(value: const T): u32 {
+fn [T: MyStruct] myFunc4(value: T): u32 {
   return value.size;
 }
 
-const myStruct = MyStruct {
+let myStruct = MyStruct {
   size = 10,
 };
 myFunc4(myStruct);

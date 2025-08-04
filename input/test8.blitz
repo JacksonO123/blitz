@@ -3,7 +3,7 @@ struct [T: u32] square {
   pub contains: T;
 }
 
-const a = square<u32> {
+let a = square<u32> {
   size = 10,
   contains = 23
 };

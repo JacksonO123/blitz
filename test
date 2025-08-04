@@ -69,7 +69,7 @@ if [[ "$(pwd)" == *\/blitz ]] && [ -e "$(pwd)/build.zig" ] && [ -e "$(pwd)/.zig-
   if [ "$1" == "" ]; then
     while IFS="" read -r p || [ -n "$p" ]; do
       run_log_dbg_build "$p" -l &
-    done <input/working.txt
+    done <"$INPUT_DIR/working.txt"
   else
     if [[ "$1" == *\.blitz ]]; then
       echo "expected filename without [.blitz] extension"

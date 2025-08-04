@@ -1,2 +1,15 @@
-const a = 2;
-var b = a;
+struct Box { }
+
+struct [T] M {
+  value: T;
+}
+
+fn thing(p1: M<Box>): M<Box> {
+  return p1;
+}
+
+let val = M<Box>{
+  value = Box {},
+};
+
+thing(val);

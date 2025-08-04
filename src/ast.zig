@@ -539,8 +539,17 @@ pub fn parseSequence(allocator: Allocator, compInfo: *CompInfo, fromBlock: bool)
 fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.Error)!?*AstNode {
     const first = try compInfo.tokens.take();
     switch (first.type) {
-        .Const => return try createVarDecNode(allocator, compInfo, true),
-        .Var => return try createVarDecNode(allocator, compInfo, false),
+        .Let => {
+            const next = try compInfo.tokens.peak();
+            var isConst = true;
+
+            if (next.type == .Mut) {
+                isConst = false;
+                _ = try compInfo.tokens.take();
+            }
+
+            return try createVarDecNode(allocator, compInfo, isConst);
+        },
         .If => {
             try compInfo.tokens.expectToken(.LParen);
             const condition = try parseExpression(allocator, compInfo);
@@ -1636,8 +1645,8 @@ fn createVarDecNode(allocator: Allocator, compInfo: *CompInfo, isConst: bool) !?
 
 fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.Error)!AstTypeInfo {
     var first = try compInfo.tokens.take();
-    const isConst = first.type == .Const;
-    if (isConst) {
+    const isConst = first.type != .Mut;
+    if (!isConst) {
         first = try compInfo.tokens.take();
     }
 

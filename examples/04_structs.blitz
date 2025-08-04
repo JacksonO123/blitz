@@ -1,11 +1,11 @@
-var a: u32[] = [];
+let mut a: u32[] = [];
 a.pop();
 
 struct M {}
-const b = M {};
+let b = M {};
 
-fn thing(c: const M): const M {
+fn thing(c: M): M {
   return c;
 }
 
-const h = thing(b);
+let h = thing(b);
