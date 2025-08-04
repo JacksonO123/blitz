@@ -1286,15 +1286,15 @@ pub fn matchTypes(
         .Nullable => |inner| type2 == .Null or try matchTypes(allocator, compInfo, inner, fromType, withGenDef),
         .Number => |num| type2 == .Number and @intFromEnum(num) == @intFromEnum(type2.Number),
         .DynamicArray => |arr| {
-            if (type2 == .GeneralArray) return matchConstState(toType, fromType, true);
+            if (type2 == .GeneralArray) return try matchConstState(toType, fromType, true);
             const res = type2 == .DynamicArray and try matchTypes(allocator, compInfo, arr, type2.DynamicArray, withGenDef);
-            return matchConstState(toType, fromType, res);
+            return try matchConstState(toType, fromType, res);
         },
         .StaticArray => |arr| {
             const array: blitzAst.AstStaticArrayType = switch (type2) {
                 .StaticArray => |staticArr| staticArr,
                 .GeneralArray => |generalArr| generalArr,
-                else => return matchConstState(toType, fromType, false),
+                else => return try matchConstState(toType, fromType, false),
             };
 
             const sizeType1 = try scanNode(allocator, compInfo, arr.size, withGenDef);
@@ -1303,7 +1303,7 @@ pub fn matchTypes(
             defer free.freeAstTypeInfo(allocator, sizeType2);
 
             if (!isInt(sizeType1.astType) or !isInt(sizeType2.astType)) {
-                return matchConstState(toType, fromType, false);
+                return try matchConstState(toType, fromType, false);
             }
 
             if (type2 == .GeneralArray) {
@@ -1331,23 +1331,23 @@ pub fn matchTypes(
             }
 
             const matches = try matchTypes(allocator, compInfo, arr.type, array.type, withGenDef);
-            return matchConstState(toType, fromType, matches);
+            return try matchConstState(toType, fromType, matches);
         },
         .Custom => |custom| {
             if (type2 == .StaticStructInstance and string.compString(custom.name, type2.StaticStructInstance)) {
-                return matchConstState(toType, fromType, true);
+                return try matchConstState(toType, fromType, true);
             }
 
-            if (type2 != .Custom) return matchConstState(toType, fromType, false);
-            if (!string.compString(type1.Custom.name, type2.Custom.name)) return matchConstState(toType, fromType, false);
-            if (custom.generics.len != type2.Custom.generics.len) return matchConstState(toType, fromType, false);
+            if (type2 != .Custom) return try matchConstState(toType, fromType, false);
+            if (!string.compString(type1.Custom.name, type2.Custom.name)) return try matchConstState(toType, fromType, false);
+            if (custom.generics.len != type2.Custom.generics.len) return try matchConstState(toType, fromType, false);
 
             for (custom.generics, 0..) |gen, index| {
                 const genMatch = try matchTypes(allocator, compInfo, gen, type2.Custom.generics[index], withGenDef);
                 if (!genMatch) return ScanError.CustomGenericMismatch;
             }
 
-            return matchConstState(toType, fromType, true);
+            return try matchConstState(toType, fromType, true);
         },
         .Error => |err| switch (type2) {
             .Error => |err2| string.compString(err.name, err2.name),
@@ -1355,10 +1355,10 @@ pub fn matchTypes(
             else => {
                 if (err.payload) |payload| {
                     const matches = try matchTypes(allocator, compInfo, payload, fromType, withGenDef);
-                    return matchConstState(toType, fromType, matches);
+                    return try matchConstState(toType, fromType, matches);
                 }
 
-                return matchConstState(toType, fromType, false);
+                return try matchConstState(toType, fromType, false);
             },
         },
         .ErrorVariant => |err| switch (type2) {
@@ -1368,19 +1368,19 @@ pub fn matchTypes(
         },
         .StaticStructInstance => |inst| {
             if (type2 == .Custom and string.compString(inst, type2.Custom.name)) {
-                return matchConstState(toType, fromType, true);
+                return try matchConstState(toType, fromType, true);
             }
 
-            return matchConstState(toType, fromType, false);
+            return try matchConstState(toType, fromType, false);
         },
-        else => matchConstState(toType, fromType, false),
+        else => try matchConstState(toType, fromType, false),
     };
 }
 
-fn matchConstState(toType: blitzAst.AstTypeInfo, fromType: blitzAst.AstTypeInfo, typesMatched: bool) bool {
+fn matchConstState(toType: blitzAst.AstTypeInfo, fromType: blitzAst.AstTypeInfo, typesMatched: bool) !bool {
     const primitive = isPrimitive(toType.astType);
     if (!primitive and !toType.isConst and fromType.isConst) {
-        return false;
+        return ScanError.NonPrimitiveTypeConstMismatch;
     }
 
     return typesMatched;
