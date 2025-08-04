@@ -13,14 +13,7 @@ const CompInfo = utils.CompInfo;
 const createMut = utils.createMut;
 const create = utils.create;
 
-pub const BuiltinFuncMemo = struct {
-    dynArr: struct {
-        push: ?*blitzAst.FuncDecNode,
-        pop: ?*blitzAst.FuncDecNode,
-        pushFront: ?*blitzAst.FuncDecNode,
-        popFront: ?*blitzAst.FuncDecNode,
-    },
-};
+pub const BuiltinFuncMemo = struct {};
 
 const PropTypeMap = struct {
     prop: *const []u8,
@@ -93,80 +86,7 @@ const PropInfo = struct {
     isFunc: bool,
 };
 
-pub fn getDynamicArrayPropType(
-    allocator: Allocator,
-    compInfo: *CompInfo,
-    str: []u8,
-    itemType: blitzAst.AstTypeInfo,
-    withGenDef: bool,
-) !*const blitzAst.AstTypes {
-    const pushParams = &[_]blitzAst.AstTypeInfo{itemType};
-    const popParams = &[_]blitzAst.AstTypeInfo{};
-    const pushFn = try updateBuiltinFn(
-        allocator,
-        compInfo,
-        &compInfo.builtins.dynArr.push,
-        pushParams,
-        utils.astTypesPtrToInfo(&.Void, true),
-        withGenDef,
-    );
-    const pushFrontFn = try updateBuiltinFn(
-        allocator,
-        compInfo,
-        &compInfo.builtins.dynArr.pushFront,
-        pushParams,
-        utils.astTypesPtrToInfo(&.Void, true),
-        withGenDef,
-    );
-    const popFn = try updateBuiltinFn(
-        allocator,
-        compInfo,
-        &compInfo.builtins.dynArr.pop,
-        popParams,
-        itemType,
-        withGenDef,
-    );
-    const popFrontFn = try updateBuiltinFn(
-        allocator,
-        compInfo,
-        &compInfo.builtins.dynArr.popFront,
-        popParams,
-        itemType,
-        withGenDef,
-    );
-
-    const props = &[_]PropInfo{
-        .{
-            .name = "len",
-            .signature = try toNumSig(allocator, .USize),
-            .isFunc = false,
-        },
-        .{
-            .name = "push",
-            .signature = pushFn,
-            .isFunc = true,
-        },
-        .{
-            .name = "pop",
-            .signature = popFn,
-            .isFunc = true,
-        },
-        .{
-            .name = "pushFront",
-            .signature = pushFrontFn,
-            .isFunc = true,
-        },
-        .{
-            .name = "popFront",
-            .signature = popFrontFn,
-            .isFunc = true,
-        },
-    };
-
-    return try getPropSignature(allocator, props, str);
-}
-
-pub fn validateStaticArrayProps(str: []u8) bool {
+pub fn validateArraySliceProps(str: []u8) bool {
     return validateProps(.{"len"}, str);
 }
 
@@ -219,7 +139,7 @@ pub fn getStringPropTypes(prop: []u8) !blitzAst.AstTypes {
     return types[index];
 }
 
-pub fn getStaticArrayPropTypes(prop: []u8) !blitzAst.AstTypes {
+pub fn getArraySlicePropTypes(prop: []u8) !blitzAst.AstTypes {
     const props = .{"len"};
     const types = &[_]blitzAst.AstTypes{
         .{

@@ -36,10 +36,11 @@ pub const ScanError = error{
     ElseBranchOutOfOrder,
 
     // arrays
-    StaticArrayTypeMismatch,
+    ArraySliceTypeMismatch,
     ExpectedArrayForIndexTarget,
-    ExpectedUSizeOrU32ForStaticArraySize,
-    ExpectedEqualStaticArraySizes,
+    ExpectedUSizeOrU32ForArraySliceSize,
+    ExpectedEqualArraySliceSizes,
+    SizedSliceSetToUnknownSizedSlice,
 
     // loops
     ExpectedBooleanLoopCondition,
@@ -158,6 +159,10 @@ pub fn scanNode(
                 return clonedCastType;
             }
 
+            if (nodeType.astType.* == .ArraySlice and cast.toType.astType.* == .ArraySlice) {
+                return clonedCastType;
+            }
+
             return ScanError.InvalidCast;
         },
         .Value => |val| {
@@ -185,10 +190,10 @@ pub fn scanNode(
 
                     return try utils.astTypesToInfo(allocator, .{ .Number = .U32 }, false);
                 },
-                .GeneralArray => |arr| {
-                    const inferredType = try inferGeneralArrayType(allocator, compInfo, arr, withGenDef);
-                    const generalArrType = try create(blitzAst.AstTypes, allocator, .{
-                        .GeneralArray = .{
+                .ArraySlice => |arr| {
+                    const inferredType = try inferArraySliceType(allocator, compInfo, arr, withGenDef);
+                    const arraySliceType = try create(blitzAst.AstTypes, allocator, .{
+                        .ArraySlice = .{
                             .type = inferredType,
                             .size = try create(blitzAst.AstNode, allocator, .{
                                 .Value = .{
@@ -198,7 +203,7 @@ pub fn scanNode(
                         },
                     });
 
-                    return utils.astTypesPtrToInfo(generalArrType, inferredType.isConst);
+                    return utils.astTypesPtrToInfo(arraySliceType, inferredType.isConst);
                 },
             };
 
@@ -215,19 +220,14 @@ pub fn scanNode(
                 return ScanError.ExpectedUSizeForIndex;
             }
 
-            return switch (valueType.astType.*) {
-                .StaticArray => |arr| a: {
-                    var res = try clone.cloneAstTypeInfo(allocator, compInfo, arr.type, false);
-                    res.isConst = valueType.isConst;
-                    break :a res;
-                },
-                .DynamicArray => |arr| a: {
-                    var res = try clone.cloneAstTypeInfo(allocator, compInfo, arr, false);
-                    res.isConst = valueType.isConst;
-                    break :a res;
-                },
-                else => return ScanError.ExpectedArrayForIndexTarget,
-            };
+            if (valueType.astType.* == .ArraySlice) {
+                const arr = valueType.astType.*.ArraySlice;
+                var res = try clone.cloneAstTypeInfo(allocator, compInfo, arr.type, false);
+                res.isConst = valueType.isConst;
+                return res;
+            }
+
+            return ScanError.ExpectedArrayForIndexTarget;
         },
         .OpExpr => |op| {
             const left = try scanNode(allocator, compInfo, op.left, withGenDef);
@@ -358,11 +358,7 @@ pub fn scanNode(
 
             const valid: bool = switch (valueInfo.astType.*) {
                 .Generic => return try utils.astTypesToInfo(allocator, .Any, valueInfo.isConst),
-                .DynamicArray => |itemType| {
-                    const signature = try builtins.getDynamicArrayPropType(allocator, compInfo, access.property, itemType, withGenDef);
-                    return utils.astTypesPtrToInfo(signature, true);
-                },
-                .StaticArray => builtins.validateStaticArrayProps(access.property),
+                .ArraySlice => builtins.validateArraySliceProps(access.property),
                 .String => builtins.validateStringProps(access.property),
                 .Custom => |custom| a: {
                     const def = compInfo.getStructDec(custom.name);
@@ -1285,49 +1281,25 @@ pub fn matchTypes(
         .Null => type2 == .Nullable or type2 == .Null,
         .Nullable => |inner| type2 == .Null or try matchTypes(allocator, compInfo, inner, fromType, withGenDef),
         .Number => |num| type2 == .Number and @intFromEnum(num) == @intFromEnum(type2.Number),
-        .DynamicArray => |arr| {
-            if (type2 == .GeneralArray) return try matchConstState(toType, fromType, true);
-            const res = type2 == .DynamicArray and try matchTypes(allocator, compInfo, arr, type2.DynamicArray, withGenDef);
-            return try matchConstState(toType, fromType, res);
-        },
-        .StaticArray => |arr| {
-            const array: blitzAst.AstStaticArrayType = switch (type2) {
-                .StaticArray => |staticArr| staticArr,
-                .GeneralArray => |generalArr| generalArr,
+        .ArraySlice => |arr| {
+            const array: blitzAst.AstArraySliceType = switch (type2) {
+                .ArraySlice => |arraySlice| arraySlice,
                 else => return try matchConstState(toType, fromType, false),
             };
 
-            const sizeType1 = try scanNode(allocator, compInfo, arr.size, withGenDef);
-            defer free.freeAstTypeInfo(allocator, sizeType1);
-            const sizeType2 = try scanNode(allocator, compInfo, array.size, withGenDef);
-            defer free.freeAstTypeInfo(allocator, sizeType2);
+            if (arr.size != null and array.size != null) {
+                const sizeType1 = try scanNode(allocator, compInfo, arr.size.?, withGenDef);
+                defer free.freeAstTypeInfo(allocator, sizeType1);
+                const sizeType2 = try scanNode(allocator, compInfo, array.size.?, withGenDef);
+                defer free.freeAstTypeInfo(allocator, sizeType2);
 
-            if (!isInt(sizeType1.astType) or !isInt(sizeType2.astType)) {
-                return try matchConstState(toType, fromType, false);
+                if (!isInt(sizeType1.astType) or !isInt(sizeType2.astType)) {
+                    return try matchConstState(toType, fromType, false);
+                }
             }
 
-            if (type2 == .GeneralArray) {
-                if (arr.size.* != .Value and arr.size.Value != .Number and arr.size.Value != .RawNumber) {
-                    return ScanError.ExpectedUSizeOrU32ForStaticArraySize;
-                }
-
-                var arrSize: blitzAst.AstNumber = undefined;
-                if (arr.size.Value == .Number) {
-                    arrSize = arr.size.Value.Number;
-                } else {
-                    arrSize = try blitzAst.rawNumberToInferredType(arr.size.Value.RawNumber);
-                }
-
-                if (arrSize != .USize and arrSize != .U32) {
-                    return ScanError.ExpectedUSizeOrU32ForStaticArraySize;
-                }
-
-                const num1 = if (arrSize == .U32) @as(usize, arrSize.U32) else arrSize.USize;
-                const num2 = type2.GeneralArray.size.Value.Number.USize;
-
-                if (num1 != num2) {
-                    return ScanError.ExpectedEqualStaticArraySizes;
-                }
+            if (arr.size != null and array.size == null) {
+                return ScanError.SizedSliceSetToUnknownSizedSlice;
             }
 
             const matches = try matchTypes(allocator, compInfo, arr.type, array.type, withGenDef);
@@ -1397,7 +1369,7 @@ fn isPrimitive(astType: *const blitzAst.AstTypes) bool {
 fn getPropertyType(allocator: Allocator, compInfo: *CompInfo, source: blitzAst.AstTypes, prop: []u8) !blitzAst.AstTypes {
     return switch (source) {
         .StaticStructInstance => |inst| try getStructPropType(compInfo, false, inst, prop),
-        .StaticArray => try builtins.getStaticArrayPropTypes(prop),
+        .ArraySlice => try builtins.getArraySlicePropTypes(prop),
         .String => try builtins.getStringPropTypes(prop),
         .Custom => |custom| getCustomPropType(allocator, compInfo, custom, prop),
         else => ScanError.UnsupportedFeature,
@@ -1450,7 +1422,7 @@ fn getStructPropType(compInfo: *CompInfo, allowNonStatic: bool, inst: []u8, prop
     return ScanError.InvalidProperty;
 }
 
-fn inferGeneralArrayType(allocator: Allocator, compInfo: *CompInfo, arr: []*const blitzAst.AstNode, withGenDef: bool) !blitzAst.AstTypeInfo {
+fn inferArraySliceType(allocator: Allocator, compInfo: *CompInfo, arr: []*const blitzAst.AstNode, withGenDef: bool) !blitzAst.AstTypeInfo {
     if (arr.len == 0) return try utils.astTypesToInfo(allocator, .Void, false);
 
     const firstType = try scanNode(allocator, compInfo, arr[0], withGenDef);
@@ -1463,7 +1435,7 @@ fn inferGeneralArrayType(allocator: Allocator, compInfo: *CompInfo, arr: []*cons
         isConst = isConst or exprType.isConst;
 
         if (!try matchTypes(allocator, compInfo, exprType, firstType, false)) {
-            return ScanError.StaticArrayTypeMismatch;
+            return ScanError.ArraySliceTypeMismatch;
         }
     }
 

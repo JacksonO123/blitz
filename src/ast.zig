@@ -99,9 +99,9 @@ pub const AstNumber = union(AstNumberVariants) {
     }
 };
 
-pub const AstStaticArrayType = struct {
+pub const AstArraySliceType = struct {
     type: AstTypeInfo,
-    size: *const AstNode,
+    size: ?*const AstNode,
 };
 
 pub const CustomType = struct {
@@ -128,9 +128,7 @@ const Types = enum {
     Any,
     Number,
     RawNumber,
-    DynamicArray,
-    StaticArray,
-    GeneralArray,
+    ArraySlice,
     Nullable,
     Custom,
     Generic,
@@ -149,9 +147,7 @@ pub const AstTypes = union(Types) {
     Any,
     Number: AstNumberVariants,
     RawNumber,
-    DynamicArray: AstTypeInfo,
-    StaticArray: AstStaticArrayType,
-    GeneralArray: AstStaticArrayType,
+    ArraySlice: AstArraySliceType,
     Nullable: AstTypeInfo,
     Custom: CustomType,
     Generic: []u8,
@@ -172,7 +168,7 @@ const StaticTypes = enum {
     Char,
     Number,
     RawNumber,
-    GeneralArray,
+    ArraySlice,
     Null,
 };
 
@@ -182,7 +178,7 @@ pub const AstValues = union(StaticTypes) {
     Char: u8,
     Number: AstNumber,
     RawNumber: []u8,
-    GeneralArray: []*const AstNode,
+    ArraySlice: []*const AstNode,
     Null,
 };
 
@@ -445,7 +441,7 @@ pub const AstError = error{
     ExpectedNameForError,
     ExpectedNameForStruct,
     ExpectedNameForFunction,
-    ExpectedSizeForStaticArray,
+    ExpectedSizeForArraySlice,
     ExpectedIdentifierForStructProperty,
     ExpectedValueForStructProperty,
     ExpectedIdentifierPropertyAccessSource,
@@ -1146,7 +1142,7 @@ fn parseArray(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
         _ = try compInfo.tokens.take();
         return try createMut(AstNode, allocator, .{
             .Value = .{
-                .GeneralArray = &[_]*const AstNode{},
+                .ArraySlice = &[_]*const AstNode{},
             },
         });
     }
@@ -1173,7 +1169,7 @@ fn parseArray(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
 
     return try createMut(AstNode, allocator, .{
         .Value = .{
-            .GeneralArray = try items.toOwnedSlice(),
+            .ArraySlice = try items.toOwnedSlice(),
         },
     });
 }
@@ -1732,29 +1728,24 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
     var next = try compInfo.tokens.peak();
     if (next.type == .LBracket) {
         _ = try compInfo.tokens.take();
+        var size: ?*AstNode = null;
         next = try compInfo.tokens.peak();
 
-        if (next.type == .RBracket) {
-            _ = try compInfo.tokens.take();
-
-            astType = .{
-                .DynamicArray = try utils.astTypesToInfo(allocator, astType, isConst),
-            };
-        } else {
-            const size = try parseExpression(allocator, compInfo);
+        if (next.type != .RBracket) {
+            size = try parseExpression(allocator, compInfo);
             if (size == null) {
-                return compInfo.logger.logError(AstError.ExpectedSizeForStaticArray);
+                return compInfo.logger.logError(AstError.ExpectedSizeForArraySlice);
             }
-
-            try compInfo.tokens.expectToken(.RBracket);
-
-            astType = .{
-                .StaticArray = .{
-                    .type = try utils.astTypesToInfo(allocator, astType, isConst),
-                    .size = size.?,
-                },
-            };
         }
+
+        try compInfo.tokens.expectToken(.RBracket);
+
+        astType = .{
+            .ArraySlice = .{
+                .type = try utils.astTypesToInfo(allocator, astType, isConst),
+                .size = size,
+            },
+        };
     }
 
     return try utils.astTypesToInfo(allocator, astType, isConst);

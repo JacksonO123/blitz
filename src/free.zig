@@ -92,7 +92,7 @@ pub fn freeAttr(allocator: Allocator, attr: blitzAst.StructAttribute) void {
 
 pub fn freeValueNode(allocator: Allocator, node: *const blitzAst.AstValues) void {
     switch (node.*) {
-        .GeneralArray => |arr| {
+        .ArraySlice => |arr| {
             freeNodes(allocator, arr);
             allocator.free(arr);
         },
@@ -287,16 +287,11 @@ pub fn freeNodes(allocator: Allocator, nodes: []*const blitzAst.AstNode) void {
 
 pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void {
     switch (node.*) {
-        .DynamicArray => |arr| {
-            freeAstTypeInfo(allocator, arr);
-        },
-        .StaticArray => |arr| {
+        .ArraySlice => |arr| {
             freeAstTypeInfo(allocator, arr.type);
-            freeNode(allocator, arr.size);
-        },
-        .GeneralArray => |arr| {
-            freeAstTypeInfo(allocator, arr.type);
-            freeNode(allocator, arr.size);
+            if (arr.size) |size| {
+                freeNode(allocator, size);
+            }
         },
         .Nullable => |nullable| {
             freeAstTypeInfo(allocator, nullable);
@@ -361,17 +356,6 @@ pub fn freeTokenArr(allocator: Allocator, tokens: []tokenizer.Token) void {
 }
 
 pub fn freeBuiltins(allocator: Allocator, memos: builtins.BuiltinFuncMemo) void {
-    const dyn = memos.dynArr;
-    const fns = .{
-        dyn.push,
-        dyn.pop,
-        dyn.pushFront,
-        dyn.popFront,
-    };
-
-    inline for (fns) |func| {
-        if (func) |dec| {
-            freeBuiltinFuncDec(allocator, dec);
-        }
-    }
+    _ = allocator;
+    _ = memos;
 }

@@ -32,11 +32,13 @@ let anyNum2 = -123;
 
 let numberU16 = u16(32);
 
-// dynamic array
-let arr: u32[] = [1, 2, 3];
-
-// static array
-let staticArr: u32[4] = [1, 2, 3, 4];
+// array slices
+// unknown size array (eventually stored as struct with ptr and size)
+let slice: u32[] = [1, 2, 3, 4];
+// known struct array
+let ab: u32[3] = [3, 2, 1];
+// if the size is known at compile time then the size is optimized out of the slice so
+// the slice is just a ptr, otherwise it is stored as struct with ptr and size
 
 // nullable
 let mut numOrNull: ?u32 = null;

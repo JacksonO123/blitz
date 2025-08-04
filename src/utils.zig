@@ -146,14 +146,7 @@ pub const CompInfo = struct {
                 .allowStaticStructInstance = false,
             },
             .returnInfo = returnInfo,
-            .builtins = .{
-                .dynArr = .{
-                    .push = null,
-                    .pop = null,
-                    .pushFront = null,
-                    .popFront = null,
-                },
-            },
+            .builtins = .{},
         };
     }
 

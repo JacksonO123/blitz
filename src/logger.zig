@@ -216,7 +216,7 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedIdentifierForPropertyAccess => "expected identifier for struct property access",
         AstError.ExpectedIdentifierForErrorVariant => "expected identifier for error variant",
         AstError.ExpectedIdentifierForStructName => "expected identifier for struct name",
-        AstError.ExpectedSizeForStaticArray => "expected size for static array",
+        AstError.ExpectedSizeForArraySlice => "expected size for static array",
         AstError.ExpectedIdentifierForStructProperty => "expected identifier for struct property",
         AstError.ExpectedValueForStructProperty => "expected value for struct property",
         AstError.UnexpectedGenericOnErrorType => "unexpected generic type",

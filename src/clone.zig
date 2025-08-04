@@ -17,18 +17,17 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
     switch (types) {
         .String, .Bool, .Char, .Void, .Number, .Null, .RawNumber, .Any => return types,
 
-        .DynamicArray => |arr| {
-            const newPtr = try cloneAstTypeInfo(allocator, compInfo, arr, replaceGenerics);
-            return .{ .DynamicArray = newPtr };
-        },
-        .StaticArray, .GeneralArray => |arr| {
-            const clonedType = try cloneAstTypeInfo(allocator, compInfo, arr.type, replaceGenerics);
-            const clonedNode = try cloneAstNodePtr(allocator, compInfo, arr.size, replaceGenerics);
+        .ArraySlice => |arr| {
+            const typeClone = try cloneAstTypeInfo(allocator, compInfo, arr.type, replaceGenerics);
+            var sizeClone: ?*const blitzAst.AstNode = null;
+            if (arr.size) |size| {
+                sizeClone = try cloneAstNodePtr(allocator, compInfo, size, replaceGenerics);
+            }
 
             return .{
-                .StaticArray = .{
-                    .type = clonedType,
-                    .size = clonedNode,
+                .ArraySlice = .{
+                    .type = typeClone,
+                    .size = sizeClone,
                 },
             };
         },
@@ -250,9 +249,9 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                         .RawNumber = try string.cloneString(allocator, num),
                     },
                 },
-                .GeneralArray => |arr| return .{
+                .ArraySlice => |arr| return .{
                     .Value = .{
-                        .GeneralArray = try cloneNodeArr(allocator, compInfo, arr, replaceGenerics),
+                        .ArraySlice = try cloneNodeArr(allocator, compInfo, arr, replaceGenerics),
                     },
                 },
             }

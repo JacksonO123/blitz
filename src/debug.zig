@@ -39,21 +39,13 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
         .String => print("string", .{}),
         .Char => print("char", .{}),
         .Bool => print("bool", .{}),
-        .DynamicArray => |arr| {
-            print("DynamicArray<", .{});
-            printTypeInfo(compInfo, arr);
-            print(">", .{});
-        },
-        .StaticArray => |arr| {
-            print("StaticArray<", .{});
-            printNode(compInfo, arr.size);
-            print(", ", .{});
-            printTypeInfo(compInfo, arr.type);
-            print(">", .{});
-        },
-        .GeneralArray => |arr| {
-            print("GeneralArray<", .{});
-            printNode(compInfo, arr.size);
+        .ArraySlice => |arr| {
+            print("ArraySlice<", .{});
+            if (arr.size) |size| {
+                printNode(compInfo, size);
+            } else {
+                print("unknown", .{});
+            }
             print(", ", .{});
             printTypeInfo(compInfo, arr.type);
             print(">", .{});
@@ -154,8 +146,8 @@ fn printValue(compInfo: *CompInfo, value: *const blitzAst.AstValues) void {
         .Null => {
             print("null", .{});
         },
-        .GeneralArray => |arr| {
-            print("[GeneralArray]([", .{});
+        .ArraySlice => |arr| {
+            print("[ArraySlice]([", .{});
 
             for (arr, 0..) |val, index| {
                 printNode(compInfo, val);
