@@ -76,14 +76,24 @@ fn [T] testCapture(value: T): T {
 
 // recursive functions
 
-fn [T] fibonacci(num: T): T {
+fn fibonacci1(num: u32): u32 {
   if (num <= 1) {
     return num;
   }
 
-  return fibonacci(num - 1) + fibonacci(num - 2);
+  return fibonacci1(num - 1) + fibonacci1(num - 2);
 }
 
-fibonacci(5);
+fibonacci1(5);
 
-fibonacci("hi");
+// recursive functions can also be generic (implied but just saying, you never know)
+
+fn [T] fibonacci2(num: T): T {
+  if (num <= 1) {
+    return num;
+  }
+
+  return fibonacci2(num - 1) + fibonacci2(num - 2);
+}
+
+fibonacci2(6);

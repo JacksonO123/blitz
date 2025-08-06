@@ -7,10 +7,6 @@ const builtins = blitz.builtins;
 const Allocator = std.mem.Allocator;
 const CompInfo = utils.CompInfo;
 
-// DEBUG
-const debug = @import("debug.zig");
-const printType = debug.printType;
-
 pub fn freeNestedSlice(comptime T: type, allocator: Allocator, slices: [][]T) void {
     for (slices) |name| {
         allocator.free(name);
@@ -72,9 +68,11 @@ pub fn freeFuncDecUtil(allocator: Allocator, func: *const blitzAst.FuncDecNode, 
         allocator.destroy(captured);
     }
 
-    var mapIt = func.scannedGenTypes.valueIterator();
-    while (mapIt.next()) |genType| {
-        freeAstTypeInfo(allocator, genType.*);
+    for (func.scannedGenTypes.items) |rels| {
+        for (rels) |item| {
+            freeAstTypeInfo(allocator, item.info);
+        }
+        allocator.free(rels);
     }
 
     func.scannedGenTypes.deinit();

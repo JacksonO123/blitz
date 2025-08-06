@@ -551,13 +551,11 @@ pub fn cloneFuncDec(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.Fu
         capturedTypes = try cloneGenericScope(allocator, captured);
     }
 
-    const map = try dec.scannedGenTypes.clone();
-    var mapIt = map.iterator();
-    while (mapIt.next()) |entry| {
-        const value = entry.value_ptr.*;
-        entry.value_ptr.* = try cloneAstTypeInfo(allocator, compInfo, value, replaceGenerics);
+    const list = try dec.scannedGenTypes.clone();
+    for (list.items) |*item| {
+        item.* = try cloneGenToInfoRels(allocator, compInfo, item.*, replaceGenerics);
     }
-    const mapPtr = try createMut(StringHashMap(blitzAst.AstTypeInfo), allocator, map);
+    const listPtr = try createMut(blitzAst.ScannedGenTypesList, allocator, list);
 
     return try createMut(blitzAst.FuncDecNode, allocator, .{
         .body = bodyPtr,
@@ -568,10 +566,26 @@ pub fn cloneFuncDec(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.Fu
         .returnType = returnType,
         .capturedValues = capturedValues,
         .capturedTypes = capturedTypes,
-        .scannedGenTypes = mapPtr,
+        .scannedGenTypes = listPtr,
         .builtin = dec.builtin,
         .scanned = false,
     });
+}
+
+pub fn cloneGenToInfoRels(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+    rels: []blitzAst.GenToTypeInfoRel,
+    replaceGenerics: bool,
+) ![]blitzAst.GenToTypeInfoRel {
+    const newSlice = try allocator.alloc(blitzAst.GenToTypeInfoRel, rels.len);
+    for (rels, 0..) |item, index| {
+        newSlice[index] = .{
+            .gen = item.gen,
+            .info = try cloneAstTypeInfo(allocator, compInfo, item.info, replaceGenerics),
+        };
+    }
+    return newSlice;
 }
 
 fn cloneAstNodePtr(allocator: Allocator, compInfo: *CompInfo, node: *const blitzAst.AstNode, replaceGenerics: bool) (Allocator.Error || CloneError)!*const blitzAst.AstNode {

@@ -271,6 +271,13 @@ pub const Parameter = struct {
     type: AstTypeInfo,
 };
 
+pub const GenToTypeInfoRel = struct {
+    gen: []const u8,
+    info: AstTypeInfo,
+};
+
+pub const ScannedGenTypesList = ArrayList([]GenToTypeInfoRel);
+
 pub const FuncDecNode = struct {
     name: []u8,
     generics: ?[]GenericType,
@@ -280,7 +287,7 @@ pub const FuncDecNode = struct {
     returnType: AstTypeInfo,
     capturedValues: ?*utils.CaptureScope,
     capturedTypes: ?*utils.TypeScope,
-    scannedGenTypes: *StringHashMap(AstTypeInfo),
+    scannedGenTypes: *ScannedGenTypesList,
     builtin: bool,
     scanned: bool,
 };
@@ -1418,7 +1425,7 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo, structFn: bool) !*Fun
         .returnType = returnType,
         .capturedValues = null,
         .capturedTypes = null,
-        .scannedGenTypes = try utils.initMutPtrT(StringHashMap(AstTypeInfo), allocator),
+        .scannedGenTypes = try utils.initMutPtrT(ScannedGenTypesList, allocator),
         .builtin = false,
         .scanned = false,
     });

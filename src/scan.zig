@@ -23,6 +23,11 @@ pub const RetNodeInfo = struct {
     conditional: bool,
 };
 
+const MutMatchBehavior = enum {
+    Assign, // allows mut to const
+    Strict, // must match exactly
+};
+
 pub const ScanError = error{
     // misc
     InvalidCast,
@@ -695,15 +700,17 @@ pub fn scanNode(
             const prev = compInfo.returnInfo.setInFunction(true);
             defer compInfo.returnInfo.revertInFunction(prev);
 
-            try compInfo.pushGenScope(true);
-            defer compInfo.popGenScope();
             const lastRetInfo = try compInfo.returnInfo.newInfo(true);
             defer compInfo.returnInfo.swapFree(lastRetInfo);
 
             const dec = try scanNode(allocator, compInfo, call.func, withGenDef);
+            // only destroy pointer because function declaration instance must be preserved
             defer allocator.destroy(dec.astType);
             if (dec.astType.* != .Function) return ScanError.CannotCallNonFunctionNode;
             const func = dec.astType.Function;
+
+            try compInfo.pushGenScope(true);
+            defer compInfo.popGenScope();
 
             const prevAccessed = compInfo.getPreviousAccessedStruct();
             if (prevAccessed) |accessed| {
@@ -765,13 +772,22 @@ pub fn scanNode(
             try compInfo.pushScope(false);
             defer compInfo.popScope();
 
+            if (func.builtin or func.scanned) {
+                return try clone.cloneAstTypeInfo(allocator, compInfo, func.returnType, withGenDef);
+            } else if (func.generics != null) {
+                const genScope = compInfo.genericScopes.getCurrentScope().?;
+                const scannedBefore = try fnHasScannedWithSameGenTypes(allocator, compInfo, func, genScope, withGenDef);
+                if (scannedBefore) {
+                    return try clone.cloneAstTypeInfo(allocator, compInfo, func.returnType, withGenDef);
+                }
+
+                const scopeRels = try genScopeToRels(allocator, compInfo, genScope, withGenDef);
+                try func.scannedGenTypes.append(scopeRels);
+            }
+
             if (call.func.* == .FuncReference) {
                 const name = call.func.FuncReference;
                 try compInfo.addScopedFunction(try string.cloneString(allocator, name));
-            }
-
-            if (func.builtin or func.scanned) {
-                return try clone.cloneAstTypeInfo(allocator, compInfo, func.returnType, withGenDef);
             }
 
             if (func.capturedValues) |captured| {
@@ -881,6 +897,49 @@ pub fn scanNode(
             return scanNode(allocator, compInfo, scope, withGenDef);
         },
     }
+}
+
+fn genScopeToRels(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+    genScope: *utils.TypeScope,
+    withGenDef: bool,
+) ![]blitzAst.GenToTypeInfoRel {
+    const slice = try allocator.alloc(blitzAst.GenToTypeInfoRel, genScope.count());
+    var i: usize = 0;
+    var scopeIt = genScope.iterator();
+    while (scopeIt.next()) |entry| {
+        slice[i] = .{
+            .gen = entry.key_ptr.*,
+            .info = try clone.cloneAstTypeInfo(allocator, compInfo, entry.value_ptr.*, withGenDef),
+        };
+
+        i += 1;
+    }
+
+    return slice;
+}
+
+fn fnHasScannedWithSameGenTypes(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+    func: *blitzAst.FuncDecNode,
+    genScope: *utils.TypeScope,
+    withGenDef: bool,
+) !bool {
+    outer: for (func.scannedGenTypes.items) |scannedScope| {
+        for (scannedScope) |rel| {
+            const genType = genScope.get(rel.gen).?;
+            const matches = try matchTypesUtil(allocator, compInfo, genType, rel.info, withGenDef, .Strict);
+            if (!matches) {
+                continue :outer;
+            }
+        }
+
+        return true;
+    }
+
+    return false;
 }
 
 fn isAnyType(astType: *const blitzAst.AstTypes) bool {
@@ -1218,13 +1277,24 @@ fn isFloat(astType: blitzAst.AstTypes) bool {
     };
 }
 
-/// match types as if fromType is being set to toType to match mutability
 pub fn matchTypes(
     allocator: Allocator,
     compInfo: *CompInfo,
     toType: blitzAst.AstTypeInfo,
     fromType: blitzAst.AstTypeInfo,
     withGenDef: bool,
+) (ScanError || Allocator.Error || clone.CloneError)!bool {
+    return matchTypesUtil(allocator, compInfo, toType, fromType, withGenDef, .Assign);
+}
+
+/// match types as if fromType is being set to toType to match mutability
+pub fn matchTypesUtil(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+    toType: blitzAst.AstTypeInfo,
+    fromType: blitzAst.AstTypeInfo,
+    withGenDef: bool,
+    mutMatchBehavior: MutMatchBehavior,
 ) !bool {
     const type1 = toType.astType.*;
     const type2 = fromType.astType.*;
@@ -1302,7 +1372,7 @@ pub fn matchTypes(
         .ArraySlice => |arr| {
             const array: blitzAst.AstArraySliceType = switch (type2) {
                 .ArraySlice => |arraySlice| arraySlice,
-                else => return try matchConstState(toType, fromType, false),
+                else => return try matchMutState(toType, fromType, false, mutMatchBehavior),
             };
 
             if (arr.size != null and array.size != null) {
@@ -1312,7 +1382,7 @@ pub fn matchTypes(
                 defer free.freeAstTypeInfo(allocator, sizeType2);
 
                 if (!isInt(sizeType1.astType) or !isInt(sizeType2.astType)) {
-                    return try matchConstState(toType, fromType, false);
+                    return try matchMutState(toType, fromType, false, mutMatchBehavior);
                 }
             }
 
@@ -1321,23 +1391,23 @@ pub fn matchTypes(
             }
 
             const matches = try matchTypes(allocator, compInfo, arr.type, array.type, withGenDef);
-            return try matchConstState(toType, fromType, matches);
+            return try matchMutState(toType, fromType, matches, mutMatchBehavior);
         },
         .Custom => |custom| {
             if (type2 == .StaticStructInstance and string.compString(custom.name, type2.StaticStructInstance)) {
-                return try matchConstState(toType, fromType, true);
+                return try matchMutState(toType, fromType, true, mutMatchBehavior);
             }
 
-            if (type2 != .Custom) return try matchConstState(toType, fromType, false);
-            if (!string.compString(type1.Custom.name, type2.Custom.name)) return try matchConstState(toType, fromType, false);
-            if (custom.generics.len != type2.Custom.generics.len) return try matchConstState(toType, fromType, false);
+            if (type2 != .Custom) return try matchMutState(toType, fromType, false, mutMatchBehavior);
+            if (!string.compString(type1.Custom.name, type2.Custom.name)) return try matchMutState(toType, fromType, false, mutMatchBehavior);
+            if (custom.generics.len != type2.Custom.generics.len) return try matchMutState(toType, fromType, false, mutMatchBehavior);
 
             for (custom.generics, type2.Custom.generics) |gen1, gen2| {
                 const genMatch = try matchTypes(allocator, compInfo, gen1, gen2, withGenDef);
                 if (!genMatch) return ScanError.CustomGenericMismatch;
             }
 
-            return try matchConstState(toType, fromType, true);
+            return try matchMutState(toType, fromType, true, mutMatchBehavior);
         },
         .Error => |err| switch (type2) {
             .Error => |err2| string.compString(err.name, err2.name),
@@ -1345,10 +1415,10 @@ pub fn matchTypes(
             else => {
                 if (err.payload) |payload| {
                     const matches = try matchTypes(allocator, compInfo, payload, fromType, withGenDef);
-                    return try matchConstState(toType, fromType, matches);
+                    return try matchMutState(toType, fromType, matches, mutMatchBehavior);
                 }
 
-                return try matchConstState(toType, fromType, false);
+                return try matchMutState(toType, fromType, false, mutMatchBehavior);
             },
         },
         .ErrorVariant => |err| switch (type2) {
@@ -1358,19 +1428,33 @@ pub fn matchTypes(
         },
         .StaticStructInstance => |inst| {
             if (type2 == .Custom and string.compString(inst, type2.Custom.name)) {
-                return try matchConstState(toType, fromType, true);
+                return try matchMutState(toType, fromType, true, mutMatchBehavior);
             }
 
-            return try matchConstState(toType, fromType, false);
+            return try matchMutState(toType, fromType, false, mutMatchBehavior);
         },
-        else => try matchConstState(toType, fromType, false),
+        else => try matchMutState(toType, fromType, false, mutMatchBehavior),
     };
 }
 
-fn matchConstState(toType: blitzAst.AstTypeInfo, fromType: blitzAst.AstTypeInfo, typesMatched: bool) !bool {
-    const primitive = isPrimitive(toType.astType);
-    if (!primitive and !toType.isConst and fromType.isConst) {
-        return ScanError.NonPrimitiveTypeConstMismatch;
+fn matchMutState(
+    toType: blitzAst.AstTypeInfo,
+    fromType: blitzAst.AstTypeInfo,
+    typesMatched: bool,
+    mutMatchBehavior: MutMatchBehavior,
+) !bool {
+    switch (mutMatchBehavior) {
+        .Assign => {
+            const primitive = isPrimitive(toType.astType);
+            if (!primitive and !toType.isConst and fromType.isConst) {
+                return ScanError.NonPrimitiveTypeConstMismatch;
+            }
+        },
+        .Strict => {
+            if (toType.isConst != fromType.isConst) {
+                return ScanError.NonPrimitiveTypeConstMismatch;
+            }
+        },
     }
 
     return typesMatched;
