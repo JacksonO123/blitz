@@ -72,6 +72,13 @@ pub fn freeFuncDecUtil(allocator: Allocator, func: *const blitzAst.FuncDecNode, 
         allocator.destroy(captured);
     }
 
+    var mapIt = func.scannedGenTypes.valueIterator();
+    while (mapIt.next()) |genType| {
+        freeAstTypeInfo(allocator, genType.*);
+    }
+
+    func.scannedGenTypes.deinit();
+    allocator.destroy(func.scannedGenTypes);
     allocator.destroy(func);
 }
 

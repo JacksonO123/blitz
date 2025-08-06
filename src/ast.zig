@@ -10,6 +10,7 @@ const create = utils.create;
 const createMut = utils.createMut;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const StringHashMap = std.StringHashMap;
 const TokenUtil = utils.TokenUtil;
 
 // debug
@@ -279,7 +280,9 @@ pub const FuncDecNode = struct {
     returnType: AstTypeInfo,
     capturedValues: ?*utils.CaptureScope,
     capturedTypes: ?*utils.TypeScope,
+    scannedGenTypes: *StringHashMap(AstTypeInfo),
     builtin: bool,
+    scanned: bool,
 };
 
 const FuncCallNode = struct {
@@ -449,6 +452,7 @@ pub const AstError = error{
     ExpectedTypeExpression,
     ErrorPayloadMayNotBeError,
     UnexpectedGeneric,
+    MutablePrimitiveType,
 };
 
 const RegisterStructsAndErrorsResult = struct {
@@ -1414,7 +1418,9 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo, structFn: bool) !*Fun
         .returnType = returnType,
         .capturedValues = null,
         .capturedTypes = null,
+        .scannedGenTypes = try utils.initMutPtrT(StringHashMap(AstTypeInfo), allocator),
         .builtin = false,
+        .scanned = false,
     });
 }
 

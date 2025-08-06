@@ -6,11 +6,15 @@ const string = blitz.string;
 const Allocator = std.mem.Allocator;
 const create = utils.create;
 const createMut = utils.createMut;
-const ArrayList = std.ArrayList;
 const CompInfo = utils.CompInfo;
+const StringHashMap = std.StringHashMap;
+
+// DEBUG
+const debug = @import("debug.zig");
 
 pub const CloneError = error{
     GenericNotFound,
+    BadGenericClone,
 };
 
 pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.AstTypes, replaceGenerics: bool) (Allocator.Error || CloneError)!blitzAst.AstTypes {
@@ -42,7 +46,6 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
             };
         },
         .Custom => |custom| {
-            // TODO - deep clone these
             const genericsSlice = try cloneCustomGenerics(allocator, compInfo, custom.generics, replaceGenerics);
 
             return .{
@@ -52,53 +55,9 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
                 },
             };
         },
-        .Generic => |generic| {
-            if (replaceGenerics) {
-                const genType = try compInfo.getGeneric(generic);
-                // TODO - bring this back and figure something out for info
-                // if (genType) |gType| return cloneAstTypeInfo(allocator, compInfo, gType, replaceGenerics);
-                if (genType) |gType| return cloneAstTypes(allocator, compInfo, gType.astType.*, replaceGenerics);
-                return CloneError.GenericNotFound;
-            }
-
-            return .{
-                .Generic = try string.cloneString(allocator, generic),
-            };
-        },
         .Function => |func| {
-            var clonedGenerics: ?[]blitzAst.GenericType = null;
-
-            if (func.generics) |generics| {
-                clonedGenerics = try cloneGenerics(allocator, compInfo, generics, replaceGenerics);
-            }
-
-            const name = try string.cloneString(allocator, func.name);
-            const params = try cloneParameters(allocator, compInfo, func.params, replaceGenerics);
-            const returnType = try cloneAstTypeInfo(allocator, compInfo, func.returnType, replaceGenerics);
-            const bodyPtr = try cloneAstNodePtr(allocator, compInfo, func.body, replaceGenerics);
-
-            var capturedValues: ?*utils.CaptureScope = null;
-            if (func.capturedValues) |values| {
-                capturedValues = try cloneCaptureScope(allocator, values);
-            }
-
-            var capturedTypes: ?*utils.TypeScope = null;
-            if (func.capturedTypes) |captured| {
-                capturedTypes = try cloneGenericScope(allocator, captured);
-            }
-
             return .{
-                .Function = try createMut(blitzAst.FuncDecNode, allocator, .{
-                    .generics = clonedGenerics,
-                    .name = name,
-                    .params = params,
-                    .returnType = returnType,
-                    .body = bodyPtr,
-                    .bodyTokens = func.bodyTokens,
-                    .capturedValues = capturedValues,
-                    .capturedTypes = capturedTypes,
-                    .builtin = func.builtin,
-                }),
+                .Function = try cloneFuncDec(allocator, compInfo, func, replaceGenerics),
             };
         },
         .Error => |err| {
@@ -123,7 +82,19 @@ pub fn cloneAstTypes(allocator: Allocator, compInfo: *CompInfo, types: blitzAst.
                 },
             };
         },
+        .Generic => {
+            return CloneError.BadGenericClone;
+        },
     }
+}
+
+fn cloneAstTypeInfos(allocator: Allocator, compInfo: *CompInfo, infos: []blitzAst.AstTypeInfo, replaceGenerics: bool) ![]blitzAst.AstTypeInfo {
+    const newSlice = try allocator.alloc(blitzAst.AstTypeInfo, infos.len);
+    for (infos, 0..) |info, index| {
+        const clonedInfo = try cloneAstTypeInfo(allocator, compInfo, info, replaceGenerics);
+        newSlice[index] = clonedInfo;
+    }
+    return newSlice;
 }
 
 pub fn cloneCustomGenerics(
@@ -141,7 +112,26 @@ pub fn cloneCustomGenerics(
     return genericsSlice;
 }
 
-pub fn cloneAstTypeInfo(allocator: Allocator, compInfo: *CompInfo, info: blitzAst.AstTypeInfo, replaceGenerics: bool) !blitzAst.AstTypeInfo {
+pub fn cloneAstTypeInfo(allocator: Allocator, compInfo: *CompInfo, info: blitzAst.AstTypeInfo, replaceGenerics: bool) (CloneError || Allocator.Error)!blitzAst.AstTypeInfo {
+    if (info.astType.* == .Generic) {
+        const generic = info.astType.*.Generic;
+        if (replaceGenerics) {
+            const genType = try compInfo.getGeneric(generic);
+            if (genType) |gType| {
+                return cloneAstTypeInfo(allocator, compInfo, gType, replaceGenerics);
+            }
+
+            return CloneError.GenericNotFound;
+        }
+
+        return .{
+            .astType = try create(blitzAst.AstTypes, allocator, .{
+                .Generic = try string.cloneString(allocator, generic),
+            }),
+            .isConst = info.isConst,
+        };
+    }
+
     return .{
         .astType = try cloneAstTypesPtr(allocator, compInfo, info.astType, replaceGenerics),
         .isConst = info.isConst,
@@ -561,6 +551,14 @@ pub fn cloneFuncDec(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.Fu
         capturedTypes = try cloneGenericScope(allocator, captured);
     }
 
+    const map = try dec.scannedGenTypes.clone();
+    var mapIt = map.iterator();
+    while (mapIt.next()) |entry| {
+        const value = entry.value_ptr.*;
+        entry.value_ptr.* = try cloneAstTypeInfo(allocator, compInfo, value, replaceGenerics);
+    }
+    const mapPtr = try createMut(StringHashMap(blitzAst.AstTypeInfo), allocator, map);
+
     return try createMut(blitzAst.FuncDecNode, allocator, .{
         .body = bodyPtr,
         .bodyTokens = dec.bodyTokens,
@@ -570,7 +568,9 @@ pub fn cloneFuncDec(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.Fu
         .returnType = returnType,
         .capturedValues = capturedValues,
         .capturedTypes = capturedTypes,
+        .scannedGenTypes = mapPtr,
         .builtin = dec.builtin,
+        .scanned = false,
     });
 }
 

@@ -2,7 +2,8 @@
 // in that scope or lower
 
 // basic void function with params and constant params (useful for references)
-
+// count has type with mut keyword, so it becomes mutable, position is constant
+// params infer their mutability from their defined type
 fn myFunc(count: mut u32, position: u16) {
   count = 2;
   // only the most efficient of things
@@ -75,12 +76,14 @@ fn [T] testCapture(value: T): T {
 
 // recursive functions
 
-// fn fibonacci(num: u32): u32 {
-//   if (num <= 1) {
-//     return num;
-//   }
-// 
-//   return fibonacci(num - 1) + fibonacci(num - 2);
-// }
-// 
-// fibonacci(5);
+fn [T] fibonacci(num: T): T {
+  if (num <= 1) {
+    return num;
+  }
+
+  return fibonacci(num - 1) + fibonacci(num - 2);
+}
+
+fibonacci(5);
+
+fibonacci("hi");

@@ -1,8 +1,20 @@
-struct M {}
-let b = M {};
+struct Box { }
 
-fn thing(c: M): M {
-  return c;
+struct [T] M {
+  value: T;
 }
 
-let h = thing(b);
+fn thing(p1: M<Box>): M<Box> {
+  return p1;
+}
+
+let val = M<Box>{
+  value = Box {},
+};
+
+thing(val);
+
+// ---
+
+let slice: u32[] = [1, 2, 3, 4];
+let ab: u32[3] = [3, 2, 1];

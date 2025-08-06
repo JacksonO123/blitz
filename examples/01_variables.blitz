@@ -1,13 +1,40 @@
-let mut a = 2;
-a = 5;
+// decleration
+let num1 = 2;
+// with annotation
+let typedNum: u32 = 2;
 
-let b = 4;
+// mutability
+// mutability is an opt in feature signaled by the keyword mut
+let mut num2 = 4;
 
-let mut c: u32 = 6;
+// mut to const, const to mut
+// const to const and mut to mut are obviously just fine
+// this operation is mut to const, all good
+let num3 = num2;
+// this operation is mut to const, which is only an issue for NON-PRIMITIVE types
+// since a is u32, u32 is primitive, al good
+let mut num4 = num1;
 
-//
-// VALUE TYPES
-//
+// since non primitive types are copied, being mut or const on the type level does not matter
+// and basically means nothing
+// example:
+// mut u32 will be treated the same as u32
+// this only makes a difference in function parameters, they are defined as variables where
+// the mutability is inferred from the type, so then it becomes useful
+// see 03_functions for more
+
+// mut to const const to mut NON-PRIMITIVE
+// see 04_structs for more on structs
+// const to const and mut to mut are just fine
+struct M {}
+let m1 = M {};
+let mut m2 = M {};
+// this operation is const to mut but because f is a reference/pointer, this operation
+// is bad, will throw error
+// let mut m3 = m1;
+// this operation is mut to const, which is fine
+let m4 = m2;
+// tightening the restriction is fine, loostening it is not
 
 // strings
 let str = "some string";

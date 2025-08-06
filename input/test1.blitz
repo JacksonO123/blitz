@@ -22,6 +22,7 @@ fn b(p0: name<Car>, p1: bool, p2: string, p3: u32): char {
 // let n: name<u32> = name.create(true, Car { size = 10 });
 // let n = name.create(true, 2);
 
-let n: name<Car> = name.create(true, Car { size = 10 });
+let a = Car { size = 10 };
+let n: name<Car> = name.create(true, a);
 
-let h = b(n, true, "thing", 2);
+// let h = b(n, true, "thing", 2);

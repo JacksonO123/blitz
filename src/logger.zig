@@ -224,5 +224,6 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ErrorPayloadMayNotBeError => "error payload may not be error",
         AstError.ExpectedNameForFunction => "expected name for function",
         AstError.UnexpectedGeneric => "unexpected generic",
+        AstError.MutablePrimitiveType => "mutable primitive type",
     };
 }

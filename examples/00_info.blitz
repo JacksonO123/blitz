@@ -3,10 +3,7 @@
 // context
 
 // depending on the compiler type, certain features may be enabled
-// or disabled
-// interpreter disabled features: pointers
-// the compiler will automatically handle references for you in an
-// efficient way, use pointers when you feel like it i guess
+// or disabled, or not, it all depends
 
 // misc features
 
@@ -16,3 +13,11 @@
 {
   // some code in a new scope
 }
+
+//
+// HOW TO READ EXAMPLES
+// 
+// examples are listed by numbers 01, 02, ... depending on their "complexity"
+// files names things like "variables" may contain logic that depends on knowing
+// something about structs or things from other files
+// **some jumping around will be necessary**

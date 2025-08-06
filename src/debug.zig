@@ -25,8 +25,8 @@ pub fn printStructAndErrorNames(names: blitzAst.HoistedNames) void {
 }
 
 pub fn printTypeInfo(compInfo: *CompInfo, info: blitzAst.AstTypeInfo) void {
-    if (info.isConst) {
-        print("const ", .{});
+    if (!info.isConst) {
+        print("mut ", .{});
     }
     printType(compInfo, info.astType);
 }
