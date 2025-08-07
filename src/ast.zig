@@ -459,7 +459,7 @@ pub const AstError = error{
     ExpectedTypeExpression,
     ErrorPayloadMayNotBeError,
     UnexpectedGeneric,
-    MutablePrimitiveType,
+    UnexpectedMutSpecifierOnGeneric,
 };
 
 const RegisterStructsAndErrorsResult = struct {
@@ -1759,6 +1759,10 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
                 .size = size,
             },
         };
+    }
+
+    if (astType == .Generic and !isConst) {
+        return AstError.UnexpectedMutSpecifierOnGeneric;
     }
 
     return try utils.astTypesToInfo(allocator, astType, isConst);

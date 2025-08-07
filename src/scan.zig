@@ -736,15 +736,15 @@ pub fn scanNode(
                 return ScanError.FunctionCallParamCountMismatch;
             }
 
-            for (func.params, paramTypes) |param, paramType| {
+            for (func.params, paramTypes) |decParam, callParamType| {
                 var isGeneric = false;
 
-                switch (param.type.astType.*) {
+                switch (decParam.type.astType.*) {
                     .Generic => |generic| {
-                        const typePtr = try clone.cloneAstTypeInfo(allocator, compInfo, paramType, withGenDef);
+                        const typePtr = try clone.cloneAstTypeInfo(allocator, compInfo, callParamType, withGenDef);
 
                         if (try compInfo.getGeneric(generic)) |gen| {
-                            if (!(try matchTypes(allocator, compInfo, paramType, gen, false))) {
+                            if (!(try matchTypes(allocator, compInfo, callParamType, gen, false))) {
                                 return ScanError.GenericRestrictionConflict;
                             }
                         }
@@ -753,20 +753,24 @@ pub fn scanNode(
                         isGeneric = true;
                     },
                     .Custom => |custom| {
-                        try matchParamGenericTypes(allocator, compInfo, custom, paramType.astType);
+                        try matchParamGenericTypes(allocator, compInfo, custom, callParamType.astType);
                     },
                     else => {},
                 }
 
-                if (!try matchTypes(allocator, compInfo, param.type, paramType, false)) {
+                if (!try matchTypes(allocator, compInfo, decParam.type, callParamType, false)) {
                     return ScanError.FunctionCallParamTypeMismatch;
                 }
 
-                if (!isPrimitive(paramType.astType) and paramType.isConst and !param.type.isConst) {
+                if (!isPrimitive(callParamType.astType) and
+                    callParamType.isConst and
+                    !decParam.type.isConst and
+                    !isAnyType(decParam.type.astType))
+                {
                     return ScanError.ExpectedMutableParameter;
                 }
 
-                free.freeAstTypeInfo(allocator, paramType);
+                free.freeAstTypeInfo(allocator, callParamType);
             }
 
             try compInfo.pushScope(false);
