@@ -302,15 +302,15 @@ const PropertyAccess = struct {
     property: []u8,
 };
 
-pub const OpExprTypes = enum {
-    BitAnd,
-    BitOr,
-    And,
-    Or,
-    Add,
-    Sub,
-    Mult,
-    Div,
+pub const OpExprTypes = enum(u8) {
+    BitAnd = 0,
+    BitOr = 1,
+    And = 2,
+    Or = 3,
+    Mult = 4,
+    Div = 5,
+    Add = 6,
+    Sub = 7,
     LessThan,
     GreaterThan,
     LessThanEq,
@@ -493,17 +493,6 @@ pub const Ast = struct {
     pub fn deinit(self: *Self) void {
         free.freeNode(self.allocator, self.root);
     }
-};
-
-const opPrecedence = [_]OpExprTypes{
-    .BitAnd,
-    .BitOr,
-    .And,
-    .Or,
-    .Mult,
-    .Div,
-    .Add,
-    .Sub,
 };
 
 pub fn createAst(allocator: Allocator, compInfo: *CompInfo) !Ast {
@@ -1540,14 +1529,6 @@ fn parseFuncCallParams(allocator: Allocator, compInfo: *CompInfo) ![]*AstNode {
     return params.toOwnedSlice();
 }
 
-fn getOpPrecedence(op: OpExprTypes) usize {
-    for (opPrecedence, 0..) |exprOp, index| {
-        if (op == exprOp) return index;
-    }
-
-    unreachable;
-}
-
 fn rotatePrecedence(rootExprNode: *AstNode) ?*AstNode {
     if (rootExprNode.* != .OpExpr) return null;
     const rootExpr = rootExprNode.OpExpr;
@@ -1555,7 +1536,7 @@ fn rotatePrecedence(rootExprNode: *AstNode) ?*AstNode {
     const rightNode = rootExpr.right;
     const rightExpr = rightNode.OpExpr;
 
-    if (getOpPrecedence(rootExpr.type) < getOpPrecedence(rightExpr.type)) {
+    if (@intFromEnum(rootExpr.type) < @intFromEnum(rightExpr.type)) {
         const childLeft = rightExpr.left;
         rootExprNode.OpExpr.right = childLeft;
         rightNode.OpExpr.left = rootExprNode;
