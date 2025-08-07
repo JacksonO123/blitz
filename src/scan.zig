@@ -1141,13 +1141,16 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitz
     return try clone.cloneAstTypeInfo(allocator, compInfo, func.returnType, withGenDef);
 }
 
-fn validateSelfProps(allocator: Allocator, compInfo: *CompInfo, name: []u8, prop: []u8) !?blitzAst.AstTypeInfo {
+fn validateSelfProps(allocator: Allocator, compInfo: *CompInfo, name: []u8, prop: []u8, inOwnedMethod: bool) !?blitzAst.AstTypeInfo {
     const structDec = compInfo.getStructDec(name);
 
     if (structDec) |dec| {
         for (dec.attributes) |attr| {
-            if ((attr.visibility == .Public or attr.visibility == .Protected) and string.compString(attr.name, prop)) {
-                return try clone.cloneStructAttributeUnionType(allocator, compInfo, attr.attr, false);
+            const nameMatches = string.compString(attr.name, prop);
+            if (nameMatches) {
+                if (attr.visibility == .Public or attr.visibility == .Protected or inOwnedMethod) {
+                    return try clone.cloneStructAttributeUnionType(allocator, compInfo, attr.attr, false);
+                }
             }
         }
 
@@ -1158,7 +1161,7 @@ fn validateSelfProps(allocator: Allocator, compInfo: *CompInfo, name: []u8, prop
                 else => unreachable,
             };
 
-            return validateSelfProps(allocator, compInfo, deriveName, prop);
+            return validateSelfProps(allocator, compInfo, deriveName, prop, false);
         }
 
         return null;
@@ -1172,7 +1175,7 @@ fn validateStaticStructProps(allocator: Allocator, compInfo: *CompInfo, name: []
         const currentStruct = compInfo.getCurrentStruct();
 
         if (currentStruct) |current| {
-            return validateSelfProps(allocator, compInfo, current, prop);
+            return validateSelfProps(allocator, compInfo, current, prop, true);
         } else {
             return ScanError.SelfUsedOutsideStruct;
         }
