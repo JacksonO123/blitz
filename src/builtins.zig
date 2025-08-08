@@ -16,8 +16,8 @@ const create = utils.create;
 pub const BuiltinFuncMemo = struct {};
 
 const PropTypeMap = struct {
-    prop: *const []u8,
-    type: blitzAst.AstTypes,
+    prop: []const u8,
+    type: blitzAst.AstTypeInfo,
 };
 
 fn toNumSig(allocator: Allocator, num: blitzAst.AstNumberVariants) !*const blitzAst.AstTypes {
@@ -86,19 +86,6 @@ const PropInfo = struct {
     isFunc: bool,
 };
 
-pub fn validateArraySliceProps(str: []u8) bool {
-    return validateProps(.{"len"}, str);
-}
-
-pub fn validateStringProps(str: []u8) bool {
-    return validateProps(.{
-        "len",
-        "concat",
-        "indexOf",
-        "lastIndexOf",
-    }, str);
-}
-
 fn getPropSignature(allocator: Allocator, props: []const PropInfo, prop: []u8) !*const blitzAst.AstTypes {
     var res: ?*const blitzAst.AstTypes = null;
 
@@ -119,41 +106,37 @@ fn getPropSignature(allocator: Allocator, props: []const PropInfo, prop: []u8) !
     return ScanError.InvalidProperty;
 }
 
-fn validateProps(comptime props: anytype, prop: []u8) bool {
-    inline for (props) |p| {
-        if (string.compString(p, prop)) return true;
-    }
-
-    return false;
-}
-
-pub fn getStringPropTypes(prop: []u8) !blitzAst.AstTypes {
-    const props = .{"len"};
-    const types = &[_]blitzAst.AstTypes{
+pub fn getStringPropType(allocator: Allocator, prop: []u8) !blitzAst.AstTypeInfo {
+    const props = &[_]PropTypeMap{
         .{
-            .Number = blitzAst.AstNumberVariants.USize,
+            .prop = "len",
+            .type = .{
+                .astType = try toNumSig(allocator, .USize),
+                .isConst = true,
+            },
         },
     };
 
-    const index = try getPropType(props, prop);
-    return types[index];
+    return try getPropType(props, prop);
 }
 
-pub fn getArraySlicePropTypes(prop: []u8) !blitzAst.AstTypes {
-    const props = .{"len"};
-    const types = &[_]blitzAst.AstTypes{
+pub fn getArraySlicePropType(allocator: Allocator, prop: []u8) !blitzAst.AstTypeInfo {
+    const props = &[_]PropTypeMap{
         .{
-            .Number = blitzAst.AstNumberVariants.USize,
+            .prop = "len",
+            .type = .{
+                .astType = try toNumSig(allocator, .USize),
+                .isConst = true,
+            },
         },
     };
 
-    const index = try getPropType(props, prop);
-    return types[index];
+    return try getPropType(props, prop);
 }
 
-fn getPropType(comptime props: anytype, prop: []u8) !usize {
-    inline for (props, 0..) |item, index| {
-        if (string.compString(item, prop)) return index;
+fn getPropType(props: []const PropTypeMap, prop: []u8) !blitzAst.AstTypeInfo {
+    for (props) |item| {
+        if (string.compString(item.prop, prop)) return item.type;
     }
 
     return ScanError.InvalidProperty;

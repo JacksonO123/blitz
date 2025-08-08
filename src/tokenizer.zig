@@ -438,7 +438,10 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
         '[' => return Token.init(.LBracket),
         ']' => return Token.init(.RBracket),
         '(' => return Token.init(.LParen),
-        ')' => return Token.init(.RParen),
+        ')' => {
+            chars.allowPeriod = true;
+            return Token.init(.RParen);
+        },
         ':' => return Token.init(.Colon),
         ',' => return Token.init(.Comma),
         '<' => {
@@ -542,6 +545,8 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
                 }
                 next = try chars.take();
             }
+
+            chars.allowPeriod = true;
 
             return Token.initStr(.StringToken, try charStr.toOwnedSlice());
         },

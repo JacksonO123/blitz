@@ -665,8 +665,8 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
                 },
                 .Period => {
                     compInfo.tokens.returnToken();
-                    compInfo.tokens.returnToken();
-                    return parsePropertyAccess(allocator, compInfo);
+                    const identNode = try getIdentNode(allocator, compInfo, first.string.?);
+                    return parsePropertyAccess(allocator, compInfo, identNode);
                 },
                 else => return try createMut(AstNode, allocator, .{
                     .Variable = try string.cloneString(allocator, first.string.?),
@@ -1011,11 +1011,20 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
         }),
         .StringToken => {
             const str = first.string.?;
-            return try createMut(AstNode, allocator, .{
+            const next = try compInfo.tokens.peak();
+
+            const strNode = try createMut(AstNode, allocator, .{
                 .Value = .{
                     .String = try string.cloneString(allocator, str),
                 },
             });
+
+            if (next.type == .Period) {
+                const propAccess = try parsePropertyAccess(allocator, compInfo, strNode);
+                return propAccess;
+            }
+
+            return strNode;
         },
         .CharToken => return try createMut(AstNode, allocator, .{
             .Value = .{
@@ -1053,8 +1062,8 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
                     return try parseFuncCall(allocator, compInfo, first.string.?);
                 },
                 .Period => {
-                    compInfo.tokens.returnToken();
-                    return try parsePropertyAccess(allocator, compInfo);
+                    const identNode = try getIdentNode(allocator, compInfo, first.string.?);
+                    return try parsePropertyAccess(allocator, compInfo, identNode);
                 },
                 .LBrace, .LAngle => {
                     if (compInfo.hasStruct(first.string.?)) {
@@ -1269,17 +1278,7 @@ fn parseStructInitGenerics(allocator: Allocator, compInfo: *CompInfo) ![]AstType
     return generics.toOwnedSlice();
 }
 
-fn parsePropertyAccess(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
-    const first = try compInfo.tokens.take();
-    if (first.type != .Identifier) {
-        return AstError.ExpectedIdentifierForPropertyAccess;
-    }
-
-    const source = try getIdentNode(allocator, compInfo, first.string.?);
-    return try parsePropertyAccessUtil(allocator, compInfo, source);
-}
-
-fn parsePropertyAccessUtil(allocator: Allocator, compInfo: *CompInfo, node: *AstNode) !*AstNode {
+fn parsePropertyAccess(allocator: Allocator, compInfo: *CompInfo, node: *AstNode) !*AstNode {
     try compInfo.tokens.expectToken(.Period);
 
     const ident = try compInfo.tokens.take();
@@ -1341,7 +1340,7 @@ fn parsePropertyAccessUtil(allocator: Allocator, compInfo: *CompInfo, node: *Ast
 
     const temp = try compInfo.tokens.peak();
     if (temp.type == .Period) {
-        return parsePropertyAccessUtil(allocator, compInfo, access);
+        return parsePropertyAccess(allocator, compInfo, access);
     }
 
     return access;

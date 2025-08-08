@@ -57,6 +57,7 @@ pub const ScanError = error{
     VariableTypeAndValueTypeMismatch,
     AssigningToConstVariable,
     NonPrimitiveTypeConstMismatch,
+    StrictMutTypeMismatch,
 
     // functions
     ExpectedFunctionReturn,
@@ -277,10 +278,6 @@ pub fn scanNode(
                         }
                     }
 
-                    if (@intFromEnum(left.astType.Number) != @intFromEnum(right.astType.Number)) {
-                        return ScanError.NumberTypeMismatch;
-                    }
-
                     if (op.type == .Div) {
                         if (switch (left.astType.Number) {
                             .F32, .F64, .F128 => true,
@@ -371,8 +368,8 @@ pub fn scanNode(
 
             const valid: bool = switch (valueInfo.astType.*) {
                 .Generic => return try utils.astTypesToInfo(allocator, .Any, valueInfo.isConst),
-                .ArraySlice => builtins.validateArraySliceProps(access.property),
-                .String => builtins.validateStringProps(access.property),
+                .ArraySlice => return try builtins.getArraySlicePropType(allocator, access.property),
+                .String => return try builtins.getStringPropType(allocator, access.property),
                 .Custom => |custom| a: {
                     const def = compInfo.getStructDec(custom.name);
                     if (def == null) break :a false;
@@ -454,7 +451,6 @@ pub fn scanNode(
 
             if (!valid) return ScanError.InvalidProperty;
 
-            // TODO - update with builtin prop types (array.length, array.push, etc)
             return try utils.astTypesToInfo(allocator, .Void, true);
         },
         .Seq => |seq| {
@@ -1375,11 +1371,21 @@ pub fn matchTypesUtil(
         .Void => type2 == .Void,
         .Null => type2 == .Nullable or type2 == .Null,
         .Nullable => |inner| type2 == .Null or try matchTypes(allocator, compInfo, inner, fromType, withGenDef),
-        .Number => |num| type2 == .Number and @intFromEnum(num) == @intFromEnum(type2.Number),
+        .Number => |num| {
+            if (type2 != .Number) {
+                return false;
+            }
+
+            if (compInfo.settings.strictNumbers) {
+                return @intFromEnum(num) == @intFromEnum(type2.Number);
+            }
+
+            return true;
+        },
         .ArraySlice => |arr| {
             const array: blitzAst.AstArraySliceType = switch (type2) {
                 .ArraySlice => |arraySlice| arraySlice,
-                else => return try matchMutState(toType, fromType, false, mutMatchBehavior),
+                else => return false,
             };
 
             if (arr.size != null and array.size != null) {
@@ -1389,7 +1395,7 @@ pub fn matchTypesUtil(
                 defer free.freeAstTypeInfo(allocator, sizeType2);
 
                 if (!isInt(sizeType1.astType) or !isInt(sizeType2.astType)) {
-                    return try matchMutState(toType, fromType, false, mutMatchBehavior);
+                    return false;
                 }
             }
 
@@ -1405,9 +1411,9 @@ pub fn matchTypesUtil(
                 return try matchMutState(toType, fromType, true, mutMatchBehavior);
             }
 
-            if (type2 != .Custom) return try matchMutState(toType, fromType, false, mutMatchBehavior);
-            if (!string.compString(type1.Custom.name, type2.Custom.name)) return try matchMutState(toType, fromType, false, mutMatchBehavior);
-            if (custom.generics.len != type2.Custom.generics.len) return try matchMutState(toType, fromType, false, mutMatchBehavior);
+            if (type2 != .Custom) return false;
+            if (!string.compString(type1.Custom.name, type2.Custom.name)) return false;
+            if (custom.generics.len != type2.Custom.generics.len) return false;
 
             for (custom.generics, type2.Custom.generics) |gen1, gen2| {
                 const genMatch = try matchTypes(allocator, compInfo, gen1, gen2, withGenDef);
@@ -1425,7 +1431,7 @@ pub fn matchTypesUtil(
                     return try matchMutState(toType, fromType, matches, mutMatchBehavior);
                 }
 
-                return try matchMutState(toType, fromType, false, mutMatchBehavior);
+                return false;
             },
         },
         .ErrorVariant => |err| switch (type2) {
@@ -1438,9 +1444,9 @@ pub fn matchTypesUtil(
                 return try matchMutState(toType, fromType, true, mutMatchBehavior);
             }
 
-            return try matchMutState(toType, fromType, false, mutMatchBehavior);
+            return false;
         },
-        else => try matchMutState(toType, fromType, false, mutMatchBehavior),
+        else => false,
     };
 }
 
@@ -1450,6 +1456,10 @@ fn matchMutState(
     typesMatched: bool,
     mutMatchBehavior: MutMatchBehavior,
 ) !bool {
+    if (!typesMatched) {
+        return false;
+    }
+
     switch (mutMatchBehavior) {
         .Assign => {
             const primitive = isPrimitive(toType.astType);
@@ -1459,12 +1469,12 @@ fn matchMutState(
         },
         .Strict => {
             if (toType.isConst != fromType.isConst) {
-                return ScanError.NonPrimitiveTypeConstMismatch;
+                return ScanError.StrictMutTypeMismatch;
             }
         },
     }
 
-    return typesMatched;
+    return true;
 }
 
 pub fn isPrimitive(astType: *const blitzAst.AstTypes) bool {

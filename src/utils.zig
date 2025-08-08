@@ -7,6 +7,7 @@ const free = blitz.free;
 const scanner = blitz.scanner;
 const clone = blitz.clone;
 const builtins = blitz.builtins;
+const settings = blitz.settings;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
@@ -99,6 +100,7 @@ pub const CompInfo = struct {
     },
     returnInfo: *ReturnInfo,
     builtins: builtins.BuiltinFuncMemo,
+    settings: settings.Settings,
 
     pub fn init(allocator: Allocator, tokens: []tokenizer.Token, names: blitzAst.HoistedNames, code: []const u8) !Self {
         const loggerUtil = try allocator.create(Logger);
@@ -147,6 +149,7 @@ pub const CompInfo = struct {
             },
             .returnInfo = returnInfo,
             .builtins = .{},
+            .settings = settings.getDefaultSettings(),
         };
     }
 
