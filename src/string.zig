@@ -21,14 +21,13 @@ pub inline fn compString(str1: []const u8, str2: []const u8) bool {
 }
 
 pub fn cloneStringArray(allocator: Allocator, arr: [][]u8) ![][]u8 {
-    var newStrs = try ArrayList([]u8).initCapacity(allocator, arr.len);
-    defer newStrs.deinit();
+    const outArr: [][]u8 = try allocator.alloc([]u8, arr.len);
 
-    for (arr) |str| {
-        try newStrs.append(try cloneString(allocator, str));
+    for (arr, 0..) |str, index| {
+        outArr[index] = try cloneString(allocator, str);
     }
 
-    return newStrs.toOwnedSlice();
+    return outArr;
 }
 
 pub fn inStringArr(arr: []const []const u8, str: []const u8) bool {

@@ -9,3 +9,11 @@ pub fn getDefaultSettings() Settings {
         .strictNumbers = true,
     };
 }
+
+pub const CodeGenSettings = struct {
+    DebugOut: bool,
+};
+
+pub var codeGenSettings = CodeGenSettings{
+    .DebugOut = false,
+};

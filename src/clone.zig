@@ -8,6 +8,7 @@ const create = utils.create;
 const createMut = utils.createMut;
 const CompInfo = utils.CompInfo;
 const StringHashMap = std.StringHashMap;
+const ArrayList = std.ArrayList;
 
 // DEBUG
 const debug = @import("debug.zig");
@@ -121,6 +122,7 @@ pub fn cloneAstTypeInfo(allocator: Allocator, compInfo: *CompInfo, info: blitzAs
                 return cloneAstTypeInfo(allocator, compInfo, gType, replaceGenerics);
             }
 
+            std.debug.print("not found :: {s}\n", .{generic});
             return CloneError.GenericNotFound;
         }
 
@@ -551,11 +553,19 @@ pub fn cloneFuncDec(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.Fu
         capturedTypes = try cloneGenericScope(allocator, captured);
     }
 
-    const list = try dec.scannedGenTypes.clone();
+    var capturedFuncs: ?*utils.StringListScope = null;
+    if (dec.capturedFuncs) |captured| {
+        const capturedFuncNames = try string.cloneStringArray(allocator, captured.items);
+        const tempList = try ArrayList([]u8).initCapacity(allocator, captured.items.len);
+        capturedFuncs = try createMut(ArrayList([]u8), allocator, tempList);
+        capturedFuncs.?.appendSliceAssumeCapacity(capturedFuncNames);
+    }
+
+    const list = try dec.toScanTypes.clone();
     for (list.items) |*item| {
         item.* = try cloneGenToInfoRels(allocator, compInfo, item.*, replaceGenerics);
     }
-    const listPtr = try createMut(blitzAst.ScannedGenTypesList, allocator, list);
+    const listPtr = try createMut(blitzAst.ToScanTypesList, allocator, list);
 
     return try createMut(blitzAst.FuncDecNode, allocator, .{
         .body = bodyPtr,
@@ -566,9 +576,10 @@ pub fn cloneFuncDec(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.Fu
         .returnType = returnType,
         .capturedValues = capturedValues,
         .capturedTypes = capturedTypes,
-        .scannedGenTypes = listPtr,
+        .capturedFuncs = capturedFuncs,
+        .toScanTypes = listPtr,
         .builtin = dec.builtin,
-        .scanned = false,
+        .visited = false,
     });
 }
 

@@ -38,6 +38,7 @@ pub const AstNumberVariants = enum {
     I32,
     I64,
     I128,
+    ISize,
     F32,
     F64,
     F128,
@@ -57,6 +58,7 @@ pub const AstNumber = union(AstNumberVariants) {
     I32: i32,
     I64: i64,
     I128: i128,
+    ISize: isize,
     F32: f32,
     F64: f64,
     F128: f128,
@@ -74,6 +76,7 @@ pub const AstNumber = union(AstNumberVariants) {
             .I32 => "i32",
             .I64 => "i64",
             .I128 => "i128",
+            .ISize => "isize",
             .F32 => "f32",
             .F64 => "f64",
             .F128 => "f128",
@@ -93,6 +96,7 @@ pub const AstNumber = union(AstNumberVariants) {
             .I32 => .I32,
             .I64 => .I64,
             .I128 => .I128,
+            .ISize => .ISize,
             .F32 => .F32,
             .F64 => .F64,
             .F128 => .F128,
@@ -276,7 +280,7 @@ pub const GenToTypeInfoRel = struct {
     info: AstTypeInfo,
 };
 
-pub const ScannedGenTypesList = ArrayList([]GenToTypeInfoRel);
+pub const ToScanTypesList = ArrayList([]GenToTypeInfoRel);
 
 pub const FuncDecNode = struct {
     name: []u8,
@@ -287,9 +291,10 @@ pub const FuncDecNode = struct {
     returnType: AstTypeInfo,
     capturedValues: ?*utils.CaptureScope,
     capturedTypes: ?*utils.TypeScope,
-    scannedGenTypes: *ScannedGenTypesList,
+    capturedFuncs: ?*utils.StringListScope,
+    toScanTypes: *ToScanTypesList,
     builtin: bool,
-    scanned: bool,
+    visited: bool,
 };
 
 const FuncCallNode = struct {
@@ -1049,9 +1054,16 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
 
             try compInfo.tokens.expectToken(.RParen);
 
-            return try createMut(AstNode, allocator, .{
+            const groupNode = try createMut(AstNode, allocator, .{
                 .Group = expr.?,
             });
+
+            const next = try compInfo.tokens.peak();
+            if (next.type == .Period) {
+                return try parsePropertyAccess(allocator, compInfo, groupNode);
+            }
+
+            return groupNode;
         },
         .Identifier => {
             const next = try compInfo.tokens.peak();
@@ -1413,9 +1425,10 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo, structFn: bool) !*Fun
         .returnType = returnType,
         .capturedValues = null,
         .capturedTypes = null,
-        .scannedGenTypes = try utils.initMutPtrT(ScannedGenTypesList, allocator),
+        .capturedFuncs = null,
+        .toScanTypes = try utils.initMutPtrT(ToScanTypesList, allocator),
         .builtin = false,
-        .scanned = false,
+        .visited = false,
     });
 }
 

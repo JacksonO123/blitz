@@ -17,6 +17,7 @@ const debug = @import("debug.zig");
 const printNode = debug.printNode;
 const printType = debug.printType;
 const printGenerics = debug.printGenerics;
+const printTypeInfo = debug.printTypeInfo;
 
 pub const RetNodeInfo = struct {
     node: blitzAst.AstNode,
@@ -119,6 +120,8 @@ pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !v
     try scanNodeForFunctions(allocator, compInfo, ast.root);
     const nodeType = try scanNode(allocator, compInfo, ast.root, true);
     free.freeAstTypeInfo(allocator, nodeType);
+
+    try scanFunctionCalls(allocator, compInfo);
 }
 
 pub fn scanNodes(
@@ -154,14 +157,13 @@ pub fn scanNode(
         .Cast => |cast| {
             const clonedCastType = try clone.cloneAstTypeInfo(allocator, compInfo, cast.toType, withGenDef);
             if (cast.node.* == .Value and cast.node.*.Value == .RawNumber) {
-                // TODO add some restrictions for sign
                 return clonedCastType;
             }
 
             const nodeType = try scanNode(allocator, compInfo, cast.node, withGenDef);
             defer free.freeAstTypeInfo(allocator, nodeType);
 
-            if (isPrimitive(nodeType.astType) and isPrimitive(cast.toType.astType)) {
+            if (isAnyType(nodeType.astType) or isPrimitive(nodeType.astType) and isPrimitive(cast.toType.astType)) {
                 return clonedCastType;
             }
 
@@ -326,7 +328,8 @@ pub fn scanNode(
             const valType = try scanNode(allocator, compInfo, ret, withGenDef);
 
             if (compInfo.returnInfo.info.retType) |retType| {
-                if (!(try matchTypes(allocator, compInfo, retType, valType, withGenDef))) {
+                const matches = try matchTypes(allocator, compInfo, retType, valType, withGenDef);
+                if (!matches) {
                     return ScanError.FunctionReturnsHaveDifferentTypes;
                 }
                 free.freeAstTypeInfo(allocator, valType);
@@ -477,19 +480,17 @@ pub fn scanNode(
                     return ScanError.NonPrimitiveTypeConstMismatch;
                 }
 
-                if (try matchTypes(allocator, compInfo, annotation, setType, false)) {
-                    free.freeAstTypeInfo(allocator, setType);
-                    var annotationClone = try clone.cloneAstTypeInfo(allocator, compInfo, annotation, withGenDef);
-                    annotationClone.isConst = dec.isConst;
-                    try compInfo.setVariableType(dec.name, annotationClone);
-                } else {
+                const matches = try matchTypes(allocator, compInfo, annotation, setType, false);
+                if (!matches) {
                     return ScanError.VariableAnnotationMismatch;
                 }
-            } else {
-                setType.isConst = dec.isConst;
-                try compInfo.setVariableType(dec.name, setType);
+
+                free.freeAstTypeInfo(allocator, setType);
+                setType = try clone.cloneAstTypeInfo(allocator, compInfo, annotation, withGenDef);
             }
 
+            setType.isConst = dec.isConst;
+            try compInfo.setVariableType(dec.name, setType);
             return try utils.astTypesToInfo(allocator, .Void, true);
         },
         .ValueSet => |set| {
@@ -553,14 +554,14 @@ pub fn scanNode(
 
             return try utils.astTypesToInfo(allocator, .Void, true);
         },
-        .Variable => |v| {
-            if (compInfo.isInStructMethod() and string.compString(v, "self")) {
+        .Variable => |name| {
+            if (compInfo.isInStructMethod() and string.compString(name, "self")) {
                 return try utils.astTypesToInfo(allocator, .{
-                    .StaticStructInstance = try string.cloneString(allocator, v),
+                    .StaticStructInstance = try string.cloneString(allocator, name),
                 }, true);
             }
 
-            const varType = try compInfo.getVariableType(v, withGenDef);
+            const varType = try compInfo.getVariableType(name, withGenDef);
 
             if (varType) |t| {
                 return try clone.cloneAstTypeInfo(allocator, compInfo, t, withGenDef);
@@ -678,18 +679,16 @@ pub fn scanNode(
 
             const func = compInfo.getFunctionAsGlobal(name).?;
 
-            if (func.scanned) {
+            if (func.visited) {
                 return try utils.astTypesToInfo(allocator, .Void, true);
             }
 
             if (func.generics == null) {
-                func.scanned = true;
+                func.visited = true;
             }
 
-            const scanRes = try scanFuncBodyAndReturn(allocator, compInfo, func, false);
-            free.freeAstTypeInfo(allocator, scanRes);
+            try scanFuncBodyAndReturn(allocator, compInfo, func, false);
 
-            // TODO - replace with function type for anonymous functions sorta thing
             return try utils.astTypesToInfo(allocator, .Void, true);
         },
         .FuncCall => |call| {
@@ -732,82 +731,19 @@ pub fn scanNode(
                 return ScanError.FunctionCallParamCountMismatch;
             }
 
-            for (func.params, paramTypes) |decParam, callParamType| {
-                var isGeneric = false;
+            _ = try setGenTypesFromParams(allocator, compInfo, func, paramTypes, withGenDef);
 
-                switch (decParam.type.astType.*) {
-                    .Generic => |generic| {
-                        const typePtr = try clone.cloneAstTypeInfo(allocator, compInfo, callParamType, withGenDef);
-
-                        if (try compInfo.getGeneric(generic)) |gen| {
-                            if (!(try matchTypes(allocator, compInfo, callParamType, gen, false))) {
-                                return ScanError.GenericRestrictionConflict;
-                            }
-                        }
-
-                        try compInfo.setGeneric(generic, typePtr);
-                        isGeneric = true;
-                    },
-                    .Custom => |custom| {
-                        try matchParamGenericTypes(allocator, compInfo, custom, callParamType.astType);
-                    },
-                    else => {},
-                }
-
-                if (!try matchTypes(allocator, compInfo, decParam.type, callParamType, false)) {
-                    return ScanError.FunctionCallParamTypeMismatch;
-                }
-
-                if (!isPrimitive(callParamType.astType) and
-                    callParamType.isConst and
-                    !decParam.type.isConst and
-                    !isAnyType(decParam.type.astType))
-                {
-                    return ScanError.ExpectedMutableParameter;
-                }
-
-                free.freeAstTypeInfo(allocator, callParamType);
-            }
-
-            try compInfo.pushScope(false);
-            defer compInfo.popScope();
-
-            if (func.builtin or func.scanned) {
-                return try clone.cloneAstTypeInfo(allocator, compInfo, func.returnType, withGenDef);
-            } else if (func.generics != null) {
+            if (func.generics != null) {
                 const genScope = compInfo.genericScopes.getCurrentScope().?;
                 const scannedBefore = try fnHasScannedWithSameGenTypes(allocator, compInfo, func, genScope, withGenDef);
-                if (scannedBefore) {
-                    return try clone.cloneAstTypeInfo(allocator, compInfo, func.returnType, withGenDef);
-                }
-
-                const scopeRels = try genScopeToRels(allocator, compInfo, genScope, withGenDef);
-                try func.scannedGenTypes.append(scopeRels);
-            }
-
-            if (call.func.* == .FuncReference) {
-                const name = call.func.FuncReference;
-                try compInfo.addScopedFunction(try string.cloneString(allocator, name));
-            }
-
-            if (func.capturedValues) |captured| {
-                var captureIt = captured.iterator();
-                while (captureIt.next()) |item| {
-                    var clonedType = try clone.cloneAstTypeInfo(allocator, compInfo, item.value_ptr.*, withGenDef);
-                    clonedType.isConst = true;
-                    try compInfo.setVariableType(item.key_ptr.*, clonedType);
+                if (!scannedBefore) {
+                    const scopeRels = try genScopeToRels(allocator, compInfo, genScope, withGenDef);
+                    try func.toScanTypes.append(scopeRels);
+                    try compInfo.addFuncToScan(func, scopeRels, withGenDef);
                 }
             }
 
-            if (func.capturedTypes) |captured| {
-                var captureIt = captured.iterator();
-                while (captureIt.next()) |item| {
-                    const clonedType = try clone.cloneAstTypeInfo(allocator, compInfo, item.value_ptr.*, withGenDef);
-                    try compInfo.setGeneric(item.key_ptr.*, clonedType);
-                }
-            }
-
-            return try scanFuncBodyAndReturn(allocator, compInfo, func, withGenDef);
+            return try clone.cloneAstTypeInfo(allocator, compInfo, func.returnType, withGenDef);
         },
         .StructInit => |init| {
             try compInfo.pushGenScope(true);
@@ -899,6 +835,135 @@ pub fn scanNode(
     }
 }
 
+fn scanFunctionCalls(allocator: Allocator, compInfo: *CompInfo) !void {
+    try compInfo.pushScope(false);
+    defer compInfo.popScope();
+    _ = compInfo.returnInfo.setInFunction(true);
+    defer compInfo.returnInfo.revertInFunction(false);
+
+    const functions = compInfo.functionsToScan;
+    while (functions.items.len > 0) {
+        const toScanItem = functions.pop().?;
+        const func = toScanItem.func;
+
+        std.debug.print("scanning :: {s}\n", .{func.name});
+
+        try compInfo.pushGenScope(false);
+        defer compInfo.popGenScope();
+        try compInfo.pushScope(false);
+        defer compInfo.popScope();
+
+        const lastRetInfo = try compInfo.returnInfo.newInfo(true);
+        defer compInfo.returnInfo.swapFree(lastRetInfo);
+
+        if (func.capturedTypes) |captured| {
+            var captureIt = captured.iterator();
+            while (captureIt.next()) |item| {
+                const clonedType = try clone.cloneAstTypeInfo(allocator, compInfo, item.value_ptr.*, toScanItem.withGenDef);
+                std.debug.print("captured type :: {s}\n", .{item.key_ptr.*});
+                printTypeInfo(compInfo, clonedType);
+                std.debug.print("\n", .{});
+                try compInfo.setGeneric(item.key_ptr.*, clonedType);
+            }
+        }
+
+        if (func.capturedFuncs) |captured| {
+            for (captured.items) |item| {
+                try compInfo.addScopedFunction(try string.cloneString(allocator, item));
+            }
+        }
+
+        if (func.capturedValues) |captured| {
+            var captureIt = captured.iterator();
+            while (captureIt.next()) |item| {
+                const clonedType = try clone.cloneAstTypeInfo(allocator, compInfo, item.value_ptr.*, false);
+                try compInfo.setVariableType(item.key_ptr.*, clonedType);
+            }
+        }
+
+        for (toScanItem.genTypes) |rel| {
+            const typeClone = try clone.cloneAstTypeInfo(allocator, compInfo, rel.info, false);
+            try compInfo.setGeneric(rel.gen, typeClone);
+        }
+
+        try scanFuncBodyAndReturn(allocator, compInfo, func, toScanItem.withGenDef);
+    }
+}
+
+fn setGenTypesFromParams(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+    func: *blitzAst.FuncDecNode,
+    paramTypes: []blitzAst.AstTypeInfo,
+    withGenDef: bool,
+) !bool {
+    var includesGenerics = false;
+
+    for (func.params, paramTypes) |decParam, callParamType| {
+        var isGeneric = false;
+
+        switch (decParam.type.astType.*) {
+            .Generic => |generic| {
+                const typePtr = try clone.cloneAstTypeInfo(allocator, compInfo, callParamType, withGenDef);
+
+                const currentGenScope = compInfo.genericScopes.getCurrentScope();
+                if (currentGenScope) |scope| {
+                    if (scope.get(generic)) |genType| {
+                        const matches = try matchTypes(allocator, compInfo, callParamType, genType, false);
+                        if (!matches) {
+                            return ScanError.GenericRestrictionConflict;
+                        }
+                    }
+                }
+
+                try compInfo.setGeneric(generic, typePtr);
+                isGeneric = true;
+            },
+            .Custom => |custom| {
+                isGeneric = try matchParamGenericTypes(allocator, compInfo, custom, callParamType.astType);
+            },
+            else => {},
+        }
+
+        if (!try matchTypes(allocator, compInfo, decParam.type, callParamType, false)) {
+            return ScanError.FunctionCallParamTypeMismatch;
+        }
+
+        if (!isPrimitive(callParamType.astType) and
+            callParamType.isConst and
+            !decParam.type.isConst and
+            !isAnyType(decParam.type.astType))
+        {
+            return ScanError.ExpectedMutableParameter;
+        }
+
+        free.freeAstTypeInfo(allocator, callParamType);
+
+        includesGenerics = includesGenerics or isGeneric;
+    }
+
+    return includesGenerics;
+}
+
+fn estimateStackSize(astType: *const blitzAst.AstTypes) u32 {
+    switch (astType.*) {
+        .Number => |num| {
+            return switch (num) {
+                .U8, .I8 => 1,
+                .U16, .I16 => 2,
+                .U32, .I32, .F32 => 4,
+                .U64, .I64, .F64 => 8,
+                .U128, .I128, .F128 => 16,
+                // TODO - probably get back to this
+                .USize, .ISize => 8,
+            };
+        },
+        else => {},
+    }
+
+    return 0;
+}
+
 fn genScopeToRels(
     allocator: Allocator,
     compInfo: *CompInfo,
@@ -927,7 +992,7 @@ fn fnHasScannedWithSameGenTypes(
     genScope: *utils.TypeScope,
     withGenDef: bool,
 ) !bool {
-    outer: for (func.scannedGenTypes.items) |scannedScope| {
+    outer: for (func.toScanTypes.items) |scannedScope| {
         for (scannedScope) |rel| {
             const genType = genScope.get(rel.gen).?;
             const matches = try matchTypesUtil(allocator, compInfo, genType, rel.info, withGenDef, .Strict);
@@ -966,7 +1031,21 @@ fn applyGenericCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scope
     func.capturedTypes = scope;
 }
 
-fn scanIfFallback(allocator: Allocator, compInfo: *CompInfo, fallback: *const blitzAst.IfFallback, withGenDef: bool) !void {
+fn applyFunctionCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scope: *utils.StringListScope) !void {
+    if (func.capturedFuncs) |captured| {
+        captured.deinit();
+        allocator.destroy(captured);
+    }
+
+    func.capturedFuncs = scope;
+}
+
+fn scanIfFallback(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+    fallback: *const blitzAst.IfFallback,
+    withGenDef: bool,
+) !void {
     const prev = try compInfo.returnInfo.newInfo(false);
 
     if (fallback.condition == null and fallback.fallback != null) {
@@ -1000,6 +1079,7 @@ fn scanIfFallback(allocator: Allocator, compInfo: *CompInfo, fallback: *const bl
 fn compareNumberBitSize(num1: blitzAst.AstNumberVariants, num2: blitzAst.AstNumberVariants) bool {
     return switch (num1) {
         .USize => num2 == .USize,
+        .ISize => num2 == .ISize,
         .U8 => num2 == .I8,
         .U16 => num2 == .I16,
         .U32 => num2 == .F32 or num2 == .I32,
@@ -1063,10 +1143,12 @@ fn matchParamGenericTypes(
     compInfo: *CompInfo,
     custom: blitzAst.CustomType,
     paramType: *const blitzAst.AstTypes,
-) !void {
+) !bool {
     switch (paramType.*) {
         .Custom => |paramCustom| {
             if (!string.compString(custom.name, paramCustom.name)) return ScanError.FunctionCallParamTypeMismatch;
+
+            var hasGeneric = false;
 
             for (custom.generics, 0..) |gen, index| {
                 const paramGen = paramCustom.generics[index];
@@ -1077,25 +1159,29 @@ fn matchParamGenericTypes(
 
                         const genType = try compInfo.getGeneric(generic);
                         if (genType) |t| {
-                            if (!(try matchTypes(allocator, compInfo, t, typeClone, true))) {
+                            const matches = try matchTypes(allocator, compInfo, t, typeClone, true);
+                            if (!matches) {
                                 return ScanError.ConflictingGenericParameters;
                             }
                         }
 
                         try compInfo.setGeneric(generic, typeClone);
+                        hasGeneric = true;
                     },
                     .Custom => |newCustom| {
-                        try matchParamGenericTypes(allocator, compInfo, newCustom, paramGen.astType);
+                        hasGeneric = try matchParamGenericTypes(allocator, compInfo, newCustom, paramGen.astType);
                     },
                     else => {},
                 }
             }
+
+            return hasGeneric;
         },
         else => return ScanError.FunctionCallParamTypeMismatch,
     }
 }
 
-fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitzAst.FuncDecNode, withGenDef: bool) !blitzAst.AstTypeInfo {
+fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitzAst.FuncDecNode, withGenDef: bool) !void {
     try compInfo.pushScope(true);
     defer compInfo.popScope();
 
@@ -1110,12 +1196,25 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitz
 
     const scope = compInfo.consumeVariableCaptures();
     if (scope) |s| {
+        std.debug.print("consume\n", .{});
+        var it = s.iterator();
+        while (it.next()) |entry| {
+            std.debug.print("- {s} :: ", .{entry.key_ptr.*});
+            printTypeInfo(compInfo, entry.value_ptr.*);
+            std.debug.print("\n", .{});
+        }
+
         try applyVariableCaptures(allocator, func, s);
     }
 
     const genScope = compInfo.consumeGenericCaptures();
     if (genScope) |s| {
         try applyGenericCaptures(allocator, func, s);
+    }
+
+    const funcScope = compInfo.consumeFunctionCaptures();
+    if (funcScope) |s| {
+        try applyFunctionCaptures(allocator, func, s);
     }
 
     if (func.returnType.astType.* != .Void) {
@@ -1133,8 +1232,6 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitz
     } else if (compInfo.returnInfo.info.retType != null) {
         return ScanError.FunctionReturnTypeMismatch;
     }
-
-    return try clone.cloneAstTypeInfo(allocator, compInfo, func.returnType, withGenDef);
 }
 
 fn validateSelfProps(allocator: Allocator, compInfo: *CompInfo, name: []u8, prop: []u8, inOwnedMethod: bool) !?blitzAst.AstTypeInfo {

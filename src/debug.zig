@@ -129,15 +129,16 @@ fn numberTypeToString(numType: blitzAst.AstNumberVariants) [*:0]const u8 {
         .U32 => "u32",
         .U64 => "u64",
         .U128 => "u128",
+        .USize => "usize",
         .I8 => "i8",
         .I16 => "i16",
         .I32 => "i32",
         .I64 => "i64",
         .I128 => "i128",
+        .ISize => "isize",
         .F32 => "f32",
         .F64 => "f64",
         .F128 => "f128",
-        .USize => "usize",
     };
 }
 
@@ -177,22 +178,27 @@ fn printValue(compInfo: *CompInfo, value: *const blitzAst.AstValues) void {
     }
 }
 
+fn printAstNumberUtil(val: anytype, num: blitzAst.AstNumber) void {
+    print("[{d}]({s})", .{ val, num.toString() });
+}
+
 fn printAstNumber(num: blitzAst.AstNumber) void {
     switch (num) {
-        .U8 => |val| print("[{d}]({s})", .{ val, num.toString() }),
-        .U16 => |val| print("[{d}]({s})", .{ val, num.toString() }),
-        .U32 => |val| print("[{d}]({s})", .{ val, num.toString() }),
-        .U64 => |val| print("[{d}]({s})", .{ val, num.toString() }),
-        .U128 => |val| print("[{d}]({s})", .{ val, num.toString() }),
-        .USize => |val| print("[{d}]({s})", .{ val, num.toString() }),
-        .I8 => |val| print("[{d}]({s})", .{ val, num.toString() }),
-        .I16 => |val| print("[{d}]({s})", .{ val, num.toString() }),
-        .I32 => |val| print("[{d}]({s})", .{ val, num.toString() }),
-        .I64 => |val| print("[{d}]({s})", .{ val, num.toString() }),
-        .I128 => |val| print("[{d}]({s})", .{ val, num.toString() }),
-        .F32 => |val| print("[{d}]({s})", .{ val, num.toString() }),
-        .F64 => |val| print("[{d}]({s})", .{ val, num.toString() }),
-        .F128 => |val| print("[{d}]({s})", .{ val, num.toString() }),
+        .U8 => |val| printAstNumberUtil(val, num),
+        .U16 => |val| printAstNumberUtil(val, num),
+        .U32 => |val| printAstNumberUtil(val, num),
+        .U64 => |val| printAstNumberUtil(val, num),
+        .U128 => |val| printAstNumberUtil(val, num),
+        .USize => |val| printAstNumberUtil(val, num),
+        .I8 => |val| printAstNumberUtil(val, num),
+        .I16 => |val| printAstNumberUtil(val, num),
+        .I32 => |val| printAstNumberUtil(val, num),
+        .I64 => |val| printAstNumberUtil(val, num),
+        .I128 => |val| printAstNumberUtil(val, num),
+        .ISize => |val| printAstNumberUtil(val, num),
+        .F32 => |val| printAstNumberUtil(val, num),
+        .F64 => |val| printAstNumberUtil(val, num),
+        .F128 => |val| printAstNumberUtil(val, num),
     }
 }
 

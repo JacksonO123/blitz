@@ -6,12 +6,15 @@ const blitzAst = blitz.ast;
 const scanner = blitz.scanner;
 const utils = blitz.utils;
 const free = blitz.free;
+const codegen = blitz.codegen;
+const settings = blitz.settings;
 const create = utils.create;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = std.mem.Allocator;
 const CompInfo = utils.CompInfo;
 const TokenUtil = utils.TokenUtil;
+const GenInfo = utils.GenInfo;
 
 // debug
 const debug = @import("debug.zig");
@@ -34,6 +37,8 @@ pub fn main() !void {
     if (args.len < 2) {
         return RuntimeError.NoInputFile;
     }
+
+    settings.codeGenSettings.DebugOut = true;
 
     const path = args[1];
 
@@ -78,4 +83,11 @@ pub fn main() !void {
 
     try scanner.typeScan(allocator, ast, &compInfo);
     std.debug.print("\n", .{});
+
+    var genInfo = try GenInfo.init(allocator);
+    defer genInfo.deinit();
+    genInfo.stackStartSize = compInfo.stackSizeEstimate;
+
+    try codegen.codegenAst(allocator, &genInfo, ast);
+    std.debug.print("--- bytecode out ---\n{s}\n------------\n", .{genInfo.instructionList.items});
 }

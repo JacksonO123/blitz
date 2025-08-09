@@ -68,15 +68,20 @@ pub fn freeFuncDecUtil(allocator: Allocator, func: *const blitzAst.FuncDecNode, 
         allocator.destroy(captured);
     }
 
-    for (func.scannedGenTypes.items) |rels| {
+    if (func.capturedFuncs) |captured| {
+        captured.deinit();
+        allocator.destroy(captured);
+    }
+
+    for (func.toScanTypes.items) |rels| {
         for (rels) |item| {
             freeAstTypeInfo(allocator, item.info);
         }
         allocator.free(rels);
     }
 
-    func.scannedGenTypes.deinit();
-    allocator.destroy(func.scannedGenTypes);
+    func.toScanTypes.deinit();
+    allocator.destroy(func.toScanTypes);
     allocator.destroy(func);
 }
 
