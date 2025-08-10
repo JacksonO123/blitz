@@ -1,11 +1,1 @@
-fn [T] testCapture(value: T): T {
-  fn [G] temp(newValue: G): G {
-    return newValue + value;
-  }
-
-  return temp(value);
-}
-
-{
-  testCapture(4);
-}
+let a = 2;

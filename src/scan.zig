@@ -733,6 +733,10 @@ pub fn scanNode(
             }
 
             _ = try setGenTypesFromParams(allocator, compInfo, func, paramTypes, withGenDef);
+            const usesUndefinedVars = checkUndefVars(compInfo, func.body);
+            if (usesUndefinedVars) {
+                return ScanError.VariableIsUndefined;
+            }
 
             if (func.generics != null) {
                 const genScope = compInfo.genericScopes.getCurrentScope().?;
@@ -836,6 +840,105 @@ pub fn scanNode(
     }
 }
 
+/// true if uses undefined variables
+fn checkUndefVars(compInfo: *CompInfo, node: *const blitzAst.AstNode) bool {
+    var undef = false;
+
+    return switch (node.*) {
+        .Variable => |name| {
+            const inScope = compInfo.isVariableInScope(name);
+            return !inScope;
+        },
+        .Cast => |cast| checkUndefVars(compInfo, cast.node),
+        .IncOne,
+        .DecOne,
+        .Group,
+        .Scope,
+        .Bang,
+        .ReturnNode,
+        => |inner| checkUndefVars(compInfo, inner),
+        .ForLoop => |loop| {
+            undef = undef or checkUndefVars(compInfo, loop.condition);
+            undef = undef or checkUndefVars(compInfo, loop.body);
+            undef = undef or checkUndefVars(compInfo, loop.incNode);
+            if (loop.initNode) |init| {
+                undef = undef or checkUndefVars(compInfo, init);
+            }
+            return undef;
+        },
+        .WhileLoop => |loop| {
+            undef = undef or checkUndefVars(compInfo, loop.condition);
+            undef = undef or checkUndefVars(compInfo, loop.body);
+            return undef;
+        },
+        .FuncCall => |func| checkUndefVars(compInfo, func.func),
+        .IfStatement => |statement| {
+            undef = undef or checkUndefVars(compInfo, statement.condition);
+            undef = undef or checkUndefVars(compInfo, statement.body);
+
+            if (statement.fallback) |fallback| {
+                undef = undef or checkUndefVarsIfFallback(compInfo, fallback);
+            }
+
+            return undef;
+        },
+        .IndexValue => |index| {
+            undef = undef or checkUndefVars(compInfo, index.value);
+            undef = undef or checkUndefVars(compInfo, index.index);
+            return undef;
+        },
+        .OpExpr => |expr| {
+            undef = undef or checkUndefVars(compInfo, expr.left);
+            undef = undef or checkUndefVars(compInfo, expr.right);
+            return undef;
+        },
+        .PropertyAccess => |access| {
+            undef = undef or checkUndefVars(compInfo, access.value);
+            return undef;
+        },
+        .Seq => |seq| {
+            for (seq.nodes) |innerNode| {
+                undef = undef or checkUndefVars(compInfo, innerNode);
+            }
+
+            return undef;
+        },
+        .StructInit => |init| {
+            for (init.attributes) |attr| {
+                undef = undef or checkUndefVars(compInfo, attr.value);
+            }
+
+            return undef;
+        },
+        .ValueSet => |set| {
+            undef = undef or checkUndefVars(compInfo, set.value);
+            undef = undef or checkUndefVars(compInfo, set.setNode);
+            return undef;
+        },
+        .VarDec => |dec| {
+            return checkUndefVars(compInfo, dec.setNode);
+        },
+        .VarEqOp => |op| {
+            return checkUndefVars(compInfo, op.value);
+        },
+        else => return false,
+    };
+}
+
+fn checkUndefVarsIfFallback(compInfo: *CompInfo, fallback: *const blitzAst.IfFallback) bool {
+    var undef = false;
+    if (fallback.condition) |condition| {
+        undef = undef or checkUndefVars(compInfo, condition);
+    }
+    undef = undef or checkUndefVars(compInfo, fallback.body);
+
+    if (fallback.fallback) |innerFallback| {
+        undef = undef or checkUndefVarsIfFallback(compInfo, innerFallback);
+    }
+
+    return undef;
+}
+
 fn scanFunctionCalls(allocator: Allocator, compInfo: *CompInfo) !void {
     try compInfo.pushScope(false);
     defer compInfo.popScope();
@@ -859,9 +962,6 @@ fn scanFunctionCalls(allocator: Allocator, compInfo: *CompInfo) !void {
             var captureIt = captured.iterator();
             while (captureIt.next()) |item| {
                 const clonedType = try clone.cloneAstTypeInfo(allocator, compInfo, item.value_ptr.*, toScanItem.withGenDef);
-                std.debug.print("captured type :: {s}\n", .{item.key_ptr.*});
-                printTypeInfo(compInfo, clonedType);
-                std.debug.print("\n", .{});
                 try compInfo.setGeneric(item.key_ptr.*, clonedType);
             }
         }

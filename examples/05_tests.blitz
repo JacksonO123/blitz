@@ -1,33 +1,7 @@
-struct Box {
-  pub value: u32;
+let value = 2;
+
+let b = thing();
+
+fn thing(): u32 {
+  return value;
 }
-
-struct Rectangle {
-  innerBox: Box;
-  height: u16;
-  pub value: u32;
-}
-
-fn getRectangle(value: u32): Rectangle {
-  return Rectangle {
-    innerBox = Box { value = 10 },
-    height = u16(4),
-    value,
-  };
-}
-
-fn [T] fibonacci2(num: T): T {
-  if (num.value <= 1) {
-    return num;
-  }
-
-  let b1 = getRectangle(num.value - 1);
-  let b2 = getRectangle(num.value - 2);
-  return fibonacci2(b1) + fibonacci2(b2);
-}
-
-//let b = Box { value = 5 };
-//fibonacci2(b);
-
-let r = getRectangle(6);
-fibonacci2(r);

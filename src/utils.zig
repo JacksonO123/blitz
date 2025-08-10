@@ -531,13 +531,9 @@ pub const CompInfo = struct {
             if (s.get(name)) |t| {
                 if (!capture) return t;
 
-                std.debug.print("capturing variable {s} {}\n", .{ name, replaceGenerics });
                 const captureScope = self.variableCaptures.getCurrentScope();
                 if (captureScope) |capScope| {
                     const clonedType = try clone.cloneAstTypeInfo(self.allocator, self, t, replaceGenerics);
-                    std.debug.print("caught ", .{});
-                    @import("debug.zig").printTypeInfo(self, clonedType);
-                    std.debug.print("\n", .{});
                     const existing = capScope.get(name);
 
                     if (existing) |exist| {
@@ -560,6 +556,26 @@ pub const CompInfo = struct {
         }
 
         return null;
+    }
+
+    pub fn isVariableInScope(self: *Self, name: []u8) bool {
+        var scope: ?*VarScope = self.variableScopes.getCurrentScope();
+        defer self.variableScopes.resetLeakIndex();
+
+        while (scope) |s| {
+            if (s.contains(name)) {
+                return true;
+            }
+
+            const nextLeak = self.variableScopes.getNextInLeak();
+            if (nextLeak) |next| {
+                scope = next.scope;
+            } else {
+                scope = null;
+            }
+        }
+
+        return false;
     }
 
     pub fn getVariableTypeFixed(self: *Self, name: []u8) ?blitzAst.AstTypeInfo {
