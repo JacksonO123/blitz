@@ -527,8 +527,6 @@ pub const CompInfo = struct {
         defer self.variableScopes.resetLeakIndex();
         var capture = false;
 
-        std.debug.print("getting variable type\n", .{});
-
         while (scope) |s| {
             if (s.get(name)) |t| {
                 if (!capture) return t;

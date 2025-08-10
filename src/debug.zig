@@ -228,6 +228,7 @@ pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
                 .GreaterThan => ">GT>",
                 .LessThanEq => "<=LTE<=",
                 .GreaterThanEq => ">=GTE>=",
+                .Equal => "==EQUAL==",
             }});
 
             print(" (", .{});

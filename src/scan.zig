@@ -299,6 +299,7 @@ pub fn scanNode(
                 .GreaterThan,
                 .LessThanEq,
                 .GreaterThanEq,
+                .Equal,
                 => {
                     if (!isAnyType(left.astType) and !isAnyType(right.astType)) {
                         if (left.astType.* != .Number or right.astType.* != .Number) {
@@ -846,8 +847,6 @@ fn scanFunctionCalls(allocator: Allocator, compInfo: *CompInfo) !void {
         const toScanItem = functions.pop().?;
         const func = toScanItem.func;
 
-        std.debug.print("scanning :: {s}\n", .{func.name});
-
         try compInfo.pushGenScope(false);
         defer compInfo.popGenScope();
         try compInfo.pushScope(false);
@@ -1196,14 +1195,6 @@ fn scanFuncBodyAndReturn(allocator: Allocator, compInfo: *CompInfo, func: *blitz
 
     const scope = compInfo.consumeVariableCaptures();
     if (scope) |s| {
-        std.debug.print("consume\n", .{});
-        var it = s.iterator();
-        while (it.next()) |entry| {
-            std.debug.print("- {s} :: ", .{entry.key_ptr.*});
-            printTypeInfo(compInfo, entry.value_ptr.*);
-            std.debug.print("\n", .{});
-        }
-
         try applyVariableCaptures(allocator, func, s);
     }
 

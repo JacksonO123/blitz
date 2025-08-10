@@ -320,6 +320,7 @@ pub const OpExprTypes = enum(u8) {
     GreaterThan,
     LessThanEq,
     GreaterThanEq,
+    Equal,
 };
 
 const OpExpr = struct {
@@ -959,6 +960,7 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
         .RAngle,
         .LAngleEq,
         .RAngleEq,
+        .EqComp,
         => {
             if (expr == null) {
                 return compInfo.logger.logError(AstError.ExpectedExpression);
@@ -1574,6 +1576,7 @@ pub fn tokenTypeToOpType(tokenType: tokenizer.TokenType) OpExprTypes {
         .RAngle => .GreaterThan,
         .LAngleEq => .LessThanEq,
         .RAngleEq => .GreaterThanEq,
+        .EqComp => .Equal,
         else => unreachable,
     };
 }
