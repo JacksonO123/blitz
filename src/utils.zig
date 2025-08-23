@@ -7,13 +7,23 @@ const free = blitz.free;
 const scanner = blitz.scanner;
 const clone = blitz.clone;
 const builtins = blitz.builtins;
-const settings = blitz.settings;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Logger = blitz.logger.Logger;
 const AstError = blitzAst.AstError;
 const ScanError = scanner.ScanError;
+
+const size = 4096;
+pub const BufferedWriterType = std.io.BufferedWriter(size, std.fs.File.Writer);
+
+pub fn getBufferedWriter() BufferedWriterType {
+    const stdout = std.io.getStdOut();
+    const stdoutWriter = stdout.writer();
+    return std.io.BufferedWriter(size, @TypeOf(stdoutWriter)){
+        .unbuffered_writer = stdoutWriter,
+    };
+}
 
 pub inline fn create(comptime T: type, allocator: Allocator, obj: T) Allocator.Error!*const T {
     return createMut(T, allocator, obj);
@@ -109,7 +119,6 @@ pub const CompInfo = struct {
     },
     returnInfo: *ReturnInfo,
     builtins: builtins.BuiltinFuncMemo,
-    settings: settings.Settings,
     stackSizeEstimate: u32,
 
     pub fn init(allocator: Allocator, tokens: []tokenizer.Token, names: blitzAst.HoistedNames, code: []const u8) !Self {
@@ -163,7 +172,6 @@ pub const CompInfo = struct {
             },
             .returnInfo = returnInfo,
             .builtins = .{},
-            .settings = settings.getDefaultSettings(),
             .stackSizeEstimate = 1024, // 1kb
         };
     }
@@ -1050,26 +1058,61 @@ pub const ReturnInfo = struct {
     }
 };
 
+pub const InstrChunk = struct {
+    const Self = @This();
+
+    next: ?*InstrChunk,
+    prev: ?*InstrChunk,
+    chunk: []u8,
+
+    pub fn init(chunk: []u8) Self {
+        return .{
+            .next = null,
+            .prev = null,
+            .chunk = chunk,
+        };
+    }
+};
+
 pub const GenInfo = struct {
     const Self = @This();
 
     allocator: Allocator,
     stackStartSize: u32,
-    instructionList: *ArrayList(u8),
+    availableRegisters: u8 = 0xff,
+    instructionList: ?*InstrChunk,
+    last: ?*InstrChunk,
 
-    pub fn init(allocator: Allocator) !Self {
-        const instructionList = try initMutPtrT(ArrayList(u8), allocator);
-
+    pub fn init(
+        allocator: Allocator,
+    ) !Self {
         return .{
             .allocator = allocator,
             .stackStartSize = 0,
-            .instructionList = instructionList,
+            .instructionList = null,
+            .last = null,
         };
     }
 
+    pub fn appendChunk(self: *Self, chunk: []u8) !void {
+        const newChunk = try createMut(InstrChunk, self.allocator, InstrChunk.init(chunk));
+
+        if (self.last) |last| {
+            last.next = newChunk;
+            newChunk.prev = last;
+            self.last = newChunk;
+        } else {
+            self.instructionList = newChunk;
+            self.last = newChunk;
+        }
+    }
+
     pub fn deinit(self: Self) void {
-        self.instructionList.deinit();
-        self.allocator.destroy(self.instructionList);
+        var current = self.instructionList;
+        while (current != null) : (current = current.?.next) {
+            self.allocator.free(current.?.chunk);
+            self.allocator.destroy(current.?);
+        }
     }
 };
 

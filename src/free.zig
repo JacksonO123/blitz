@@ -289,7 +289,7 @@ pub fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) v
     }
 }
 
-pub fn freeNodes(allocator: Allocator, nodes: []*const blitzAst.AstNode) void {
+pub fn freeNodes(allocator: Allocator, nodes: []*blitzAst.AstNode) void {
     for (nodes) |node| {
         freeNode(allocator, node);
     }

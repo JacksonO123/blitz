@@ -3,8 +3,11 @@ const blitz = @import("root").blitz;
 const blitzAst = blitz.ast;
 const utils = blitz.utils;
 const tokenizer = blitz.tokenizer;
+const codegen = blitz.codegen;
 const CompInfo = utils.CompInfo;
+const GenInfo = utils.GenInfo;
 const print = std.debug.print;
+const Allocator = std.mem.Allocator;
 
 pub fn printAst(compInfo: *CompInfo, ast: blitzAst.Ast) void {
     printNode(compInfo, ast.root);
@@ -202,7 +205,7 @@ fn printAstNumber(num: blitzAst.AstNumber) void {
     }
 }
 
-pub fn printNode(compInfo: *CompInfo, node: *const blitzAst.AstNode) void {
+pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode) void {
     switch (node.*) {
         .IndexValue => |index| {
             print("indexing ", .{});
@@ -539,7 +542,7 @@ pub fn printGenerics(compInfo: *CompInfo, generics: []blitzAst.GenericType) void
     }
 }
 
-fn printNodes(compInfo: *CompInfo, nodes: []*const blitzAst.AstNode) void {
+fn printNodes(compInfo: *CompInfo, nodes: []*blitzAst.AstNode) void {
     for (nodes) |node| {
         printNode(compInfo, node);
         print("\n", .{});
@@ -608,4 +611,105 @@ pub fn printTokens(tokens: []const tokenizer.Token) void {
     for (tokens) |token| {
         printToken(token);
     }
+}
+
+pub fn printByteCode(genInfo: *const GenInfo) !void {
+    var buf = utils.getBufferedWriter();
+    const writer = buf.writer();
+    defer buf.flush() catch {};
+
+    const rootChunk = genInfo.instructionList;
+
+    if (rootChunk) |chunk| {
+        const bytecode = chunk.chunk;
+        const stackSizeType = @TypeOf(genInfo.stackStartSize);
+        const stackSizeBufLen = @sizeOf(stackSizeType);
+
+        const stackSizeBuf: *[stackSizeBufLen]u8 = bytecode[0..stackSizeBufLen];
+        try writer.writeAll("MakeStack ");
+        try writeHexDecNumber(stackSizeBuf, writer);
+        try writer.writeByte('\n');
+
+        try printChunks(genInfo, chunk, writer);
+    }
+}
+
+fn printChunks(genInfo: *const GenInfo, chunk: *utils.InstrChunk, writer: anytype) !void {
+    const bytecode = chunk.chunk;
+    switch (@as(codegen.Instructions, @enumFromInt(bytecode[0]))) {
+        .StoreRegConst => {
+            try printInstName(bytecode[0], writer);
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.writeByte(' ');
+            try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
+            try writer.writeAll("B ");
+            try writeHexDecNumber(bytecode[3..7], writer);
+        },
+        // .StoreConst => {
+        //     const name = @tagName(@as(codegen.Instructions, @enumFromInt(bytecode[current])));
+        //     const constLen = bytecode[current + 1];
+        //     const constStr = bytecode[current + 2 .. current + 2 + constLen];
+        //     current += constLen + 2;
+
+        //     try writer.writeAll(name);
+        //     try writer.writeByte(' ');
+        //     try writeHexDecNumber(constStr, writer);
+        // },
+        else => {},
+    }
+
+    if (chunk.next) |next| {
+        try printChunks(genInfo, next, writer);
+    }
+}
+
+fn printInstName(inst: u8, writer: anytype) !void {
+    const name = @tagName(@as(codegen.Instructions, @enumFromInt(inst)));
+    try writer.writeAll(name);
+}
+
+fn writeHexDecNumber(constStr: []u8, writer: anytype) !void {
+    try writer.writeAll("0x");
+
+    try formatHexByteSlice(constStr, writer);
+
+    try writer.writeByte('(');
+    try formatIntByteSlice(constStr, writer);
+    try writer.writeByte(')');
+}
+
+fn formatIntByteSlice(slice: []u8, writer: anytype) !void {
+    switch (slice.len) {
+        // 2 => formatIntByteSliceUtil(u16),
+        4 => try formatIntByteSliceUtil(u32, slice, writer),
+        else => unimplemented(),
+    }
+}
+
+fn formatIntByteSliceUtil(comptime T: type, slice: []u8, writer: anytype) !void {
+    var temp: T = 0;
+
+    for (slice, 0..) |byte, index| {
+        const shift = slice.len - index - 1;
+        var byteTemp: T = byte;
+
+        byteTemp = byteTemp << @intCast(shift * 8);
+        temp += byteTemp;
+    }
+
+    try std.fmt.formatInt(temp, 10, .lower, .{}, writer);
+}
+
+fn formatHexByteSlice(slice: []u8, writer: anytype) !void {
+    for (slice) |byte| {
+        try std.fmt.formatInt(byte, 16, .lower, .{
+            .width = 2,
+            .fill = '0',
+        }, writer);
+    }
+}
+
+fn unimplemented() void {
+    unreachable;
 }

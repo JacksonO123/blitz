@@ -3,7 +3,7 @@ const blitz = @import("blitz.zig");
 const string = blitz.string;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
-const logger = blitz.logger;
+const utils = blitz.utils;
 
 pub const TokenizeError = error{
     NumberHasTwoPeriods,
@@ -247,11 +247,11 @@ const CharUtil = struct {
     index: usize,
     chars: []const u8,
     skippedWhitespace: usize,
-    buf: logger.BufferedWriterType,
+    buf: utils.BufferedWriterType,
     allowPeriod: bool,
 
     pub fn init(chars: []const u8) Self {
-        const buf = logger.getBufferedWriter();
+        const buf = utils.getBufferedWriter();
 
         return Self{
             .index = 0,

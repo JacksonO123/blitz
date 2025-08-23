@@ -18,10 +18,6 @@ const GenInfo = utils.GenInfo;
 
 // debug
 const debug = @import("debug.zig");
-const printRegisteredStructs = debug.printRegisteredStructs;
-const printRegisteredErrors = debug.printRegisteredErrors;
-const printAst = debug.printAst;
-const printStructAndErrorNames = debug.printStructAndErrorNames;
 
 const RuntimeError = error{NoInputFile};
 
@@ -38,8 +34,6 @@ pub fn main() !void {
         return RuntimeError.NoInputFile;
     }
 
-    settings.codeGenSettings.DebugOut = true;
-
     const path = args[1];
 
     std.debug.print("opening: {s}\n", .{path});
@@ -51,7 +45,7 @@ pub fn main() !void {
     defer free.freeTokens(allocator, tokens);
 
     const names = try blitzAst.findStructAndErrorNames(allocator, tokens);
-    printStructAndErrorNames(names);
+    debug.printStructAndErrorNames(names);
 
     var compInfo = try CompInfo.init(allocator, tokens, names, code);
     defer compInfo.deinit();
@@ -64,11 +58,11 @@ pub fn main() !void {
 
     try compInfo.prepareForAst();
 
-    printRegisteredStructs(&compInfo, structsAndErrors.structs);
-    printRegisteredErrors(structsAndErrors.errors);
+    debug.printRegisteredStructs(&compInfo, structsAndErrors.structs);
+    debug.printRegisteredErrors(structsAndErrors.errors);
 
     for (structsAndErrors.structs) |s| {
-        const node: blitzAst.AstNode = .{
+        var node: blitzAst.AstNode = .{
             .StructDec = s,
         };
         const nodeType = try scanner.scanNode(allocator, &compInfo, &node, true);
@@ -79,7 +73,7 @@ pub fn main() !void {
     defer ast.deinit();
 
     std.debug.print("--- code ---\n{s}\n------------\n", .{code});
-    printAst(&compInfo, ast);
+    debug.printAst(&compInfo, ast);
 
     try scanner.typeScan(allocator, ast, &compInfo);
     std.debug.print("\n", .{});
@@ -89,5 +83,7 @@ pub fn main() !void {
     genInfo.stackStartSize = compInfo.stackSizeEstimate;
 
     try codegen.codegenAst(allocator, &genInfo, ast);
-    std.debug.print("--- bytecode out ---\n{s}\n------------\n", .{genInfo.instructionList.items});
+    std.debug.print("--- bytecode out ---\n", .{});
+    try debug.printByteCode(&genInfo);
+    std.debug.print("\n------------\n", .{});
 }

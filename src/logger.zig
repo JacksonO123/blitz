@@ -18,27 +18,16 @@ const SurroundingBounds = struct {
     after: LineBounds,
 };
 
-const size = 4096;
-pub const BufferedWriterType = std.io.BufferedWriter(size, std.fs.File.Writer);
-
-pub fn getBufferedWriter() BufferedWriterType {
-    const stdout = std.io.getStdOut();
-    const stdoutWriter = stdout.writer();
-    return std.io.BufferedWriter(size, @TypeOf(stdoutWriter)){
-        .unbuffered_writer = stdoutWriter,
-    };
-}
-
 pub const Logger = struct {
     const Self = @This();
 
     allocator: Allocator,
     tokens: *TokenUtil,
-    buf: BufferedWriterType,
+    buf: utils.BufferedWriterType,
     code: []const u8,
 
     pub fn init(allocator: Allocator, tokens: *TokenUtil, code: []const u8) Self {
-        const buf = getBufferedWriter();
+        const buf = utils.getBufferedWriter();
 
         return Self{
             .allocator = allocator,

@@ -11,6 +11,7 @@ const Allocator = std.mem.Allocator;
 const CompInfo = utils.CompInfo;
 const ArrayList = std.ArrayList;
 const create = utils.create;
+const createMut = utils.createMut;
 
 // debug
 const debug = @import("debug.zig");
@@ -127,7 +128,7 @@ pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !v
 pub fn scanNodes(
     allocator: Allocator,
     compInfo: *CompInfo,
-    nodes: []*const blitzAst.AstNode,
+    nodes: []*blitzAst.AstNode,
     withGenDef: bool,
 ) (ScanError || Allocator.Error || clone.CloneError)!void {
     for (nodes) |node| {
@@ -139,7 +140,7 @@ pub fn scanNodes(
 pub fn scanNode(
     allocator: Allocator,
     compInfo: *CompInfo,
-    node: *const blitzAst.AstNode,
+    node: *blitzAst.AstNode,
     withGenDef: bool,
 ) (Allocator.Error || ScanError || clone.CloneError)!blitzAst.AstTypeInfo {
     switch (node.*) {
@@ -156,7 +157,8 @@ pub fn scanNode(
         },
         .Cast => |cast| {
             const clonedCastType = try clone.cloneAstTypeInfo(allocator, compInfo, cast.toType, withGenDef);
-            if (cast.node.* == .Value and cast.node.*.Value == .RawNumber) {
+
+            if (cast.node.* == .Value and cast.node.Value == .RawNumber) {
                 return clonedCastType;
             }
 
@@ -179,7 +181,7 @@ pub fn scanNode(
                 .String => .String,
                 .Bool => .Bool,
                 .Char => .Char,
-                .Number => |num| .{ .Number = num.toType() },
+                .Number => |num| .{ .Number = num.toAstNumberVariant() },
                 .RawNumber => |num| {
                     var hasPeriod = false;
 
@@ -205,7 +207,7 @@ pub fn scanNode(
                     const arraySliceType = try create(blitzAst.AstTypes, allocator, .{
                         .ArraySlice = .{
                             .type = inferredType,
-                            .size = try create(blitzAst.AstNode, allocator, .{
+                            .size = try createMut(blitzAst.AstNode, allocator, .{
                                 .Value = .{
                                     .Number = .{ .USize = arr.len },
                                 },
@@ -461,7 +463,7 @@ pub fn scanNode(
             try scanNodes(allocator, compInfo, seq.nodes, withGenDef);
             return try utils.astTypesToInfo(allocator, .Void, true);
         },
-        .VarDec => |dec| {
+        .VarDec => |*dec| {
             if (compInfo.getVariableTypeFixed(dec.name) != null) {
                 return ScanError.VariableAlreadyExists;
             }
@@ -491,6 +493,8 @@ pub fn scanNode(
             }
 
             setType.isConst = dec.isConst;
+            dec.setType = setType;
+
             try compInfo.setVariableType(dec.name, setType);
             return try utils.astTypesToInfo(allocator, .Void, true);
         },
@@ -732,10 +736,21 @@ pub fn scanNode(
                 return ScanError.FunctionCallParamCountMismatch;
             }
 
-            _ = try setGenTypesFromParams(allocator, compInfo, func, paramTypes, withGenDef);
-            const usesUndefinedVars = checkUndefVars(compInfo, func.body);
-            if (usesUndefinedVars) {
-                return ScanError.VariableIsUndefined;
+            {
+                try compInfo.pushScope(true);
+                defer compInfo.popScope();
+
+                _ = try setGenTypesFromParams(allocator, compInfo, func, paramTypes, withGenDef);
+
+                for (func.params) |param| {
+                    const typeClone = try clone.cloneAstTypeInfo(allocator, compInfo, param.type, withGenDef);
+                    try compInfo.setVariableType(param.name, typeClone);
+                }
+
+                const usesUndefinedVars = checkUndefVars(compInfo, func.body);
+                if (usesUndefinedVars) {
+                    return ScanError.VariableIsUndefined;
+                }
             }
 
             if (func.generics != null) {
@@ -774,7 +789,7 @@ pub fn scanNode(
                 if (attr.static) continue;
                 if (attr.attr != .Member) continue;
 
-                var attrNode: ?*const blitzAst.AstNode = null;
+                var attrNode: ?*blitzAst.AstNode = null;
                 for (init.attributes) |initAttr| {
                     if (string.compString(initAttr.name, attr.name)) {
                         attrNode = initAttr.value;
@@ -846,7 +861,14 @@ fn checkUndefVars(compInfo: *CompInfo, node: *const blitzAst.AstNode) bool {
 
     return switch (node.*) {
         .Variable => |name| {
+            if (string.compString(name, "self")) {
+                return !compInfo.isInStructMethod();
+            }
+
             const inScope = compInfo.isVariableInScope(name);
+            if (!inScope) {
+                std.debug.print("not in scope :: {s}\n", .{name});
+            }
             return !inScope;
         },
         .Cast => |cast| checkUndefVars(compInfo, cast.node),
@@ -1559,16 +1581,13 @@ pub fn matchTypesUtil(
         .Void => type2 == .Void,
         .Null => type2 == .Nullable or type2 == .Null,
         .Nullable => |inner| type2 == .Null or try matchTypes(allocator, compInfo, inner, fromType, withGenDef),
+        .RawNumber => return type2 == .Number or type2 == .RawNumber,
         .Number => |num| {
-            if (type2 != .Number) {
-                return false;
-            }
-
-            if (compInfo.settings.strictNumbers) {
+            if (type2 == .Number) {
                 return @intFromEnum(num) == @intFromEnum(type2.Number);
             }
 
-            return true;
+            return type2 == .RawNumber;
         },
         .ArraySlice => |arr| {
             const array: blitzAst.AstArraySliceType = switch (type2) {
@@ -1729,7 +1748,7 @@ fn getStructPropType(compInfo: *CompInfo, allowNonStatic: bool, inst: []u8, prop
     return ScanError.InvalidProperty;
 }
 
-fn inferArraySliceType(allocator: Allocator, compInfo: *CompInfo, arr: []*const blitzAst.AstNode, withGenDef: bool) !blitzAst.AstTypeInfo {
+fn inferArraySliceType(allocator: Allocator, compInfo: *CompInfo, arr: []*blitzAst.AstNode, withGenDef: bool) !blitzAst.AstTypeInfo {
     if (arr.len == 0) return try utils.astTypesToInfo(allocator, .Void, false);
 
     const firstType = try scanNode(allocator, compInfo, arr[0], withGenDef);
