@@ -636,28 +636,17 @@ pub fn printByteCode(genInfo: *const GenInfo) !void {
 
 fn printChunks(genInfo: *const GenInfo, chunk: *utils.InstrChunk, writer: anytype) !void {
     const bytecode = chunk.chunk;
-    switch (@as(codegen.Instructions, @enumFromInt(bytecode[0]))) {
-        .StoreRegConst => {
-            try printInstName(bytecode[0], writer);
-            try writer.writeAll(" r");
+    const inst = @as(codegen.Instructions, @enumFromInt(bytecode[0]));
+    switch (inst) {
+        .SetReg, .SetRegHalf => {
+            try writer.writeAll("set_reg r");
             try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
-            try writer.writeByte(' ');
-            try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
-            try writer.writeAll("B ");
-            try writeHexDecNumber(bytecode[3..7], writer);
+            try writer.writeAll(" ");
         },
-        // .StoreConst => {
-        //     const name = @tagName(@as(codegen.Instructions, @enumFromInt(bytecode[current])));
-        //     const constLen = bytecode[current + 1];
-        //     const constStr = bytecode[current + 2 .. current + 2 + constLen];
-        //     current += constLen + 2;
-
-        //     try writer.writeAll(name);
-        //     try writer.writeByte(' ');
-        //     try writeHexDecNumber(constStr, writer);
-        // },
         else => {},
     }
+
+    try writer.writeByte('\n');
 
     if (chunk.next) |next| {
         try printChunks(genInfo, next, writer);
@@ -671,9 +660,7 @@ fn printInstName(inst: u8, writer: anytype) !void {
 
 fn writeHexDecNumber(constStr: []u8, writer: anytype) !void {
     try writer.writeAll("0x");
-
     try formatHexByteSlice(constStr, writer);
-
     try writer.writeByte('(');
     try formatIntByteSlice(constStr, writer);
     try writer.writeByte(')');
@@ -681,7 +668,6 @@ fn writeHexDecNumber(constStr: []u8, writer: anytype) !void {
 
 fn formatIntByteSlice(slice: []u8, writer: anytype) !void {
     switch (slice.len) {
-        // 2 => formatIntByteSliceUtil(u16),
         4 => try formatIntByteSliceUtil(u32, slice, writer),
         else => unimplemented(),
     }

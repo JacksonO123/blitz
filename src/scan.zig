@@ -1075,7 +1075,6 @@ fn estimateStackSize(astType: *const blitzAst.AstTypes) u32 {
                 .U32, .I32, .F32 => 4,
                 .U64, .I64, .F64 => 8,
                 .U128, .I128, .F128 => 16,
-                // TODO - probably get back to this
                 .USize, .ISize => 8,
             };
         },
@@ -1781,3 +1780,42 @@ fn scanNodeForFunctions(allocator: Allocator, compInfo: *CompInfo, node: *const 
         else => {},
     }
 }
+
+// const MaxTypeRel = struct {
+//     str: []const u8,
+//     type: blitzAst.AstNumberVariants,
+// };
+
+// fn getBestNumberType(num: []u8) !blitzAst.AstNumberVariants {
+//     const u32Max = getStrTypeRel(.U32, "4294967295");
+//     const u64Max = getStrTypeRel(.U64, "18446744073709551615");
+//     const u128Max = getStrTypeRel(.U128, "340282366920938463463374607431768211455");
+//     const uNumMaxes = &[_]MaxTypeRel{ u32Max, u64Max, u128Max };
+
+//     for (uNumMaxes) |max| {
+//         if (num.len < max.str.len) {
+//             return max.type;
+//         }
+
+//         if (num.len > max.str.len) {
+//             continue;
+//         }
+
+//         var i: u32 = 0;
+//         while (i < max.str.len) : (i += 1) {
+//             const index = max.str.len - i - 1;
+//             if (max.str[index] < num[index]) continue;
+//         }
+
+//         return max.type;
+//     }
+
+//     return CodeGenError.RawNumberIsTooBig;
+// }
+
+// fn getStrTypeRel(numType: blitzAst.AstNumberVariants, str: []const u8) MaxTypeRel {
+//     return .{
+//         .str = str,
+//         .type = numType,
+//     };
+// }

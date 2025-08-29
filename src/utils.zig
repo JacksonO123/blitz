@@ -7,9 +7,11 @@ const free = blitz.free;
 const scanner = blitz.scanner;
 const clone = blitz.clone;
 const builtins = blitz.builtins;
+const codegen = blitz.codegen;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
+const AutoHashMap = std.AutoHashMap;
 const Logger = blitz.logger.Logger;
 const AstError = blitzAst.AstError;
 const ScanError = scanner.ScanError;
@@ -1079,19 +1081,40 @@ pub const GenInfo = struct {
 
     allocator: Allocator,
     stackStartSize: u32,
-    availableRegisters: u8 = 0xff,
     instructionList: ?*InstrChunk,
     last: ?*InstrChunk,
+    availableRegisters: [codegen.NUM_REGISTERS]bool = [_]bool{false} ** codegen.NUM_REGISTERS,
+    varNameRegRel: *StringHashMap(?codegen.RegisterNumber),
+    varRegisters: *AutoHashMap(codegen.RegisterNumber, void),
 
     pub fn init(
         allocator: Allocator,
     ) !Self {
+        const varNameRegRel = try initMutPtrT(StringHashMap(?codegen.RegisterNumber), allocator);
+        const varRegisters = try initMutPtrT(AutoHashMap(codegen.RegisterNumber, void), allocator);
+
         return .{
             .allocator = allocator,
             .stackStartSize = 0,
             .instructionList = null,
             .last = null,
+            .varNameRegRel = varNameRegRel,
+            .varRegisters = varRegisters,
         };
+    }
+
+    pub fn deinit(self: Self) void {
+        var current = self.instructionList;
+        while (current != null) : (current = current.?.next) {
+            self.allocator.free(current.?.chunk);
+            self.allocator.destroy(current.?);
+        }
+
+        self.varNameRegRel.deinit();
+        self.allocator.destroy(self.varNameRegRel);
+
+        self.varRegisters.deinit();
+        self.allocator.destroy(self.varRegisters);
     }
 
     pub fn appendChunk(self: *Self, chunk: []u8) !void {
@@ -1107,12 +1130,41 @@ pub const GenInfo = struct {
         }
     }
 
-    pub fn deinit(self: Self) void {
-        var current = self.instructionList;
-        while (current != null) : (current = current.?.next) {
-            self.allocator.free(current.?.chunk);
-            self.allocator.destroy(current.?);
+    pub fn getAvailableReg(self: Self) ?codegen.RegisterNumber {
+        for (self.availableRegisters, 0..) |reg, index| {
+            if (!reg) return @intCast(index);
         }
+
+        return null;
+    }
+
+    pub fn getAvailableRegPushSpill(self: Self) codegen.RegisterNumber {
+        const reg = self.getAvailableReg();
+        if (reg) |num| {
+            return num;
+        } else {
+            const keys = self.varRegisters.keyIterator();
+            const first = keys.next();
+            if (first) |name| {
+                _ = name;
+            } else {
+                // TODO - create case to account for this
+                unreachable;
+            }
+        }
+    }
+
+    pub fn reserveRegister(self: *Self, reg: codegen.RegisterNumber) void {
+        self.availableRegisters[reg] = true;
+    }
+
+    pub fn getVariableRegister(self: Self, name: []u8) codegen.RegisterNumber {
+        return self.varNameRegRel.get(name);
+    }
+
+    pub fn setVariableRegister(self: *Self, name: []u8, reg: codegen.RegisterNumber) !void {
+        try self.varNameRegRel.put(name, reg);
+        try self.varRegisters.put(reg, {});
     }
 };
 
