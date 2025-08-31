@@ -5,7 +5,7 @@ const utils = blitz.utils;
 const tokenizer = blitz.tokenizer;
 const codegen = blitz.codegen;
 const CompInfo = utils.CompInfo;
-const GenInfo = utils.GenInfo;
+const GenInfo = codegen.GenInfo;
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
@@ -58,7 +58,7 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
             printTypeInfo(compInfo, n);
         },
         .Number => |num| {
-            print("{s}", .{numberTypeToString(num)});
+            print("{s}", .{num.toString()});
         },
         .RawNumber => {
             print("[RawNumber]", .{});
@@ -125,26 +125,6 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
     };
 }
 
-fn numberTypeToString(numType: blitzAst.AstNumberVariants) [*:0]const u8 {
-    return switch (numType) {
-        .U8 => "u8",
-        .U16 => "u16",
-        .U32 => "u32",
-        .U64 => "u64",
-        .U128 => "u128",
-        .USize => "usize",
-        .I8 => "i8",
-        .I16 => "i16",
-        .I32 => "i32",
-        .I64 => "i64",
-        .I128 => "i128",
-        .ISize => "isize",
-        .F32 => "f32",
-        .F64 => "f64",
-        .F128 => "f128",
-    };
-}
-
 fn printValue(compInfo: *CompInfo, value: *const blitzAst.AstValues) void {
     switch (value.*) {
         .Null => {
@@ -187,7 +167,7 @@ fn printAstNumberUtil(val: anytype, num: blitzAst.AstNumber) void {
 
 fn printAstNumber(num: blitzAst.AstNumber) void {
     switch (num) {
-        .U8 => |val| printAstNumberUtil(val, num),
+        .Char, .U8 => |val| printAstNumberUtil(val, num),
         .U16 => |val| printAstNumberUtil(val, num),
         .U32 => |val| printAstNumberUtil(val, num),
         .U64 => |val| printAstNumberUtil(val, num),
@@ -613,7 +593,7 @@ pub fn printTokens(tokens: []const tokenizer.Token) void {
     }
 }
 
-pub fn printByteCode(genInfo: *const GenInfo) !void {
+pub fn printBytecode(genInfo: *const GenInfo) !void {
     var buf = utils.getBufferedWriter();
     const writer = buf.writer();
     defer buf.flush() catch {};
@@ -628,21 +608,30 @@ pub fn printByteCode(genInfo: *const GenInfo) !void {
         const stackSizeBuf: *[stackSizeBufLen]u8 = bytecode[0..stackSizeBufLen];
         try writer.writeAll("MakeStack ");
         try writeHexDecNumber(stackSizeBuf, writer);
-        try writer.writeByte('\n');
 
         try printChunks(genInfo, chunk, writer);
     }
 }
 
-fn printChunks(genInfo: *const GenInfo, chunk: *utils.InstrChunk, writer: anytype) !void {
+fn printChunks(genInfo: *const GenInfo, chunk: *codegen.InstrChunk, writer: anytype) !void {
     const bytecode = chunk.chunk;
     const inst = @as(codegen.Instructions, @enumFromInt(bytecode[0]));
     switch (inst) {
-        .SetReg, .SetRegHalf => {
+        .SetReg => {
             try writer.writeAll("set_reg r");
             try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
             try writer.writeAll(" ");
         },
+        .SetRegHalf => {
+            try writer.writeAll("set_reg_half r");
+            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.writeAll(" ");
+            const num = bytecode[2..6];
+            try writeHexDecNumber(num, writer);
+        },
+        .Add => try printBytecodeOpExpr("add", bytecode, writer),
+        .Sub => try printBytecodeOpExpr("sub", bytecode, writer),
+        .Mult => try printBytecodeOpExpr("mult", bytecode, writer),
         else => {},
     }
 
@@ -651,6 +640,16 @@ fn printChunks(genInfo: *const GenInfo, chunk: *utils.InstrChunk, writer: anytyp
     if (chunk.next) |next| {
         try printChunks(genInfo, next, writer);
     }
+}
+
+fn printBytecodeOpExpr(name: []const u8, bytecode: []u8, writer: anytype) !void {
+    try writer.writeAll(name);
+    try writer.writeAll(" r");
+    try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+    try writer.writeAll(" r");
+    try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
+    try writer.writeAll(" r");
+    try std.fmt.formatInt(bytecode[3], 10, .lower, .{}, writer);
 }
 
 fn printInstName(inst: u8, writer: anytype) !void {

@@ -1,7 +1,6 @@
-let value = 2;
-
-let b = thing();
-
-fn thing(): u32 {
-  return value;
-}
+let a = 1;
+let b = 2;
+let c = 3;
+let d = 4;
+let e = 5;
+let f = a + b * c - d + e;

@@ -822,7 +822,7 @@ pub const TokenUtil = struct {
 
     pub fn expectToken(self: *Self, tokenType: tokenizer.TokenType) !void {
         const token = try self.take();
-        if (token.type != tokenType) {
+        if (std.meta.activeTag(token.type) != std.meta.activeTag(tokenType)) {
             return self.logger.logError(AstError.UnexpectedToken);
         }
     }
@@ -1057,114 +1057,6 @@ pub const ReturnInfo = struct {
 
     pub fn hasType(self: Self) bool {
         return self.info.retType != null;
-    }
-};
-
-pub const InstrChunk = struct {
-    const Self = @This();
-
-    next: ?*InstrChunk,
-    prev: ?*InstrChunk,
-    chunk: []u8,
-
-    pub fn init(chunk: []u8) Self {
-        return .{
-            .next = null,
-            .prev = null,
-            .chunk = chunk,
-        };
-    }
-};
-
-pub const GenInfo = struct {
-    const Self = @This();
-
-    allocator: Allocator,
-    stackStartSize: u32,
-    instructionList: ?*InstrChunk,
-    last: ?*InstrChunk,
-    availableRegisters: [codegen.NUM_REGISTERS]bool = [_]bool{false} ** codegen.NUM_REGISTERS,
-    varNameRegRel: *StringHashMap(?codegen.RegisterNumber),
-    varRegisters: *AutoHashMap(codegen.RegisterNumber, void),
-
-    pub fn init(
-        allocator: Allocator,
-    ) !Self {
-        const varNameRegRel = try initMutPtrT(StringHashMap(?codegen.RegisterNumber), allocator);
-        const varRegisters = try initMutPtrT(AutoHashMap(codegen.RegisterNumber, void), allocator);
-
-        return .{
-            .allocator = allocator,
-            .stackStartSize = 0,
-            .instructionList = null,
-            .last = null,
-            .varNameRegRel = varNameRegRel,
-            .varRegisters = varRegisters,
-        };
-    }
-
-    pub fn deinit(self: Self) void {
-        var current = self.instructionList;
-        while (current != null) : (current = current.?.next) {
-            self.allocator.free(current.?.chunk);
-            self.allocator.destroy(current.?);
-        }
-
-        self.varNameRegRel.deinit();
-        self.allocator.destroy(self.varNameRegRel);
-
-        self.varRegisters.deinit();
-        self.allocator.destroy(self.varRegisters);
-    }
-
-    pub fn appendChunk(self: *Self, chunk: []u8) !void {
-        const newChunk = try createMut(InstrChunk, self.allocator, InstrChunk.init(chunk));
-
-        if (self.last) |last| {
-            last.next = newChunk;
-            newChunk.prev = last;
-            self.last = newChunk;
-        } else {
-            self.instructionList = newChunk;
-            self.last = newChunk;
-        }
-    }
-
-    pub fn getAvailableReg(self: Self) ?codegen.RegisterNumber {
-        for (self.availableRegisters, 0..) |reg, index| {
-            if (!reg) return @intCast(index);
-        }
-
-        return null;
-    }
-
-    pub fn getAvailableRegPushSpill(self: Self) codegen.RegisterNumber {
-        const reg = self.getAvailableReg();
-        if (reg) |num| {
-            return num;
-        } else {
-            const keys = self.varRegisters.keyIterator();
-            const first = keys.next();
-            if (first) |name| {
-                _ = name;
-            } else {
-                // TODO - create case to account for this
-                unreachable;
-            }
-        }
-    }
-
-    pub fn reserveRegister(self: *Self, reg: codegen.RegisterNumber) void {
-        self.availableRegisters[reg] = true;
-    }
-
-    pub fn getVariableRegister(self: Self, name: []u8) codegen.RegisterNumber {
-        return self.varNameRegRel.get(name);
-    }
-
-    pub fn setVariableRegister(self: *Self, name: []u8, reg: codegen.RegisterNumber) !void {
-        try self.varNameRegRel.put(name, reg);
-        try self.varRegisters.put(reg, {});
     }
 };
 

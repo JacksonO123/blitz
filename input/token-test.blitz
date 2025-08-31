@@ -81,3 +81,17 @@ prot
 static
 return
 error
+28char
+28u8
+28u16
+28u32
+28u64
+28u128
+28i8
+28i16
+28i32
+28i64
+28i128
+28f32
+28f64
+28f128

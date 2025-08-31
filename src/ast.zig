@@ -27,9 +27,15 @@ pub const SeqNode = struct {
     nodes: []*AstNode,
 };
 
+const AstNumberVariantsStrRel = struct {
+    str: []const u8,
+    val: AstNumberVariants,
+};
+
 pub const AstNumberVariants = enum {
     const Self = @This();
 
+    Char,
     U8,
     U16,
     U32,
@@ -48,6 +54,7 @@ pub const AstNumberVariants = enum {
 
     pub fn getSize(self: Self) u8 {
         return switch (self) {
+            .Char => @sizeOf(u8),
             .U8 => @sizeOf(u8),
             .U16 => @sizeOf(u16),
             .U32 => @sizeOf(u32),
@@ -65,11 +72,60 @@ pub const AstNumberVariants = enum {
             .F128 => @sizeOf(f128),
         };
     }
+
+    pub fn fromStr(str: []const u8) ?Self {
+        const rels = &[_]AstNumberVariantsStrRel{
+            .{ .str = "char", .val = .Char },
+            .{ .str = "u8", .val = .U8 },
+            .{ .str = "u16", .val = .U16 },
+            .{ .str = "u32", .val = .U32 },
+            .{ .str = "u64", .val = .U64 },
+            .{ .str = "u128", .val = .U128 },
+            .{ .str = "i8", .val = .I8 },
+            .{ .str = "i16", .val = .I16 },
+            .{ .str = "i32", .val = .I32 },
+            .{ .str = "i64", .val = .I64 },
+            .{ .str = "i128", .val = .I128 },
+            .{ .str = "f32", .val = .F32 },
+            .{ .str = "f64", .val = .F64 },
+            .{ .str = "f128", .val = .F128 },
+            .{ .str = "usize", .val = .USize },
+            .{ .str = "isize", .val = .ISize },
+        };
+
+        for (rels) |rel| {
+            if (string.compString(rel.str, str)) return rel.val;
+        }
+
+        return null;
+    }
+
+    pub fn toString(self: Self) []const u8 {
+        return switch (self) {
+            .Char => "char",
+            .U8 => "u8",
+            .U16 => "u16",
+            .U32 => "u32",
+            .U64 => "u64",
+            .U128 => "u128",
+            .USize => "usize",
+            .I8 => "i8",
+            .I16 => "i16",
+            .I32 => "i32",
+            .I64 => "i64",
+            .I128 => "i128",
+            .ISize => "isize",
+            .F32 => "f32",
+            .F64 => "f64",
+            .F128 => "f128",
+        };
+    }
 };
 
 pub const AstNumber = union(AstNumberVariants) {
     const Self = @This();
 
+    Char: u8,
     U8: u8,
     U16: u16,
     U32: u32,
@@ -88,6 +144,7 @@ pub const AstNumber = union(AstNumberVariants) {
 
     pub fn toString(self: Self) []const u8 {
         return switch (self) {
+            .Char => "char",
             .U8 => "u8",
             .U16 => "u16",
             .U32 => "u32",
@@ -108,6 +165,7 @@ pub const AstNumber = union(AstNumberVariants) {
 
     pub fn toAstNumberVariant(self: Self) AstNumberVariants {
         return switch (self) {
+            .Char => .Char,
             .U8 => .U8,
             .U16 => .U16,
             .U32 => .U32,

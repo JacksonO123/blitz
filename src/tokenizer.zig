@@ -1,5 +1,6 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
+const blitzAst = blitz.ast;
 const string = blitz.string;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
@@ -14,7 +15,96 @@ pub const TokenizeError = error{
     CharTokenTooShort,
 };
 
-pub const TokenType = enum(u16) {
+const TokenVariants = enum {
+    // keywords
+    Let,
+    Mut,
+    Fn,
+    Struct,
+    If,
+    Else,
+    For,
+    While,
+    Continue,
+    Break,
+    Pub,
+    Prot,
+    Static,
+    Return,
+    Error,
+
+    // symbols
+    Colon,
+    Semicolon,
+    LParen,
+    RParen,
+    LBracket,
+    RBracket,
+    LBrace,
+    RBrace,
+    LAngle,
+    RAngle,
+    BitAnd,
+    BitOr,
+    And,
+    Or,
+    Sub,
+    Add,
+    Mult,
+    Div,
+    Mod,
+    BitAndEq,
+    BitOrEq,
+    AndEq,
+    OrEq,
+    EqSet,
+    Bang,
+    Period,
+    Comma,
+    QuestionMark,
+    StringToken,
+    CharToken,
+    EqComp,
+    LAngleEq,
+    RAngleEq,
+    SubEq,
+    AddEq,
+    MultEq,
+    DivEq,
+    Inc,
+    Dec,
+
+    // datatypes
+    CharType,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    F32,
+    F64,
+    F128,
+    USize,
+    ISize,
+    StringType,
+    Bool,
+    Null,
+    True,
+    False,
+
+    // other
+    Identifier,
+    Number,
+    NegNumber,
+    NewLine,
+};
+
+pub const TokenType = union(TokenVariants) {
     const Self = @This();
 
     // keywords
@@ -91,6 +181,7 @@ pub const TokenType = enum(u16) {
     F64,
     F128,
     USize,
+    ISize,
     StringType,
     Bool,
     Null,
@@ -99,8 +190,8 @@ pub const TokenType = enum(u16) {
 
     // other
     Identifier,
-    Number,
-    NegNumber,
+    Number: blitzAst.AstNumberVariants,
+    NegNumber: blitzAst.AstNumberVariants,
     NewLine,
 
     pub fn toString(self: Self) []const u8 {
@@ -160,6 +251,7 @@ pub const TokenType = enum(u16) {
             .F64 => "f64",
             .F128 => "f128",
             .USize => "usize",
+            .ISize => "isize",
             .StringType => "string",
             .StringToken => "(string data...)",
             .Bool => "bool",
@@ -185,11 +277,6 @@ pub const TokenType = enum(u16) {
             .NewLine => "newline",
         };
     }
-};
-
-const TokenTypeMap = struct {
-    string: []const u8,
-    token: TokenType,
 };
 
 pub const Token = struct {
@@ -229,6 +316,11 @@ pub const Token = struct {
 
         return if (includeAngle) temp or self.type == .RAngle else temp;
     }
+};
+
+const TokenTypeMap = struct {
+    string: []const u8,
+    token: TokenType,
 };
 
 const TokenizerOut = struct {
@@ -272,6 +364,14 @@ const CharUtil = struct {
 
     pub fn hasNext(self: Self) bool {
         return self.index < self.chars.len;
+    }
+
+    pub fn advance(self: *Self, amount: usize) !void {
+        if (self.index + amount > self.chars.len) {
+            return self.logError(TokenizeError.ExpectedCharacterFoundNothing);
+        }
+
+        self.index += amount;
     }
 
     pub fn take(self: *Self) !u8 {
@@ -393,9 +493,9 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
         '-' => {
             const nextPeak = try chars.peak();
             if (std.ascii.isDigit(nextPeak)) {
-                const number = try parseNumber(allocator, chars);
+                const numberInfo = try parseNumber(allocator, chars);
                 chars.returnChar();
-                return Token.initStr(.NegNumber, number);
+                return Token.initStr(.{ .NegNumber = numberInfo.numType orelse .I32 }, numberInfo.num);
             } else if (nextPeak == '=') {
                 _ = try chars.take();
                 return Token.init(.SubEq);
@@ -553,9 +653,9 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
         else => {
             if (std.ascii.isDigit(first)) {
                 chars.returnChar();
-                const number = try parseNumber(allocator, chars);
+                const numberInfo = try parseNumber(allocator, chars);
                 chars.returnChar();
-                return Token.initStr(.Number, number);
+                return Token.initStr(.{ .Number = numberInfo.numType orelse .U32 }, numberInfo.num);
             }
 
             var char = first;
@@ -592,7 +692,12 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
     }
 }
 
-fn parseNumber(allocator: Allocator, chars: *CharUtil) ![]u8 {
+const ParsedNumberInfo = struct {
+    num: []u8,
+    numType: ?blitzAst.AstNumberVariants,
+};
+
+fn parseNumber(allocator: Allocator, chars: *CharUtil) !ParsedNumberInfo {
     var number = ArrayList(u8).init(allocator);
     defer number.deinit();
 
@@ -615,7 +720,49 @@ fn parseNumber(allocator: Allocator, chars: *CharUtil) ![]u8 {
         char = try chars.take();
     }
 
-    return number.toOwnedSlice();
+    if (std.ascii.isAlphabetic(char)) {
+        chars.returnChar();
+
+        const typeStrings = &[_][]const u8{
+            "char",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "u128",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "i128",
+            "f32",
+            "f64",
+            "f128",
+            "usize",
+            "isize",
+        };
+
+        for (typeStrings) |str| {
+            if (chars.index + str.len >= chars.chars.len) continue;
+            const charSlice = chars.chars[chars.index .. chars.index + str.len];
+
+            if (string.compString(str, charSlice)) {
+                try chars.advance(str.len + 1);
+                const variant = blitzAst.AstNumberVariants.fromStr(str).?;
+                return .{
+                    .num = try number.toOwnedSlice(),
+                    .numType = variant,
+                };
+            }
+        }
+
+        _ = try chars.take();
+    }
+
+    return .{
+        .num = try number.toOwnedSlice(),
+        .numType = null,
+    };
 }
 
 fn getLineBounds(chars: []const u8, index: usize) LineBounds {

@@ -6,9 +6,11 @@ const utils = blitz.utils;
 const string = blitz.string;
 const version = blitz.version;
 const settings = blitz.settings;
-const GenInfo = utils.GenInfo;
 const Allocator = std.mem.Allocator;
+const StringHashMap = std.StringHashMap;
+const AutoHashMap = std.AutoHashMap;
 
+pub const PointerType = u64;
 pub const RegisterNumber = u8;
 pub const NUM_REGISTERS = 256;
 pub const REGISTER_SIZE = 8; // bytes
@@ -16,6 +18,110 @@ pub const REGISTER_SIZE = 8; // bytes
 const CodeGenError = error{
     RawNumberIsTooBig,
     NoAvailableRegisters,
+    ReturnedRegisterNotFound,
+};
+
+pub const InstrChunk = struct {
+    const Self = @This();
+
+    next: ?*InstrChunk,
+    prev: ?*InstrChunk,
+    chunk: []u8,
+
+    pub fn init(chunk: []u8) Self {
+        return .{
+            .next = null,
+            .prev = null,
+            .chunk = chunk,
+        };
+    }
+};
+
+const VarRegLocInfoVariants = enum {
+    Register,
+    StackLocation,
+};
+
+const VariableRegLocationInfo = union(VarRegLocInfoVariants) {
+    Register: RegisterNumber,
+    StackLocation: PointerType,
+};
+
+pub const GenInfo = struct {
+    const Self = @This();
+
+    allocator: Allocator,
+    stackStartSize: u32,
+    instructionList: ?*InstrChunk,
+    last: ?*InstrChunk,
+    availableRegisters: [NUM_REGISTERS]bool = [_]bool{false} ** NUM_REGISTERS,
+    varNameRegRel: *StringHashMap(VariableRegLocationInfo),
+    varRegisters: *AutoHashMap(RegisterNumber, void),
+
+    pub fn init(
+        allocator: Allocator,
+    ) !Self {
+        const varNameRegRel = try utils.initMutPtrT(StringHashMap(VariableRegLocationInfo), allocator);
+        const varRegisters = try utils.initMutPtrT(AutoHashMap(RegisterNumber, void), allocator);
+
+        return .{
+            .allocator = allocator,
+            .stackStartSize = 0,
+            .instructionList = null,
+            .last = null,
+            .varNameRegRel = varNameRegRel,
+            .varRegisters = varRegisters,
+        };
+    }
+
+    pub fn deinit(self: Self) void {
+        var current = self.instructionList;
+        while (current != null) : (current = current.?.next) {
+            self.allocator.free(current.?.chunk);
+            self.allocator.destroy(current.?);
+        }
+
+        self.varNameRegRel.deinit();
+        self.allocator.destroy(self.varNameRegRel);
+
+        self.varRegisters.deinit();
+        self.allocator.destroy(self.varRegisters);
+    }
+
+    pub fn appendChunk(self: *Self, chunk: []u8) !void {
+        const newChunk = try utils.createMut(InstrChunk, self.allocator, InstrChunk.init(chunk));
+
+        if (self.last) |last| {
+            last.next = newChunk;
+            newChunk.prev = last;
+            self.last = newChunk;
+        } else {
+            self.instructionList = newChunk;
+            self.last = newChunk;
+        }
+    }
+
+    pub fn getAvailableReg(self: Self) ?RegisterNumber {
+        for (self.availableRegisters, 0..) |reg, index| {
+            if (!reg) return @intCast(index);
+        }
+
+        return null;
+    }
+
+    pub fn reserveRegister(self: *Self, reg: RegisterNumber) void {
+        self.availableRegisters[reg] = true;
+    }
+
+    pub fn getVariableRegister(self: Self, name: []u8) RegisterNumber {
+        // TODO - address this
+        return self.varNameRegRel.get(name).?.Register;
+    }
+
+    pub fn setVariableRegister(self: *Self, name: []u8, reg: RegisterNumber) !void {
+        try self.varNameRegRel.put(name, .{ .Register = reg });
+        try self.varRegisters.put(reg, {});
+    }
 };
 
 pub const Instructions = enum(u8) {
@@ -24,11 +130,30 @@ pub const Instructions = enum(u8) {
     Store,
     SetReg,
     SetRegHalf,
+    Add,
+    Sub,
+    Mult,
 
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
     }
 };
+
+const RegisterContext = struct {
+    const Self = @This();
+
+    reg: RegisterNumber,
+    preserve: bool,
+
+    pub fn init(reg: RegisterNumber, preserve: bool) Self {
+        return .{
+            .reg = reg,
+            .preserve = preserve,
+        };
+    }
+};
+
+const regContext = RegisterContext.init;
 
 pub fn codegenAst(allocator: Allocator, genInfo: *GenInfo, ast: blitzAst.Ast) !void {
     try writeStartVMInfo(allocator, genInfo);
@@ -59,7 +184,7 @@ pub fn genBytecode(
     allocator: Allocator,
     genInfo: *GenInfo,
     node: *const blitzAst.AstNode,
-) !?RegisterNumber {
+) !?RegisterContext {
     switch (node.*) {
         .Seq => |seq| {
             for (seq.nodes) |seqNode| {
@@ -69,14 +194,14 @@ pub fn genBytecode(
         .VarDec => |dec| {
             const reg = try genBytecode(allocator, genInfo, dec.setNode);
             if (reg) |num| {
-                try genInfo.setVariableRegister(dec.name, num);
+                try genInfo.setVariableRegister(dec.name, num.reg);
             }
         },
         .Value => |value| {
             switch (value) {
                 .RawNumber => |num| {
-                    const reg = genInfo.getAvailableRegPushSpill();
-                    genInfo.reserveRegister(reg.?);
+                    const reg = genInfo.getAvailableReg() orelse return CodeGenError.NoAvailableRegisters;
+                    genInfo.reserveRegister(reg);
 
                     const inst = Instructions.SetRegHalf.getInstrByte();
                     const buf = try allocator.alloc(u8, 6);
@@ -86,10 +211,44 @@ pub fn genBytecode(
 
                     try genInfo.appendChunk(buf);
 
-                    return reg;
+                    return regContext(reg, false);
                 },
                 else => {},
             }
+        },
+        .OpExpr => |expr| {
+            const leftReg = try genBytecode(allocator, genInfo, expr.left) orelse return CodeGenError.ReturnedRegisterNotFound;
+            const rightReg = try genBytecode(allocator, genInfo, expr.right) orelse return CodeGenError.ReturnedRegisterNotFound;
+
+            var reg: RegisterNumber = undefined;
+
+            if (!leftReg.preserve) {
+                reg = leftReg.reg;
+            } else if (!rightReg.preserve) {
+                reg = rightReg.reg;
+            } else {
+                reg = genInfo.getAvailableReg() orelse return CodeGenError.NoAvailableRegisters;
+                genInfo.reserveRegister(reg);
+            }
+
+            const buf = try allocator.alloc(u8, 4);
+            buf[1] = reg;
+            buf[2] = leftReg.reg;
+            buf[3] = rightReg.reg;
+
+            buf[0] = switch (expr.type) {
+                .Add => Instructions.Add,
+                .Sub => Instructions.Sub,
+                .Mult => Instructions.Mult,
+                else => unreachable,
+            }.getInstrByte();
+
+            try genInfo.appendChunk(buf);
+            return regContext(reg, false);
+        },
+        .Variable => |name| {
+            const storedReg = genInfo.getVariableRegister(name);
+            return regContext(storedReg, true);
         },
         else => {},
     }

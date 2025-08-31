@@ -250,7 +250,8 @@ pub fn scanNode(
             switch (op.type) {
                 .BitAnd, .BitOr => {
                     if (left.astType.* != .Number or right.astType.* != .Number) return ScanError.InvalidBitOperation;
-                    if (!compareNumberBitSize(left.astType.Number, right.astType.Number)) return ScanError.BitMaskWithMismatchingSize;
+
+                    if (left.astType.Number.getSize() != right.astType.Number.getSize()) return ScanError.BitMaskWithMismatchingSize;
                     return utils.astTypesPtrToInfo(try clone.cloneAstTypesPtr(allocator, compInfo, left.astType, withGenDef), false);
                 },
                 .And, .Or => {
@@ -1194,26 +1195,6 @@ fn scanIfFallback(
     if (fallback.fallback) |innerFallback| {
         try scanIfFallback(allocator, compInfo, innerFallback, withGenDef);
     }
-}
-
-fn compareNumberBitSize(num1: blitzAst.AstNumberVariants, num2: blitzAst.AstNumberVariants) bool {
-    return switch (num1) {
-        .USize => num2 == .USize,
-        .ISize => num2 == .ISize,
-        .U8 => num2 == .I8,
-        .U16 => num2 == .I16,
-        .U32 => num2 == .F32 or num2 == .I32,
-        .U64 => num2 == .F64 or num2 == .I64,
-        .U128 => num2 == .F128 or num2 == .I128,
-        .I8 => num2 == .U8,
-        .I16 => num2 == .U16,
-        .I32 => num2 == .U32 or num2 == .F32,
-        .I64 => num2 == .U64 or num2 == .F64,
-        .I128 => num2 == .U128 or num2 == .F128,
-        .F32 => num2 == .I32 or num2 == .U32,
-        .F64 => num2 == .I64 or num2 == .U64,
-        .F128 => num2 == .I128 or num2 == .U128,
-    };
 }
 
 fn setInitGenerics(

@@ -14,7 +14,7 @@ const StringHashMap = std.StringHashMap;
 const Allocator = std.mem.Allocator;
 const CompInfo = utils.CompInfo;
 const TokenUtil = utils.TokenUtil;
-const GenInfo = utils.GenInfo;
+const GenInfo = codegen.GenInfo;
 
 // debug
 const debug = @import("debug.zig");
@@ -84,6 +84,6 @@ pub fn main() !void {
 
     try codegen.codegenAst(allocator, &genInfo, ast);
     std.debug.print("--- bytecode out ---\n", .{});
-    try debug.printByteCode(&genInfo);
+    try debug.printBytecode(&genInfo);
     std.debug.print("\n------------\n", .{});
 }
