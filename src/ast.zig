@@ -1026,9 +1026,9 @@ fn parseVariants(allocator: Allocator, compInfo: *CompInfo) ![][]u8 {
 }
 
 fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
-    const expr = try parseExpressionUtil(allocator, compInfo);
+    var expr = try parseExpressionUtil(allocator, compInfo);
     const next = try compInfo.tokens.peak();
-    switch (next.type) {
+    expr = switch (next.type) {
         .BitAnd,
         .BitOr,
         .And,
@@ -1043,7 +1043,7 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
         .LAngleEq,
         .RAngleEq,
         .EqComp,
-        => {
+        => a: {
             if (expr == null) {
                 return compInfo.logger.logError(AstError.ExpectedExpression);
             }
@@ -1055,7 +1055,7 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
                 return compInfo.logger.logError(AstError.ExpectedExpression);
             }
 
-            return try createMut(AstNode, allocator, .{
+            break :a try createMut(AstNode, allocator, .{
                 .OpExpr = .{
                     .type = tokenTypeToOpType(next.type),
                     .left = expr.?,
@@ -1063,20 +1063,20 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
                 },
             });
         },
-        .Inc => {
+        .Inc => a: {
             _ = try compInfo.tokens.take();
-            return try createMut(AstNode, allocator, .{
+            break :a try createMut(AstNode, allocator, .{
                 .IncOne = expr.?,
             });
         },
-        .Dec => {
+        .Dec => a: {
             _ = try compInfo.tokens.take();
-            return try createMut(AstNode, allocator, .{
+            break :a try createMut(AstNode, allocator, .{
                 .DecOne = expr.?,
             });
         },
-        else => {},
-    }
+        else => expr,
+    };
 
     if (expr) |node| {
         if (node.* == .OpExpr) {

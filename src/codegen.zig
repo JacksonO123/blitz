@@ -138,7 +138,6 @@ pub const GenInfo = struct {
 pub const Instructions = enum(u8) {
     const Self = @This();
 
-    Store,
     SetReg, // inst, reg, 8B data
     SetRegHalf, // inst, reg, 4B data
     SetRegByte, // inst, reg, 4B data
@@ -146,7 +145,8 @@ pub const Instructions = enum(u8) {
     Sub, // inst, out reg, reg1, reg2
     Mult, // inst, out reg, reg1, reg2
     CmpConstByte, // inst, reg1, reg2
-    BranchNotEqual, // inst, label (u64)
+    JumpNotEqual, // inst, rel bytes (i16)
+    Jump, // inst, rel bytes (i16)
 
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
@@ -292,19 +292,27 @@ pub fn genBytecode(
             buf[2] = 1;
             try genInfo.appendChunk(buf);
 
-            const branchBuf = try allocator.alloc(u8, 3);
-            branchBuf[0] = Instructions.BranchNotEqual.getInstrByte();
-            try genInfo.appendChunk(branchBuf);
+            const jumpBuf = try allocator.alloc(u8, 3);
+            jumpBuf[0] = Instructions.JumpNotEqual.getInstrByte();
+            try genInfo.appendChunk(jumpBuf);
 
             const byteCount = genInfo.byteCounter;
 
             _ = try genBytecode(allocator, genInfo, statement.body);
 
-            const diff = @as(u16, @intCast(genInfo.byteCounter - byteCount));
-            std.mem.writeInt(u16, @ptrCast(branchBuf[1..]), diff, .big);
-
             if (statement.fallback) |fallback| {
+                const jumpEndBuf = try allocator.alloc(u8, 3);
+                jumpEndBuf[0] = Instructions.Jump.getInstrByte();
+                try genInfo.appendChunk(jumpEndBuf);
+
+                const preFallbackByteCount = genInfo.byteCounter;
+
+                const diff = @as(u16, @intCast(genInfo.byteCounter - byteCount));
+                std.mem.writeInt(u16, @ptrCast(jumpBuf[1..]), diff, .big);
+
                 try generateFallback(allocator, genInfo, fallback);
+                const jumpEndDiff = @as(u16, @intCast(genInfo.byteCounter - preFallbackByteCount));
+                std.mem.writeInt(u16, @ptrCast(jumpEndBuf[1..]), jumpEndDiff, .big);
             }
         },
         else => {},
@@ -325,22 +333,30 @@ fn generateFallback(allocator: Allocator, genInfo: *GenInfo, fallback: *const bl
         buf[2] = 1;
         try genInfo.appendChunk(buf);
 
-        const branchBuf = try allocator.alloc(u8, 3);
-        branchBuf[0] = Instructions.BranchNotEqual.getInstrByte();
-        try genInfo.appendChunk(branchBuf);
-        jumpSlice = branchBuf[1..];
+        const jumpBuf = try allocator.alloc(u8, 3);
+        jumpBuf[0] = Instructions.JumpNotEqual.getInstrByte();
+        try genInfo.appendChunk(jumpBuf);
+        jumpSlice = jumpBuf[1..];
     }
 
-    const byteCount = genInfo.byteCounter;
+    const preBodyByteCount = genInfo.byteCounter;
 
     _ = try genBytecode(allocator, genInfo, fallback.body);
 
-    if (jumpSlice) |slice| {
-        const diff = @as(u16, @intCast(genInfo.byteCounter - byteCount));
-        std.mem.writeInt(u16, @ptrCast(slice), diff, .big);
-    }
-
     if (fallback.fallback) |newFallback| {
+        const jumpEndBuf = try allocator.alloc(u8, 3);
+        jumpEndBuf[0] = Instructions.Jump.getInstrByte();
+        try genInfo.appendChunk(jumpEndBuf);
+
+        const preFallbackByteCount = genInfo.byteCounter;
+
+        if (jumpSlice) |slice| {
+            const diff = @as(u16, @intCast(genInfo.byteCounter - preBodyByteCount));
+            std.mem.writeInt(u16, @ptrCast(slice), diff, .big);
+        }
+
         try generateFallback(allocator, genInfo, newFallback);
+        const diff = @as(u16, @intCast(genInfo.byteCounter - preFallbackByteCount));
+        std.mem.writeInt(u16, @ptrCast(jumpEndBuf[1..]), diff, .big);
     }
 }
