@@ -609,19 +609,25 @@ pub fn printBytecode(genInfo: *const GenInfo) !void {
         try writer.writeAll("MakeStack ");
         try writeHexDecNumber(stackSizeBuf, writer);
 
-        try printChunks(genInfo, chunk, writer);
+        try printChunks(chunk, writer);
+
+        var next = chunk.next;
+        while (next) |nextChunk| {
+            try printChunks(nextChunk, writer);
+            next = nextChunk.next;
+        }
     }
 }
 
-fn printChunks(genInfo: *const GenInfo, chunk: *codegen.InstrChunk, writer: anytype) !void {
+fn printChunks(chunk: *codegen.InstrChunk, writer: anytype) !void {
     const bytecode = chunk.chunk;
     const inst = @as(codegen.Instructions, @enumFromInt(bytecode[0]));
     switch (inst) {
-        .SetReg => {
-            try writer.writeAll("set_reg r");
-            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
-            try writer.writeAll(" ");
-        },
+        // .SetReg => {
+        //     try writer.writeAll("set_reg r");
+        //     try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+        //     try writer.writeAll(" ");
+        // },
         .SetRegHalf => {
             try writer.writeAll("set_reg_half r");
             try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
@@ -629,17 +635,29 @@ fn printChunks(genInfo: *const GenInfo, chunk: *codegen.InstrChunk, writer: anyt
             const num = bytecode[2..6];
             try writeHexDecNumber(num, writer);
         },
+        .SetRegByte => {
+            try writer.writeAll("set_reg_byte r");
+            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.writeAll(" ");
+            try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
+        },
         .Add => try printBytecodeOpExpr("add", bytecode, writer),
         .Sub => try printBytecodeOpExpr("sub", bytecode, writer),
         .Mult => try printBytecodeOpExpr("mult", bytecode, writer),
+        .CmpConstByte => {
+            try writer.writeAll("cmp_const_byte r");
+            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.writeAll(" ");
+            try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
+        },
+        .BranchNotEqual => {
+            try writer.writeAll("br_not_eq ");
+            try formatIntByteSlice(bytecode[1..], writer);
+        },
         else => {},
     }
 
     try writer.writeByte('\n');
-
-    if (chunk.next) |next| {
-        try printChunks(genInfo, next, writer);
-    }
 }
 
 fn printBytecodeOpExpr(name: []const u8, bytecode: []u8, writer: anytype) !void {
@@ -667,6 +685,7 @@ fn writeHexDecNumber(constStr: []u8, writer: anytype) !void {
 
 fn formatIntByteSlice(slice: []u8, writer: anytype) !void {
     switch (slice.len) {
+        2 => try formatIntByteSliceUtil(u16, slice, writer),
         4 => try formatIntByteSliceUtil(u32, slice, writer),
         else => unimplemented(),
     }

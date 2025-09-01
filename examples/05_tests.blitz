@@ -4,3 +4,14 @@ let c = 3;
 let d = 4;
 let e = 5;
 let f = a + b * c - d + e;
+
+if (true) {
+  let g = 10;
+} else if (false) {
+  let h = 11;
+} else {
+  let i = 12;
+}
+
+//let i = 1 + 2;
+//let j = 2;
