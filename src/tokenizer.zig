@@ -18,7 +18,6 @@ pub const TokenizeError = error{
 const TokenVariants = enum {
     // keywords
     Let,
-    Mut,
     Fn,
     Struct,
     If,
@@ -32,10 +31,14 @@ const TokenVariants = enum {
     Static,
     Return,
     Error,
+    Mut,
+    New,
 
     // symbols
     Colon,
     Semicolon,
+    Ampersand,
+    Asterisk,
     LParen,
     RParen,
     LBracket,
@@ -44,13 +47,11 @@ const TokenVariants = enum {
     RBrace,
     LAngle,
     RAngle,
-    BitAnd,
     BitOr,
     And,
     Or,
     Sub,
     Add,
-    Mult,
     Div,
     Mod,
     BitAndEq,
@@ -109,7 +110,6 @@ pub const TokenType = union(TokenVariants) {
 
     // keywords
     Let,
-    Mut,
     Fn,
     Struct,
     If,
@@ -123,10 +123,14 @@ pub const TokenType = union(TokenVariants) {
     Static,
     Return,
     Error,
+    Mut,
+    New,
 
     // symbols
     Colon,
     Semicolon,
+    Ampersand,
+    Asterisk,
     LParen,
     RParen,
     LBracket,
@@ -135,13 +139,11 @@ pub const TokenType = union(TokenVariants) {
     RBrace,
     LAngle,
     RAngle,
-    BitAnd,
     BitOr,
     And,
     Or,
     Sub,
     Add,
-    Mult,
     Div,
     Mod,
     BitAndEq,
@@ -210,6 +212,8 @@ pub const TokenType = union(TokenVariants) {
             .Break => "break",
             .Colon => ":",
             .Semicolon => ";",
+            .Ampersand => "&",
+            .Asterisk => "*",
             .LParen => "(",
             .RParen => ")",
             .LBracket => "[",
@@ -218,7 +222,6 @@ pub const TokenType = union(TokenVariants) {
             .RBrace => "}",
             .LAngle => "<",
             .RAngle => ">",
-            .BitAnd => "&",
             .BitOr => "|",
             .BitAndEq => "&=",
             .BitOrEq => "|=",
@@ -229,7 +232,6 @@ pub const TokenType = union(TokenVariants) {
             .EqSet => "=",
             .Sub => "-",
             .Add => "+",
-            .Mult => "*",
             .Div => "/",
             .Mod => "%",
             .Bang => "!",
@@ -274,6 +276,7 @@ pub const TokenType = union(TokenVariants) {
             .Static => "static",
             .Return => "return",
             .Error => "error",
+            .New => "new",
             .NewLine => "newline",
         };
     }
@@ -512,7 +515,7 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
                 return Token.init(.MultEq);
             }
 
-            return Token.init(.Mult);
+            return Token.init(.Asterisk);
         },
         '/' => {
             const nextPeak = try chars.peak();
@@ -584,7 +587,9 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             return Token.init(.Period);
         },
         '&' => {
-            if ((try chars.peak()) == '&') {
+            const peakChar = try chars.peak();
+
+            if (peakChar == '&') {
                 _ = try chars.take();
 
                 if ((try chars.peak()) == '=') {
@@ -593,14 +598,17 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
                 }
 
                 return Token.init(.And);
-            } else if ((try chars.peak()) == '=') {
+            } else if (peakChar == '=') {
                 _ = try chars.take();
                 return Token.init(.BitAndEq);
             }
-            return Token.init(.BitAnd);
+
+            return Token.init(.Ampersand);
         },
         '|' => {
-            if ((try chars.peak()) == '|') {
+            const peakChar = try chars.peak();
+
+            if (peakChar == '|') {
                 _ = try chars.take();
 
                 if ((try chars.peak()) == '=') {
@@ -609,7 +617,7 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
                 }
 
                 return Token.init(.Or);
-            } else if ((try chars.peak()) == '=') {
+            } else if (peakChar == '=') {
                 _ = try chars.take();
                 return Token.init(.BitOrEq);
             }
@@ -843,6 +851,7 @@ fn isKeyword(chars: []const u8) ?TokenType {
         .{ .string = "static", .token = .Static },
         .{ .string = "return", .token = .Return },
         .{ .string = "error", .token = .Error },
+        .{ .string = "new", .token = .New },
     };
 
     return getTypeFromMap(chars, keywords);

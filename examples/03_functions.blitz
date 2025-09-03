@@ -4,7 +4,7 @@
 // basic void function with params and constant params (useful for references)
 // count has type with mut keyword, so it becomes mutable, position is constant
 // params infer their mutability from their defined type
-fn myFunc(count: mut u32, position: u16) {
+fn myFunc(mut count: u32, position: u16) {
   count = 2;
   // only the most efficient of things
 }
@@ -13,87 +13,87 @@ let a = 1;
 let b = u16(2);
 myFunc(a, b);
 
-//// function with params and return
+// function with params and return
+
+fn myFunc2(): u32 {
+  return 2;
+}
+
+// generic function
+// note: generic functions can define a generic type, then that
+// generic type can be used however you like until you call the
+// function, where it maps the type to a parameter or input generic
+// then the function will be scanned again with the new restriction
+
+fn [T] myFunc3(value: T): T {
+  return value + 1;
+}
+
+// works
+myFunc3(3);
+
+// errors
+// myFunc3("what");
+
+// generic function with polymorphic restriction
+// sometimes you only want inputs that branch from a similar
+// parent struct
+
+struct MyStruct {
+  pub size: u32;
+}
+
+fn [T: MyStruct] myFunc4(value: T): u32 {
+  return value.size;
+}
+
+let myStruct = MyStruct {
+  size = 10,
+};
+myFunc4(myStruct);
+
+// function defined in a function
+// functions that use variables, parameters, and generics from
+// an outer scope will capture them to use when called again
 //
-//fn myFunc2(): u32 {
-//  return 2;
-//}
-//
-//// generic function
-//// note: generic functions can define a generic type, then that
-//// generic type can be used however you like until you call the
-//// function, where it maps the type to a parameter or input generic
-//// then the function will be scanned again with the new restriction
-//
-//fn [T] myFunc3(value: T): T {
-//  return value + 1;
-//}
-//
-//// works
-//myFunc3(3);
-//
-//// errors
-//// myFunc3("what");
-//
-//// generic function with polymorphic restriction
-//// sometimes you only want inputs that branch from a similar
-//// parent struct
-//
-//struct MyStruct {
-//  pub size: u32;
-//}
-//
-//fn [T: MyStruct] myFunc4(value: T): u32 {
-//  return value.size;
-//}
-//
-//let myStruct = MyStruct {
-//  size = 10,
-//};
-//myFunc4(myStruct);
-//
-//// function defined in a function
-//// functions that use variables, parameters, and generics from
-//// an outer scope will capture them to use when called again
-////
-//// in this example, a generic function is defined with a
-//// generic function defined inside it, then the inner generic
-//// function is called with the generic parameter from the outer
-//// function, transfering the generic type to the inner function
-//// all of the generics are then restricted to the input u32 "4"
-//
-//fn [T] testCapture(value: T): T {
-//  fn [G] temp(newValue: G): G {
-//    return newValue + value;
-//  }
-//
-//  return temp(value);
-//}
-//
-//{
-//  testCapture(4);
-//}
-//
-//// recursive functions
-//
-//fn fibonacci1(num: u32): u32 {
-//  if (num <= 1) {
-//    return num;
-//  }
-//
-//  return fibonacci1(num - 1) + fibonacci1(num - 2);
-//}
-//
-//fibonacci1(5);
-//
-//// recursive functions can also be generic (implied but just saying, you never know)
-//
-//fn [T] fibonacci2(num: T): T {
-//  if (num <= 1) {
-//    return num;
-//  }
-//
-//  return fibonacci2(num - 1) + fibonacci2(num - 2);
-//}
-//
-//fibonacci2(6);
+// in this example, a generic function is defined with a
+// generic function defined inside it, then the inner generic
+// function is called with the generic parameter from the outer
+// function, transfering the generic type to the inner function
+// all of the generics are then restricted to the input u32 "4"
+
+fn [T] testCapture(value: T): T {
+  fn [G] temp(newValue: G): G {
+    return newValue + value;
+  }
+
+  return temp(value);
+}
+
+{
+  testCapture(4);
+}
+
+// recursive functions
+
+fn fibonacci1(num: u32): u32 {
+  if (num <= 1) {
+    return num;
+  }
+
+  return fibonacci1(num - 1) + fibonacci1(num - 2);
+}
+
+fibonacci1(5);
+
+// recursive functions can also be generic (implied but just saying, you never know)
+
+fn [T] fibonacci2(num: T): T {
+  if (num <= 1) {
+    return num;
+  }
+
+  return fibonacci2(num - 1) + fibonacci2(num - 2);
+}
+
+fibonacci2(6);

@@ -215,6 +215,7 @@ const Types = enum {
     Number,
     RawNumber,
     ArraySlice,
+    Pointer,
     Nullable,
     Custom,
     Generic,
@@ -222,6 +223,7 @@ const Types = enum {
     StaticStructInstance,
     Error,
     ErrorVariant,
+    VarInfo,
 };
 
 pub const AstTypes = union(Types) {
@@ -234,6 +236,7 @@ pub const AstTypes = union(Types) {
     Number: AstNumberVariants,
     RawNumber: []u8,
     ArraySlice: AstArraySliceType,
+    Pointer: AstTypeInfo,
     Nullable: AstTypeInfo,
     Custom: CustomType,
     Generic: []u8,
@@ -241,6 +244,7 @@ pub const AstTypes = union(Types) {
     StaticStructInstance: []u8,
     Error: ErrorAstType,
     ErrorVariant: ErrorVariantType,
+    VarInfo: AstTypeInfo,
 };
 
 pub const AstTypeInfo = struct {
@@ -355,6 +359,7 @@ const IfStatementNode = struct {
 pub const Parameter = struct {
     name: []u8,
     type: AstTypeInfo,
+    isConst: bool,
 };
 
 pub const GenToTypeInfoRel = struct {
@@ -455,6 +460,11 @@ const WhileLoopNode = struct {
     body: *AstNode,
 };
 
+const PointerNode = struct {
+    node: *AstNode,
+    isConst: bool,
+};
+
 const AstNodeVariants = enum {
     NoOp,
     StructPlaceholder,
@@ -486,6 +496,7 @@ const AstNodeVariants = enum {
     DecOne,
     ForLoop,
     WhileLoop,
+    Pointer,
 };
 
 pub const AstNode = union(AstNodeVariants) {
@@ -519,6 +530,7 @@ pub const AstNode = union(AstNodeVariants) {
     DecOne: *AstNode,
     ForLoop: ForLoopNode,
     WhileLoop: WhileLoopNode,
+    Pointer: PointerNode,
 };
 
 pub const AstError = error{
@@ -607,10 +619,9 @@ pub fn parseSequence(allocator: Allocator, compInfo: *CompInfo, fromBlock: bool)
             }
         }
 
-        const node = try parseStatement(allocator, compInfo);
-        if (node == null) break;
+        const node = try parseStatement(allocator, compInfo) orelse break;
 
-        try seq.append(node.?);
+        try seq.append(node);
     }
 
     return try createMut(AstNode, allocator, .{
@@ -636,8 +647,8 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
         },
         .If => {
             try compInfo.tokens.expectToken(.LParen);
-            const condition = try parseExpression(allocator, compInfo);
-            if (condition == null) return compInfo.logger.logError(AstError.ExpectedExpression);
+            const condition = try parseExpression(allocator, compInfo) orelse
+                return compInfo.logger.logError(AstError.ExpectedExpression);
             try compInfo.tokens.expectToken(.RParen);
 
             try compInfo.tokens.expectToken(.LBrace);
@@ -648,7 +659,7 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
 
             return try createMut(AstNode, allocator, .{
                 .IfStatement = .{
-                    .condition = condition.?,
+                    .condition = condition,
                     .body = seq,
                     .fallback = fallback,
                 },
@@ -674,17 +685,13 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
 
             try compInfo.tokens.expectToken(.Semicolon);
 
-            const condition = try parseExpression(allocator, compInfo);
-            if (condition == null) {
+            const condition = try parseExpression(allocator, compInfo) orelse
                 return compInfo.logger.logError(AstError.ExpectedExpression);
-            }
 
             try compInfo.tokens.expectToken(.Semicolon);
 
-            const incNode = try parseExpression(allocator, compInfo);
-            if (incNode == null) {
+            const incNode = try parseExpression(allocator, compInfo) orelse
                 return compInfo.logger.logError(AstError.ExpectedExpression);
-            }
 
             try compInfo.tokens.expectToken(.RParen);
             try compInfo.tokens.expectToken(.LBrace);
@@ -694,8 +701,8 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
             return try createMut(AstNode, allocator, .{
                 .ForLoop = .{
                     .initNode = initNode,
-                    .condition = condition.?,
-                    .incNode = incNode.?,
+                    .condition = condition,
+                    .incNode = incNode,
                     .body = body,
                 },
             });
@@ -703,10 +710,8 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
         .While => {
             try compInfo.tokens.expectToken(.LParen);
 
-            const condition = try parseExpression(allocator, compInfo);
-            if (condition == null) {
+            const condition = try parseExpression(allocator, compInfo) orelse
                 return compInfo.logger.logError(AstError.ExpectedExpression);
-            }
 
             try compInfo.tokens.expectToken(.RParen);
             try compInfo.tokens.expectToken(.LBrace);
@@ -715,7 +720,7 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
 
             return try createMut(AstNode, allocator, .{
                 .WhileLoop = .{
-                    .condition = condition.?,
+                    .condition = condition,
                     .body = body,
                 },
             });
@@ -724,12 +729,12 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
             const next = try compInfo.tokens.take();
             switch (next.type) {
                 .EqSet => {
-                    const setNode = try parseExpression(allocator, compInfo);
-                    if (setNode == null) return compInfo.logger.logError(AstError.ExpectedExpression);
+                    const setNode = try parseExpression(allocator, compInfo) orelse
+                        return compInfo.logger.logError(AstError.ExpectedExpression);
 
                     return try createMut(AstNode, allocator, .{
                         .ValueSet = .{
-                            .setNode = setNode.?,
+                            .setNode = setNode,
                             .value = try createMut(AstNode, allocator, .{
                                 .Variable = try string.cloneString(allocator, first.string.?),
                             }),
@@ -737,13 +742,13 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
                     });
                 },
                 .AddEq => {
-                    const incNode = try parseExpression(allocator, compInfo);
-                    if (incNode == null) return compInfo.logger.logError(AstError.ExpectedExpression);
+                    const incNode = try parseExpression(allocator, compInfo) orelse
+                        return compInfo.logger.logError(AstError.ExpectedExpression);
 
                     return try createMut(AstNode, allocator, .{
                         .VarEqOp = .{
                             .opType = .AddEq,
-                            .value = incNode.?,
+                            .value = incNode,
                             .variable = try string.cloneString(allocator, first.string.?),
                         },
                     });
@@ -762,12 +767,12 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
             }
         },
         .Return => {
-            const value = try parseExpression(allocator, compInfo);
-            if (value == null) return compInfo.logger.logError(AstError.ExpectedExpression);
+            const value = try parseExpression(allocator, compInfo) orelse
+                return compInfo.logger.logError(AstError.ExpectedExpression);
             try compInfo.tokens.expectToken(.Semicolon);
 
             return try createMut(AstNode, allocator, .{
-                .ReturnNode = value.?,
+                .ReturnNode = value,
             });
         },
         .Error => {
@@ -838,10 +843,8 @@ fn parseIfChain(allocator: Allocator, compInfo: *CompInfo) !?*const IfFallback {
         _ = try compInfo.tokens.take();
         try compInfo.tokens.expectToken(.LParen);
 
-        condition = try parseExpression(allocator, compInfo);
-        if (condition == null) {
+        condition = try parseExpression(allocator, compInfo) orelse
             return compInfo.logger.logError(AstError.ExpectedExpression);
-        }
 
         try compInfo.tokens.expectToken(.RParen);
     }
@@ -1029,13 +1032,13 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
     var expr = try parseExpressionUtil(allocator, compInfo);
     const next = try compInfo.tokens.peak();
     expr = switch (next.type) {
-        .BitAnd,
+        .Ampersand,
         .BitOr,
         .And,
         .Or,
         .Add,
         .Sub,
-        .Mult,
+        .Asterisk,
         .Div,
         .Mod,
         .LAngle,
@@ -1050,16 +1053,14 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
 
             _ = try compInfo.tokens.take();
 
-            const after = try parseExpression(allocator, compInfo);
-            if (after == null) {
+            const after = try parseExpression(allocator, compInfo) orelse
                 return compInfo.logger.logError(AstError.ExpectedExpression);
-            }
 
             break :a try createMut(AstNode, allocator, .{
                 .OpExpr = .{
                     .type = tokenTypeToOpType(next.type),
                     .left = expr.?,
-                    .right = after.?,
+                    .right = after,
                 },
             });
         },
@@ -1094,6 +1095,7 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
             .Value = .Null,
         }),
         .Number, .NegNumber => return try createMut(AstNode, allocator, .{
+            // TODO - maybe make this more specific
             .Value = .{
                 .RawNumber = try string.cloneString(allocator, first.string.?),
             },
@@ -1120,26 +1122,41 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
                 .Char = first.string.?[0],
             },
         }),
-        .Bang => {
-            const expr = try parseExpression(allocator, compInfo);
-            if (expr == null) {
-                return compInfo.logger.logError(AstError.ExpectedExpression);
-            }
+        .Mut => {
+            const next = try compInfo.tokens.peak();
+            if (next.type != .Ampersand) return compInfo.logger.logError(AstError.UnexpectedToken);
 
+            const expr = try parseExpression(allocator, compInfo) orelse
+                return compInfo.logger.logError(AstError.ExpectedExpression);
+            expr.Pointer.isConst = false;
+
+            return expr;
+        },
+        .Bang => {
+            const expr = try parseExpression(allocator, compInfo) orelse
+                return compInfo.logger.logError(AstError.ExpectedExpression);
             return try createMut(AstNode, allocator, .{
-                .Bang = expr.?,
+                .Bang = expr,
+            });
+        },
+        .Ampersand => {
+            const expr = try parseExpression(allocator, compInfo) orelse
+                return compInfo.logger.logError(AstError.ExpectedExpression);
+            return try createMut(AstNode, allocator, .{
+                .Pointer = .{
+                    .node = expr,
+                    .isConst = true,
+                },
             });
         },
         .LParen => {
-            const expr = try parseExpression(allocator, compInfo);
-            if (expr == null) {
+            const expr = try parseExpression(allocator, compInfo) orelse
                 return compInfo.logger.logError(AstError.ExpectedExpression);
-            }
 
             try compInfo.tokens.expectToken(.RParen);
 
             const groupNode = try createMut(AstNode, allocator, .{
-                .Group = expr.?,
+                .Group = expr,
             });
 
             const next = try compInfo.tokens.peak();
@@ -1168,15 +1185,13 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
                 },
                 .LBracket => {
                     _ = try compInfo.tokens.take();
-                    const index = try parseExpression(allocator, compInfo);
-                    if (index == null) {
+                    const index = try parseExpression(allocator, compInfo) orelse
                         return compInfo.logger.logError(AstError.ExpectedExpression);
-                    }
                     try compInfo.tokens.expectToken(.RBracket);
 
                     return try createMut(AstNode, allocator, .{
                         .IndexValue = .{
-                            .index = index.?,
+                            .index = index,
                             .value = try getIdentNode(allocator, compInfo, first.string.?),
                         },
                     });
@@ -1210,15 +1225,13 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
             compInfo.tokens.returnToken();
             const toType = try parseType(allocator, compInfo);
             try compInfo.tokens.expectToken(.LParen);
-            const inner = try parseExpression(allocator, compInfo);
-            if (inner == null) {
+            const inner = try parseExpression(allocator, compInfo) orelse
                 return compInfo.logger.logError(AstError.ExpectedExpression);
-            }
             try compInfo.tokens.expectToken(.RParen);
 
             return try createMut(AstNode, allocator, .{
                 .Cast = .{
-                    .node = inner.?,
+                    .node = inner,
                     .toType = toType,
                 },
             });
@@ -1257,12 +1270,10 @@ fn parseArray(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
 
     var current = try compInfo.tokens.peak();
     while (current.type != .RBracket) {
-        const item = try parseExpression(allocator, compInfo);
-        if (item == null) {
+        const item = try parseExpression(allocator, compInfo) orelse
             return compInfo.logger.logError(AstError.ExpectedExpression);
-        }
 
-        try items.append(item.?);
+        try items.append(item);
 
         current = try compInfo.tokens.take();
         if (current.type == .RBracket) break;
@@ -1343,14 +1354,12 @@ fn parseStructInitAttribute(allocator: Allocator, compInfo: *CompInfo) !Attribut
         return compInfo.logger.logError(AstError.UnexpectedToken);
     }
 
-    const eqNode = try parseExpression(allocator, compInfo);
-    if (eqNode == null) {
+    const eqNode = try parseExpression(allocator, compInfo) orelse
         return compInfo.logger.logError(AstError.ExpectedValueForStructProperty);
-    }
 
     return .{
         .name = try string.cloneString(allocator, first.string.?),
-        .value = eqNode.?,
+        .value = eqNode,
     };
 }
 
@@ -1402,14 +1411,12 @@ fn parsePropertyAccess(allocator: Allocator, compInfo: *CompInfo, node: *AstNode
     }
 
     while (next.type == .LBracket) {
-        const expr = try parseExpression(allocator, compInfo);
-        if (expr == null) {
+        const expr = try parseExpression(allocator, compInfo) orelse
             return compInfo.logger.logError(AstError.ExpectedExpression);
-        }
 
         access = try createMut(AstNode, allocator, .{
             .IndexValue = .{
-                .index = expr.?,
+                .index = expr,
                 .value = access,
             },
         });
@@ -1419,15 +1426,13 @@ fn parsePropertyAccess(allocator: Allocator, compInfo: *CompInfo, node: *AstNode
     }
 
     if (next.type == .EqSet) {
-        const expr = try parseExpression(allocator, compInfo);
-        if (expr == null) {
+        const expr = try parseExpression(allocator, compInfo) orelse
             return compInfo.logger.logError(AstError.ExpectedExpression);
-        }
 
         return try createMut(AstNode, allocator, .{
             .ValueSet = .{
                 .value = access,
-                .setNode = expr.?,
+                .setNode = expr,
             },
         });
     }
@@ -1557,7 +1562,9 @@ fn parseGeneric(allocator: Allocator, compInfo: *CompInfo) !GenericType {
 }
 
 fn parseParams(allocator: Allocator, compInfo: *CompInfo) ![]Parameter {
-    if ((try compInfo.tokens.peak()).type == .RParen) {
+    var current = try compInfo.tokens.peak();
+
+    if (current.type == .RParen) {
         _ = try compInfo.tokens.take();
         return &[_]Parameter{};
     }
@@ -1565,7 +1572,6 @@ fn parseParams(allocator: Allocator, compInfo: *CompInfo) ![]Parameter {
     var params = ArrayList(Parameter).init(allocator);
     defer params.deinit();
 
-    var current = try compInfo.tokens.peak();
     while (current.type != .RParen) {
         const param = try parseParam(allocator, compInfo);
         try params.append(param);
@@ -1582,7 +1588,12 @@ fn parseParams(allocator: Allocator, compInfo: *CompInfo) ![]Parameter {
 }
 
 fn parseParam(allocator: Allocator, compInfo: *CompInfo) !Parameter {
-    const first = try compInfo.tokens.take();
+    var first = try compInfo.tokens.take();
+    var isConst = true;
+    if (first.type == .Mut) {
+        first = try compInfo.tokens.take();
+        isConst = false;
+    }
 
     if (first.type != .Identifier) {
         return compInfo.logger.logError(AstError.ExpectedIdentifierForParameterName);
@@ -1594,6 +1605,7 @@ fn parseParam(allocator: Allocator, compInfo: *CompInfo) !Parameter {
     return .{
         .name = try string.cloneString(allocator, first.string.?),
         .type = paramType,
+        .isConst = isConst,
     };
 }
 
@@ -1608,11 +1620,9 @@ fn parseFuncCallParams(allocator: Allocator, compInfo: *CompInfo) ![]*AstNode {
 
     var current = try compInfo.tokens.peak();
     while (current.type != .RParen) {
-        const param = try parseExpression(allocator, compInfo);
-        if (param == null) {
+        const param = try parseExpression(allocator, compInfo) orelse
             return compInfo.logger.logError(AstError.ExpectedExpression);
-        }
-        try params.append(param.?);
+        try params.append(param);
 
         current = try compInfo.tokens.peak();
         if (current.type == .RParen) break;
@@ -1646,13 +1656,13 @@ fn rotatePrecedence(rootExprNode: *AstNode) ?*AstNode {
 /// types other than ones in OpExprTypes are marked unreachable
 pub fn tokenTypeToOpType(tokenType: tokenizer.TokenType) OpExprTypes {
     return switch (tokenType) {
-        .BitAnd => .BitAnd,
+        .Ampersand => .BitAnd,
         .BitOr => .BitOr,
         .And => .And,
         .Or => .Or,
         .Add => .Add,
         .Sub => .Sub,
-        .Mult => .Mult,
+        .Asterisk => .Mult,
         .Div => .Div,
         .LAngle => .LessThan,
         .RAngle => .GreaterThan,
@@ -1717,14 +1727,13 @@ fn createVarDecNode(allocator: Allocator, compInfo: *CompInfo, isConst: bool) !?
         return compInfo.logger.logError(AstError.UnexpectedToken);
     }
 
-    const setValue = try parseExpression(allocator, compInfo);
-    if (setValue == null) return null;
+    const setValue = try parseExpression(allocator, compInfo) orelse return null;
 
     return try createMut(AstNode, allocator, .{
         .VarDec = .{
             .name = try string.cloneString(allocator, name.string.?),
             .isConst = isConst,
-            .setNode = setValue.?,
+            .setNode = setValue,
             .annotation = annotation,
             .setType = annotation,
         },
@@ -1756,6 +1765,12 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
         .F128 => .{ .Number = .F128 },
         .USize => .{ .Number = .USize },
         .CharType => .Char,
+        .Asterisk => a: {
+            const pointer = try parseType(allocator, compInfo);
+            break :a .{
+                .Pointer = pointer,
+            };
+        },
         .QuestionMark => a: {
             const nullable = try parseType(allocator, compInfo);
             break :a .{
@@ -1824,10 +1839,8 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
         next = try compInfo.tokens.peak();
 
         if (next.type != .RBracket) {
-            size = try parseExpression(allocator, compInfo);
-            if (size == null) {
+            size = try parseExpression(allocator, compInfo) orelse
                 return compInfo.logger.logError(AstError.ExpectedSizeForArraySlice);
-            }
         }
 
         try compInfo.tokens.expectToken(.RBracket);
@@ -1900,10 +1913,9 @@ pub fn registerStructsAndErrors(allocator: Allocator, compInfo: *CompInfo) !Regi
         }
 
         compInfo.tokens.returnToken();
-        const node = try parseStatement(allocator, compInfo);
-        if (node == null) continue;
+        const node = try parseStatement(allocator, compInfo) orelse continue;
 
-        switch (node.?.*) {
+        switch (node.*) {
             .StructDec => |dec| {
                 try structDecs.append(dec);
             },
@@ -1913,23 +1925,11 @@ pub fn registerStructsAndErrors(allocator: Allocator, compInfo: *CompInfo) !Regi
             else => unreachable,
         }
 
-        allocator.destroy(node.?);
+        allocator.destroy(node);
     }
 
     return .{
         .structs = try structDecs.toOwnedSlice(),
         .errors = try errorDecs.toOwnedSlice(),
-    };
-}
-
-pub fn rawNumberToInferredType(num: []u8) !AstNumber {
-    if (num[0] == '-') {
-        return .{
-            .I32 = std.fmt.parseInt(i32, num, 10) catch return scanner.ScanError.InvalidNumber,
-        };
-    }
-
-    return .{
-        .U32 = std.fmt.parseInt(u32, num, 10) catch return scanner.ScanError.InvalidNumber,
     };
 }

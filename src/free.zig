@@ -182,6 +182,9 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         .Variable => |variable| {
             allocator.free(variable);
         },
+        .Pointer => |ptr| {
+            freeNode(allocator, ptr.node);
+        },
         .StructDec => |dec| {
             freeStructDec(allocator, dec);
         },
@@ -306,6 +309,9 @@ pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void 
         .Nullable => |nullable| {
             freeAstTypeInfo(allocator, nullable);
         },
+        .Pointer => |ptr| {
+            freeAstTypeInfo(allocator, ptr);
+        },
         .Custom => |custom| {
             for (custom.generics) |generic| {
                 freeAstTypeInfo(allocator, generic);
@@ -329,6 +335,9 @@ pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void 
         },
         .StaticStructInstance => |inst| {
             allocator.free(inst);
+        },
+        .VarInfo => |info| {
+            freeType(allocator, info.astType);
         },
         else => {},
     }

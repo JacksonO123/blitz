@@ -42,6 +42,10 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
         .String => print("string", .{}),
         .Char => print("char", .{}),
         .Bool => print("bool", .{}),
+        .VarInfo => |info| {
+            print("var info ", .{});
+            printTypeInfo(compInfo, info);
+        },
         .ArraySlice => |arr| {
             print("ArraySlice<", .{});
             if (arr.size) |size| {
@@ -52,6 +56,10 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
             print(", ", .{});
             printTypeInfo(compInfo, arr.type);
             print(">", .{});
+        },
+        .Pointer => |ptr| {
+            print("*", .{});
+            printTypeInfo(compInfo, ptr);
         },
         .Nullable => |n| {
             print("?", .{});
@@ -294,6 +302,13 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode) void {
         },
         .Variable => |variable| {
             print("[variable: ({s})]", .{variable});
+        },
+        .Pointer => |ptr| {
+            if (!ptr.isConst) {
+                print("mut ", .{});
+            }
+            print("pointer to ", .{});
+            printNode(compInfo, ptr.node);
         },
         .StructPlaceholder => {
             print("struct dec", .{});

@@ -464,8 +464,6 @@ pub const CompInfo = struct {
         defer self.genericScopes.resetLeakIndex();
         var capture = false;
 
-        std.debug.print("getting generic :: {s}\n", .{name});
-
         while (genScope) |s| {
             if (s.get(name)) |t| {
                 if (!capture) return t;
@@ -517,11 +515,14 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn setVariableType(self: *Self, name: []const u8, info: blitzAst.AstTypeInfo) !void {
+    pub fn setVariableType(self: *Self, name: []const u8, info: blitzAst.AstTypeInfo, isConst: bool) !void {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
-            try s.put(name, info);
+            const varInfo = try astTypesToInfo(self.allocator, .{
+                .VarInfo = info,
+            }, isConst);
+            try s.put(name, varInfo);
         }
     }
 

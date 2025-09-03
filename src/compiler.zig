@@ -82,8 +82,8 @@ pub fn main() !void {
     defer genInfo.deinit();
     genInfo.stackStartSize = compInfo.stackSizeEstimate;
 
-    try codegen.codegenAst(allocator, &genInfo, ast);
-    std.debug.print("--- bytecode out ---\n", .{});
-    try debug.printBytecode(&genInfo);
-    std.debug.print("\n------------\n", .{});
+    // try codegen.codegenAst(allocator, &genInfo, ast);
+    // std.debug.print("--- bytecode out ---\n", .{});
+    // try debug.printBytecode(&genInfo);
+    // std.debug.print("\n------------\n", .{});
 }

@@ -71,5 +71,20 @@ let ab: u32[3] = [3, 2, 1];
 let mut numOrNull: ?u32 = null;
 numOrNull = 4;
 
-// structs, dynamic arrays, static arrays are automatically converted to references
-// where it makes sense
+// pointers
+let ptr1: *u32 = &10;
+
+// mutable variable to const pointer
+let mut ptr2: *u32 = &1;
+ptr2 = &2;
+
+// mutable variable to mutable pointer
+let mut ptr3: mut *u32 = mut &1;
+ptr3 = mut &2;
+
+// heap allocation
+// allocating to the heap works by using the 'new' keyword taking the following expression,
+// evaluating it, then allocating space on the heap and moving it there. If the value is
+// constant, or does not rely on an expression being evaluated, the new keyword will first
+// allocate space on the heap then write into that instead of first the stack then moving
+// using the 'new' keyword returns a pointer to the resulting type of the expression
