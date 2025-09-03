@@ -68,8 +68,8 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
         .Number => |num| {
             print("{s}", .{num.toString()});
         },
-        .RawNumber => {
-            print("[RawNumber]", .{});
+        .RawNumber => |digits| {
+            print("[RawNumber {s}]", .{digits});
         },
         .Custom => |*custom| {
             print("{s}", .{custom.name});
@@ -154,8 +154,8 @@ fn printValue(compInfo: *CompInfo, value: *const blitzAst.AstValues) void {
         .Number => |n| {
             printAstNumber(n);
         },
-        .RawNumber => |n| {
-            print("[RawNumber]({s})", .{n});
+        .RawNumber => |num| {
+            print("[RawNumber:{s}]({s})", .{ num.numType.toString(), num.digits });
         },
         .String => |s| {
             print("[string](\"{s}\")", .{s});

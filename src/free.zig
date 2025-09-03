@@ -110,7 +110,7 @@ pub fn freeValueNode(allocator: Allocator, node: *const blitzAst.AstValues) void
             allocator.free(string);
         },
         .RawNumber => |num| {
-            allocator.free(num);
+            allocator.free(num.digits);
         },
         else => {},
     }

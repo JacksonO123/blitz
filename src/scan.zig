@@ -185,26 +185,7 @@ pub fn scanNode(
                 .Bool => .Bool,
                 .Char => .Char,
                 .Number => |num| .{ .Number = num.toAstNumberVariant() },
-                .RawNumber => |num| {
-                    var hasPeriod = false;
-
-                    for (num) |char| {
-                        if (char == '.') {
-                            hasPeriod = true;
-                            break;
-                        }
-                    }
-
-                    if (hasPeriod) {
-                        return try utils.astTypesToInfo(allocator, .{ .Number = .F32 }, false);
-                    }
-
-                    if (num[0] == '-') {
-                        return try utils.astTypesToInfo(allocator, .{ .Number = .I32 }, false);
-                    }
-
-                    return try utils.astTypesToInfo(allocator, .{ .Number = .U32 }, false);
-                },
+                .RawNumber => |num| .{ .Number = num.numType },
                 .ArraySlice => |arr| {
                     const inferredType = try inferArraySliceType(allocator, compInfo, arr, withGenDef);
                     const arraySliceType = try create(blitzAst.AstTypes, allocator, .{

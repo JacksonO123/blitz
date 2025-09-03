@@ -248,7 +248,10 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                 },
                 .RawNumber => |num| return .{
                     .Value = .{
-                        .RawNumber = try string.cloneString(allocator, num),
+                        .RawNumber = .{
+                            .digits = try string.cloneString(allocator, num.digits),
+                            .numType = num.numType,
+                        },
                     },
                 },
                 .ArraySlice => |arr| return .{

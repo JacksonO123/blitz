@@ -1,2 +1,2 @@
-let mut ptr3: mut *u32 = mut &1;
-ptr3 = mut &2;
+let a = 12i8;
+let b: i8 = a;

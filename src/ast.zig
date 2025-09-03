@@ -262,12 +262,17 @@ const StaticTypes = enum {
     Null,
 };
 
+const RawNumberNode = struct {
+    digits: []u8,
+    numType: AstNumberVariants,
+};
+
 pub const AstValues = union(StaticTypes) {
     String: []u8,
     Bool: bool,
     Char: u8,
     Number: AstNumber,
-    RawNumber: []u8,
+    RawNumber: RawNumberNode,
     ArraySlice: []*AstNode,
     Null,
 };
@@ -1094,12 +1099,16 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
         .Null => return try createMut(AstNode, allocator, .{
             .Value = .Null,
         }),
-        .Number, .NegNumber => return try createMut(AstNode, allocator, .{
-            // TODO - maybe make this more specific
-            .Value = .{
-                .RawNumber = try string.cloneString(allocator, first.string.?),
-            },
-        }),
+        .Number, .NegNumber => |numType| {
+            return try createMut(AstNode, allocator, .{
+                .Value = .{
+                    .RawNumber = .{
+                        .digits = try string.cloneString(allocator, first.string.?),
+                        .numType = numType,
+                    },
+                },
+            });
+        },
         .StringToken => {
             const str = first.string.?;
             const next = try compInfo.tokens.peak();
