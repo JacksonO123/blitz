@@ -310,6 +310,14 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode) void {
             print("pointer to ", .{});
             printNode(compInfo, ptr.node);
         },
+        .Dereference => |deref| {
+            print("dereference ", .{});
+            printNode(compInfo, deref);
+        },
+        .HeapAlloc => |alloc| {
+            print("heap alloc ", .{});
+            printNode(compInfo, alloc.node);
+        },
         .StructPlaceholder => {
             print("struct dec", .{});
         },

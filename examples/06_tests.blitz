@@ -1,2 +1,9 @@
-let a = 12i8;
-let b: i8 = a;
+struct M {
+  value: u32;
+}
+
+let a: mut *M = new M {
+  value = 10,
+};
+
+let b: M = *a;

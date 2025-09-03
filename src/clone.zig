@@ -136,7 +136,7 @@ pub fn cloneAstTypeInfo(allocator: Allocator, compInfo: *CompInfo, info: blitzAs
         }
 
         return .{
-            .astType = try create(blitzAst.AstTypes, allocator, .{
+            .astType = try createMut(blitzAst.AstTypes, allocator, .{
                 .Generic = try string.cloneString(allocator, generic),
             }),
             .isConst = info.isConst,
@@ -144,7 +144,7 @@ pub fn cloneAstTypeInfo(allocator: Allocator, compInfo: *CompInfo, info: blitzAs
     }
 
     return .{
-        .astType = try cloneAstTypesPtr(allocator, compInfo, info.astType, replaceGenerics),
+        .astType = try cloneAstTypesPtrMut(allocator, compInfo, info.astType, replaceGenerics),
         .isConst = info.isConst,
     };
 }
@@ -314,6 +314,22 @@ pub fn cloneAstNode(allocator: Allocator, compInfo: *CompInfo, node: blitzAst.As
                 .node = try cloneAstNodePtrMut(allocator, compInfo, ptr.node, replaceGenerics),
                 .isConst = ptr.isConst,
             },
+        },
+        .Dereference => |deref| return .{
+            .Dereference = try cloneAstNodePtrMut(allocator, compInfo, deref, replaceGenerics),
+        },
+        .HeapAlloc => |alloc| {
+            const allocTypeClone = if (alloc.allocType) |allocType|
+                try cloneAstTypeInfo(allocator, compInfo, allocType, replaceGenerics)
+            else
+                null;
+
+            return .{
+                .HeapAlloc = .{
+                    .node = try cloneAstNodePtrMut(allocator, compInfo, alloc.node, replaceGenerics),
+                    .allocType = allocTypeClone,
+                },
+            };
         },
         .StructDec => |dec| {
             const clonedGenerics = try cloneGenerics(allocator, compInfo, dec.generics, replaceGenerics);
@@ -639,6 +655,16 @@ pub fn cloneAstTypesPtr(
 ) !*const blitzAst.AstTypes {
     const clonedType = try cloneAstTypes(allocator, compInfo, types.*, replaceGenerics);
     return try create(blitzAst.AstTypes, allocator, clonedType);
+}
+
+pub fn cloneAstTypesPtrMut(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+    types: *blitzAst.AstTypes,
+    replaceGenerics: bool,
+) !*blitzAst.AstTypes {
+    const clonedType = try cloneAstTypes(allocator, compInfo, types.*, replaceGenerics);
+    return try createMut(blitzAst.AstTypes, allocator, clonedType);
 }
 
 fn cloneGeneric(

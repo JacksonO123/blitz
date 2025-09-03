@@ -82,6 +82,10 @@ ptr2 = &2;
 let mut ptr3: mut *u32 = mut &1;
 ptr3 = mut &2;
 
+// dereference pointer
+let ptr4 = &5;
+let ptrVal: u32 = *ptr4;
+
 // heap allocation
 // allocating to the heap works by using the 'new' keyword taking the following expression,
 // evaluating it, then allocating space on the heap and moving it there. If the value is

@@ -133,6 +133,7 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         .ReturnNode,
         .Group,
         .Scope,
+        .Dereference,
         => |val| {
             freeNode(allocator, val);
         },
@@ -184,6 +185,13 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         },
         .Pointer => |ptr| {
             freeNode(allocator, ptr.node);
+        },
+        .HeapAlloc => |alloc| {
+            if (alloc.allocType) |allocType| {
+                freeAstTypeInfo(allocator, allocType);
+            }
+
+            freeNode(allocator, alloc.node);
         },
         .StructDec => |dec| {
             freeStructDec(allocator, dec);

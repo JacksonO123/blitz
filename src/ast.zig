@@ -248,7 +248,7 @@ pub const AstTypes = union(Types) {
 };
 
 pub const AstTypeInfo = struct {
-    astType: *const AstTypes,
+    astType: *AstTypes,
     isConst: bool,
 };
 
@@ -470,6 +470,11 @@ const PointerNode = struct {
     isConst: bool,
 };
 
+const HeapAllocNode = struct {
+    node: *AstNode,
+    allocType: ?AstTypeInfo,
+};
+
 const AstNodeVariants = enum {
     NoOp,
     StructPlaceholder,
@@ -502,6 +507,8 @@ const AstNodeVariants = enum {
     ForLoop,
     WhileLoop,
     Pointer,
+    Dereference,
+    HeapAlloc,
 };
 
 pub const AstNode = union(AstNodeVariants) {
@@ -536,6 +543,8 @@ pub const AstNode = union(AstNodeVariants) {
     ForLoop: ForLoopNode,
     WhileLoop: WhileLoopNode,
     Pointer: PointerNode,
+    Dereference: *AstNode,
+    HeapAlloc: HeapAllocNode,
 };
 
 pub const AstError = error{
@@ -1099,6 +1108,16 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
         .Null => return try createMut(AstNode, allocator, .{
             .Value = .Null,
         }),
+        .New => {
+            const expr = try parseExpression(allocator, compInfo) orelse
+                return compInfo.logger.logError(AstError.ExpectedExpression);
+            return try createMut(AstNode, allocator, .{
+                .HeapAlloc = .{
+                    .node = expr,
+                    .allocType = null,
+                },
+            });
+        },
         .Number, .NegNumber => |numType| {
             return try createMut(AstNode, allocator, .{
                 .Value = .{
@@ -1156,6 +1175,13 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
                     .node = expr,
                     .isConst = true,
                 },
+            });
+        },
+        .Asterisk => {
+            const expr = try parseExpression(allocator, compInfo) orelse
+                return compInfo.logger.logError(AstError.ExpectedExpression);
+            return try createMut(AstNode, allocator, .{
+                .Dereference = expr,
             });
         },
         .LParen => {

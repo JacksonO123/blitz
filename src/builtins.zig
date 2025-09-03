@@ -20,8 +20,8 @@ const PropTypeMap = struct {
     type: blitzAst.AstTypeInfo,
 };
 
-fn toNumSig(allocator: Allocator, num: blitzAst.AstNumberVariants) !*const blitzAst.AstTypes {
-    return try create(blitzAst.AstTypes, allocator, .{ .Number = num });
+fn toNumSig(allocator: Allocator, num: blitzAst.AstNumberVariants) !*blitzAst.AstTypes {
+    return try createMut(blitzAst.AstTypes, allocator, .{ .Number = num });
 }
 
 fn paramsFromTypes(allocator: Allocator, paramTypes: []const blitzAst.AstTypeInfo) ![]blitzAst.Parameter {

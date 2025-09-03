@@ -44,6 +44,7 @@ pub const ScanError = error{
     IfStatementMayOnlyHaveOneElse,
     ElseBranchOutOfOrder,
     PointerTypeMismatch,
+    CannotDereferenceNonPointerValue,
 
     // arrays
     ArraySliceTypeMismatch,
@@ -188,7 +189,7 @@ pub fn scanNode(
                 .RawNumber => |num| .{ .Number = num.numType },
                 .ArraySlice => |arr| {
                     const inferredType = try inferArraySliceType(allocator, compInfo, arr, withGenDef);
-                    const arraySliceType = try create(blitzAst.AstTypes, allocator, .{
+                    const arraySliceType = try createMut(blitzAst.AstTypes, allocator, .{
                         .ArraySlice = .{
                             .type = inferredType,
                             .size = try createMut(blitzAst.AstNode, allocator, .{
@@ -240,7 +241,8 @@ pub fn scanNode(
                     if (left.astType.* != .Number or right.astType.* != .Number) return ScanError.InvalidBitOperation;
 
                     if (left.astType.Number.getSize() != right.astType.Number.getSize()) return ScanError.BitMaskWithMismatchingSize;
-                    return utils.astTypesPtrToInfo(try clone.cloneAstTypesPtr(allocator, compInfo, left.astType, withGenDef), false);
+                    const typeClone = try clone.cloneAstTypesPtrMut(allocator, compInfo, left.astType, withGenDef);
+                    return utils.astTypesPtrToInfo(typeClone, false);
                 },
                 .And, .Or => {
                     if (left.astType.* != .Bool or right.astType.* != .Bool) return ScanError.ExpectedBoolInBoolOp;
@@ -265,7 +267,8 @@ pub fn scanNode(
                         }
 
                         if (try matchTypes(allocator, compInfo, left, right, withGenDef)) {
-                            return utils.astTypesPtrToInfo(try clone.cloneAstTypesPtr(allocator, compInfo, left.astType, withGenDef), false);
+                            const typeClone = try clone.cloneAstTypesPtrMut(allocator, compInfo, left.astType, withGenDef);
+                            return utils.astTypesPtrToInfo(typeClone, false);
                         } else {
                             return ScanError.MathOpTypeMismatch;
                         }
@@ -276,7 +279,8 @@ pub fn scanNode(
                             .F32, .F64, .F128 => true,
                             else => false,
                         }) {
-                            return utils.astTypesPtrToInfo(try clone.cloneAstTypesPtr(allocator, compInfo, left.astType, withGenDef), false);
+                            const typeClone = try clone.cloneAstTypesPtrMut(allocator, compInfo, left.astType, withGenDef);
+                            return utils.astTypesPtrToInfo(typeClone, false);
                         }
 
                         return try utils.astTypesToInfo(allocator, .{
@@ -284,7 +288,8 @@ pub fn scanNode(
                         }, false);
                     }
 
-                    return utils.astTypesPtrToInfo(try clone.cloneAstTypesPtr(allocator, compInfo, left.astType, withGenDef), false);
+                    const typeClone = try clone.cloneAstTypesPtrMut(allocator, compInfo, left.astType, withGenDef);
+                    return utils.astTypesPtrToInfo(typeClone, false);
                 },
                 .LessThan,
                 .GreaterThan,
@@ -367,10 +372,8 @@ pub fn scanNode(
                 .ArraySlice => return try builtins.getArraySlicePropType(allocator, access.property),
                 .String => return try builtins.getStringPropType(allocator, access.property),
                 .Custom => |custom| a: {
-                    const def = compInfo.getStructDec(custom.name);
-                    if (def == null) break :a false;
-
-                    compInfo.setPreviousAccessedStruct(def.?.name);
+                    const def = compInfo.getStructDec(custom.name) orelse break :a false;
+                    compInfo.setPreviousAccessedStruct(def.name);
 
                     var genNameArr = try ArrayList([]u8).initCapacity(allocator, custom.generics.len);
                     var genTypeArr = try ArrayList(blitzAst.AstTypeInfo).initCapacity(allocator, custom.generics.len);
@@ -378,7 +381,7 @@ pub fn scanNode(
                     defer genTypeArr.deinit();
 
                     for (custom.generics, 0..) |gen, index| {
-                        const genDef = def.?.generics[index];
+                        const genDef = def.generics[index];
                         const typeClone = try clone.cloneAstTypeInfo(allocator, compInfo, gen, withGenDef);
                         try genNameArr.append(genDef.name);
                         try genTypeArr.append(typeClone);
@@ -458,7 +461,8 @@ pub fn scanNode(
                 return ScanError.VariableAlreadyExists;
             }
 
-            var setType = try scanNode(allocator, compInfo, dec.setNode, withGenDef);
+            const origSetType = try scanNode(allocator, compInfo, dec.setNode, withGenDef);
+            var setType = escapeVarInfoAndFree(allocator, origSetType);
 
             if (setType.astType.* == .Void) {
                 return ScanError.VoidVariableDec;
@@ -470,7 +474,7 @@ pub fn scanNode(
                     return ScanError.VariableAnnotationMismatch;
                 }
 
-                free.freeAstTypeInfo(allocator, setType);
+                free.freeAstTypeInfo(allocator, origSetType);
                 setType = try clone.cloneAstTypeInfo(allocator, compInfo, annotation, withGenDef);
             }
 
@@ -845,12 +849,46 @@ pub fn scanNode(
                 .Pointer = ptrType,
             }, ptr.isConst);
         },
+        .Dereference => |deref| {
+            var ptrType = try scanNode(allocator, compInfo, deref, withGenDef);
+            ptrType = escapeVarInfoAndFree(allocator, ptrType);
+            if (ptrType.astType.* != .Pointer) return ScanError.CannotDereferenceNonPointerValue;
+
+            const res = ptrType.astType.Pointer;
+            ptrType.astType.* = .Void;
+            free.freeAstTypeInfo(allocator, ptrType);
+
+            return res;
+        },
+        .HeapAlloc => |*alloc| {
+            var exprType = try scanNode(allocator, compInfo, alloc.*.node, withGenDef);
+            exprType = escapeVarInfoAndFree(allocator, exprType);
+            const typeClone = try clone.cloneAstTypeInfo(allocator, compInfo, exprType, withGenDef);
+            alloc.allocType = exprType;
+
+            const ptrType = try createMut(blitzAst.AstTypes, allocator, .{
+                .Pointer = typeClone,
+            });
+
+            return utils.astTypesPtrToInfo(ptrType, false);
+        },
     }
 }
 
 fn escapeVarInfo(node: blitzAst.AstTypeInfo) blitzAst.AstTypeInfo {
     var res = node;
     while (res.astType.* == .VarInfo) : (res = res.astType.VarInfo) {}
+    return res;
+}
+
+fn escapeVarInfoAndFree(allocator: Allocator, node: blitzAst.AstTypeInfo) blitzAst.AstTypeInfo {
+    var res = node;
+    while (res.astType.* == .VarInfo) {
+        const temp = res.astType.VarInfo;
+        res.astType.* = .Void;
+        free.freeAstTypeInfo(allocator, res);
+        res = temp;
+    }
     return res;
 }
 
@@ -1736,8 +1774,7 @@ fn getCustomPropType(allocator: Allocator, compInfo: *CompInfo, custom: blitzAst
 }
 
 fn getStructPropType(compInfo: *CompInfo, allowNonStatic: bool, inst: []u8, prop: []u8) !blitzAst.AstTypes {
-    const dec = compInfo.getStructDec(inst);
-    if (dec == null) return ScanError.InvalidPropertySource;
+    const dec = compInfo.getStructDec(inst) orelse return ScanError.InvalidPropertySource;
 
     for (dec.?.attributes) |attr| {
         if (!attr.static and allowNonStatic) continue;
