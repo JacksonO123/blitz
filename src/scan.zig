@@ -45,6 +45,7 @@ pub const ScanError = error{
     ElseBranchOutOfOrder,
     PointerTypeMismatch,
     CannotDereferenceNonPointerValue,
+    NestedVarInfoDetected,
 
     // arrays
     ArraySliceTypeMismatch,
@@ -52,6 +53,7 @@ pub const ScanError = error{
     ExpectedUSizeOrU32ForArraySliceSize,
     ExpectedEqualArraySliceSizes,
     SizedSliceSetToUnknownSizedSlice,
+    ArrayInitTypeInitializerMismatch,
 
     // loops
     ExpectedBooleanLoopCondition,
@@ -167,7 +169,7 @@ pub fn scanNode(
 
             const origNodeType = try scanNode(allocator, compInfo, cast.node, withGenDef);
             defer free.freeAstTypeInfo(allocator, origNodeType);
-            const nodeType = escapeVarInfo(origNodeType);
+            const nodeType = try escapeVarInfo(origNodeType);
 
             if (isAnyType(nodeType.astType) or isPrimitive(nodeType.astType) and isPrimitive(cast.toType.astType)) {
                 return clonedCastType;
@@ -210,10 +212,10 @@ pub fn scanNode(
         .IndexValue => |indexInfo| {
             const origIndexType = try scanNode(allocator, compInfo, indexInfo.index, withGenDef);
             defer free.freeAstTypeInfo(allocator, origIndexType);
-            const indexType = escapeVarInfo(origIndexType);
+            const indexType = try escapeVarInfo(origIndexType);
             const origValueType = try scanNode(allocator, compInfo, indexInfo.value, withGenDef);
             defer free.freeAstTypeInfo(allocator, origValueType);
-            const valueType = escapeVarInfo(origValueType);
+            const valueType = try escapeVarInfo(origValueType);
 
             if (indexType.astType.* == .Number and indexType.astType.Number != .USize) {
                 return ScanError.ExpectedUSizeForIndex;
@@ -221,9 +223,7 @@ pub fn scanNode(
 
             if (valueType.astType.* == .ArraySlice) {
                 const arr = valueType.astType.*.ArraySlice;
-                var res = try clone.cloneAstTypeInfo(allocator, compInfo, arr.type, false);
-                res.isConst = valueType.isConst;
-                return res;
+                return try clone.cloneAstTypeInfo(allocator, compInfo, arr.type, false);
             }
 
             return ScanError.ExpectedArrayForIndexTarget;
@@ -231,10 +231,10 @@ pub fn scanNode(
         .OpExpr => |op| {
             const origLeft = try scanNode(allocator, compInfo, op.left, withGenDef);
             defer free.freeAstTypeInfo(allocator, origLeft);
-            const left = escapeVarInfo(origLeft);
+            const left = try escapeVarInfo(origLeft);
             const origRight = try scanNode(allocator, compInfo, op.right, withGenDef);
             defer free.freeAstTypeInfo(allocator, origRight);
-            const right = escapeVarInfo(origRight);
+            const right = try escapeVarInfo(origRight);
 
             switch (op.type) {
                 .BitAnd, .BitOr => {
@@ -363,7 +363,7 @@ pub fn scanNode(
 
             const origValueInfo = try scanNode(allocator, compInfo, access.value, withGenDef);
             defer free.freeAstTypeInfo(allocator, origValueInfo);
-            const valueInfo = escapeVarInfo(origValueInfo);
+            const valueInfo = try escapeVarInfo(origValueInfo);
             compInfo.scanner.allowStaticStructInstance = false;
             compInfo.scanner.allowErrorWithoutVariants = false;
 
@@ -398,7 +398,7 @@ pub fn scanNode(
 
                     if (propType) |*t| {
                         t.*.isConst = valueInfo.isConst;
-                        return t.*;
+                        return typeInfoToVarInfo(allocator, t.*, origValueInfo.isConst or valueInfo.isConst);
                     }
 
                     break :a false;
@@ -462,7 +462,7 @@ pub fn scanNode(
             }
 
             const origSetType = try scanNode(allocator, compInfo, dec.setNode, withGenDef);
-            var setType = escapeVarInfoAndFree(allocator, origSetType);
+            var setType = try escapeVarInfoAndFree(allocator, origSetType);
 
             if (setType.astType.* == .Void) {
                 return ScanError.VoidVariableDec;
@@ -488,7 +488,7 @@ pub fn scanNode(
             defer free.freeAstTypeInfo(allocator, origValType);
             if (origValType.isConst) return ScanError.AssigningToConstVariable;
             if (origValType.astType.* != .VarInfo) return ScanError.CannotSetToNonVarTypeValue;
-            const valType = escapeVarInfo(origValType);
+            const valType = try escapeVarInfo(origValType);
 
             const setType = try scanNode(allocator, compInfo, set.setNode, withGenDef);
             defer free.freeAstTypeInfo(allocator, setType);
@@ -586,7 +586,7 @@ pub fn scanNode(
 
             const origConditionType = try scanNode(allocator, compInfo, statement.condition, withGenDef);
             defer free.freeAstTypeInfo(allocator, origConditionType);
-            const conditionType = escapeVarInfo(origConditionType);
+            const conditionType = try escapeVarInfo(origConditionType);
             if (conditionType.astType.* != .Bool) return ScanError.ExpectedBooleanIfCondition;
 
             const body = try scanNode(allocator, compInfo, statement.body, withGenDef);
@@ -618,7 +618,7 @@ pub fn scanNode(
 
             const origConditionType = try scanNode(allocator, compInfo, loop.condition, withGenDef);
             defer free.freeAstTypeInfo(allocator, origConditionType);
-            const conditionType = escapeVarInfo(origConditionType);
+            const conditionType = try escapeVarInfo(origConditionType);
             if (conditionType.astType.* != .Bool) {
                 return ScanError.ExpectedBooleanLoopCondition;
             }
@@ -641,7 +641,7 @@ pub fn scanNode(
 
             const origConditionType = try scanNode(allocator, compInfo, loop.condition, withGenDef);
             defer free.freeAstTypeInfo(allocator, origConditionType);
-            const conditionType = escapeVarInfo(origConditionType);
+            const conditionType = try escapeVarInfo(origConditionType);
             if (conditionType.astType.* != .Bool) {
                 return ScanError.ExpectedBooleanLoopCondition;
             }
@@ -692,7 +692,8 @@ pub fn scanNode(
             const lastRetInfo = try compInfo.returnInfo.newInfo(true);
             defer compInfo.returnInfo.swapFree(lastRetInfo);
 
-            const dec = try scanNode(allocator, compInfo, call.func, withGenDef);
+            const tempDec = try scanNode(allocator, compInfo, call.func, withGenDef);
+            const dec = try escapeVarInfoAndFree(allocator, tempDec);
             // only destroy pointer because function declaration instance must be preserved
             defer allocator.destroy(dec.astType);
             if (dec.astType.* != .Function) return ScanError.CannotCallNonFunctionNode;
@@ -814,7 +815,7 @@ pub fn scanNode(
         .Bang => |bang| {
             const origBangType = try scanNode(allocator, compInfo, bang, withGenDef);
             defer free.freeAstTypeInfo(allocator, origBangType);
-            const bangType = escapeVarInfo(origBangType);
+            const bangType = try escapeVarInfo(origBangType);
             if (bangType.astType.* != .Bool) return ScanError.ExpectedBooleanBang;
 
             return try utils.astTypesToInfo(allocator, .Bool, false);
@@ -851,7 +852,7 @@ pub fn scanNode(
         },
         .Dereference => |deref| {
             var ptrType = try scanNode(allocator, compInfo, deref, withGenDef);
-            ptrType = escapeVarInfoAndFree(allocator, ptrType);
+            ptrType = try escapeVarInfoAndFree(allocator, ptrType);
             if (ptrType.astType.* != .Pointer) return ScanError.CannotDereferenceNonPointerValue;
 
             const res = ptrType.astType.Pointer;
@@ -862,7 +863,7 @@ pub fn scanNode(
         },
         .HeapAlloc => |*alloc| {
             var exprType = try scanNode(allocator, compInfo, alloc.*.node, withGenDef);
-            exprType = escapeVarInfoAndFree(allocator, exprType);
+            exprType = try escapeVarInfoAndFree(allocator, exprType);
             const typeClone = try clone.cloneAstTypeInfo(allocator, compInfo, exprType, withGenDef);
             alloc.allocType = exprType;
 
@@ -872,22 +873,65 @@ pub fn scanNode(
 
             return utils.astTypesPtrToInfo(ptrType, false);
         },
+        .ArrayInit => |init| {
+            var initNodeType = try scanNode(allocator, compInfo, init.initNode, withGenDef);
+            initNodeType = try escapeVarInfoAndFree(allocator, initNodeType);
+            defer free.freeAstTypeInfo(allocator, initNodeType);
+
+            const matches = try matchTypes(allocator, compInfo, init.initType, initNodeType, withGenDef);
+            if (!matches) {
+                return ScanError.ArrayInitTypeInitializerMismatch;
+            }
+
+            const initTypeClone = try clone.cloneAstTypeInfo(allocator, compInfo, init.initType, withGenDef);
+
+            return utils.astTypesToInfo(allocator, .{
+                .ArraySlice = .{
+                    .type = initTypeClone,
+                    .size = try createMut(blitzAst.AstNode, allocator, .{
+                        .Value = .{
+                            .RawNumber = .{
+                                .digits = try string.cloneString(allocator, init.size),
+                                .numType = .USize,
+                            },
+                        },
+                    }),
+                },
+            }, false);
+        },
     }
 }
 
-fn escapeVarInfo(node: blitzAst.AstTypeInfo) blitzAst.AstTypeInfo {
+fn typeInfoToVarInfo(allocator: Allocator, info: blitzAst.AstTypeInfo, isConst: bool) !blitzAst.AstTypeInfo {
+    return .{
+        .astType = try createMut(blitzAst.AstTypes, allocator, .{
+            .VarInfo = info,
+        }),
+        .isConst = isConst,
+    };
+}
+
+fn escapeVarInfo(node: blitzAst.AstTypeInfo) !blitzAst.AstTypeInfo {
     var res = node;
-    while (res.astType.* == .VarInfo) : (res = res.astType.VarInfo) {}
+    if (res.astType.* == .VarInfo) {
+        res = res.astType.VarInfo;
+    }
+    if (res.astType.* == .VarInfo) {
+        return ScanError.NestedVarInfoDetected;
+    }
     return res;
 }
 
-fn escapeVarInfoAndFree(allocator: Allocator, node: blitzAst.AstTypeInfo) blitzAst.AstTypeInfo {
+fn escapeVarInfoAndFree(allocator: Allocator, node: blitzAst.AstTypeInfo) !blitzAst.AstTypeInfo {
     var res = node;
-    while (res.astType.* == .VarInfo) {
+    if (res.astType.* == .VarInfo) {
         const temp = res.astType.VarInfo;
         res.astType.* = .Void;
         free.freeAstTypeInfo(allocator, res);
         res = temp;
+    }
+    if (res.astType.* == .VarInfo) {
+        return ScanError.NestedVarInfoDetected;
     }
     return res;
 }
@@ -1032,7 +1076,7 @@ fn scanFunctionCalls(allocator: Allocator, compInfo: *CompInfo) !void {
             var captureIt = captured.iterator();
             while (captureIt.next()) |item| {
                 const value = item.value_ptr.*;
-                const paramType = escapeVarInfo(value);
+                const paramType = try escapeVarInfo(value);
 
                 const clonedType = try clone.cloneAstTypeInfo(allocator, compInfo, paramType, false);
                 try compInfo.setVariableType(
@@ -1062,7 +1106,7 @@ fn setGenTypesFromParams(
     var includesGenerics = false;
 
     for (func.params, paramTypes) |decParam, origCallParamType| {
-        const callParamType = escapeVarInfo(origCallParamType);
+        const callParamType = try escapeVarInfo(origCallParamType);
         var isGeneric = false;
 
         switch (decParam.type.astType.*) {

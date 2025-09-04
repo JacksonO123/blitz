@@ -249,6 +249,11 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         .Error => |err| {
             allocator.free(err);
         },
+        .ArrayInit => |init| {
+            allocator.free(init.size);
+            freeNode(allocator, init.initNode);
+            freeAstTypeInfo(allocator, init.initType);
+        },
     }
 
     allocator.destroy(node);

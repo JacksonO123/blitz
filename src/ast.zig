@@ -475,6 +475,12 @@ const HeapAllocNode = struct {
     allocType: ?AstTypeInfo,
 };
 
+const ArrayInitNode = struct {
+    size: []u8,
+    initType: AstTypeInfo,
+    initNode: *AstNode,
+};
+
 const AstNodeVariants = enum {
     NoOp,
     StructPlaceholder,
@@ -509,6 +515,7 @@ const AstNodeVariants = enum {
     Pointer,
     Dereference,
     HeapAlloc,
+    ArrayInit,
 };
 
 pub const AstNode = union(AstNodeVariants) {
@@ -545,6 +552,7 @@ pub const AstNode = union(AstNodeVariants) {
     Pointer: PointerNode,
     Dereference: *AstNode,
     HeapAlloc: HeapAllocNode,
+    ArrayInit: ArrayInitNode,
 };
 
 pub const AstError = error{
@@ -574,6 +582,7 @@ pub const AstError = error{
     ErrorPayloadMayNotBeError,
     UnexpectedGeneric,
     UnexpectedMutSpecifierOnGeneric,
+    ExpectedUSizeForArraySize,
 };
 
 const RegisterStructsAndErrorsResult = struct {
@@ -1291,19 +1300,46 @@ fn getIdentNode(allocator: Allocator, compInfo: *CompInfo, str: []u8) !*AstNode 
 }
 
 fn parseArray(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
-    if ((try compInfo.tokens.peak()).type == .RBracket) {
-        _ = try compInfo.tokens.take();
-        return try createMut(AstNode, allocator, .{
-            .Value = .{
-                .ArraySlice = &[_]*AstNode{},
-            },
-        });
+    var current = try compInfo.tokens.peak();
+
+    switch (current.type) {
+        .RBracket => {
+            _ = try compInfo.tokens.take();
+            return try createMut(AstNode, allocator, .{
+                .Value = .{
+                    .ArraySlice = &[_]*AstNode{},
+                },
+            });
+        },
+        .Number => |numType| a: {
+            _ = try compInfo.tokens.take();
+            if ((try compInfo.tokens.peak()).type != .RBracket) {
+                compInfo.tokens.returnToken();
+                break :a;
+            }
+
+            if (numType != .USize) return compInfo.logger.logError(AstError.ExpectedUSizeForArraySize);
+            _ = try compInfo.tokens.take();
+
+            const arrType = try parseType(allocator, compInfo);
+            try compInfo.tokens.expectToken(.With);
+            const initNode = try parseExpression(allocator, compInfo) orelse
+                return compInfo.logger.logError(AstError.ExpectedExpression);
+
+            return createMut(AstNode, allocator, .{
+                .ArrayInit = .{
+                    .size = try string.cloneString(allocator, current.string.?),
+                    .initType = arrType,
+                    .initNode = initNode,
+                },
+            });
+        },
+        else => {},
     }
 
     var items = ArrayList(*AstNode).init(allocator);
     defer items.deinit();
 
-    var current = try compInfo.tokens.peak();
     while (current.type != .RBracket) {
         const item = try parseExpression(allocator, compInfo) orelse
             return compInfo.logger.logError(AstError.ExpectedExpression);

@@ -443,6 +443,12 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode) void {
             printNode(compInfo, scope);
             print("\n--- exiting scope ---\n", .{});
         },
+        .ArrayInit => |init| {
+            print("init array [{s}]", .{init.size});
+            printTypeInfo(compInfo, init.initType);
+            print(" with initializer ", .{});
+            printNode(compInfo, init.initNode);
+        },
     }
 }
 

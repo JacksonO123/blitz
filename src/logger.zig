@@ -214,5 +214,6 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedNameForFunction => "expected name for function",
         AstError.UnexpectedGeneric => "unexpected generic",
         AstError.UnexpectedMutSpecifierOnGeneric => "unexpected mut specifier on generic",
+        AstError.ExpectedUSizeForArraySize => "expected usize for array size",
     };
 }

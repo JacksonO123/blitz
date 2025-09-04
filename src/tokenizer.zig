@@ -33,6 +33,7 @@ const TokenVariants = enum {
     Error,
     Mut,
     New,
+    With,
 
     // symbols
     Colon,
@@ -125,6 +126,7 @@ pub const TokenType = union(TokenVariants) {
     Error,
     Mut,
     New,
+    With,
 
     // symbols
     Colon,
@@ -278,6 +280,7 @@ pub const TokenType = union(TokenVariants) {
             .Error => "error",
             .New => "new",
             .NewLine => "newline",
+            .With => "with",
         };
     }
 };
@@ -852,6 +855,7 @@ fn isKeyword(chars: []const u8) ?TokenType {
         .{ .string = "return", .token = .Return },
         .{ .string = "error", .token = .Error },
         .{ .string = "new", .token = .New },
+        .{ .string = "with", .token = .With },
     };
 
     return getTypeFromMap(chars, keywords);

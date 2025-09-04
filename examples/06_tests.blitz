@@ -1,9 +1,4 @@
-struct M {
-  value: u32;
-}
+struct M {}
 
-let a: mut *M = new M {
-  value = 10,
-};
-
-let b: M = *a;
+let a = [2usize]*M with new M {};
+let b: *M = a[1usize];

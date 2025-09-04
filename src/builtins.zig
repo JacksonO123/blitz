@@ -17,7 +17,8 @@ pub const BuiltinFuncMemo = struct {};
 
 const PropTypeMap = struct {
     prop: []const u8,
-    type: blitzAst.AstTypeInfo,
+    type: *blitzAst.AstTypes,
+    isConst: bool,
 };
 
 fn toNumSig(allocator: Allocator, num: blitzAst.AstNumberVariants) !*blitzAst.AstTypes {
@@ -110,33 +111,39 @@ pub fn getStringPropType(allocator: Allocator, prop: []u8) !blitzAst.AstTypeInfo
     const props = &[_]PropTypeMap{
         .{
             .prop = "len",
-            .type = .{
-                .astType = try toNumSig(allocator, .USize),
-                .isConst = true,
-            },
+            .type = try toNumSig(allocator, .USize),
+            .isConst = true,
         },
     };
 
-    return try getPropType(props, prop);
+    return try getPropType(allocator, props, prop);
 }
 
 pub fn getArraySlicePropType(allocator: Allocator, prop: []u8) !blitzAst.AstTypeInfo {
     const props = &[_]PropTypeMap{
         .{
             .prop = "len",
-            .type = .{
-                .astType = try toNumSig(allocator, .USize),
-                .isConst = true,
-            },
+            .type = try toNumSig(allocator, .USize),
+            .isConst = true,
         },
     };
 
-    return try getPropType(props, prop);
+    return try getPropType(allocator, props, prop);
 }
 
-fn getPropType(props: []const PropTypeMap, prop: []u8) !blitzAst.AstTypeInfo {
+fn getPropType(allocator: Allocator, props: []const PropTypeMap, prop: []u8) !blitzAst.AstTypeInfo {
     for (props) |item| {
-        if (string.compString(item.prop, prop)) return item.type;
+        if (string.compString(item.prop, prop)) {
+            return .{
+                .astType = try createMut(blitzAst.AstTypes, allocator, .{
+                    .VarInfo = .{
+                        .astType = item.type,
+                        .isConst = item.isConst,
+                    },
+                }),
+                .isConst = item.isConst,
+            };
+        }
     }
 
     return ScanError.InvalidProperty;
