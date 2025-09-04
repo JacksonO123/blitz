@@ -1,4 +1,15 @@
-struct M {}
+struct A {
+  prot val: u32;
+}
 
-let a = [2usize]*M with new M {};
-let b: *M = a[1usize];
+struct M : A {
+  pub ptr: *u32;
+
+  fn getVal(): u32 {
+    return self.val;
+  }
+}
+
+let z = 4;
+let a = [2usize]M with M { val = 2, ptr = &z };
+let b: mut M = a[1usize];

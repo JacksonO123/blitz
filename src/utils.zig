@@ -378,6 +378,7 @@ pub const CompInfo = struct {
 
                     break :a try members.toOwnedSlice();
                 };
+
                 s.*.totalMemberList = arr;
             }
         }

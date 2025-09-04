@@ -583,6 +583,8 @@ pub const AstError = error{
     UnexpectedGeneric,
     UnexpectedMutSpecifierOnGeneric,
     ExpectedUSizeForArraySize,
+    StructDefinedInLowerScope,
+    ErrorDefinedInLowerScope,
 };
 
 const RegisterStructsAndErrorsResult = struct {
@@ -1937,10 +1939,13 @@ pub fn findStructAndErrorNames(allocator: Allocator, tokens: []tokenizer.Token) 
     var errorNames = ArrayList([]u8).init(allocator);
     defer errorNames.deinit();
 
+    var scopeCount: usize = 0;
     var i: usize = 0;
     while (i < tokens.len) : (i += 1) {
         switch (tokens[i].type) {
             .Struct => {
+                if (scopeCount != 0) return AstError.StructDefinedInLowerScope;
+
                 if (tokens[i + 1].type == .LBracket) {
                     while (i < tokens.len - 1 and tokens[i + 1].type != .RBracket) : (i += 1) {}
                     i += 1;
@@ -1954,6 +1959,8 @@ pub fn findStructAndErrorNames(allocator: Allocator, tokens: []tokenizer.Token) 
                 try structNames.append(str);
             },
             .Error => {
+                if (scopeCount != 0) return AstError.ErrorDefinedInLowerScope;
+
                 if (tokens[i + 1].type != .Identifier) {
                     return AstError.ExpectedNameForError;
                 }
@@ -1961,6 +1968,8 @@ pub fn findStructAndErrorNames(allocator: Allocator, tokens: []tokenizer.Token) 
                 const str = try string.cloneString(allocator, tokens[i + 1].string.?);
                 try errorNames.append(str);
             },
+            .LBrace => scopeCount += 1,
+            .RBrace => scopeCount -= 1,
             else => {},
         }
     }

@@ -72,18 +72,24 @@ let mut numOrNull: ?u32 = null;
 numOrNull = 4;
 
 // pointers
-let ptr1: *u32 = &10;
+let val1 = 2;
+let ptr1: *u32 = &val1;
 
 // mutable variable to const pointer
-let mut ptr2: *u32 = &1;
-ptr2 = &2;
+let val2 = 2;
+let val3 = 4;
+let mut ptr2: *u32 = &val2;
+ptr2 = &val3;
 
 // mutable variable to mutable pointer
-let mut ptr3: mut *u32 = mut &1;
-ptr3 = mut &2;
+let mut val4 = 1;
+let mut val5 = 2;
+let mut ptr3: mut *u32 = mut &val4;
+ptr3 = mut &val5;
 
 // dereference pointer
-let ptr4 = &5;
+let val6 = 5;
+let ptr4 = &val6;
 let ptrVal: u32 = *ptr4;
 
 // heap allocation

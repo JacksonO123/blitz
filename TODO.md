@@ -1,5 +1,6 @@
 # Todo
 
+- [ ] implement dereference set value statement
 - [ ] implement struct descriptors like copy and any other necessary ones
   - copy will mark if a struct containing a pointer is allowed to be copied
 - [ ] add register spilling

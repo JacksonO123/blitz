@@ -39,13 +39,16 @@ pub const ScanError = error{
     ExpectedBooleanIfCondition,
     UnsupportedFeature,
     ExpectedUSizeForIndex,
-    StaticStructInstanceCannotBeUsedAsValue,
+    StaticStructInstanceCannotBeUsedAsVariable,
     InvalidNumber,
     IfStatementMayOnlyHaveOneElse,
     ElseBranchOutOfOrder,
+    NestedVarInfoDetected,
+
+    // pointers
     PointerTypeMismatch,
     CannotDereferenceNonPointerValue,
-    NestedVarInfoDetected,
+    CannotTakePointerOfRawValue,
 
     // arrays
     ArraySliceTypeMismatch,
@@ -95,7 +98,6 @@ pub const ScanError = error{
     SelfUsedOutsideStruct,
     UndefinedStruct,
     RestrictedPropertyAccess,
-    StructDefinedInLowerScope,
     InvalidPropertySource,
 
     // operations
@@ -153,7 +155,7 @@ pub fn scanNode(
 
         .StaticStructInstance => |inst| {
             if (!compInfo.scanner.allowStaticStructInstance) {
-                return ScanError.StaticStructInstanceCannotBeUsedAsValue;
+                return ScanError.StaticStructInstanceCannotBeUsedAsVariable;
             }
 
             return try utils.astTypesToInfo(allocator, .{
@@ -560,14 +562,7 @@ pub fn scanNode(
 
             return ScanError.VariableIsUndefined;
         },
-        .StructPlaceholder => {
-            const scopeDepth = compInfo.getScopeDepth();
-            if (scopeDepth != 1) {
-                return ScanError.StructDefinedInLowerScope;
-            }
-
-            return try utils.astTypesToInfo(allocator, .Void, false);
-        },
+        .StructPlaceholder => return try utils.astTypesToInfo(allocator, .Void, false),
         .StructDec => |dec| {
             try compInfo.addCurrentStruct(dec.name);
             defer _ = compInfo.popCurrentStruct();
@@ -839,13 +834,26 @@ pub fn scanNode(
             const prev = try compInfo.returnInfo.newInfo(false);
 
             try scanNodeForFunctions(allocator, compInfo, scope);
-
             try compInfo.returnInfo.collapse(compInfo, prev, withGenDef);
 
             return scanNode(allocator, compInfo, scope, withGenDef);
         },
         .Pointer => |ptr| {
-            const ptrType = try scanNode(allocator, compInfo, ptr.node, withGenDef);
+            var ptrType = try scanNode(allocator, compInfo, ptr.node, withGenDef);
+
+            if (!ptr.isConst and ptrType.astType.* == .VarInfo and ptrType.isConst) {
+                return ScanError.PointerTypeConstMismatch;
+            }
+
+            switch (ptrType.astType.*) {
+                .Bool, .Char, .Void, .Null, .Number, .RawNumber => {
+                    return ScanError.CannotTakePointerOfRawValue;
+                },
+                else => {},
+            }
+
+            ptrType = try escapeVarInfoAndFree(allocator, ptrType);
+
             return try utils.astTypesToInfo(allocator, .{
                 .Pointer = ptrType,
             }, ptr.isConst);
