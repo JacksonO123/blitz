@@ -3,10 +3,11 @@ const blitz = @import("root").blitz;
 const blitzAst = blitz.ast;
 const utils = blitz.utils;
 const string = blitz.string;
+const blitzCompInfo = blitz.compInfo;
 const Allocator = std.mem.Allocator;
 const create = utils.create;
 const createMut = utils.createMut;
-const CompInfo = utils.CompInfo;
+const CompInfo = blitzCompInfo.CompInfo;
 const StringHashMap = std.StringHashMap;
 const ArrayList = std.ArrayList;
 
@@ -164,8 +165,8 @@ pub fn cloneAstTypeInfo(
     };
 }
 
-fn cloneCaptureScope(allocator: Allocator, scope: *const utils.CaptureScope) !*utils.CaptureScope {
-    const newScope = try utils.initMutPtrT(utils.CaptureScope, allocator);
+fn cloneCaptureScope(allocator: Allocator, scope: *const blitzCompInfo.CaptureScope) !*blitzCompInfo.CaptureScope {
+    const newScope = try utils.initMutPtrT(blitzCompInfo.CaptureScope, allocator);
     var it = scope.iterator();
     while (it.next()) |item| {
         try newScope.put(item.key_ptr.*, item.value_ptr.*);
@@ -173,8 +174,8 @@ fn cloneCaptureScope(allocator: Allocator, scope: *const utils.CaptureScope) !*u
     return newScope;
 }
 
-fn cloneGenericScope(allocator: Allocator, scope: *const utils.TypeScope) !*utils.TypeScope {
-    const newScope = try utils.initMutPtrT(utils.TypeScope, allocator);
+fn cloneGenericScope(allocator: Allocator, scope: *const blitzCompInfo.TypeScope) !*blitzCompInfo.TypeScope {
+    const newScope = try utils.initMutPtrT(blitzCompInfo.TypeScope, allocator);
     var it = scope.iterator();
     while (it.next()) |item| {
         try newScope.put(item.key_ptr.*, item.value_ptr.*);
@@ -219,18 +220,14 @@ pub fn cloneAstNode(
             },
         },
         .OpExpr => |op| {
-            const sides = .{
-                .left = try cloneAstNodePtrMut(allocator, compInfo, op.left, replaceGenerics),
-                .right = try cloneAstNodePtrMut(allocator, compInfo, op.right, replaceGenerics),
-            };
-
             const opType = op.type;
 
             return .{
                 .OpExpr = .{
                     .type = opType,
-                    .left = sides.left,
-                    .right = sides.right,
+                    .left = try cloneAstNodePtrMut(allocator, compInfo, op.left, replaceGenerics),
+                    .right = try cloneAstNodePtrMut(allocator, compInfo, op.right, replaceGenerics),
+                    .depth = op.depth,
                 },
             };
         },
@@ -644,17 +641,17 @@ pub fn cloneFuncDec(
         generics = try cloneGenerics(allocator, compInfo, decGenerics, replaceGenerics);
     }
 
-    var capturedValues: ?*utils.CaptureScope = null;
+    var capturedValues: ?*blitzCompInfo.CaptureScope = null;
     if (dec.capturedValues) |values| {
         capturedValues = try cloneCaptureScope(allocator, values);
     }
 
-    var capturedTypes: ?*utils.TypeScope = null;
+    var capturedTypes: ?*blitzCompInfo.TypeScope = null;
     if (dec.capturedTypes) |captured| {
         capturedTypes = try cloneGenericScope(allocator, captured);
     }
 
-    var capturedFuncs: ?*utils.StringListScope = null;
+    var capturedFuncs: ?*blitzCompInfo.StringListScope = null;
     if (dec.capturedFuncs) |captured| {
         const capturedFuncNames = try string.cloneStringArray(allocator, captured.items);
         const tempList = try ArrayList([]u8).initCapacity(allocator, captured.items.len);

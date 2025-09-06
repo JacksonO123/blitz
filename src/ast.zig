@@ -6,7 +6,8 @@ const free = blitz.free;
 const string = blitz.string;
 const scanner = blitz.scanner;
 const clone = blitz.clone;
-const CompInfo = utils.CompInfo;
+const blitzCompInfo = blitz.compInfo;
+const CompInfo = blitzCompInfo.CompInfo;
 const create = utils.create;
 const createMut = utils.createMut;
 const Allocator = std.mem.Allocator;
@@ -381,9 +382,9 @@ pub const FuncDecNode = struct {
     body: *AstNode,
     bodyTokens: []tokenizer.Token,
     returnType: AstTypeInfo,
-    capturedValues: ?*utils.CaptureScope,
-    capturedTypes: ?*utils.TypeScope,
-    capturedFuncs: ?*utils.StringListScope,
+    capturedValues: ?*blitzCompInfo.CaptureScope,
+    capturedTypes: ?*blitzCompInfo.TypeScope,
+    capturedFuncs: ?*blitzCompInfo.StringListScope,
     toScanTypes: *ToScanTypesList,
     builtin: bool,
     visited: bool,
@@ -400,6 +401,8 @@ const PropertyAccess = struct {
 };
 
 pub const OpExprTypes = enum(u8) {
+    const Self = @This();
+
     BitAnd = 0,
     BitOr = 1,
     And = 2,
@@ -413,12 +416,26 @@ pub const OpExprTypes = enum(u8) {
     LessThanEq,
     GreaterThanEq,
     Equal,
+    NotEqual,
+
+    pub fn getOppositeCompOp(self: Self) Self {
+        return switch (self) {
+            .Equal => .NotEqual,
+            .NotEqual => .Equal,
+            .LessThan => .GreaterThanEq,
+            .GreaterThan => .LessThanEq,
+            .LessThanEq => .GreaterThan,
+            .GreaterThanEq => .LessThan,
+            else => self,
+        };
+    }
 };
 
 const OpExpr = struct {
     type: OpExprTypes,
     left: *AstNode,
     right: *AstNode,
+    depth: usize,
 };
 
 const IndexValueNode = struct {
@@ -1081,11 +1098,16 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
             const after = try parseExpression(allocator, compInfo) orelse
                 return compInfo.logger.logError(AstError.ExpectedExpression);
 
+            const depthLeft = getExprDepth(expr.?);
+            const depthRight = getExprDepth(after);
+            const depth = @max(depthLeft, depthRight) + 1;
+
             break :a try createMut(AstNode, allocator, .{
                 .OpExpr = .{
                     .type = tokenTypeToOpType(next.type),
                     .left = expr.?,
                     .right = after,
+                    .depth = depth,
                 },
             });
         },
@@ -1111,6 +1133,22 @@ fn parseExpression(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
     }
 
     return expr;
+}
+
+pub fn getExprDepth(expr: *AstNode) usize {
+    if (expr.* == .OpExpr) {
+        const left = expr.OpExpr.left;
+        const right = expr.OpExpr.right;
+        var leftDepth: usize = 0;
+        var rightDepth: usize = 0;
+
+        if (left.* == .OpExpr) leftDepth = left.OpExpr.depth;
+        if (right.* == .OpExpr) rightDepth = right.OpExpr.depth;
+
+        return @max(leftDepth, rightDepth) + 1;
+    }
+
+    return 0;
 }
 
 fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Error || AstError)!?*AstNode {

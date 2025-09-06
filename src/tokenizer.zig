@@ -2,9 +2,10 @@ const std = @import("std");
 const blitz = @import("blitz.zig");
 const blitzAst = blitz.ast;
 const string = blitz.string;
+const utils = blitz.utils;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
-const utils = blitz.utils;
+const Logger = blitz.logger.Logger;
 
 pub const TokenizeError = error{
     NumberHasTwoPeriods,
@@ -881,3 +882,123 @@ fn tokenizeErrorToString(err: TokenizeError) []const u8 {
         TokenizeError.UnexpectedCharacter => "unexpected character",
     };
 }
+
+pub const TokenUtil = struct {
+    const Self = @This();
+
+    allocator: Allocator,
+    index: usize,
+    currentLine: usize,
+    currentLineToken: usize,
+    tokens: []Token,
+    windows: *ArrayList(usize),
+    logger: *Logger,
+
+    pub fn init(allocator: Allocator, logger: *Logger, tokens: []Token) !Self {
+        const windows = try utils.initMutPtrT(ArrayList(usize), allocator);
+
+        return Self{
+            .allocator = allocator,
+            .index = 0,
+            .currentLine = 0,
+            .currentLineToken = 0,
+            .tokens = tokens,
+            .windows = windows,
+            .logger = logger,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.windows.deinit();
+        self.allocator.destroy(self.windows);
+    }
+
+    pub fn reset(self: *Self) void {
+        self.index = 0;
+        self.currentLine = 0;
+        self.currentLineToken = 0;
+        self.windows.clearRetainingCapacity();
+    }
+
+    pub fn take(self: *Self) !Token {
+        const res = try self.takeFixed();
+
+        if (res.type == .NewLine) {
+            return try self.take();
+        }
+
+        return res;
+    }
+
+    pub fn takeFixed(self: *Self) !Token {
+        if (self.index >= self.tokens.len) {
+            return self.logger.logError(blitzAst.AstError.ExpectedTokenFoundNothing);
+        }
+
+        const res = self.tokens[self.index];
+        self.index += 1;
+        self.currentLineToken += 1;
+
+        if (res.type == .NewLine) {
+            self.currentLine += 1;
+            self.currentLineToken = 0;
+        }
+
+        return res;
+    }
+
+    pub fn peakFixed(self: Self) !Token {
+        if (self.index >= self.tokens.len) {
+            return blitzAst.AstError.ExpectedTokenFoundNothing;
+        }
+
+        return self.tokens[self.index];
+    }
+
+    pub fn peak(self: *Self) !Token {
+        const res = try self.peakFixed();
+
+        if (res.type == .NewLine) {
+            const prevCurrentLineToken = self.currentLineToken;
+
+            self.index += 1;
+            self.currentLine += 1;
+            self.currentLineToken = 0;
+
+            const newRes = self.peak();
+
+            self.index -= 1;
+            self.currentLine -= 1;
+            self.currentLineToken = prevCurrentLineToken;
+
+            return newRes;
+        }
+
+        return res;
+    }
+
+    pub fn returnToken(self: *Self) void {
+        self.index -= 1;
+        self.currentLineToken -= 1;
+    }
+
+    pub fn expectToken(self: *Self, tokenType: TokenType) !void {
+        const token = try self.take();
+        if (std.meta.activeTag(token.type) != std.meta.activeTag(tokenType)) {
+            return self.logger.logError(blitzAst.AstError.UnexpectedToken);
+        }
+    }
+
+    pub fn hasNextFixed(self: Self) bool {
+        if (self.index < self.tokens.len) return true;
+        return false;
+    }
+
+    pub fn hasNext(self: *Self) bool {
+        _ = self.peak() catch {
+            return false;
+        };
+
+        return true;
+    }
+};

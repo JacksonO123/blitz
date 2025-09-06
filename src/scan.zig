@@ -7,8 +7,9 @@ const builtins = @import("builtins.zig");
 const clone = blitz.clone;
 const number = blitz.number;
 const string = blitz.string;
+const blitzCompInfo = blitz.compInfo;
 const Allocator = std.mem.Allocator;
-const CompInfo = utils.CompInfo;
+const CompInfo = blitzCompInfo.CompInfo;
 const ArrayList = std.ArrayList;
 const create = utils.create;
 const createMut = utils.createMut;
@@ -298,6 +299,7 @@ pub fn scanNode(
                 .LessThanEq,
                 .GreaterThanEq,
                 .Equal,
+                .NotEqual,
                 => {
                     if (!isAnyType(left.astType) and !isAnyType(right.astType)) {
                         if (left.astType.* != .Number or right.astType.* != .Number) {
@@ -1181,7 +1183,7 @@ fn estimateStackSize(astType: *const blitzAst.AstTypes) u32 {
 fn genScopeToRels(
     allocator: Allocator,
     compInfo: *CompInfo,
-    genScope: *utils.TypeScope,
+    genScope: *blitzCompInfo.TypeScope,
     withGenDef: bool,
 ) ![]blitzAst.GenToTypeInfoRel {
     const slice = try allocator.alloc(blitzAst.GenToTypeInfoRel, genScope.count());
@@ -1203,7 +1205,7 @@ fn fnHasScannedWithSameGenTypes(
     allocator: Allocator,
     compInfo: *CompInfo,
     func: *blitzAst.FuncDecNode,
-    genScope: *utils.TypeScope,
+    genScope: *blitzCompInfo.TypeScope,
     withGenDef: bool,
 ) !bool {
     outer: for (func.toScanTypes.items) |scannedScope| {
@@ -1225,9 +1227,9 @@ fn isAnyType(astType: *const blitzAst.AstTypes) bool {
     return astType.* == .Generic or astType.* == .Any;
 }
 
-fn applyVariableCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scope: *utils.CaptureScope) !void {
+fn applyVariableCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scope: *blitzCompInfo.CaptureScope) !void {
     if (func.capturedValues) |captured| {
-        utils.freeVariableCaptures(allocator, captured);
+        free.freeVariableCaptures(allocator, captured);
         captured.deinit();
         allocator.destroy(captured);
     }
@@ -1235,9 +1237,9 @@ fn applyVariableCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scop
     func.capturedValues = scope;
 }
 
-fn applyGenericCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scope: *utils.TypeScope) !void {
+fn applyGenericCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scope: *blitzCompInfo.TypeScope) !void {
     if (func.capturedTypes) |captured| {
-        utils.freeGenericCaptures(allocator, captured);
+        free.freeGenericCaptures(allocator, captured);
         captured.deinit();
         allocator.destroy(captured);
     }
@@ -1245,7 +1247,7 @@ fn applyGenericCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scope
     func.capturedTypes = scope;
 }
 
-fn applyFunctionCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scope: *utils.StringListScope) !void {
+fn applyFunctionCaptures(allocator: Allocator, func: *blitzAst.FuncDecNode, scope: *blitzCompInfo.StringListScope) !void {
     if (func.capturedFuncs) |captured| {
         captured.deinit();
         allocator.destroy(captured);

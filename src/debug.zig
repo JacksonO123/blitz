@@ -4,7 +4,8 @@ const blitzAst = blitz.ast;
 const utils = blitz.utils;
 const tokenizer = blitz.tokenizer;
 const codegen = blitz.codegen;
-const CompInfo = utils.CompInfo;
+const blitzCompInfo = blitz.compInfo;
+const CompInfo = blitzCompInfo.CompInfo;
 const GenInfo = codegen.GenInfo;
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
@@ -220,6 +221,7 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode) void {
                 .LessThanEq => "<=LTE<=",
                 .GreaterThanEq => ">=GTE>=",
                 .Equal => "==EQUAL==",
+                .NotEqual => "!=EQUAL!=",
             }});
 
             print(" (", .{});
@@ -644,6 +646,8 @@ pub fn printBytecode(genInfo: *const GenInfo) !void {
             try printChunk(nextChunk, writer);
             next = nextChunk.next;
         }
+
+        try writer.print("total bytes: {d}\n", .{genInfo.byteCounter});
     }
 }
 
@@ -655,48 +659,71 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: anytype) !void {
     try std.fmt.formatInt(bytecode.len, 10, .lower, .{}, writer);
     try writer.writeAll(") ");
 
+    try writer.writeAll(inst.toString());
+
     switch (inst) {
         .SetRegHalf => {
-            try writer.writeAll("set_reg_half r");
+            try writer.writeAll(" r");
             try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
             try writer.writeAll(" ");
             const num = bytecode[2..6];
             try writeHexDecNumber(num, writer);
         },
-        .SetRegByte => {
-            try writer.writeAll("set_reg_byte r");
+        .SetRegByte, .CmpConstByte => {
+            try writer.writeAll(" r");
             try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
             try writer.writeAll(" ");
             try writeHexDecNumber(bytecode[2..3], writer);
         },
-        .Add => try printBytecodeOpExpr("add", bytecode, writer),
-        .Sub => try printBytecodeOpExpr("sub", bytecode, writer),
-        .Mult => try printBytecodeOpExpr("mult", bytecode, writer),
-        .CmpConstByte => {
-            try writer.writeAll("cmp_const_byte r");
-            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
-            try writer.writeAll(" ");
-            try writeHexDecNumber(bytecode[2..3], writer);
+        .Cmp => {
+            try writer.writeAll(" r");
+            try writeByte(bytecode[1], writer);
+            try writer.writeAll(" r");
+            try writeByte(bytecode[2], writer);
         },
-        .JumpNotEqual => {
-            try writer.writeAll("jump_not_eq ");
-            try formatIntByteSlice(bytecode[1..], writer);
+        .CmpSetReg => {
+            try writer.writeAll(" r");
+            try writeByte(bytecode[1], writer);
+            try writer.writeAll(" r");
+            try writeByte(bytecode[2], writer);
+            try writer.writeAll(" r");
+            try writeByte(bytecode[3], writer);
         },
-        .Jump => {
-            try writer.writeAll("jump ");
+        .Add,
+        .Sub,
+        .Mult,
+        => try printBytecodeOpExpr(bytecode, writer),
+        .Jump,
+        .JumpEQ,
+        .JumpNE,
+        .JumpGT,
+        .JumpLT,
+        .JumpGTE,
+        .JumpLTE,
+        .JumpBack,
+        .JumpBackEQ,
+        .JumpBackNE,
+        .JumpBackGT,
+        .JumpBackLT,
+        .JumpBackGTE,
+        .JumpBackLTE,
+        => {
+            try writer.writeByte(' ');
             try formatIntByteSlice(bytecode[1..], writer);
         },
         else => {
-            try writer.writeAll("unknown_cmd ");
-            try std.fmt.formatInt(bytecode[0], 10, .lower, .{}, writer);
+            try writer.writeAll(" (unknown_cmd) ");
         },
     }
 
     try writer.writeByte('\n');
 }
 
-fn printBytecodeOpExpr(name: []const u8, bytecode: []u8, writer: anytype) !void {
-    try writer.writeAll(name);
+fn writeByte(byte: u8, writer: anytype) !void {
+    try std.fmt.formatInt(byte, 10, .lower, .{}, writer);
+}
+
+fn printBytecodeOpExpr(bytecode: []u8, writer: anytype) !void {
     try writer.writeAll(" r");
     try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
     try writer.writeAll(" r");

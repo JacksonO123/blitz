@@ -4,6 +4,7 @@ const blitzAst = blitz.ast;
 const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
 const builtins = blitz.builtins;
+const compInfo = blitz.compInfo;
 const Allocator = std.mem.Allocator;
 const CompInfo = utils.CompInfo;
 
@@ -57,13 +58,13 @@ pub fn freeFuncDecUtil(allocator: Allocator, func: *const blitzAst.FuncDecNode, 
     freeAstTypeInfo(allocator, func.returnType);
 
     if (func.capturedValues) |captured| {
-        utils.freeVariableCaptures(allocator, captured);
+        freeVariableCaptures(allocator, captured);
         captured.deinit();
         allocator.destroy(captured);
     }
 
     if (func.capturedTypes) |captured| {
-        utils.freeGenericCaptures(allocator, captured);
+        freeGenericCaptures(allocator, captured);
         captured.deinit();
         allocator.destroy(captured);
     }
@@ -390,4 +391,39 @@ pub fn freeTokenArr(allocator: Allocator, tokens: []tokenizer.Token) void {
 pub fn freeBuiltins(allocator: Allocator, memos: builtins.BuiltinFuncMemo) void {
     _ = allocator;
     _ = memos;
+}
+
+pub fn freeVariableScope(allocator: Allocator, scope: *compInfo.VarScope) void {
+    var scopeIt = scope.valueIterator();
+    while (scopeIt.next()) |v| {
+        freeAstTypeInfo(allocator, v.*);
+    }
+}
+
+pub fn freeVariableCaptures(allocator: Allocator, scope: *compInfo.CaptureScope) void {
+    var scopeIt = scope.valueIterator();
+    while (scopeIt.next()) |v| {
+        freeAstTypeInfo(allocator, v.*);
+    }
+}
+
+pub const freeGenericCaptures = freeGenericScope;
+
+pub fn freeScopedFunctionScope(allocator: Allocator, scope: *compInfo.StringListScope) void {
+    for (scope.items) |item| {
+        allocator.free(item);
+    }
+}
+
+pub fn freeGenericScope(allocator: Allocator, scope: *compInfo.TypeScope) void {
+    var genericIt = scope.valueIterator();
+    while (genericIt.next()) |gen| {
+        freeAstTypeInfo(allocator, gen.*);
+    }
+}
+
+pub fn freeStringListScope(allocator: Allocator, scope: *compInfo.StringListScope) void {
+    _ = allocator;
+    _ = scope;
+    // no operation needed
 }

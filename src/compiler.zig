@@ -7,12 +7,13 @@ const scanner = blitz.scanner;
 const utils = blitz.utils;
 const free = blitz.free;
 const codegen = blitz.codegen;
+const blitzCompInfo = blitz.compInfo;
 const settings = blitz.settings;
 const create = utils.create;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = std.mem.Allocator;
-const CompInfo = utils.CompInfo;
+const CompInfo = blitzCompInfo.CompInfo;
 const TokenUtil = utils.TokenUtil;
 const GenInfo = codegen.GenInfo;
 
@@ -82,8 +83,8 @@ pub fn main() !void {
     defer genInfo.deinit();
     genInfo.stackStartSize = compInfo.stackSizeEstimate;
 
-    // try codegen.codegenAst(allocator, &genInfo, ast);
-    // std.debug.print("--- bytecode out ---\n", .{});
-    // try debug.printBytecode(&genInfo);
-    // std.debug.print("\n------------\n", .{});
+    try codegen.codegenAst(allocator, &genInfo, ast);
+    std.debug.print("--- bytecode out ---\n", .{});
+    try debug.printBytecode(&genInfo);
+    std.debug.print("\n------------\n", .{});
 }
