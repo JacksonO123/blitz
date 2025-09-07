@@ -664,7 +664,7 @@ pub fn printVMStartInfo(info: []u8, writer: anytype) !void {
     try writer.writeAll("blitz bytecode version ");
     try std.fmt.formatInt(info[0], 10, .lower, .{}, writer);
     try writer.writeAll("\nstarting stack size: ");
-    const startStackSize = std.mem.readInt(u32, @ptrCast(info[1..5]), .big);
+    const startStackSize = std.mem.readInt(u32, @ptrCast(info[1..5]), .little);
     try std.fmt.formatInt(startStackSize, 10, .lower, .{}, writer);
     try writer.writeByte('\n');
 }
@@ -785,12 +785,12 @@ fn formatIntByteSlice(slice: []u8, writer: anytype) !void {
 fn formatIntByteSliceUtil(comptime T: type, slice: []u8, writer: anytype) !void {
     var temp: T = 0;
 
-    for (slice, 0..) |byte, index| {
-        const shift = slice.len - index - 1;
-        var byteTemp: T = byte;
-
-        byteTemp = byteTemp << @intCast(shift * 8);
-        temp += byteTemp;
+    var i: usize = slice.len - 1;
+    while (true) : (i -= 1) {
+        var byte: T = slice[i];
+        byte = byte << @intCast(i * 8);
+        temp += byte;
+        if (i == 0) break;
     }
 
     try std.fmt.formatInt(temp, 10, .lower, .{}, writer);

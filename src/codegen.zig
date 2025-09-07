@@ -378,7 +378,7 @@ pub fn codegenAst(allocator: Allocator, genInfo: *GenInfo, ast: blitzAst.Ast) !v
 fn writeStartVMInfo(allocator: Allocator, genInfo: *GenInfo) !void {
     var buf = try allocator.alloc(u8, 5);
     buf[0] = version.VERSION;
-    std.mem.writeInt(u32, @ptrCast(buf[1..]), genInfo.stackStartSize, .big);
+    std.mem.writeInt(u32, @ptrCast(buf[1..]), genInfo.stackStartSize, .little);
     try genInfo.appendChunk(buf);
 }
 
@@ -389,7 +389,7 @@ fn writeIntSliceToInstr(
     num: []u8,
 ) !void {
     const size = @sizeOf(T);
-    std.mem.writeInt(T, @ptrCast(buf[offset .. size + offset]), try std.fmt.parseInt(T, num, 10), .big);
+    std.mem.writeInt(T, @ptrCast(buf[offset .. size + offset]), try std.fmt.parseInt(T, num, 10), .little);
 }
 
 pub fn genBytecode(
@@ -535,11 +535,11 @@ pub fn genBytecode(
                 const preFallbackByteCount = genInfo.byteCounter;
 
                 const diff = @as(u16, @intCast(genInfo.byteCounter - byteCount));
-                std.mem.writeInt(u16, @ptrCast(jumpBuf[1..]), diff, .big);
+                std.mem.writeInt(u16, @ptrCast(jumpBuf[1..]), diff, .little);
 
                 try generateFallback(allocator, genInfo, fallback);
                 const jumpEndDiff = @as(u16, @intCast(genInfo.byteCounter - preFallbackByteCount));
-                std.mem.writeInt(u16, @ptrCast(jumpEndBuf[1..]), jumpEndDiff, .big);
+                std.mem.writeInt(u16, @ptrCast(jumpEndBuf[1..]), jumpEndDiff, .little);
             }
         },
         .ForLoop => |loop| {
@@ -593,12 +593,12 @@ pub fn genBytecode(
             _ = try genBytecode(allocator, genInfo, loop.incNode);
 
             const jumpEndDiff = @as(u16, @intCast(genInfo.byteCounter - preBodyByteCount));
-            std.mem.writeInt(u16, @ptrCast(jumpEndBuf[1..]), jumpEndDiff, .big);
+            std.mem.writeInt(u16, @ptrCast(jumpEndBuf[1..]), jumpEndDiff, .little);
 
             const jumpStartBuf = try allocator.alloc(u8, 3);
             jumpStartBuf[0] = Instructions.JumpBack.getInstrByte();
             const jumpStartDiff = @as(u16, @intCast(genInfo.byteCounter - preConditionByteCount));
-            std.mem.writeInt(u16, @ptrCast(jumpStartBuf[1..]), jumpStartDiff, .big);
+            std.mem.writeInt(u16, @ptrCast(jumpStartBuf[1..]), jumpStartDiff, .little);
             try genInfo.appendChunk(jumpStartBuf);
         },
         .IncOne => |inc| {
@@ -683,11 +683,11 @@ fn generateFallback(allocator: Allocator, genInfo: *GenInfo, fallback: *const bl
 
         if (jumpSlice) |slice| {
             const diff = @as(u16, @intCast(genInfo.byteCounter - preBodyByteCount));
-            std.mem.writeInt(u16, @ptrCast(slice), diff, .big);
+            std.mem.writeInt(u16, @ptrCast(slice), diff, .little);
         }
 
         try generateFallback(allocator, genInfo, newFallback);
         const diff = @as(u16, @intCast(genInfo.byteCounter - preFallbackByteCount));
-        std.mem.writeInt(u16, @ptrCast(jumpEndBuf[1..]), diff, .big);
+        std.mem.writeInt(u16, @ptrCast(jumpEndBuf[1..]), diff, .little);
     }
 }

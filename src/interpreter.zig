@@ -38,7 +38,7 @@ pub fn main() !void {
         return InterpreterError.IncompatibleInterpreterVersions;
     }
 
-    const stackSize = std.mem.readInt(u32, @ptrCast(bytecode[1..5]), .big);
+    const stackSize = std.mem.readInt(u32, @ptrCast(bytecode[1..5]), .little);
     var runtimeInfo = try RuntimeInfo.init(allocator, stackSize);
     defer runtimeInfo.deinit();
 
@@ -101,7 +101,7 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
         const instLen = inst.getInstrLen();
         switch (inst) {
             .SetRegHalf => {
-                const value = std.mem.readInt(u32, @ptrCast(bytecode[current + 2 .. current + 6]), .big);
+                const value = std.mem.readInt(u32, @ptrCast(bytecode[current + 2 .. current + 6]), .little);
                 runtimeInfo.registers[bytecode[current + 1]] = value;
             },
             .Add => {
@@ -152,11 +152,11 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
                 };
             },
             .Jump => {
-                const amount = std.mem.readInt(u16, @ptrCast(bytecode[current + 1 .. current + 3]), .big);
+                const amount = std.mem.readInt(u16, @ptrCast(bytecode[current + 1 .. current + 3]), .little);
                 current += amount;
             },
             .JumpBack => {
-                const amount = std.mem.readInt(u16, @ptrCast(bytecode[current + 1 .. current + 3]), .big);
+                const amount = std.mem.readInt(u16, @ptrCast(bytecode[current + 1 .. current + 3]), .little);
                 current -= amount;
                 continue;
             },
@@ -167,7 +167,7 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
             .JumpGTE,
             .JumpLTE,
             => {
-                const amount = std.mem.readInt(u16, @ptrCast(bytecode[current + 1 .. current + 3]), .big);
+                const amount = std.mem.readInt(u16, @ptrCast(bytecode[current + 1 .. current + 3]), .little);
                 if (getFlagFromJump(inst, runtimeInfo.flags)) {
                     current += amount;
                 }
@@ -179,7 +179,7 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
             .JumpBackGTE,
             .JumpBackLTE,
             => {
-                const amount = std.mem.readInt(u16, @ptrCast(bytecode[current + 1 .. current + 3]), .big);
+                const amount = std.mem.readInt(u16, @ptrCast(bytecode[current + 1 .. current + 3]), .little);
                 if (getFlagFromJump(inst, runtimeInfo.flags)) {
                     current -= amount;
                     continue;
