@@ -41,16 +41,13 @@ pub fn main() !void {
     const code = try utils.readRelativeFile(allocator, path);
     defer allocator.free(code);
 
-    var bufferedWriter = utils.getBufferedWriter();
-    defer bufferedWriter.flush() catch {};
+    const tokens = try tokenizer.tokenize(allocator, code);
+    defer allocator.free(tokens);
 
-    const tokens = try tokenizer.tokenize(allocator, code, &bufferedWriter);
-    defer free.freeTokens(allocator, tokens);
-
-    const names = try blitzAst.findStructAndErrorNames(allocator, tokens);
+    const names = try blitzAst.findStructAndErrorNames(allocator, tokens, code);
     debug.printStructAndErrorNames(names);
 
-    var compInfo = try CompInfo.init(allocator, tokens, names, code, &bufferedWriter);
+    var compInfo = try CompInfo.init(allocator, tokens, names, code);
     defer compInfo.deinit();
 
     const structsAndErrors = try blitzAst.registerStructsAndErrors(allocator, &compInfo);
@@ -85,9 +82,13 @@ pub fn main() !void {
     defer genInfo.deinit();
     genInfo.stackStartSize = compInfo.stackSizeEstimate;
 
+    var bufferedWriter = utils.getBufferedWriter();
+    defer bufferedWriter.flush() catch {};
+    const writer = bufferedWriter.writer();
+
     try codegen.codegenAst(allocator, &genInfo, ast);
     std.debug.print("--- bytecode out ---\n", .{});
-    try debug.printBytecodeChunks(&genInfo, &bufferedWriter);
+    try debug.printBytecodeChunks(&genInfo, writer);
     std.debug.print("\n------------\n", .{});
 
     const outFile = try std.fs.cwd().createFile("out.bzc", .{});

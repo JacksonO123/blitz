@@ -20,8 +20,8 @@ pub inline fn compString(str1: []const u8, str2: []const u8) bool {
     return std.mem.eql(u8, str1, str2);
 }
 
-pub fn cloneStringArray(allocator: Allocator, arr: [][]u8) ![][]u8 {
-    const outArr: [][]u8 = try allocator.alloc([]u8, arr.len);
+pub fn cloneStringArray(allocator: Allocator, arr: [][]const u8) ![][]const u8 {
+    const outArr: [][]const u8 = try allocator.alloc([]const u8, arr.len);
 
     for (arr, 0..) |str, index| {
         outArr[index] = try cloneString(allocator, str);

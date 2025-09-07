@@ -366,20 +366,6 @@ pub fn freeType(allocator: Allocator, typeNode: *const blitzAst.AstTypes) void {
     allocator.destroy(typeNode);
 }
 
-pub fn freeToken(allocator: Allocator, token: tokenizer.Token) void {
-    if (token.string) |str| {
-        allocator.free(str);
-    }
-}
-
-pub fn freeTokens(allocator: Allocator, tokens: []tokenizer.Token) void {
-    for (tokens) |token| {
-        freeToken(allocator, token);
-    }
-
-    allocator.free(tokens);
-}
-
 pub fn freeTokenArr(allocator: Allocator, tokens: []tokenizer.Token) void {
     for (tokens.*) |token| {
         if (token.string) |str| {

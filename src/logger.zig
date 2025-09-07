@@ -23,20 +23,18 @@ pub const Logger = struct {
 
     allocator: Allocator,
     tokens: *TokenUtil,
-    bufferedWriter: *utils.BufferedWriterType,
     code: []const u8,
 
-    pub fn init(allocator: Allocator, tokens: *TokenUtil, code: []const u8, bufferedWriter: *utils.BufferedWriterType) Self {
+    pub fn init(allocator: Allocator, tokens: *TokenUtil, code: []const u8) Self {
         return Self{
             .allocator = allocator,
             .tokens = tokens,
-            .bufferedWriter = bufferedWriter,
             .code = code,
         };
     }
 
     pub fn logError(self: *Self, err: blitzAst.AstError) blitzAst.AstError {
-        const writer = self.bufferedWriter.writer();
+        const writer = std.io.getStdOut().writer();
         const errStr = astErrorToString(err);
 
         const numSurroundingLines = 1;
@@ -46,16 +44,6 @@ pub const Logger = struct {
 
         const lineBounds = findLineBounds(self.code, self.tokens.currentLine);
         const line = self.code[lineBounds.start..lineBounds.end];
-
-        const tokenizeRes = tokenizer.tokenizeNumTokens(
-            self.allocator,
-            line,
-            self.tokens.currentLineToken,
-            self.bufferedWriter,
-        ) catch {
-            return err;
-        };
-        const tokenOffset = calculateTokenOffset(tokenizeRes.tokens, tokenizeRes.skippedWhitespace);
 
         writer.writeAll("Error: ") catch {};
         writer.writeAll(errStr) catch {};
@@ -70,7 +58,7 @@ pub const Logger = struct {
         writer.writeByte('\n') catch {};
 
         var i: usize = 0;
-        while (i < tokenOffset) : (i += 1) {
+        while (i < self.tokens.tokens[self.tokens.index - 1].start) : (i += 1) {
             writer.writeByte(' ') catch {};
         }
         writer.writeAll(&[_]u8{ '^', '\n' }) catch {};
@@ -83,21 +71,6 @@ pub const Logger = struct {
         return err;
     }
 };
-
-fn calculateTokenOffset(tokens: []tokenizer.Token, skippedWhitespace: usize) usize {
-    if (tokens.len == 0) return skippedWhitespace;
-
-    var res: usize = 0;
-    const temp = tokens[0 .. tokens.len - 1];
-
-    for (temp) |token| {
-        const str = if (token.string != null) token.string.? else token.type.toString();
-        if (token.type == .StringToken) res += 2;
-        res += str.len;
-    }
-
-    return res + skippedWhitespace;
-}
 
 fn findSurroundingLines(code: []const u8, line: usize, numSurroundingLines: usize) SurroundingBounds {
     var surroundingBefore = numSurroundingLines;

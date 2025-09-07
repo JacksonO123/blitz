@@ -95,13 +95,8 @@ const RuntimeInfo = struct {
 };
 
 fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
-    var loopLimit: usize = 0;
-
     var current: usize = vmInfo.VM_INFO_BYTECODE_LEN;
     while (current < bytecode.len) {
-        if (loopLimit > 100) break;
-        loopLimit += 1;
-
         const inst = @as(codegen.Instructions, @enumFromInt(bytecode[current]));
         const instLen = inst.getInstrLen();
         switch (inst) {

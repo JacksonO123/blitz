@@ -475,7 +475,7 @@ pub fn cloneAstNode(
             .StaticStructInstance = try string.cloneString(allocator, inst),
         },
         .ErrorDec => |def| {
-            var newVariants: ?[][]u8 = null;
+            var newVariants: ?[][]const u8 = null;
 
             if (def.variants) |variants| {
                 newVariants = try string.cloneStringArray(allocator, variants);
@@ -654,8 +654,8 @@ pub fn cloneFuncDec(
     var capturedFuncs: ?*blitzCompInfo.StringListScope = null;
     if (dec.capturedFuncs) |captured| {
         const capturedFuncNames = try string.cloneStringArray(allocator, captured.items);
-        const tempList = try ArrayList([]u8).initCapacity(allocator, captured.items.len);
-        capturedFuncs = try createMut(ArrayList([]u8), allocator, tempList);
+        const tempList = try ArrayList([]const u8).initCapacity(allocator, captured.items.len);
+        capturedFuncs = try createMut(ArrayList([]const u8), allocator, tempList);
         capturedFuncs.?.appendSliceAssumeCapacity(capturedFuncNames);
     }
 

@@ -24,7 +24,7 @@ fn initScopeUtil(comptime T: type, allocator: Allocator) !*ScopeUtil(*T) {
 pub const VarScope = StringHashMap(blitzAst.AstTypeInfo);
 pub const CaptureScope = StringHashMap(blitzAst.AstTypeInfo);
 pub const TypeScope = StringHashMap(blitzAst.AstTypeInfo);
-pub const StringListScope = ArrayList([]u8);
+pub const StringListScope = ArrayList([]const u8);
 
 const ToScanItem = struct {
     func: *blitzAst.FuncDecNode,
@@ -37,6 +37,7 @@ pub const CompInfo = struct {
     const Self = @This();
 
     allocator: Allocator,
+    code: []const u8,
     structNames: [][]u8,
     errorNames: [][]u8,
     variableScopes: *ScopeUtil(*VarScope),
@@ -72,11 +73,10 @@ pub const CompInfo = struct {
         tokens: []tokenizer.Token,
         names: blitzAst.HoistedNames,
         code: []const u8,
-        bufferedWriter: *utils.BufferedWriterType,
     ) !Self {
         const loggerUtil = try allocator.create(logger.Logger);
         const tokenUtil = try utils.createMut(tokenizer.TokenUtil, allocator, try tokenizer.TokenUtil.init(allocator, loggerUtil, tokens));
-        loggerUtil.* = logger.Logger.init(allocator, tokenUtil, code, bufferedWriter);
+        loggerUtil.* = logger.Logger.init(allocator, tokenUtil, code);
 
         const currentStructs = try utils.initMutPtrT(ArrayList([]u8), allocator);
         const functionsToScan = try utils.initMutPtrT(ToScanStack, allocator);
@@ -99,6 +99,7 @@ pub const CompInfo = struct {
 
         return Self{
             .allocator = allocator,
+            .code = code,
             .structNames = names.structNames,
             .errorNames = names.errorNames,
             .variableScopes = variableScopes,
@@ -203,6 +204,14 @@ pub const CompInfo = struct {
         self.allocator.destroy(self.functionsInScope);
     }
 
+    pub fn getTokString(self: Self, tok: tokenizer.Token) []const u8 {
+        return self.code[tok.start..tok.end];
+    }
+
+    pub fn getTokStringDropQuotes(self: Self, tok: tokenizer.Token) []const u8 {
+        return self.code[tok.start + 1 .. tok.end - 1];
+    }
+
     pub fn getScopeDepth(self: Self) usize {
         return self.variableScopes.scopes.items.len;
     }
@@ -281,7 +290,7 @@ pub const CompInfo = struct {
         self.parsedGenerics.pop(free.freeStringListScope);
     }
 
-    pub fn addParsedGeneric(self: *Self, gen: []u8) !void {
+    pub fn addParsedGeneric(self: *Self, gen: []const u8) !void {
         const scope = self.parsedGenerics.getCurrentScope();
         if (scope) |s| {
             try s.append(gen);
@@ -371,7 +380,7 @@ pub const CompInfo = struct {
         return self.previousAccessedStruct;
     }
 
-    pub fn hasStruct(self: Self, name: []u8) bool {
+    pub fn hasStruct(self: Self, name: []const u8) bool {
         for (self.structNames) |structName| {
             if (string.compString(structName, name)) return true;
         }

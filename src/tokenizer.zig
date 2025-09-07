@@ -290,19 +290,22 @@ pub const Token = struct {
     const Self = @This();
 
     type: TokenType,
-    string: ?[]u8,
+    start: usize,
+    end: usize,
 
-    pub fn init(tokenType: TokenType) Self {
+    pub fn init(tokenType: TokenType, index: usize) Self {
         return Self{
             .type = tokenType,
-            .string = null,
+            .start = index,
+            .end = index + 1,
         };
     }
 
-    pub fn initStr(tokenType: TokenType, str: []u8) Self {
+    pub fn initBounds(tokenType: TokenType, start: usize, end: usize) Self {
         return Self{
             .type = tokenType,
-            .string = str,
+            .start = start,
+            .end = end,
         };
     }
 
@@ -323,16 +326,15 @@ pub const Token = struct {
 
         return if (includeAngle) temp or self.type == .RAngle else temp;
     }
+
+    pub fn strFromCode(self: Self, code: []u8) []u8 {
+        return code[self.start..self.end];
+    }
 };
 
 const TokenTypeMap = struct {
     string: []const u8,
     token: TokenType,
-};
-
-const TokenizerOut = struct {
-    tokens: []Token,
-    skippedWhitespace: usize,
 };
 
 const LineBounds = struct {
@@ -345,16 +347,12 @@ const CharUtil = struct {
 
     index: usize,
     chars: []const u8,
-    skippedWhitespace: usize,
-    bufferedWriter: *utils.BufferedWriterType,
     allowPeriod: bool,
 
-    pub fn init(chars: []const u8, bufferedWriter: *utils.BufferedWriterType) Self {
+    pub fn init(chars: []const u8) Self {
         return Self{
             .index = 0,
             .chars = chars,
-            .skippedWhitespace = 0,
-            .bufferedWriter = bufferedWriter,
             .allowPeriod = false,
         };
     }
@@ -402,7 +400,7 @@ const CharUtil = struct {
     }
 
     pub fn logError(self: *Self, err: TokenizeError) TokenizeError {
-        const writer = self.bufferedWriter.writer();
+        const writer = std.io.getStdOut().writer();
         const errStr = tokenizeErrorToString(err);
 
         const index = self.index - 1;
@@ -427,13 +425,13 @@ const CharUtil = struct {
     }
 };
 
-pub fn tokenize(allocator: Allocator, input: []const u8, bufferedWriter: *utils.BufferedWriterType) ![]Token {
+pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
     var tokens = ArrayList(Token).init(allocator);
     defer tokens.deinit();
-    var charUtil = CharUtil.init(input, bufferedWriter);
+    var charUtil = CharUtil.init(input);
 
     while (charUtil.hasNext()) {
-        const token = try parseNextToken(allocator, &charUtil);
+        const token = try parseNextToken(&charUtil);
         if (token) |tok| {
             try tokens.append(tok);
         }
@@ -442,87 +440,60 @@ pub fn tokenize(allocator: Allocator, input: []const u8, bufferedWriter: *utils.
     return tokens.toOwnedSlice();
 }
 
-pub fn tokenizeNumTokens(
-    allocator: Allocator,
-    input: []const u8,
-    numTokens: usize,
-    bufferedWriter: *utils.BufferedWriterType,
-) !TokenizerOut {
-    var tokens = ArrayList(Token).init(allocator);
-    defer tokens.deinit();
-    var charUtil = CharUtil.init(input, bufferedWriter);
-
-    var i: usize = 0;
-    while (i < numTokens and charUtil.hasNext()) {
-        const token = try parseNextToken(allocator, &charUtil);
-        if (token) |tok| {
-            try tokens.append(tok);
-            i += 1;
-        }
-    }
-
-    return .{
-        .tokens = try tokens.toOwnedSlice(),
-        .skippedWhitespace = charUtil.skippedWhitespace,
-    };
-}
-
-fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
+fn parseNextToken(chars: *CharUtil) !?Token {
     if (!chars.hasNext()) return null;
+    const startIndex = chars.index;
     const first = try chars.take();
-    var charStr = ArrayList(u8).init(allocator);
-    defer charStr.deinit();
 
     if (first != '.' and chars.allowPeriod) {
         chars.allowPeriod = false;
     }
 
     switch (first) {
-        '\n' => return Token.init(.NewLine),
+        '\n' => return Token.init(.NewLine, startIndex),
         ' ' => {
-            chars.skippedWhitespace += 1;
             return null;
         },
         '+' => {
             if ((try chars.peak()) == '=') {
                 _ = try chars.take();
-                return Token.init(.AddEq);
+                return Token.init(.AddEq, startIndex);
             } else if ((try chars.peak()) == '+') {
                 _ = try chars.take();
-                return Token.init(.Inc);
+                return Token.init(.Inc, startIndex);
             }
 
-            return Token.init(.Add);
+            return Token.init(.Add, startIndex);
         },
         '-' => {
             const nextPeak = try chars.peak();
             if (std.ascii.isDigit(nextPeak)) {
-                const numberInfo = try parseNumber(allocator, chars);
+                const numberInfo = try parseNumber(chars);
                 chars.returnChar();
-                return Token.initStr(.{ .NegNumber = numberInfo.numType orelse .I32 }, numberInfo.num);
+                return Token.initBounds(.{ .NegNumber = numberInfo.numType orelse .I32 }, numberInfo.start, numberInfo.end);
             } else if (nextPeak == '=') {
                 _ = try chars.take();
-                return Token.init(.SubEq);
+                return Token.init(.SubEq, startIndex);
             } else if (nextPeak == '-') {
                 _ = try chars.take();
-                return Token.init(.Dec);
+                return Token.init(.Dec, startIndex);
             }
 
-            return Token.init(.Sub);
+            return Token.init(.Sub, startIndex);
         },
         '*' => {
             if ((try chars.peak()) == '=') {
                 _ = try chars.take();
-                return Token.init(.MultEq);
+                return Token.init(.MultEq, startIndex);
             }
 
-            return Token.init(.Asterisk);
+            return Token.init(.Asterisk, startIndex);
         },
         '/' => {
             const nextPeak = try chars.peak();
             if (nextPeak == '=') {
                 _ = try chars.take();
-                return Token.init(.DivEq);
+                return Token.init(.DivEq, startIndex);
             } else if (nextPeak == '/') {
                 var next = try chars.take();
                 while (next != '\n') {
@@ -534,45 +505,45 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
                 chars.returnChar();
                 return null;
             }
-            return Token.init(.Div);
+            return Token.init(.Div, startIndex);
         },
-        ';' => return Token.init(.Semicolon),
-        '{' => return Token.init(.LBrace),
-        '}' => return Token.init(.RBrace),
-        '[' => return Token.init(.LBracket),
-        ']' => return Token.init(.RBracket),
-        '(' => return Token.init(.LParen),
+        ';' => return Token.init(.Semicolon, startIndex),
+        '{' => return Token.init(.LBrace, startIndex),
+        '}' => return Token.init(.RBrace, startIndex),
+        '[' => return Token.init(.LBracket, startIndex),
+        ']' => return Token.init(.RBracket, startIndex),
+        '(' => return Token.init(.LParen, startIndex),
         ')' => {
             chars.allowPeriod = true;
-            return Token.init(.RParen);
+            return Token.init(.RParen, startIndex);
         },
-        ':' => return Token.init(.Colon),
-        ',' => return Token.init(.Comma),
+        ':' => return Token.init(.Colon, startIndex),
+        ',' => return Token.init(.Comma, startIndex),
         '<' => {
             if ((try chars.peak()) == '=') {
                 _ = try chars.take();
-                return Token.init(.LAngleEq);
+                return Token.init(.LAngleEq, startIndex);
             }
 
-            return Token.init(.LAngle);
+            return Token.init(.LAngle, startIndex);
         },
         '>' => {
             if ((try chars.peak()) == '=') {
                 _ = try chars.take();
-                return Token.init(.RAngleEq);
+                return Token.init(.RAngleEq, startIndex);
             }
 
-            return Token.init(.RAngle);
+            return Token.init(.RAngle, startIndex);
         },
         '=' => {
             if ((try chars.peak()) == '=') {
                 _ = try chars.take();
-                return Token.init(.EqComp);
+                return Token.init(.EqComp, startIndex);
             }
 
-            return Token.init(.EqSet);
+            return Token.init(.EqSet, startIndex);
         },
-        '!' => return Token.init(.Bang),
+        '!' => return Token.init(.Bang, startIndex),
         '.' => {
             if (!chars.allowPeriod) {
                 return chars.logError(TokenizeError.UnexpectedCharacter);
@@ -585,7 +556,7 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             }
 
             chars.allowPeriod = false;
-            return Token.init(.Period);
+            return Token.init(.Period, startIndex);
         },
         '&' => {
             const peakChar = try chars.peak();
@@ -595,16 +566,16 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
 
                 if ((try chars.peak()) == '=') {
                     _ = try chars.take();
-                    return Token.init(.AndEq);
+                    return Token.init(.AndEq, startIndex);
                 }
 
-                return Token.init(.And);
+                return Token.init(.And, startIndex);
             } else if (peakChar == '=') {
                 _ = try chars.take();
-                return Token.init(.BitAndEq);
+                return Token.init(.BitAndEq, startIndex);
             }
 
-            return Token.init(.Ampersand);
+            return Token.init(.Ampersand, startIndex);
         },
         '|' => {
             const peakChar = try chars.peak();
@@ -614,19 +585,19 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
 
                 if ((try chars.peak()) == '=') {
                     _ = try chars.take();
-                    return Token.init(.OrEq);
+                    return Token.init(.OrEq, startIndex);
                 }
 
-                return Token.init(.Or);
+                return Token.init(.Or, startIndex);
             } else if (peakChar == '=') {
                 _ = try chars.take();
-                return Token.init(.BitOrEq);
+                return Token.init(.BitOrEq, startIndex);
             }
 
-            return Token.init(.BitOr);
+            return Token.init(.BitOr, startIndex);
         },
-        '%' => return Token.init(.Mod),
-        '?' => return Token.init(.QuestionMark),
+        '%' => return Token.init(.Mod, startIndex),
+        '?' => return Token.init(.QuestionMark, startIndex),
         '\'' => {
             var next = try chars.take();
             if (next == '\\') {
@@ -638,15 +609,13 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             const endTick = try chars.take();
             if (endTick != '\'') return chars.logError(TokenizeError.CharTokenTooLong);
 
-            const char = try allocator.dupe(u8, &[_]u8{next});
-            return Token.initStr(.CharToken, char);
+            return Token.initBounds(.CharToken, startIndex, chars.index);
         },
         '"' => {
             var current = first;
             var next = try chars.take();
 
             while (next != '"' or current == '\\') {
-                try charStr.append(next);
                 current = next;
 
                 if (!chars.hasNext()) {
@@ -657,14 +626,14 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
 
             chars.allowPeriod = true;
 
-            return Token.initStr(.StringToken, try charStr.toOwnedSlice());
+            return Token.initBounds(.StringToken, startIndex, chars.index);
         },
         else => {
             if (std.ascii.isDigit(first)) {
                 chars.returnChar();
-                const numberInfo = try parseNumber(allocator, chars);
+                const numberInfo = try parseNumber(chars);
                 chars.returnChar();
-                return Token.initStr(.{ .Number = numberInfo.numType orelse .U32 }, numberInfo.num);
+                return Token.initBounds(.{ .Number = numberInfo.numType orelse .U32 }, numberInfo.start, numberInfo.end);
             }
 
             var char = first;
@@ -672,28 +641,27 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
             while (std.ascii.isAlphanumeric(char) or isValidNameChar(char)) {
                 isIdent = true;
                 chars.allowPeriod = true;
-                try charStr.append(char);
-
                 if (!chars.hasNext()) break;
                 char = try chars.take();
             }
+            const endIndex = chars.index - 1;
 
             if (isIdent) {
                 chars.returnChar();
 
-                if (string.compString(charStr.items, "null")) {
-                    return Token.init(.Null);
+                if (string.compString(chars.chars[startIndex..endIndex], "null")) {
+                    return Token.init(.Null, startIndex);
                 }
 
-                if (isKeyword(charStr.items)) |keywordType| {
-                    return Token.init(keywordType);
+                if (isKeyword(chars.chars[startIndex..endIndex])) |keywordType| {
+                    return Token.init(keywordType, startIndex);
                 }
 
-                if (isDatatype(charStr.items)) |dataType| {
-                    return Token.init(dataType);
+                if (isDatatype(chars.chars[startIndex..endIndex])) |dataType| {
+                    return Token.init(dataType, startIndex);
                 }
 
-                return Token.initStr(.Identifier, try charStr.toOwnedSlice());
+                return Token.initBounds(.Identifier, startIndex, endIndex);
             }
 
             return chars.logError(TokenizeError.UnexpectedCharacter);
@@ -702,20 +670,20 @@ fn parseNextToken(allocator: Allocator, chars: *CharUtil) !?Token {
 }
 
 const ParsedNumberInfo = struct {
-    num: []u8,
+    start: usize,
+    end: usize,
     numType: ?blitzAst.AstNumberVariants,
 };
 
-fn parseNumber(allocator: Allocator, chars: *CharUtil) !ParsedNumberInfo {
-    var number = ArrayList(u8).init(allocator);
-    defer number.deinit();
+fn parseNumber(chars: *CharUtil) !ParsedNumberInfo {
+    const startIndex: usize = chars.index;
 
     var char = try chars.take();
     if (char == '.') {
         return chars.logError(TokenizeError.UnexpectedCharacter);
     }
-    var foundPeriod = false;
 
+    var foundPeriod = false;
     while (std.ascii.isDigit(char) or char == '.') {
         if (char == '.') {
             if (foundPeriod) {
@@ -725,7 +693,6 @@ fn parseNumber(allocator: Allocator, chars: *CharUtil) !ParsedNumberInfo {
             foundPeriod = true;
         }
 
-        try number.append(char);
         char = try chars.take();
     }
 
@@ -759,7 +726,8 @@ fn parseNumber(allocator: Allocator, chars: *CharUtil) !ParsedNumberInfo {
                 try chars.advance(str.len + 1);
                 const variant = blitzAst.AstNumberVariants.fromStr(str).?;
                 return .{
-                    .num = try number.toOwnedSlice(),
+                    .start = startIndex,
+                    .end = chars.index - 1,
                     .numType = variant,
                 };
             }
@@ -769,7 +737,8 @@ fn parseNumber(allocator: Allocator, chars: *CharUtil) !ParsedNumberInfo {
     }
 
     return .{
-        .num = try number.toOwnedSlice(),
+        .start = startIndex,
+        .end = chars.index - 1,
         .numType = null,
     };
 }

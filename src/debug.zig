@@ -609,23 +609,22 @@ pub fn printRegisteredStructs(compInfo: *CompInfo, structs: [](*blitzAst.StructD
     }
 }
 
-pub fn printToken(token: tokenizer.Token) void {
+pub fn printToken(token: tokenizer.Token, code: []u8) void {
     print("{any}", .{token.type});
-    if (token.string != null) {
-        print(" : {s}\n", .{token.string.?});
+    if (token.start != token.end) {
+        print(" : {s}\n", .{token.strFromCode(code)});
     } else {
         print("\n", .{});
     }
 }
 
-pub fn printTokens(tokens: []const tokenizer.Token) void {
+pub fn printTokens(tokens: []const tokenizer.Token, code: []u8) void {
     for (tokens) |token| {
-        printToken(token);
+        printToken(token, code);
     }
 }
 
-pub fn printBytecodeChunks(genInfo: *const GenInfo, bufferedWriter: *utils.BufferedWriterType) !void {
-    const writer = bufferedWriter.writer();
+pub fn printBytecodeChunks(genInfo: *const GenInfo, writer: anytype) !void {
     const rootChunk = genInfo.instructionList;
 
     if (rootChunk) |chunk| {
