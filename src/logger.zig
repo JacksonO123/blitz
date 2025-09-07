@@ -38,12 +38,13 @@ pub const Logger = struct {
         const errStr = astErrorToString(err);
 
         const numSurroundingLines = 1;
-        const contextBlock = findSurroundingLines(self.code, self.tokens.currentLine, numSurroundingLines);
+        const contextBlock = findSurroundingLines(self.code, self.tokens.pos.currentLine, numSurroundingLines);
         const beforeLines = self.code[contextBlock.before.start..contextBlock.before.end];
         const afterLines = self.code[contextBlock.after.start..contextBlock.after.end];
 
-        const lineBounds = findLineBounds(self.code, self.tokens.currentLine);
+        const lineBounds = findLineBounds(self.code, self.tokens.pos.currentLine);
         const line = self.code[lineBounds.start..lineBounds.end];
+        const startOffset = getStartOffset(self.tokens.tokens[self.tokens.pos.index - 1].start, self.code);
 
         writer.writeAll("Error: ") catch {};
         writer.writeAll(errStr) catch {};
@@ -58,7 +59,7 @@ pub const Logger = struct {
         writer.writeByte('\n') catch {};
 
         var i: usize = 0;
-        while (i < self.tokens.tokens[self.tokens.index - 1].start) : (i += 1) {
+        while (i < startOffset) : (i += 1) {
             writer.writeByte(' ') catch {};
         }
         writer.writeAll(&[_]u8{ '^', '\n' }) catch {};
@@ -71,6 +72,21 @@ pub const Logger = struct {
         return err;
     }
 };
+
+fn getStartOffset(loc: usize, code: []const u8) usize {
+    var offset: usize = 0;
+
+    for (code, 0..) |char, index| {
+        if (index == loc) return offset;
+        if (char == '\n') {
+            offset = 0;
+        } else {
+            offset += 1;
+        }
+    }
+
+    return offset;
+}
 
 fn findSurroundingLines(code: []const u8, line: usize, numSurroundingLines: usize) SurroundingBounds {
     var surroundingBefore = numSurroundingLines;

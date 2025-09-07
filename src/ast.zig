@@ -1344,18 +1344,24 @@ fn parseArray(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
         },
         .Number => |numType| a: {
             _ = try compInfo.tokens.take();
-            if ((try compInfo.tokens.peak()).type != .RBracket) {
+            const endBracket = try compInfo.tokens.peak();
+            if (endBracket.type != .RBracket) {
                 compInfo.tokens.returnToken();
                 break :a;
             }
 
-            if (numType != .USize) return compInfo.logger.logError(AstError.ExpectedUSizeForArraySize);
             _ = try compInfo.tokens.take();
 
-            const arrType = try parseType(allocator, compInfo);
+            const arrType = parseType(allocator, compInfo) catch {
+                compInfo.tokens.returnToken();
+                compInfo.tokens.returnToken();
+                break :a;
+            };
             try compInfo.tokens.expectToken(.With);
             const initNode = try parseExpression(allocator, compInfo) orelse
                 return compInfo.logger.logError(AstError.ExpectedExpression);
+
+            if (numType != .USize) return compInfo.logger.logError(AstError.ExpectedUSizeForArraySize);
 
             return createMut(AstNode, allocator, .{
                 .ArrayInit = .{
@@ -1600,9 +1606,9 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo, structFn: bool) !*Fun
 
     try compInfo.tokens.expectToken(.LBrace);
 
-    const index = compInfo.tokens.index;
+    const index = compInfo.tokens.pos.index;
     const body = try parseSequence(allocator, compInfo, true);
-    const endIndex = compInfo.tokens.index;
+    const endIndex = compInfo.tokens.pos.index;
     const bodyTokens = compInfo.tokens.tokens[index..endIndex];
 
     try compInfo.tokens.expectToken(.RBrace);

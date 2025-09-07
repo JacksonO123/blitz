@@ -2,3 +2,4 @@
 zig-cache
 logs
 build
+out.bzc

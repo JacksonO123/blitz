@@ -1,3 +1,5 @@
-for (let i = 0; i < 100; i++) {
-  let a = 2;
-}
+//for (let i = 0; i < 100000000; i++) {
+//  let a = 2;
+//}
+
+let a = [2usize]u32 with 0;

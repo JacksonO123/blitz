@@ -849,13 +849,16 @@ fn tokenizeErrorToString(err: TokenizeError) []const u8 {
     };
 }
 
+const TokenPosition = struct {
+    index: usize,
+    currentLine: usize,
+};
+
 pub const TokenUtil = struct {
     const Self = @This();
 
     allocator: Allocator,
-    index: usize,
-    currentLine: usize,
-    currentLineToken: usize,
+    pos: TokenPosition,
     tokens: []Token,
     windows: *ArrayList(usize),
     logger: *Logger,
@@ -865,9 +868,10 @@ pub const TokenUtil = struct {
 
         return Self{
             .allocator = allocator,
-            .index = 0,
-            .currentLine = 0,
-            .currentLineToken = 0,
+            .pos = .{
+                .index = 0,
+                .currentLine = 0,
+            },
             .tokens = tokens,
             .windows = windows,
             .logger = logger,
@@ -880,9 +884,10 @@ pub const TokenUtil = struct {
     }
 
     pub fn reset(self: *Self) void {
-        self.index = 0;
-        self.currentLine = 0;
-        self.currentLineToken = 0;
+        self.pos = .{
+            .index = 0,
+            .currentLine = 0,
+        };
         self.windows.clearRetainingCapacity();
     }
 
@@ -897,45 +902,39 @@ pub const TokenUtil = struct {
     }
 
     pub fn takeFixed(self: *Self) !Token {
-        if (self.index >= self.tokens.len) {
+        if (self.pos.index >= self.tokens.len) {
             return self.logger.logError(blitzAst.AstError.ExpectedTokenFoundNothing);
         }
 
-        const res = self.tokens[self.index];
-        self.index += 1;
-        self.currentLineToken += 1;
+        const res = self.tokens[self.pos.index];
+        self.pos.index += 1;
 
         if (res.type == .NewLine) {
-            self.currentLine += 1;
-            self.currentLineToken = 0;
+            self.pos.currentLine += 1;
         }
 
         return res;
     }
 
     pub fn peakFixed(self: Self) !Token {
-        if (self.index >= self.tokens.len) {
+        if (self.pos.index >= self.tokens.len) {
             return blitzAst.AstError.ExpectedTokenFoundNothing;
         }
 
-        return self.tokens[self.index];
+        return self.tokens[self.pos.index];
     }
 
     pub fn peak(self: *Self) !Token {
         const res = try self.peakFixed();
 
         if (res.type == .NewLine) {
-            const prevCurrentLineToken = self.currentLineToken;
-
-            self.index += 1;
-            self.currentLine += 1;
-            self.currentLineToken = 0;
+            self.pos.index += 1;
+            self.pos.currentLine += 1;
 
             const newRes = self.peak();
 
-            self.index -= 1;
-            self.currentLine -= 1;
-            self.currentLineToken = prevCurrentLineToken;
+            self.pos.index -= 1;
+            self.pos.currentLine -= 1;
 
             return newRes;
         }
@@ -944,8 +943,8 @@ pub const TokenUtil = struct {
     }
 
     pub fn returnToken(self: *Self) void {
-        self.index -= 1;
-        self.currentLineToken -= 1;
+        self.pos.index -= 1;
+        while (self.tokens[self.pos.index].type == .NewLine) : (self.pos.index -= 1) {}
     }
 
     pub fn expectToken(self: *Self, tokenType: TokenType) !void {
@@ -956,7 +955,7 @@ pub const TokenUtil = struct {
     }
 
     pub fn hasNextFixed(self: Self) bool {
-        if (self.index < self.tokens.len) return true;
+        if (self.pos.index < self.tokens.len) return true;
         return false;
     }
 

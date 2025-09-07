@@ -66,6 +66,13 @@ let slice: u32[] = [1, 2, 3, 4];
 let ab: u32[3] = [3, 2, 1];
 // if the size is known at compile time then the size is optimized out of the slice so
 // the slice is just a ptr, otherwise it is stored as struct with ptr and size
+// initialize a large stack array without specifying each individual element with the
+// initializer syntax:
+// basic number example
+let initSlice = [256usize]u32 with 0;
+// struct example
+struct Data { size: u32; }
+let dataArr = [350usize]Data with Data { size = 10 };
 
 // nullable
 let mut numOrNull: ?u32 = null;
