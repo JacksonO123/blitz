@@ -23,26 +23,20 @@ pub const Logger = struct {
 
     allocator: Allocator,
     tokens: *TokenUtil,
-    buf: utils.BufferedWriterType,
+    bufferedWriter: *utils.BufferedWriterType,
     code: []const u8,
 
-    pub fn init(allocator: Allocator, tokens: *TokenUtil, code: []const u8) Self {
-        const buf = utils.getBufferedWriter();
-
+    pub fn init(allocator: Allocator, tokens: *TokenUtil, code: []const u8, bufferedWriter: *utils.BufferedWriterType) Self {
         return Self{
             .allocator = allocator,
             .tokens = tokens,
-            .buf = buf,
+            .bufferedWriter = bufferedWriter,
             .code = code,
         };
     }
 
-    pub fn deinit(self: *Self) void {
-        self.buf.flush() catch {};
-    }
-
     pub fn logError(self: *Self, err: blitzAst.AstError) blitzAst.AstError {
-        const writer = self.buf.writer();
+        const writer = self.bufferedWriter.writer();
         const errStr = astErrorToString(err);
 
         const numSurroundingLines = 1;
@@ -53,7 +47,12 @@ pub const Logger = struct {
         const lineBounds = findLineBounds(self.code, self.tokens.currentLine);
         const line = self.code[lineBounds.start..lineBounds.end];
 
-        const tokenizeRes = tokenizer.tokenizeNumTokens(self.allocator, line, self.tokens.currentLineToken) catch {
+        const tokenizeRes = tokenizer.tokenizeNumTokens(
+            self.allocator,
+            line,
+            self.tokens.currentLineToken,
+            self.bufferedWriter,
+        ) catch {
             return err;
         };
         const tokenOffset = calculateTokenOffset(tokenizeRes.tokens, tokenizeRes.skippedWhitespace);

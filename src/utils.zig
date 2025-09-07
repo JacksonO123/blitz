@@ -35,10 +35,9 @@ pub inline fn createMut(comptime T: type, allocator: Allocator, obj: T) Allocato
 }
 
 pub fn readRelativeFile(allocator: Allocator, path: []const u8) ![]u8 {
-    const maxFileSize = 1028 * 4; // arbitrary
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
-    return try file.readToEndAlloc(allocator, maxFileSize);
+    return try file.readToEndAlloc(allocator, std.math.maxInt(usize));
 }
 
 pub fn initMutPtrT(comptime T: type, allocator: Allocator) !*T {

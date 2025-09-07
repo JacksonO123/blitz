@@ -346,23 +346,17 @@ const CharUtil = struct {
     index: usize,
     chars: []const u8,
     skippedWhitespace: usize,
-    buf: utils.BufferedWriterType,
+    bufferedWriter: *utils.BufferedWriterType,
     allowPeriod: bool,
 
-    pub fn init(chars: []const u8) Self {
-        const buf = utils.getBufferedWriter();
-
+    pub fn init(chars: []const u8, bufferedWriter: *utils.BufferedWriterType) Self {
         return Self{
             .index = 0,
             .chars = chars,
             .skippedWhitespace = 0,
-            .buf = buf,
+            .bufferedWriter = bufferedWriter,
             .allowPeriod = false,
         };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.buf.flush() catch {};
     }
 
     pub fn getSlice(self: Self) []const u8 {
@@ -408,7 +402,7 @@ const CharUtil = struct {
     }
 
     pub fn logError(self: *Self, err: TokenizeError) TokenizeError {
-        const writer = self.buf.writer();
+        const writer = self.bufferedWriter.writer();
         const errStr = tokenizeErrorToString(err);
 
         const index = self.index - 1;
@@ -433,11 +427,10 @@ const CharUtil = struct {
     }
 };
 
-pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
+pub fn tokenize(allocator: Allocator, input: []const u8, bufferedWriter: *utils.BufferedWriterType) ![]Token {
     var tokens = ArrayList(Token).init(allocator);
     defer tokens.deinit();
-    var charUtil = CharUtil.init(input);
-    defer charUtil.deinit();
+    var charUtil = CharUtil.init(input, bufferedWriter);
 
     while (charUtil.hasNext()) {
         const token = try parseNextToken(allocator, &charUtil);
@@ -449,11 +442,15 @@ pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
     return tokens.toOwnedSlice();
 }
 
-pub fn tokenizeNumTokens(allocator: Allocator, input: []const u8, numTokens: usize) !TokenizerOut {
+pub fn tokenizeNumTokens(
+    allocator: Allocator,
+    input: []const u8,
+    numTokens: usize,
+    bufferedWriter: *utils.BufferedWriterType,
+) !TokenizerOut {
     var tokens = ArrayList(Token).init(allocator);
     defer tokens.deinit();
-    var charUtil = CharUtil.init(input);
-    defer charUtil.deinit();
+    var charUtil = CharUtil.init(input, bufferedWriter);
 
     var i: usize = 0;
     while (i < numTokens and charUtil.hasNext()) {

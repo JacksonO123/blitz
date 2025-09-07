@@ -16,7 +16,8 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const compilerName = if (optimize == .Debug) "blitzc-debug" else "blitzc";
-    // const interpreterName = if (optimize == .Debug) "blitz-debug" else "blitz";
+    const objdumpName = if (optimize == .Debug) "bzc-objdump-debug" else "bzc-objdump";
+    const interpreterName = if (optimize == .Debug) "blitz-debug" else "blitz";
 
     const compilerExe = b.addExecutable(.{
         .name = compilerName,
@@ -25,20 +26,24 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const objdumpExe = b.addExecutable(.{
+        .name = objdumpName,
+        .root_source_file = b.path("src/bzc_objdump.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const interpreterExe = b.addExecutable(.{
+        .name = interpreterName,
+        .root_source_file = b.path("src/interpreter.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
     b.installArtifact(compilerExe);
-
-    // const interpreterExe = b.addExecutable(.{
-    //     .name = compilerName,
-    //     .root_source_file = b.path("src/compiler.zig"),
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
-
-    // // This declares intent for the executable to be installed into the
-    // // standard location when the user invokes the "install" step (the default
-    // // step when running `zig build`).
-    // b.installArtifact(interpreterExe);
+    b.installArtifact(objdumpExe);
+    b.installArtifact(interpreterExe);
 }

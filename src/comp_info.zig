@@ -67,10 +67,16 @@ pub const CompInfo = struct {
     builtins: builtins.BuiltinFuncMemo,
     stackSizeEstimate: u32,
 
-    pub fn init(allocator: Allocator, tokens: []tokenizer.Token, names: blitzAst.HoistedNames, code: []const u8) !Self {
+    pub fn init(
+        allocator: Allocator,
+        tokens: []tokenizer.Token,
+        names: blitzAst.HoistedNames,
+        code: []const u8,
+        bufferedWriter: *utils.BufferedWriterType,
+    ) !Self {
         const loggerUtil = try allocator.create(logger.Logger);
         const tokenUtil = try utils.createMut(tokenizer.TokenUtil, allocator, try tokenizer.TokenUtil.init(allocator, loggerUtil, tokens));
-        loggerUtil.* = logger.Logger.init(allocator, tokenUtil, code);
+        loggerUtil.* = logger.Logger.init(allocator, tokenUtil, code, bufferedWriter);
 
         const currentStructs = try utils.initMutPtrT(ArrayList([]u8), allocator);
         const functionsToScan = try utils.initMutPtrT(ToScanStack, allocator);
@@ -191,7 +197,6 @@ pub const CompInfo = struct {
         self.tokens.deinit();
         self.allocator.destroy(self.tokens);
 
-        self.logger.deinit();
         self.allocator.destroy(self.logger);
 
         self.functionsInScope.deinit(free.freeScopedFunctionScope);

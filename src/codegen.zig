@@ -4,17 +4,14 @@ const blitz = @import("root").blitz;
 const blitzAst = blitz.ast;
 const utils = blitz.utils;
 const string = blitz.string;
+const vmInfo = blitz.vmInfo;
 const version = blitz.version;
-const settings = blitz.settings;
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const AutoHashMap = std.AutoHashMap;
 const ArrayList = std.ArrayList;
-
-pub const PointerType = u64;
-pub const RegisterNumber = u8;
-pub const NUM_REGISTERS = 256;
-pub const REGISTER_SIZE = 8; // bytes
+const RegisterNumber = vmInfo.RegisterNumber;
+const PointerType = vmInfo.PointerType;
 
 const CodeGenError = error{
     RawNumberIsTooBig,
@@ -28,32 +25,62 @@ const GenBytecodeError = CodeGenError || Allocator.Error || std.fmt.ParseIntErro
 pub const Instructions = enum(u8) {
     const Self = @This();
 
-    SetReg, // inst, reg, 8B data
-    SetRegHalf, // inst, reg, 4B data
-    SetRegByte, // inst, reg, 4B data
-    Add, // inst, out reg, reg1, reg2
-    Sub, // inst, out reg, reg1, reg2
-    Mult, // inst, out reg, reg1, reg2
-    CmpConstByte, // inst, reg1, reg2
-    Jump, // inst, rel bytes (i16)
-    JumpEQ, // inst, rel bytes (i16)
-    JumpNE, // inst, rel bytes (i16)
-    JumpGT, // inst, rel bytes (i16)
-    JumpLT, // inst, rel bytes (i16)
-    JumpGTE, // inst, rel bytes (i16)
-    JumpLTE, // inst, rel bytes (i16)
-    JumpBack, // inst, rel bytes (i16)
-    JumpBackEQ, // inst, rel bytes (i16)
-    JumpBackNE, // inst, rel bytes (i16)
-    JumpBackGT, // inst, rel bytes (i16)
-    JumpBackLT, // inst, rel bytes (i16)
-    JumpBackGTE, // inst, rel bytes (i16)
-    JumpBackLTE, // inst, rel bytes (i16)
-    Cmp, // inst, reg1, reg2  ;  sets to flags
-    CmpSetReg, // inst, reg1, reg2  ;  sets to flags
+    SetReg = 1, // inst, reg, 8B data
+    SetRegHalf = 2, // inst, reg, 4B data
+    SetRegByte = 3, // inst, reg, 1B data
+    Add = 4, // inst, out reg, reg1, reg2
+    Sub = 5, // inst, out reg, reg1, reg2
+    Mult = 6, // inst, out reg, reg1, reg2
+    Jump = 7, // inst, 2B data
+    JumpEQ = 8, // inst, 2B data
+    JumpNE = 9, // inst, 2B data
+    JumpGT = 10, // inst, 2B data
+    JumpLT = 11, // inst, 2B data
+    JumpGTE = 12, // inst, 2B data
+    JumpLTE = 13, // inst, 2B data
+    JumpBack = 14, // inst, 2B data
+    JumpBackEQ = 15, // inst, 2B data
+    JumpBackNE = 16, // inst, 2B data
+    JumpBackGT = 17, // inst, 2B data
+    JumpBackLT = 18, // inst, 2B data
+    JumpBackGTE = 19, // inst, 2B data
+    JumpBackLTE = 20, // inst, 2B data
+    Cmp = 21, // inst, reg1, reg2  ;  sets to flags
+    CmpSetReg = 22, // inst, out reg, reg1, reg2  ;  sets to flags
+    CmpConstByte = 23, // inst, reg1, 1B data
+    IncConstByte = 24, // inst, in/out reg, 1B data
+    DecConstByte = 25, // inst, in/out reg, 1B data
 
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
+    }
+
+    pub fn getInstrLen(self: Self) u8 {
+        return switch (self) {
+            .SetReg => 10,
+            .SetRegHalf => 6,
+            .SetRegByte => 3,
+            .Add, .Sub, .Mult => 4,
+            .Jump,
+            .JumpEQ,
+            .JumpNE,
+            .JumpGT,
+            .JumpLT,
+            .JumpGTE,
+            .JumpLTE,
+            .JumpBack,
+            .JumpBackEQ,
+            .JumpBackNE,
+            .JumpBackGT,
+            .JumpBackLT,
+            .JumpBackGTE,
+            .JumpBackLTE,
+            => 3,
+            .Cmp => 3,
+            .CmpSetReg => 4,
+            .CmpConstByte => 3,
+            .IncConstByte, .DecConstByte => 3,
+        };
     }
 
     pub fn toString(self: Self) []const u8 {
@@ -81,6 +108,8 @@ pub const Instructions = enum(u8) {
             .JumpBackLTE => "jump_back_lte",
             .Cmp => "cmp",
             .CmpSetReg => "cmp_set_reg",
+            .IncConstByte => "inc_const_byte",
+            .DecConstByte => "dec_const_byte",
         };
     }
 };
@@ -221,11 +250,11 @@ pub const GenInfo = struct {
     stackStartSize: u32,
     instructionList: ?*InstrChunk,
     last: ?*InstrChunk,
-    availableRegisters: [NUM_REGISTERS]bool = [_]bool{false} ** NUM_REGISTERS,
-    variableRegisters: [NUM_REGISTERS]bool = [_]bool{false} ** NUM_REGISTERS,
+    availableRegisters: [vmInfo.NUM_REGISTERS]bool = [_]bool{false} ** vmInfo.NUM_REGISTERS,
+    variableRegisters: [vmInfo.NUM_REGISTERS]bool = [_]bool{false} ** vmInfo.NUM_REGISTERS,
     regScopes: *RegScopes,
     varNameRegRel: *StringHashMap(VariableRegLocationInfo),
-    byteCounter: u64,
+    byteCounter: usize,
     settings: GenInfoSettings,
 
     pub fn init(
@@ -259,6 +288,14 @@ pub const GenInfo = struct {
 
         self.regScopes.deinit();
         self.allocator.destroy(self.regScopes);
+    }
+
+    pub fn writeChunks(self: Self, writer: anytype) !void {
+        var current = self.instructionList;
+        while (current) |instr| {
+            try writer.writeAll(instr.chunk);
+            current = instr.next;
+        }
     }
 
     pub fn appendChunk(self: *Self, chunk: []u8) !void {
@@ -339,12 +376,9 @@ pub fn codegenAst(allocator: Allocator, genInfo: *GenInfo, ast: blitzAst.Ast) !v
 }
 
 fn writeStartVMInfo(allocator: Allocator, genInfo: *GenInfo) !void {
-    const startStackTypeSize = @sizeOf(@TypeOf(genInfo.stackStartSize));
-    var buf = try allocator.alloc(u8, startStackTypeSize + 1);
-
+    var buf = try allocator.alloc(u8, 5);
     buf[0] = version.VERSION;
-    std.mem.writeInt(@TypeOf(genInfo.stackStartSize), @ptrCast(buf[1..]), genInfo.stackStartSize, .big);
-
+    std.mem.writeInt(u32, @ptrCast(buf[1..]), genInfo.stackStartSize, .big);
     try genInfo.appendChunk(buf);
 }
 
@@ -556,6 +590,7 @@ pub fn genBytecode(
                 genInfo.releaseRegister(oldReg);
             }
             allocator.free(oldContents);
+            _ = try genBytecode(allocator, genInfo, loop.incNode);
 
             const jumpEndDiff = @as(u16, @intCast(genInfo.byteCounter - preBodyByteCount));
             std.mem.writeInt(u16, @ptrCast(jumpEndBuf[1..]), jumpEndDiff, .big);
@@ -565,6 +600,26 @@ pub fn genBytecode(
             const jumpStartDiff = @as(u16, @intCast(genInfo.byteCounter - preConditionByteCount));
             std.mem.writeInt(u16, @ptrCast(jumpStartBuf[1..]), jumpStartDiff, .big);
             try genInfo.appendChunk(jumpStartBuf);
+        },
+        .IncOne => |inc| {
+            const reg = try genBytecode(allocator, genInfo, inc) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
+            const buf = try allocator.alloc(u8, 3);
+            buf[0] = Instructions.IncConstByte.getInstrByte();
+            buf[1] = reg;
+            buf[2] = 1;
+
+            try genInfo.appendChunk(buf);
+        },
+        .DecOne => |dec| {
+            const reg = try genBytecode(allocator, genInfo, dec) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
+            const buf = try allocator.alloc(u8, 3);
+            buf[0] = Instructions.DecConstByte.getInstrByte();
+            buf[1] = reg;
+            buf[2] = 1;
+
+            try genInfo.appendChunk(buf);
         },
         .Group => |group| {
             return genBytecode(allocator, genInfo, group);

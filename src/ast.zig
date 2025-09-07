@@ -15,15 +15,6 @@ const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const TokenUtil = utils.TokenUtil;
 
-// debug
-const debug = @import("debug.zig");
-const printTokens = debug.printTokens;
-const printToken = debug.printToken;
-const printNode = debug.printNode;
-const printType = debug.printType;
-const printFuncDec = debug.printFuncDec;
-const printGenerics = debug.printGenerics;
-
 pub const SeqNode = struct {
     nodes: []*AstNode,
 };

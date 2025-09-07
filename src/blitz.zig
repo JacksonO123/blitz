@@ -11,4 +11,6 @@ pub const logger = @import("logger.zig");
 pub const builtins = @import("builtins.zig");
 pub const codegen = @import("codegen.zig");
 pub const version = @import("version.zig");
-pub const compInfo = @import("comp-info.zig");
+pub const compInfo = @import("comp_info.zig");
+pub const debug = @import("debug.zig");
+pub const vmInfo = @import("vm_info.zig");

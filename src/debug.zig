@@ -624,11 +624,8 @@ pub fn printTokens(tokens: []const tokenizer.Token) void {
     }
 }
 
-pub fn printBytecode(genInfo: *const GenInfo) !void {
-    var buf = utils.getBufferedWriter();
-    const writer = buf.writer();
-    defer buf.flush() catch {};
-
+pub fn printBytecodeChunks(genInfo: *const GenInfo, bufferedWriter: *utils.BufferedWriterType) !void {
+    const writer = bufferedWriter.writer();
     const rootChunk = genInfo.instructionList;
 
     if (rootChunk) |chunk| {
@@ -641,9 +638,10 @@ pub fn printBytecode(genInfo: *const GenInfo) !void {
         try writeHexDecNumber(stackSizeBuf, writer);
         try writer.writeByte('\n');
 
+        var byteCounter: usize = 0;
         var next = chunk.next;
         while (next) |nextChunk| {
-            try printChunk(nextChunk, writer);
+            byteCounter += try printChunk(nextChunk.chunk, byteCounter, writer);
             next = nextChunk.next;
         }
 
@@ -651,11 +649,33 @@ pub fn printBytecode(genInfo: *const GenInfo) !void {
     }
 }
 
-fn printChunk(chunk: *codegen.InstrChunk, writer: anytype) !void {
-    const bytecode = chunk.chunk;
+pub fn printBytecode(bytecode: []u8, writer: anytype) !void {
+    try printVMStartInfo(bytecode[0..5], writer);
+    var byteCounter: usize = 0;
+    var current: usize = 5;
+    while (current < bytecode.len) {
+        const instr = @as(codegen.Instructions, @enumFromInt(bytecode[current]));
+        const size = instr.getInstrLen();
+        byteCounter += try printChunk(bytecode[current .. current + size], byteCounter, writer);
+        current += size;
+    }
+}
+
+pub fn printVMStartInfo(info: []u8, writer: anytype) !void {
+    try writer.writeAll("blitz bytecode version ");
+    try std.fmt.formatInt(info[0], 10, .lower, .{}, writer);
+    try writer.writeAll("\nstarting stack size: ");
+    const startStackSize = std.mem.readInt(u32, @ptrCast(info[1..5]), .big);
+    try std.fmt.formatInt(startStackSize, 10, .lower, .{}, writer);
+    try writer.writeByte('\n');
+}
+
+fn printChunk(bytecode: []u8, byteCounter: usize, writer: anytype) !usize {
     const inst = @as(codegen.Instructions, @enumFromInt(bytecode[0]));
 
-    try writer.writeByte('(');
+    try writer.writeByte('[');
+    try std.fmt.formatInt(byteCounter, 10, .lower, .{}, writer);
+    try writer.writeAll("] (");
     try std.fmt.formatInt(bytecode.len, 10, .lower, .{}, writer);
     try writer.writeAll(") ");
 
@@ -709,7 +729,15 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: anytype) !void {
         .JumpBackLTE,
         => {
             try writer.writeByte(' ');
-            try formatIntByteSlice(bytecode[1..], writer);
+            try writeHexDecNumber(bytecode[1..], writer);
+        },
+        .IncConstByte,
+        .DecConstByte,
+        => {
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.writeByte(' ');
+            try writeHexDecNumber(bytecode[2..3], writer);
         },
         else => {
             try writer.writeAll(" (unknown_cmd) ");
@@ -717,6 +745,7 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: anytype) !void {
     }
 
     try writer.writeByte('\n');
+    return bytecode.len;
 }
 
 fn writeByte(byte: u8, writer: anytype) !void {

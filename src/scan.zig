@@ -14,13 +14,6 @@ const ArrayList = std.ArrayList;
 const create = utils.create;
 const createMut = utils.createMut;
 
-// debug
-const debug = @import("debug.zig");
-const printNode = debug.printNode;
-const printType = debug.printType;
-const printGenerics = debug.printGenerics;
-const printTypeInfo = debug.printTypeInfo;
-
 pub const RetNodeInfo = struct {
     node: blitzAst.AstNode,
     conditional: bool,
