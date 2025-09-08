@@ -1,3 +1,17 @@
-for (let i = 0; i < 100000000; i++) {
-  let a = 2;
+fn thing() u32 {
+  return thing1();
 }
+
+fn thing1() u32 {
+  return 4;
+}
+
+struct [T] M {
+  pub fn test(val: T) T {
+    return "here";
+  }
+}
+
+let a = thing();
+let m = M<u32> {};
+let b = m.test(2);

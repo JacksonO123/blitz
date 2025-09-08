@@ -93,6 +93,7 @@ pub const ScanError = error{
     UndefinedStruct,
     RestrictedPropertyAccess,
     InvalidPropertySource,
+    NonPublicStructFieldAccessFromOutsideDefinition,
 
     // operations
     MathOpOnNonNumberType,
@@ -394,6 +395,9 @@ pub fn scanNode(
                     var propType = try validateCustomProps(allocator, compInfo, custom, access.property, withGenDef);
 
                     if (propType) |*t| {
+                        std.debug.print("HERE\n", .{});
+                        blitz.debug.printTypeInfo(compInfo, t.*);
+                        std.debug.print("\n", .{});
                         t.*.isConst = valueInfo.isConst;
                         return typeInfoToVarInfo(allocator, t.*, origValueInfo.isConst or valueInfo.isConst);
                     }
@@ -563,7 +567,7 @@ pub fn scanNode(
             defer _ = compInfo.popCurrentStruct();
 
             compInfo.enteringStruct();
-            try scanAttributes(allocator, compInfo, dec.attributes, false);
+            try scanAttributes(compInfo, dec.attributes);
             compInfo.exitingStruct();
 
             return try utils.astTypesToInfo(allocator, .Void, true);
@@ -1475,7 +1479,9 @@ fn validateCustomProps(allocator: Allocator, compInfo: *CompInfo, custom: blitzA
             if (attr.static) continue;
 
             if (string.compString(attr.name, prop)) {
-                if (attr.visibility != .Public) return null;
+                if (attr.visibility != .Public) {
+                    return ScanError.NonPublicStructFieldAccessFromOutsideDefinition;
+                }
 
                 return try clone.cloneStructAttributeUnionType(allocator, compInfo, attr.attr, withGenDef);
             }
@@ -1494,27 +1500,12 @@ fn validateCustomProps(allocator: Allocator, compInfo: *CompInfo, custom: blitzA
     return ScanError.InvalidPropertySource;
 }
 
-fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, attrs: []blitzAst.StructAttribute, withGenDef: bool) !void {
+fn scanAttributes(compInfo: *CompInfo, attrs: []blitzAst.StructAttribute) !void {
     for (attrs) |attr| {
         switch (attr.attr) {
             .Member => {},
             .Function => |func| {
-                const prev = compInfo.returnInfo.setInFunction(true);
-                defer compInfo.returnInfo.revertInFunction(prev);
-                try compInfo.pushScope(false);
-                defer compInfo.popScope();
-                const lastRetInfo = try compInfo.returnInfo.newInfo(true);
-                defer compInfo.returnInfo.swapFree(lastRetInfo);
-
-                try scanNodeForFunctions(allocator, compInfo, func.body);
-
-                for (func.params) |param| {
-                    const clonedPtr = try clone.cloneAstTypeInfo(allocator, compInfo, param.type, false);
-                    try compInfo.setVariableType(param.name, clonedPtr, param.isConst);
-                }
-
-                const bodyType = try scanNode(allocator, compInfo, func.body, withGenDef);
-                free.freeAstTypeInfo(allocator, bodyType);
+                try compInfo.addFuncToScan(func, &[_]blitzAst.GenToTypeInfoRel{}, false);
             },
         }
     }

@@ -8,7 +8,7 @@ fn [G] test(b: G) {
 // thing('b');
 
 {
-  fn [T] thing(a: T): char {
+  fn [T] thing(a: T) char {
     let h: T = 'g';
     // test(a);
     return a;

@@ -379,6 +379,7 @@ pub const FuncDecNode = struct {
     toScanTypes: *ToScanTypesList,
     builtin: bool,
     visited: bool,
+    globallyDefined: bool,
 };
 
 const FuncCallNode = struct {
@@ -593,6 +594,7 @@ pub const AstError = error{
     ExpectedUSizeForArraySize,
     StructDefinedInLowerScope,
     ErrorDefinedInLowerScope,
+    FunctionDefinedInLowerScope,
 };
 
 const RegisterStructsAndErrorsResult = struct {
@@ -601,8 +603,8 @@ const RegisterStructsAndErrorsResult = struct {
 };
 
 pub const HoistedNames = struct {
-    structNames: [][]u8,
-    errorNames: [][]u8,
+    structNames: [][]const u8,
+    errorNames: [][]const u8,
 };
 
 const OpExprTokenMap = struct {
@@ -1597,8 +1599,7 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo, structFn: bool) !*Fun
 
     const retNext = try compInfo.tokens.peak();
 
-    if (retNext.type == .Colon) {
-        _ = try compInfo.tokens.take();
+    if (retNext.type != .LBrace) {
         returnType = try parseType(allocator, compInfo);
     } else {
         returnType = try utils.astTypesToInfo(allocator, .Void, true);
@@ -1626,6 +1627,7 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo, structFn: bool) !*Fun
         .toScanTypes = try utils.initMutPtrT(ToScanTypesList, allocator),
         .builtin = false,
         .visited = false,
+        .globallyDefined = compInfo.getScopeDepth() == 1,
     });
 }
 
@@ -1968,10 +1970,10 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
     return try utils.astTypesToInfo(allocator, astType, isConst);
 }
 
-pub fn findStructAndErrorNames(allocator: Allocator, tokens: []tokenizer.Token, code: []u8) !HoistedNames {
-    var structNames = ArrayList([]u8).init(allocator);
+pub fn findStructsAndErrors(allocator: Allocator, tokens: []tokenizer.Token, code: []u8) !HoistedNames {
+    var structNames = ArrayList([]const u8).init(allocator);
     defer structNames.deinit();
-    var errorNames = ArrayList([]u8).init(allocator);
+    var errorNames = ArrayList([]const u8).init(allocator);
     defer errorNames.deinit();
 
     var scopeCount: usize = 0;

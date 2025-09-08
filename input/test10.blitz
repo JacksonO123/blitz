@@ -1,7 +1,7 @@
 struct shape {
   pub area: u32;
 
-  prot fn getArea(): u32 {
+  prot fn getArea() u32 {
     return self.area;
   }
 }
@@ -9,7 +9,7 @@ struct shape {
 struct square : shape {
   size: u32;
 
-  pub fn getShapeArea(): u32 {
+  pub fn getShapeArea() u32 {
     return self.getArea() + 1;
   }
 

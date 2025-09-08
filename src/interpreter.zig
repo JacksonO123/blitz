@@ -100,6 +100,10 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
         const inst = @as(codegen.Instructions, @enumFromInt(bytecode[current]));
         const instLen = inst.getInstrLen();
         switch (inst) {
+            .SetReg => {
+                const value = std.mem.readInt(u64, @ptrCast(bytecode[current + 2 .. current + 10]), .little);
+                runtimeInfo.registers[bytecode[current + 1]] = value;
+            },
             .SetRegHalf => {
                 const value = std.mem.readInt(u32, @ptrCast(bytecode[current + 2 .. current + 6]), .little);
                 runtimeInfo.registers[bytecode[current + 1]] = value;
@@ -122,35 +126,14 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
             .Cmp => {
                 const reg1Value = runtimeInfo.registers[bytecode[current + 1]];
                 const reg2Value = runtimeInfo.registers[bytecode[current + 2]];
-                const result = std.math.order(reg1Value, reg2Value);
-
-                runtimeInfo.flags = switch (result) {
-                    .lt => .{
-                        .EQ = false,
-                        .NE = true,
-                        .GT = false,
-                        .LT = true,
-                        .GTE = false,
-                        .LTE = true,
-                    },
-                    .eq => .{
-                        .EQ = true,
-                        .NE = false,
-                        .GT = false,
-                        .LT = false,
-                        .GTE = true,
-                        .LTE = true,
-                    },
-                    .gt => .{
-                        .EQ = false,
-                        .NE = true,
-                        .GT = true,
-                        .LT = false,
-                        .GTE = true,
-                        .LTE = false,
-                    },
-                };
+                compareOrder(runtimeInfo, reg1Value, reg2Value);
             },
+            .CmpConstByte => {
+                const reg1Value = runtimeInfo.registers[bytecode[current + 1]];
+                const reg2Value: u64 = @intCast(bytecode[current + 2]);
+                compareOrder(runtimeInfo, reg1Value, reg2Value);
+            },
+            .CmpSetReg => utils.unimplemented(),
             .Jump => {
                 const amount = std.mem.readInt(u16, @ptrCast(bytecode[current + 1 .. current + 3]), .little);
                 current += amount;
@@ -204,5 +187,36 @@ fn getFlagFromJump(jump: codegen.Instructions, flags: Flags) bool {
         .JumpGTE, .JumpBackGTE => flags.GTE,
         .JumpLTE, .JumpBackLTE => flags.LTE,
         else => unreachable,
+    };
+}
+
+inline fn compareOrder(runtimeInfo: *RuntimeInfo, value1: u64, value2: u64) void {
+    const result = std.math.order(value1, value2);
+
+    runtimeInfo.flags = switch (result) {
+        .lt => .{
+            .EQ = false,
+            .NE = true,
+            .GT = false,
+            .LT = true,
+            .GTE = false,
+            .LTE = true,
+        },
+        .eq => .{
+            .EQ = true,
+            .NE = false,
+            .GT = false,
+            .LT = false,
+            .GTE = true,
+            .LTE = true,
+        },
+        .gt => .{
+            .EQ = false,
+            .NE = true,
+            .GT = true,
+            .LT = false,
+            .GTE = true,
+            .LTE = false,
+        },
     };
 }

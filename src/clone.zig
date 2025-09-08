@@ -678,6 +678,7 @@ pub fn cloneFuncDec(
         .toScanTypes = listPtr,
         .builtin = dec.builtin,
         .visited = false,
+        .globallyDefined = dec.globallyDefined,
     });
 }
 

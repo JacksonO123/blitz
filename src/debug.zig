@@ -778,7 +778,7 @@ fn formatIntByteSlice(slice: []u8, writer: anytype) !void {
         1 => try formatIntByteSliceUtil(u8, slice, writer),
         2 => try formatIntByteSliceUtil(u16, slice, writer),
         4 => try formatIntByteSliceUtil(u32, slice, writer),
-        else => unimplemented(),
+        else => utils.unimplemented(),
     }
 }
 
@@ -803,8 +803,4 @@ fn formatHexByteSlice(slice: []u8, writer: anytype) !void {
             .fill = '0',
         }, writer);
     }
-}
-
-fn unimplemented() void {
-    unreachable;
 }

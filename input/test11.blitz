@@ -7,11 +7,11 @@ error MyError {
 
 error MyError1;
 
-fn thing(): MyError {
+fn thing() MyError {
   return MyError.Variant1;
 }
 
-fn thing1(): MyError1<u32> {
+fn thing1() MyError1<u32> {
   return 4;
 }
 

@@ -5,16 +5,21 @@ struct Car {
 struct [T: Car] name {
   value1: bool;
   value2: T;
-  pub static fn create(value1: bool, value2: T): name<T> {
+  pub static fn create(value1: bool, value2: T) name<T> {
     return name<T> {
       value1 = !value1,
       value2
     };
   }
-  prot fn someFunc(): u32 {}
+  prot fn someFunc() u32 {
+    return 2;
+  }
+  pub fn test() {
+    self.someFunc();
+  }
 }
 
-fn b(p0: name<Car>, p1: bool, p2: string, p3: u32): char {
+fn b(p0: name<Car>, p1: bool, p2: string, p3: u32) char {
   return 'b';
 }
 
@@ -24,5 +29,6 @@ fn b(p0: name<Car>, p1: bool, p2: string, p3: u32): char {
 
 let a = Car { size = 10 };
 let n: name<Car> = name.create(true, a);
+n.test();
 
 // let h = b(n, true, "thing", 2);

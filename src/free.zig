@@ -8,7 +8,7 @@ const compInfo = blitz.compInfo;
 const Allocator = std.mem.Allocator;
 const CompInfo = utils.CompInfo;
 
-pub fn freeNestedSlice(comptime T: type, allocator: Allocator, slices: [][]T) void {
+pub fn freeNestedSlice(comptime T: type, allocator: Allocator, slices: [][]const T) void {
     for (slices) |name| {
         allocator.free(name);
     }

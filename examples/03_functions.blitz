@@ -15,7 +15,7 @@ myFunc(a, b);
 
 // function with params and return
 
-fn myFunc2(): u32 {
+fn myFunc2() u32 {
   return 2;
 }
 
@@ -25,7 +25,7 @@ fn myFunc2(): u32 {
 // function, where it maps the type to a parameter or input generic
 // then the function will be scanned again with the new restriction
 
-fn [T] myFunc3(value: T): T {
+fn [T] myFunc3(value: T) T {
   return value + 1;
 }
 
@@ -43,7 +43,7 @@ struct MyStruct {
   pub size: u32;
 }
 
-fn [T: MyStruct] myFunc4(value: T): u32 {
+fn [T: MyStruct] myFunc4(value: T) u32 {
   return value.size;
 }
 
@@ -53,8 +53,8 @@ let myStruct = MyStruct {
 myFunc4(myStruct);
 
 // function defined in a function
-// functions that use variables, parameters, and generics from
-// an outer scope will capture them to use when called again
+// functions that use variables from the file scope will capture
+// them to use when called again
 //
 // in this example, a generic function is defined with a
 // generic function defined inside it, then the inner generic
@@ -62,8 +62,8 @@ myFunc4(myStruct);
 // function, transfering the generic type to the inner function
 // all of the generics are then restricted to the input u32 "4"
 
-fn [T] testCapture(value: T): T {
-  fn [G] temp(newValue: G): G {
+fn [T] testCapture(value: T) T {
+  fn [G] temp(newValue: G) G {
     return newValue + value;
   }
 
@@ -76,7 +76,7 @@ fn [T] testCapture(value: T): T {
 
 // recursive functions
 
-fn fibonacci1(num: u32): u32 {
+fn fibonacci1(num: u32) u32 {
   if (num <= 1) {
     return num;
   }
@@ -88,7 +88,7 @@ fibonacci1(5);
 
 // recursive functions can also be generic (implied but just saying, you never know)
 
-fn [T] fibonacci2(num: T): T {
+fn [T] fibonacci2(num: T) T {
   if (num <= 1) {
     return num;
   }

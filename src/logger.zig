@@ -205,5 +205,6 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedUSizeForArraySize => "expected usize for array size",
         AstError.StructDefinedInLowerScope => "struct defined in lower scope",
         AstError.ErrorDefinedInLowerScope => "struct defined in lower scope",
+        AstError.FunctionDefinedInLowerScope => "function defined in lower scope",
     };
 }

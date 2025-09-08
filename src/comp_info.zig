@@ -38,8 +38,8 @@ pub const CompInfo = struct {
 
     allocator: Allocator,
     code: []const u8,
-    structNames: [][]u8,
-    errorNames: [][]u8,
+    structNames: [][]const u8,
+    errorNames: [][]const u8,
     variableScopes: *ScopeUtil(*VarScope),
     variableCaptures: *ScopeUtil(*CaptureScope),
     genericCaptures: *ScopeUtil(*TypeScope),
@@ -578,6 +578,20 @@ pub const CompInfo = struct {
     }
 
     pub fn getFunction(self: Self, name: []u8) !?*blitzAst.FuncDecNode {
+        const func = self.getFunctionAsGlobal(name);
+        const captureScope = self.functionCaptures.getCurrentScope();
+        if (func) |funcDec| a: {
+            if (!funcDec.globallyDefined) break :a;
+
+            if (captureScope) |capScope| {
+                if (!string.inStringArr(capScope.items, name)) {
+                    try capScope.append(name);
+                }
+            }
+
+            return func;
+        }
+
         var scope: ?*StringListScope = self.functionsInScope.getCurrentScope();
         defer self.functionsInScope.resetLeakIndex();
         var capture = false;
@@ -588,13 +602,11 @@ pub const CompInfo = struct {
                     continue;
                 }
 
-                const func = self.getFunctionAsGlobal(name);
                 if (func) |funcDec| {
                     if (!capture) {
                         return func;
                     }
 
-                    const captureScope = self.functionCaptures.getCurrentScope();
                     if (captureScope) |capScope| {
                         if (!string.inStringArr(capScope.items, name)) {
                             try capScope.append(name);

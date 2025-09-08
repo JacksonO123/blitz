@@ -1,4 +1,4 @@
-fn myFunc(): u32 {
+fn myFunc() u32 {
   return 4;
 }
 
