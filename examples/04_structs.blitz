@@ -13,8 +13,3 @@ let val = M<Box>{
 };
 
 thing(val);
-
-// ---
-
-let slice: u32[] = [1, 2, 3, 4];
-let ab: u32[3] = [3, 2, 1];

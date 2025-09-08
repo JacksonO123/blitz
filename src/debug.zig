@@ -681,6 +681,13 @@ fn printChunk(bytecode: []u8, byteCounter: usize, writer: anytype) !usize {
     try writer.writeAll(inst.toString());
 
     switch (inst) {
+        .SetReg => {
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.writeAll(" ");
+            const num = bytecode[2..10];
+            try writeHexDecNumber(num, writer);
+        },
         .SetRegHalf => {
             try writer.writeAll(" r");
             try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
@@ -700,7 +707,13 @@ fn printChunk(bytecode: []u8, byteCounter: usize, writer: anytype) !usize {
             try writer.writeAll(" r");
             try writeByte(bytecode[2], writer);
         },
-        .CmpSetReg => {
+        .CmpSetRegEQ,
+        .CmpSetRegNE,
+        .CmpSetRegGT,
+        .CmpSetRegLT,
+        .CmpSetRegGTE,
+        .CmpSetRegLTE,
+        => {
             try writer.writeAll(" r");
             try writeByte(bytecode[1], writer);
             try writer.writeAll(" r");
@@ -738,8 +751,11 @@ fn printChunk(bytecode: []u8, byteCounter: usize, writer: anytype) !usize {
             try writer.writeByte(' ');
             try writeHexDecNumber(bytecode[2..3], writer);
         },
-        else => {
-            try writer.writeAll(" (unknown_cmd) ");
+        .Mov => {
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
         },
     }
 
@@ -778,6 +794,7 @@ fn formatIntByteSlice(slice: []u8, writer: anytype) !void {
         1 => try formatIntByteSliceUtil(u8, slice, writer),
         2 => try formatIntByteSliceUtil(u16, slice, writer),
         4 => try formatIntByteSliceUtil(u32, slice, writer),
+        8 => try formatIntByteSliceUtil(u64, slice, writer),
         else => utils.unimplemented(),
     }
 }

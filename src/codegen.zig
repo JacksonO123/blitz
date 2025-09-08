@@ -25,34 +25,46 @@ const GenBytecodeError = CodeGenError || Allocator.Error || std.fmt.ParseIntErro
 pub const Instructions = enum(u8) {
     const Self = @This();
 
-    SetReg = 1, // inst, reg, 8B data
-    SetRegHalf = 2, // inst, reg, 4B data
-    SetRegByte = 3, // inst, reg, 1B data
-    Add = 4, // inst, out reg, reg1, reg2
-    Sub = 5, // inst, out reg, reg1, reg2
-    Mult = 6, // inst, out reg, reg1, reg2
-    Jump = 7, // inst, 2B data
-    JumpEQ = 8, // inst, 2B data
-    JumpNE = 9, // inst, 2B data
-    JumpGT = 10, // inst, 2B data
-    JumpLT = 11, // inst, 2B data
-    JumpGTE = 12, // inst, 2B data
-    JumpLTE = 13, // inst, 2B data
-    JumpBack = 14, // inst, 2B data
-    JumpBackEQ = 15, // inst, 2B data
-    JumpBackNE = 16, // inst, 2B data
-    JumpBackGT = 17, // inst, 2B data
-    JumpBackLT = 18, // inst, 2B data
-    JumpBackGTE = 19, // inst, 2B data
-    JumpBackLTE = 20, // inst, 2B data
-    Cmp = 21, // inst, reg1, reg2  ;  sets to flags
-    CmpSetReg = 22, // inst, out reg, reg1, reg2  ;  sets to flags
-    CmpConstByte = 23, // inst, reg1, 1B data
-    IncConstByte = 24, // inst, in/out reg, 1B data
-    DecConstByte = 25, // inst, in/out reg, 1B data
+    SetReg, // inst, reg, 8B data
+    SetRegHalf, // inst, reg, 4B data
+    SetRegByte, // inst, reg, 1B data
+    Add, // inst, out reg, reg1, reg2
+    Sub, // inst, out reg, reg1, reg2
+    Mult, // inst, out reg, reg1, reg2
+    Jump, // inst, 2B data
+    JumpEQ, // inst, 2B data
+    JumpNE, // inst, 2B data
+    JumpGT, // inst, 2B data
+    JumpLT, // inst, 2B data
+    JumpGTE, // inst, 2B data
+    JumpLTE, // inst, 2B data
+    JumpBack, // inst, 2B data
+    JumpBackEQ, // inst, 2B data
+    JumpBackNE, // inst, 2B data
+    JumpBackGT, // inst, 2B data
+    JumpBackLT, // inst, 2B data
+    JumpBackGTE, // inst, 2B data
+    JumpBackLTE, // inst, 2B data
+    Cmp, // inst, reg1, reg2  ;  sets to flags
+    CmpSetRegEQ, // inst, out reg, reg1, reg2  ;  sets to flags
+    CmpSetRegNE, // inst, out reg, reg1, reg2  ;  sets to flags
+    CmpSetRegGT, // inst, out reg, reg1, reg2  ;  sets to flags
+    CmpSetRegLT, // inst, out reg, reg1, reg2  ;  sets to flags
+    CmpSetRegGTE, // inst, out reg, reg1, reg2  ;  sets to flags
+    CmpSetRegLTE, // inst, out reg, reg1, reg2  ;  sets to flags
+    CmpConstByte, // inst, reg1, 1B data
+    IncConstByte, // inst, in/out reg, 1B data
+    DecConstByte, // inst, in/out reg, 1B data
+    Mov,
 
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
+    }
+
+    pub fn allocBuf(self: Self, allocator: Allocator) ![]u8 {
+        const buf = try allocator.alloc(u8, self.getInstrLen());
+        buf[0] = self.getInstrByte();
+        return buf;
     }
 
     pub fn getInstrLen(self: Self) u8 {
@@ -77,9 +89,16 @@ pub const Instructions = enum(u8) {
             .JumpBackLTE,
             => 3,
             .Cmp => 3,
-            .CmpSetReg => 4,
+            .CmpSetRegEQ,
+            .CmpSetRegNE,
+            .CmpSetRegGT,
+            .CmpSetRegLT,
+            .CmpSetRegGTE,
+            .CmpSetRegLTE,
+            => 4,
             .CmpConstByte => 3,
             .IncConstByte, .DecConstByte => 3,
+            .Mov => 3,
         };
     }
 
@@ -107,9 +126,15 @@ pub const Instructions = enum(u8) {
             .JumpBackGTE => "jump_back_gte",
             .JumpBackLTE => "jump_back_lte",
             .Cmp => "cmp",
-            .CmpSetReg => "cmp_set_reg",
+            .CmpSetRegEQ => "cmp_set_reg_eq",
+            .CmpSetRegNE => "cmp_set_reg_ne",
+            .CmpSetRegGT => "cmp_set_reg_gt",
+            .CmpSetRegLT => "cmp_set_reg_lt",
+            .CmpSetRegGTE => "cmp_set_reg_gte",
+            .CmpSetRegLTE => "cmp_set_reg_lte",
             .IncConstByte => "inc_const_byte",
             .DecConstByte => "dec_const_byte",
+            .Mov => "mov",
         };
     }
 };
@@ -376,7 +401,7 @@ pub fn codegenAst(allocator: Allocator, genInfo: *GenInfo, ast: blitzAst.Ast) !v
 }
 
 fn writeStartVMInfo(allocator: Allocator, genInfo: *GenInfo) !void {
-    var buf = try allocator.alloc(u8, 5);
+    var buf = try allocator.alloc(u8, vmInfo.VM_INFO_BYTECODE_LEN);
     buf[0] = version.VERSION;
     std.mem.writeInt(u32, @ptrCast(buf[1..]), genInfo.stackStartSize, .little);
     try genInfo.appendChunk(buf);
@@ -405,6 +430,15 @@ pub fn genBytecode(
         },
         .VarDec => |dec| {
             const reg = try genBytecode(allocator, genInfo, dec.setNode) orelse return CodeGenError.ReturnedRegisterNotFound;
+            if (genInfo.variableRegisters[reg]) {
+                const newReg = genInfo.getAvailableReg() orelse return CodeGenError.NoAvailableRegisters;
+                genInfo.reserveRegister(reg);
+
+                const buf = try Instructions.Mov.allocBuf(allocator);
+                buf[1] = newReg;
+                buf[2] = reg;
+                try genInfo.appendChunk(buf);
+            }
             try genInfo.setVariableRegister(dec.name, reg);
         },
         .Value => |value| {
@@ -413,9 +447,7 @@ pub fn genBytecode(
                     const reg = genInfo.getAvailableReg() orelse return CodeGenError.NoAvailableRegisters;
                     genInfo.reserveRegister(reg);
 
-                    const inst = Instructions.SetRegHalf.getInstrByte();
-                    const buf = try allocator.alloc(u8, 6);
-                    buf[0] = inst;
+                    const buf = try Instructions.SetRegHalf.allocBuf(allocator);
                     buf[1] = reg;
                     try writeIntSliceToInstr(u32, buf, 2, num.digits);
 
@@ -426,9 +458,7 @@ pub fn genBytecode(
                     const reg = genInfo.getAvailableReg() orelse return CodeGenError.NoAvailableRegisters;
                     genInfo.reserveRegister(reg);
 
-                    const inst = Instructions.SetRegByte.getInstrByte();
-                    const buf = try allocator.alloc(u8, 3);
-                    buf[0] = inst;
+                    const buf = try Instructions.SetRegByte.allocBuf(allocator);
                     buf[1] = reg;
                     buf[2] = @as(u8, @intFromBool(b));
 
@@ -452,10 +482,30 @@ pub fn genBytecode(
 
             var outReg: ?RegisterNumber = null;
 
+            const instr: Instructions = switch (expr.type) {
+                .Add => Instructions.Add,
+                .Sub => Instructions.Sub,
+                .Mult => Instructions.Mult,
+                .LessThan,
+                .GreaterThan,
+                .GreaterThanEq,
+                .LessThanEq,
+                .Equal,
+                .NotEqual,
+                => a: {
+                    if (genInfo.settings.outputCmpAsRegister) {
+                        break :a exprTypeToCmpSetReg(expr.type);
+                    } else {
+                        break :a Instructions.Cmp;
+                    }
+                },
+                else => unreachable,
+            };
+
             const buf = switch (expr.type) {
                 .Add, .Sub, .Mult => a: {
                     outReg = try genInfo.availableRegReplaceRelease(leftReg, rightReg);
-                    const buf = try allocator.alloc(u8, 4);
+                    const buf = try instr.allocBuf(allocator);
                     buf[1] = outReg.?;
                     buf[2] = leftReg;
                     buf[3] = rightReg;
@@ -471,6 +521,7 @@ pub fn genBytecode(
                     const offset: u8 = if (genInfo.settings.outputCmpAsRegister) 1 else 0;
 
                     const buf = try allocator.alloc(u8, bufSize);
+                    buf[0] = instr.getInstrByte();
                     buf[1 + offset] = leftReg;
                     buf[2 + offset] = rightReg;
 
@@ -487,19 +538,6 @@ pub fn genBytecode(
                 else => unreachable,
             };
 
-            buf[0] = switch (expr.type) {
-                .Add => Instructions.Add,
-                .Sub => Instructions.Sub,
-                .Mult => Instructions.Mult,
-                .LessThan,
-                .GreaterThan,
-                .GreaterThanEq,
-                .LessThanEq,
-                .Equal,
-                => if (genInfo.settings.outputCmpAsRegister) Instructions.CmpSetReg else Instructions.Cmp,
-                else => unreachable,
-            }.getInstrByte();
-
             try genInfo.appendChunk(buf);
 
             return outReg;
@@ -511,16 +549,14 @@ pub fn genBytecode(
         .IfStatement => |statement| {
             const condReg = try genBytecode(allocator, genInfo, statement.condition) orelse return CodeGenError.ReturnedRegisterNotFound;
 
-            const buf = try allocator.alloc(u8, 3);
-            buf[0] = Instructions.CmpConstByte.getInstrByte();
+            const buf = try Instructions.CmpConstByte.allocBuf(allocator);
             buf[1] = condReg;
             buf[2] = 1;
             try genInfo.appendChunk(buf);
 
             genInfo.releaseIfPossible(condReg);
 
-            const jumpBuf = try allocator.alloc(u8, 3);
-            jumpBuf[0] = Instructions.JumpNE.getInstrByte();
+            const jumpBuf = try Instructions.JumpNE.allocBuf(allocator);
             try genInfo.appendChunk(jumpBuf);
 
             const byteCount = genInfo.byteCounter;
@@ -528,8 +564,7 @@ pub fn genBytecode(
             _ = try genBytecode(allocator, genInfo, statement.body);
 
             if (statement.fallback) |fallback| {
-                const jumpEndBuf = try allocator.alloc(u8, 3);
-                jumpEndBuf[0] = Instructions.Jump.getInstrByte();
+                const jumpEndBuf = try Instructions.Jump.allocBuf(allocator);
                 try genInfo.appendChunk(jumpEndBuf);
 
                 const preFallbackByteCount = genInfo.byteCounter;
@@ -569,11 +604,11 @@ pub fn genBytecode(
             const condReg = try genBytecode(allocator, genInfo, loop.condition);
             genInfo.settings.outputCmpAsRegister = prevCmpAsReg;
 
-            const preBodyByteCount = genInfo.byteCounter;
-            const jumpEndBuf = try allocator.alloc(u8, 3);
-            jumpEndBuf[0] = Instructions.JumpGTE.getInstrByte();
-
+            // TODO
             _ = condReg;
+
+            const preBodyByteCount = genInfo.byteCounter;
+            const jumpEndBuf = try Instructions.JumpGTE.allocBuf(allocator);
 
             if (isCompExprType) {
                 const oppositeComp = loop.condition.OpExpr.type.getOppositeCompOp();
@@ -595,8 +630,7 @@ pub fn genBytecode(
             const jumpEndDiff = @as(u16, @intCast(genInfo.byteCounter - preBodyByteCount));
             std.mem.writeInt(u16, @ptrCast(jumpEndBuf[1..]), jumpEndDiff, .little);
 
-            const jumpStartBuf = try allocator.alloc(u8, 3);
-            jumpStartBuf[0] = Instructions.JumpBack.getInstrByte();
+            const jumpStartBuf = try Instructions.JumpBack.allocBuf(allocator);
             const jumpStartDiff = @as(u16, @intCast(genInfo.byteCounter - preConditionByteCount));
             std.mem.writeInt(u16, @ptrCast(jumpStartBuf[1..]), jumpStartDiff, .little);
             try genInfo.appendChunk(jumpStartBuf);
@@ -604,8 +638,7 @@ pub fn genBytecode(
         .IncOne => |inc| {
             const reg = try genBytecode(allocator, genInfo, inc) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
-            const buf = try allocator.alloc(u8, 3);
-            buf[0] = Instructions.IncConstByte.getInstrByte();
+            const buf = try Instructions.IncConstByte.allocBuf(allocator);
             buf[1] = reg;
             buf[2] = 1;
 
@@ -614,8 +647,7 @@ pub fn genBytecode(
         .DecOne => |dec| {
             const reg = try genBytecode(allocator, genInfo, dec) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
-            const buf = try allocator.alloc(u8, 3);
-            buf[0] = Instructions.DecConstByte.getInstrByte();
+            const buf = try Instructions.DecConstByte.allocBuf(allocator);
             buf[1] = reg;
             buf[2] = 1;
 
@@ -628,6 +660,18 @@ pub fn genBytecode(
     }
 
     return null;
+}
+
+fn exprTypeToCmpSetReg(expr: blitzAst.OpExprTypes) Instructions {
+    return switch (expr) {
+        .Equal => .CmpSetRegEQ,
+        .NotEqual => .CmpSetRegNE,
+        .LessThan => .CmpSetRegLT,
+        .GreaterThan => .CmpSetRegGT,
+        .LessThanEq => .CmpSetRegLTE,
+        .GreaterThanEq => .CmpSetRegGTE,
+        else => unreachable,
+    };
 }
 
 fn compOpToJump(opType: blitzAst.OpExprTypes, back: bool) !Instructions {
@@ -656,16 +700,14 @@ fn generateFallback(allocator: Allocator, genInfo: *GenInfo, fallback: *const bl
     if (fallback.condition) |condition| {
         const condReg = try genBytecode(allocator, genInfo, condition) orelse return CodeGenError.ReturnedRegisterNotFound;
 
-        const buf = try allocator.alloc(u8, 3);
-        buf[0] = Instructions.CmpConstByte.getInstrByte();
+        const buf = try Instructions.CmpConstByte.allocBuf(allocator);
         buf[1] = condReg;
         buf[2] = 1;
         try genInfo.appendChunk(buf);
 
         genInfo.releaseIfPossible(condReg);
 
-        const jumpBuf = try allocator.alloc(u8, 3);
-        jumpBuf[0] = Instructions.JumpNE.getInstrByte();
+        const jumpBuf = try Instructions.JumpNE.allocBuf(allocator);
         try genInfo.appendChunk(jumpBuf);
         jumpSlice = jumpBuf[1..];
     }
@@ -675,8 +717,7 @@ fn generateFallback(allocator: Allocator, genInfo: *GenInfo, fallback: *const bl
     _ = try genBytecode(allocator, genInfo, fallback.body);
 
     if (fallback.fallback) |newFallback| {
-        const jumpEndBuf = try allocator.alloc(u8, 3);
-        jumpEndBuf[0] = Instructions.Jump.getInstrByte();
+        const jumpEndBuf = try Instructions.Jump.allocBuf(allocator);
         try genInfo.appendChunk(jumpEndBuf);
 
         const preFallbackByteCount = genInfo.byteCounter;

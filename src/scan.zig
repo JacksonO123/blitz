@@ -308,8 +308,12 @@ pub fn scanNode(
                 },
             }
         },
-        .IncOne,
-        .DecOne,
+        .IncOne, .DecOne => |val| {
+            const valType = try scanNode(allocator, compInfo, val, withGenDef);
+            if (valType.astType.* != .VarInfo) return ScanError.CannotSetToNonVarTypeValue;
+            if (valType.isConst) return ScanError.AssigningToConstVariable;
+            return utils.astTypesPtrToInfo(valType.astType, false);
+        },
         .Group,
         => |val| {
             const valType = try scanNode(allocator, compInfo, val, withGenDef);

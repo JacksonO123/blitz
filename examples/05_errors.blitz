@@ -1,0 +1,9 @@
+error MyError {
+  Variant1,
+  Variant2,
+  Variant3,
+}
+
+fn someFn() MyError<u32> {
+  return .Variant2;
+}
