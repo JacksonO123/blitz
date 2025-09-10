@@ -435,8 +435,8 @@ pub fn scanNode(
                 },
                 .Error => |err| {
                     const errDec = compInfo.getErrorDec(err.name).?;
-                    if (errDec.variants) |variants| {
-                        if (!string.inStringArr(variants, access.property)) {
+                    if (errDec.variants.len > 0) {
+                        if (!string.inStringArr(errDec.variants, access.property)) {
                             return ScanError.ErrorVariantDoesNotExist;
                         }
                     } else {
@@ -728,10 +728,21 @@ pub fn scanNode(
                 try compInfo.pushScope(true);
                 defer compInfo.popScope();
 
-                _ = try setGenTypesFromParams(allocator, compInfo, func, paramTypes, withGenDef);
+                _ = try setGenTypesFromParams(
+                    allocator,
+                    compInfo,
+                    func,
+                    paramTypes,
+                    withGenDef,
+                );
 
                 for (func.params) |param| {
-                    const typeClone = try clone.cloneAstTypeInfo(allocator, compInfo, param.type, withGenDef);
+                    const typeClone = try clone.cloneAstTypeInfo(
+                        allocator,
+                        compInfo,
+                        param.type,
+                        withGenDef,
+                    );
                     try compInfo.setVariableType(param.name, typeClone, param.isConst);
                 }
 
@@ -743,15 +754,31 @@ pub fn scanNode(
 
             if (func.generics != null) {
                 const genScope = compInfo.genericScopes.getCurrentScope().?;
-                const scannedBefore = try fnHasScannedWithSameGenTypes(allocator, compInfo, func, genScope, withGenDef);
+                const scannedBefore = try fnHasScannedWithSameGenTypes(
+                    allocator,
+                    compInfo,
+                    func,
+                    genScope,
+                    withGenDef,
+                );
                 if (!scannedBefore) {
-                    const scopeRels = try genScopeToRels(allocator, compInfo, genScope, withGenDef);
+                    const scopeRels = try genScopeToRels(
+                        allocator,
+                        compInfo,
+                        genScope,
+                        withGenDef,
+                    );
                     try func.toScanTypes.append(scopeRels);
                     try compInfo.addFuncToScan(func, scopeRels, withGenDef);
                 }
             }
 
-            return try clone.cloneAstTypeInfo(allocator, compInfo, func.returnType, withGenDef);
+            return try clone.cloneAstTypeInfo(
+                allocator,
+                compInfo,
+                func.returnType,
+                withGenDef,
+            );
         },
         .StructInit => |init| {
             try compInfo.pushGenScope(true);
@@ -763,7 +790,13 @@ pub fn scanNode(
                 return ScanError.StructInitGenericCountMismatch;
             }
 
-            try setInitGenerics(allocator, compInfo, init.generics, structDec.generics, withGenDef);
+            try setInitGenerics(
+                allocator,
+                compInfo,
+                init.generics,
+                structDec.generics,
+                withGenDef,
+            );
 
             if (structDec.deriveType) |derive| {
                 try setInitDeriveGenerics(allocator, compInfo, derive);
@@ -820,7 +853,7 @@ pub fn scanNode(
         },
         .Error => |err| {
             const dec = compInfo.getErrorDec(err).?;
-            if (dec.variants != null and !compInfo.scanner.allowErrorWithoutVariants) {
+            if (dec.variants.len > 0 and !compInfo.scanner.allowErrorWithoutVariants) {
                 return ScanError.ExpectedUseOfErrorVariants;
             }
 
@@ -909,6 +942,14 @@ pub fn scanNode(
                     }),
                 },
             }, false);
+        },
+        .InferErrorVariant => |variant| {
+            return utils.astTypesToInfo(allocator, .{
+                .ErrorVariant = .{
+                    .from = null,
+                    .variant = try string.cloneString(allocator, variant),
+                },
+            }, true);
         },
     }
 }
@@ -1193,7 +1234,12 @@ fn genScopeToRels(
     while (scopeIt.next()) |entry| {
         slice[i] = .{
             .gen = entry.key_ptr.*,
-            .info = try clone.cloneAstTypeInfo(allocator, compInfo, entry.value_ptr.*, withGenDef),
+            .info = try clone.cloneAstTypeInfo(
+                allocator,
+                compInfo,
+                entry.value_ptr.*,
+                withGenDef,
+            ),
         };
 
         i += 1;
@@ -1212,7 +1258,14 @@ fn fnHasScannedWithSameGenTypes(
     outer: for (func.toScanTypes.items) |scannedScope| {
         for (scannedScope) |rel| {
             const genType = genScope.get(rel.gen).?;
-            const matches = try matchTypesUtil(allocator, compInfo, genType, rel.info, withGenDef, .Strict);
+            const matches = try matchTypesUtil(
+                allocator,
+                compInfo,
+                genType,
+                rel.info,
+                withGenDef,
+                .Strict,
+            );
             if (!matches) {
                 continue :outer;
             }
@@ -1716,7 +1769,18 @@ pub fn matchTypesUtil(
         },
         .Error => |err| switch (type2) {
             .Error => |err2| string.compString(err.name, err2.name),
-            .ErrorVariant => |err2| string.compString(err.name, err2.from),
+            .ErrorVariant => |err2| {
+                if (err2.from) |from| {
+                    return string.compString(err.name, from);
+                }
+
+                const errDec = compInfo.getErrorDec(err.name);
+                if (errDec) |dec| {
+                    return string.inStringArr(dec.variants, err2.variant);
+                }
+
+                return false;
+            },
             else => {
                 if (err.payload) |payload| {
                     const matches = try matchTypesUtil(allocator, compInfo, payload, fromType, withGenDef, mutMatchBehavior);
@@ -1727,8 +1791,27 @@ pub fn matchTypesUtil(
             },
         },
         .ErrorVariant => |err| switch (type2) {
-            .Error => |err2| string.compString(err.from, err2.name),
-            .ErrorVariant => |err2| string.compString(err.from, err2.from) and string.compString(err.variant, err2.variant),
+            .Error => |err2| {
+                if (err.from) |from| {
+                    return string.compString(err2.name, from);
+                }
+
+                const errDec = compInfo.getErrorDec(err2.name);
+                if (errDec) |dec| {
+                    return string.inStringArr(dec.variants, err.variant);
+                }
+
+                return false;
+            },
+            .ErrorVariant => |err2| {
+                const variantsMatch = string.compString(err.variant, err2.variant);
+
+                if (err.from != null and err2.from != null) {
+                    return string.compString(err.from.?, err2.from.?) and variantsMatch;
+                }
+
+                return variantsMatch;
+            },
             else => false,
         },
         .StaticStructInstance => |inst| {

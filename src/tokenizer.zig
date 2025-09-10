@@ -347,13 +347,11 @@ const CharUtil = struct {
 
     index: usize,
     chars: []const u8,
-    allowPeriod: bool,
 
     pub fn init(chars: []const u8) Self {
         return Self{
             .index = 0,
             .chars = chars,
-            .allowPeriod = false,
         };
     }
 
@@ -445,10 +443,6 @@ fn parseNextToken(chars: *CharUtil) !?Token {
     const startIndex = chars.index;
     const first = try chars.take();
 
-    if (first != '.' and chars.allowPeriod) {
-        chars.allowPeriod = false;
-    }
-
     switch (first) {
         '\n' => return Token.init(.NewLine, startIndex),
         ' ' => {
@@ -514,7 +508,6 @@ fn parseNextToken(chars: *CharUtil) !?Token {
         ']' => return Token.init(.RBracket, startIndex),
         '(' => return Token.init(.LParen, startIndex),
         ')' => {
-            chars.allowPeriod = true;
             return Token.init(.RParen, startIndex);
         },
         ':' => return Token.init(.Colon, startIndex),
@@ -545,17 +538,12 @@ fn parseNextToken(chars: *CharUtil) !?Token {
         },
         '!' => return Token.init(.Bang, startIndex),
         '.' => {
-            if (!chars.allowPeriod) {
-                return chars.logError(TokenizeError.UnexpectedCharacter);
-            }
-
             const next = try chars.peak();
             if (!std.ascii.isAlphabetic(next) and !isValidNameChar(next)) {
                 _ = try chars.take();
                 return chars.logError(TokenizeError.UnexpectedCharacter);
             }
 
-            chars.allowPeriod = false;
             return Token.init(.Period, startIndex);
         },
         '&' => {
@@ -624,8 +612,6 @@ fn parseNextToken(chars: *CharUtil) !?Token {
                 next = try chars.take();
             }
 
-            chars.allowPeriod = true;
-
             return Token.initBounds(.StringToken, startIndex, chars.index);
         },
         else => {
@@ -640,7 +626,6 @@ fn parseNextToken(chars: *CharUtil) !?Token {
             var isIdent = false;
             while (std.ascii.isAlphanumeric(char) or isValidNameChar(char)) {
                 isIdent = true;
-                chars.allowPeriod = true;
                 if (!chars.hasNext()) break;
                 char = try chars.take();
             }

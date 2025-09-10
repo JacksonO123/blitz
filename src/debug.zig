@@ -129,7 +129,7 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
             }
         },
         .ErrorVariant => |err| {
-            print("variant [{s}] from ({s})", .{ err.variant, err.from });
+            print("variant [{s}] from ({s})", .{ err.variant, if (err.from) |from| from else "unknown" });
         },
     };
 }
@@ -451,6 +451,9 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode) void {
             print(" with initializer ", .{});
             printNode(compInfo, init.initNode);
         },
+        .InferErrorVariant => |variant| {
+            print("infer error from variant {s}", .{variant});
+        },
     }
 }
 
@@ -563,12 +566,10 @@ fn printNodes(compInfo: *CompInfo, nodes: []*blitzAst.AstNode) void {
 pub fn printRegisteredError(err: *const blitzAst.ErrorDecNode) void {
     print("defining error: {s} with variants [ ", .{err.name});
 
-    if (err.variants) |variants| {
-        for (variants, 0..) |variant, index| {
-            print("{s}", .{variant});
-            if (index < variants.len - 1) {
-                print(", ", .{});
-            }
+    for (err.variants, 0..) |variant, index| {
+        print("{s}", .{variant});
+        if (index < err.variants.len - 1) {
+            print(", ", .{});
         }
     }
 }

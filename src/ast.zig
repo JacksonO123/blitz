@@ -188,7 +188,7 @@ pub const CustomType = struct {
 };
 
 const ErrorVariantType = struct {
-    from: []u8,
+    from: ?[]u8,
     variant: []u8,
 };
 
@@ -437,7 +437,7 @@ const IndexValueNode = struct {
 
 pub const ErrorDecNode = struct {
     name: []u8,
-    variants: ?[][]const u8,
+    variants: [][]const u8,
 };
 
 const ValueSetNode = struct {
@@ -515,6 +515,7 @@ const AstNodeVariants = enum {
     IndexValue,
     ErrorDec,
     Error,
+    InferErrorVariant,
     Group,
     Scope,
     IncOne,
@@ -552,6 +553,7 @@ pub const AstNode = union(AstNodeVariants) {
     IndexValue: IndexValueNode,
     ErrorDec: *const ErrorDecNode,
     Error: []u8,
+    InferErrorVariant: []u8,
     Group: *AstNode,
     Scope: *AstNode,
     IncOne: *AstNode,
@@ -1027,7 +1029,7 @@ fn parseError(allocator: Allocator, compInfo: *CompInfo) !*const ErrorDecNode {
         return compInfo.logger.logError(AstError.ExpectedIdentifierForErrorName);
     }
 
-    var variants: ?[][]const u8 = null;
+    var variants: [][]const u8 = &[_][]const u8{};
 
     const next = try compInfo.tokens.take();
     if (next.type == .LBrace) {
@@ -1168,6 +1170,16 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
                         .numType = numType,
                     },
                 },
+            });
+        },
+        .Period => {
+            const next = try compInfo.tokens.take();
+            if (next.type != .Identifier) {
+                return compInfo.logger.logError(AstError.ExpectedIdentifierForErrorVariant);
+            }
+
+            return try createMut(AstNode, allocator, .{
+                .InferErrorVariant = try string.cloneString(allocator, compInfo.getTokString(next)),
             });
         },
         .StringToken => {

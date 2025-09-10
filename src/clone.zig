@@ -94,7 +94,7 @@ pub fn cloneAstTypes(
         .ErrorVariant => |err| {
             return .{
                 .ErrorVariant = .{
-                    .from = try string.cloneString(allocator, err.from),
+                    .from = if (err.from) |from| try string.cloneString(allocator, from) else null,
                     .variant = try string.cloneString(allocator, err.variant),
                 },
             };
@@ -475,11 +475,7 @@ pub fn cloneAstNode(
             .StaticStructInstance = try string.cloneString(allocator, inst),
         },
         .ErrorDec => |def| {
-            var newVariants: ?[][]const u8 = null;
-
-            if (def.variants) |variants| {
-                newVariants = try string.cloneStringArray(allocator, variants);
-            }
+            const newVariants = try string.cloneStringArray(allocator, def.variants);
 
             return .{
                 .ErrorDec = try create(blitzAst.ErrorDecNode, allocator, .{
@@ -490,6 +486,9 @@ pub fn cloneAstNode(
         },
         .Error => |err| return .{
             .Error = try string.cloneString(allocator, err),
+        },
+        .InferErrorVariant => |err| return .{
+            .InferErrorVariant = try string.cloneString(allocator, err),
         },
         .Group => |group| return .{
             .Group = try cloneAstNodePtrMut(allocator, compInfo, group, replaceGenerics),

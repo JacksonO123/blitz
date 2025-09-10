@@ -255,6 +255,9 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             freeNode(allocator, init.initNode);
             freeAstTypeInfo(allocator, init.initType);
         },
+        .InferErrorVariant => |variant| {
+            allocator.free(variant);
+        },
     }
 
     allocator.destroy(node);
@@ -276,13 +279,11 @@ fn freeIfFallback(allocator: Allocator, fallback: *const blitzAst.IfFallback) vo
 pub fn freeErrorDec(allocator: Allocator, dec: *const blitzAst.ErrorDecNode) void {
     allocator.free(dec.name);
 
-    if (dec.variants) |variants| {
-        for (variants) |variant| {
-            allocator.free(variant);
-        }
-
-        allocator.free(variants);
+    for (dec.variants) |variant| {
+        allocator.free(variant);
     }
+
+    allocator.free(dec.variants);
 }
 
 pub fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) void {
@@ -344,7 +345,9 @@ pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void 
             }
         },
         .ErrorVariant => |err| {
-            allocator.free(err.from);
+            if (err.from) |from| {
+                allocator.free(from);
+            }
             allocator.free(err.variant);
         },
         .StaticStructInstance => |inst| {
