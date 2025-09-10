@@ -129,7 +129,10 @@ pub fn printType(compInfo: *CompInfo, typeNode: *const blitzAst.AstTypes) void {
             }
         },
         .ErrorVariant => |err| {
-            print("variant [{s}] from ({s})", .{ err.variant, if (err.from) |from| from else "unknown" });
+            print("variant [{s}] from ({s})", .{
+                err.variant,
+                if (err.from) |from| from else "unknown",
+            });
         },
     };
 }

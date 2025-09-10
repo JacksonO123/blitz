@@ -38,13 +38,20 @@ pub const Logger = struct {
         const errStr = astErrorToString(err);
 
         const numSurroundingLines = 1;
-        const contextBlock = findSurroundingLines(self.code, self.tokens.pos.currentLine, numSurroundingLines);
+        const contextBlock = findSurroundingLines(
+            self.code,
+            self.tokens.pos.currentLine,
+            numSurroundingLines,
+        );
         const beforeLines = self.code[contextBlock.before.start..contextBlock.before.end];
         const afterLines = self.code[contextBlock.after.start..contextBlock.after.end];
 
         const lineBounds = findLineBounds(self.code, self.tokens.pos.currentLine);
         const line = self.code[lineBounds.start..lineBounds.end];
-        const startOffset = getStartOffset(self.tokens.tokens[self.tokens.pos.index - 1].start, self.code);
+        const startOffset = getStartOffset(
+            self.tokens.tokens[self.tokens.pos.index - 1].start,
+            self.code,
+        );
 
         writer.writeAll("Error: ") catch {};
         writer.writeAll(errStr) catch {};

@@ -185,6 +185,7 @@ pub const AstArraySliceType = struct {
 pub const CustomType = struct {
     name: []u8,
     generics: []AstTypeInfo,
+    allowPrivateReads: bool,
 };
 
 const ErrorVariantType = struct {
@@ -315,6 +316,13 @@ pub const StructAttribute = struct {
     static: bool,
 };
 
+pub const GenToTypeInfoRel = struct {
+    gen: []const u8,
+    info: AstTypeInfo,
+};
+
+pub const ToScanTypesList = ArrayList([]GenToTypeInfoRel);
+
 pub const StructDecNode = struct {
     const Self = @This();
 
@@ -323,6 +331,7 @@ pub const StructDecNode = struct {
     attributes: []StructAttribute,
     totalMemberList: []StructAttribute,
     deriveType: ?AstTypeInfo,
+    toScanTypes: *ToScanTypesList,
 };
 
 pub const AttributeDefinition = struct {
@@ -359,12 +368,11 @@ pub const Parameter = struct {
     isConst: bool,
 };
 
-pub const GenToTypeInfoRel = struct {
-    gen: []const u8,
-    info: AstTypeInfo,
+const FuncType = enum {
+    Builtin,
+    StructMethod,
+    Normal,
 };
-
-pub const ToScanTypesList = ArrayList([]GenToTypeInfoRel);
 
 pub const FuncDecNode = struct {
     name: []u8,
@@ -377,7 +385,7 @@ pub const FuncDecNode = struct {
     capturedTypes: ?*blitzCompInfo.TypeScope,
     capturedFuncs: ?*blitzCompInfo.StringListScope,
     toScanTypes: *ToScanTypesList,
-    builtin: bool,
+    funcType: FuncType,
     visited: bool,
     globallyDefined: bool,
 };
@@ -637,7 +645,11 @@ pub fn createAst(allocator: Allocator, compInfo: *CompInfo) !Ast {
     return Ast.init(allocator, seq);
 }
 
-pub fn parseSequence(allocator: Allocator, compInfo: *CompInfo, fromBlock: bool) (AstError || Allocator.Error)!*AstNode {
+pub fn parseSequence(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+    fromBlock: bool,
+) (AstError || Allocator.Error)!*AstNode {
     var seq = ArrayList(*AstNode).init(allocator);
     defer seq.deinit();
 
@@ -773,7 +785,10 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
                         .ValueSet = .{
                             .setNode = setNode,
                             .value = try createMut(AstNode, allocator, .{
-                                .Variable = try string.cloneString(allocator, compInfo.getTokString(first)),
+                                .Variable = try string.cloneString(
+                                    allocator,
+                                    compInfo.getTokString(first),
+                                ),
                             }),
                         },
                     });
@@ -786,7 +801,10 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
                         .VarEqOp = .{
                             .opType = .AddEq,
                             .value = incNode,
-                            .variable = try string.cloneString(allocator, compInfo.getTokString(first)),
+                            .variable = try string.cloneString(
+                                allocator,
+                                compInfo.getTokString(first),
+                            ),
                         },
                     });
                 },
@@ -795,7 +813,11 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
                 },
                 .Period => {
                     compInfo.tokens.returnToken();
-                    const identNode = try getIdentNode(allocator, compInfo, compInfo.getTokString(first));
+                    const identNode = try getIdentNode(
+                        allocator,
+                        compInfo,
+                        compInfo.getTokString(first),
+                    );
                     return parsePropertyAccess(allocator, compInfo, identNode);
                 },
                 else => return try createMut(AstNode, allocator, .{
@@ -913,6 +935,7 @@ fn parseStruct(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
         return compInfo.logger.logError(AstError.ExpectedIdentifierForStructName);
     }
 
+    const structName = try string.cloneString(allocator, compInfo.getTokString(first));
     var next = try compInfo.tokens.take();
 
     if (next.type == .Colon) {
@@ -932,26 +955,27 @@ fn parseStruct(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
         return compInfo.logger.logError(AstError.UnexpectedToken);
     }
 
-    const attributes = try parseStructAttributes(allocator, compInfo);
+    const attributes = try parseStructAttributes(allocator, compInfo, structName);
 
     return try createMut(AstNode, allocator, .{
         .StructDec = try createMut(StructDecNode, allocator, .{
-            .name = try string.cloneString(allocator, compInfo.getTokString(first)),
+            .name = structName,
             .generics = generics,
             .attributes = attributes,
             .totalMemberList = &[_]StructAttribute{},
             .deriveType = deriveType,
+            .toScanTypes = try utils.initMutPtrT(ToScanTypesList, allocator),
         }),
     });
 }
 
-fn parseStructAttributes(allocator: Allocator, compInfo: *CompInfo) ![]StructAttribute {
+fn parseStructAttributes(allocator: Allocator, compInfo: *CompInfo, structName: []u8) ![]StructAttribute {
     var attributes = ArrayList(StructAttribute).init(allocator);
     defer attributes.deinit();
 
     var current = try compInfo.tokens.peak();
     while (current.type != .RBrace) {
-        const attr = try parseStructAttribute(allocator, compInfo);
+        const attr = try parseStructAttribute(allocator, compInfo, structName);
         try attributes.append(attr);
 
         if (attr.attr == .Member) {
@@ -967,22 +991,27 @@ fn parseStructAttributes(allocator: Allocator, compInfo: *CompInfo) ![]StructAtt
     return attributes.toOwnedSlice();
 }
 
-fn parseStructAttribute(allocator: Allocator, compInfo: *CompInfo) !StructAttribute {
+fn parseStructAttribute(allocator: Allocator, compInfo: *CompInfo, structName: []u8) !StructAttribute {
     const first = try compInfo.tokens.take();
     switch (first.type) {
         .Identifier, .Fn => {
             compInfo.tokens.returnToken();
-            return parseStructAttributeUtil(allocator, compInfo, .Private);
+            return parseStructAttributeUtil(allocator, compInfo, structName, .Private);
         },
-        .Prot => return parseStructAttributeUtil(allocator, compInfo, .Protected),
-        .Pub => return parseStructAttributeUtil(allocator, compInfo, .Public),
+        .Prot => return parseStructAttributeUtil(allocator, compInfo, structName, .Protected),
+        .Pub => return parseStructAttributeUtil(allocator, compInfo, structName, .Public),
         else => {
             return compInfo.logger.logError(AstError.UnexpectedToken);
         },
     }
 }
 
-fn parseStructAttributeUtil(allocator: Allocator, compInfo: *CompInfo, visibility: MemberVisibility) !StructAttribute {
+fn parseStructAttributeUtil(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+    structName: []u8,
+    visibility: MemberVisibility,
+) !StructAttribute {
     var first = try compInfo.tokens.take();
     var static = false;
 
@@ -1007,6 +1036,22 @@ fn parseStructAttributeUtil(allocator: Allocator, compInfo: *CompInfo, visibilit
         },
         .Fn => {
             const def = try parseFuncDef(allocator, compInfo, true);
+
+            if (!static) {
+                const valueCaptures = try utils.initMutPtrT(
+                    blitzCompInfo.CaptureScope,
+                    allocator,
+                );
+                def.capturedValues = valueCaptures;
+                const selfInfo = try utils.astTypesToInfo(allocator, .{
+                    .Custom = .{
+                        .name = try string.cloneString(allocator, structName),
+                        .generics = &[_]AstTypeInfo{},
+                        .allowPrivateReads = true,
+                    },
+                }, true);
+                try valueCaptures.put("self", selfInfo);
+            }
 
             return .{
                 .name = try string.cloneString(allocator, def.name),
@@ -1146,7 +1191,10 @@ pub fn getExprDepth(expr: *AstNode) usize {
     return 0;
 }
 
-fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Error || AstError)!?*AstNode {
+fn parseExpressionUtil(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+) (Allocator.Error || AstError)!?*AstNode {
     const first = try compInfo.tokens.take();
     switch (first.type) {
         .Null => return try createMut(AstNode, allocator, .{
@@ -1264,7 +1312,11 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
                     return try parseFuncCall(allocator, compInfo, compInfo.getTokString(first));
                 },
                 .Period => {
-                    const identNode = try getIdentNode(allocator, compInfo, compInfo.getTokString(first));
+                    const identNode = try getIdentNode(
+                        allocator,
+                        compInfo,
+                        compInfo.getTokString(first),
+                    );
                     return try parsePropertyAccess(allocator, compInfo, identNode);
                 },
                 .LBrace, .LAngle => {
@@ -1281,7 +1333,11 @@ fn parseExpressionUtil(allocator: Allocator, compInfo: *CompInfo) (Allocator.Err
                     return try createMut(AstNode, allocator, .{
                         .IndexValue = .{
                             .index = index,
-                            .value = try getIdentNode(allocator, compInfo, compInfo.getTokString(first)),
+                            .value = try getIdentNode(
+                                allocator,
+                                compInfo,
+                                compInfo.getTokString(first),
+                            ),
                         },
                     });
                 },
@@ -1375,7 +1431,9 @@ fn parseArray(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
             const initNode = try parseExpression(allocator, compInfo) orelse
                 return compInfo.logger.logError(AstError.ExpectedExpression);
 
-            if (numType != .USize) return compInfo.logger.logError(AstError.ExpectedUSizeForArraySize);
+            if (numType != .USize) {
+                return compInfo.logger.logError(AstError.ExpectedUSizeForArraySize);
+            }
 
             return createMut(AstNode, allocator, .{
                 .ArrayInit = .{
@@ -1637,7 +1695,7 @@ fn parseFuncDef(allocator: Allocator, compInfo: *CompInfo, structFn: bool) !*Fun
         .capturedTypes = null,
         .capturedFuncs = null,
         .toScanTypes = try utils.initMutPtrT(ToScanTypesList, allocator),
-        .builtin = false,
+        .funcType = if (structFn) .StructMethod else .Normal,
         .visited = false,
         .globallyDefined = compInfo.getScopeDepth() == 1,
     });
@@ -1795,7 +1853,12 @@ pub fn tokenTypeToOpType(tokenType: tokenizer.TokenType) OpExprTypes {
     };
 }
 
-pub fn mergeMembers(allocator: Allocator, compInfo: *CompInfo, attrs: []StructAttribute, derive: AstTypeInfo) ![]StructAttribute {
+pub fn mergeMembers(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+    attrs: []StructAttribute,
+    derive: AstTypeInfo,
+) ![]StructAttribute {
     var res = try ArrayList(StructAttribute).initCapacity(allocator, attrs.len);
     const structName = switch (derive.astType.*) {
         .Custom => |custom| custom.name,
@@ -1914,6 +1977,7 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
                     .Custom = .{
                         .name = str,
                         .generics = generics,
+                        .allowPrivateReads = false,
                     },
                 };
             } else if (compInfo.hasError(str)) {
@@ -1982,7 +2046,11 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
     return try utils.astTypesToInfo(allocator, astType, isConst);
 }
 
-pub fn findStructsAndErrors(allocator: Allocator, tokens: []tokenizer.Token, code: []u8) !HoistedNames {
+pub fn findStructsAndErrors(
+    allocator: Allocator,
+    tokens: []tokenizer.Token,
+    code: []u8,
+) !HoistedNames {
     var structNames = ArrayList([]const u8).init(allocator);
     defer structNames.deinit();
     var errorNames = ArrayList([]const u8).init(allocator);
@@ -2029,7 +2097,10 @@ pub fn findStructsAndErrors(allocator: Allocator, tokens: []tokenizer.Token, cod
     };
 }
 
-pub fn registerStructsAndErrors(allocator: Allocator, compInfo: *CompInfo) !RegisterStructsAndErrorsResult {
+pub fn registerStructsAndErrors(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+) !RegisterStructsAndErrorsResult {
     var structDecs = ArrayList(*StructDecNode).init(allocator);
     defer structDecs.deinit();
     var errorDecs = ArrayList(*const ErrorDecNode).init(allocator);

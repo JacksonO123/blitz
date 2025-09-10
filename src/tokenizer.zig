@@ -464,7 +464,11 @@ fn parseNextToken(chars: *CharUtil) !?Token {
             if (std.ascii.isDigit(nextPeak)) {
                 const numberInfo = try parseNumber(chars);
                 chars.returnChar();
-                return Token.initBounds(.{ .NegNumber = numberInfo.numType orelse .I32 }, numberInfo.start, numberInfo.end);
+                return Token.initBounds(
+                    .{ .NegNumber = numberInfo.numType orelse .I32 },
+                    numberInfo.start,
+                    numberInfo.end,
+                );
             } else if (nextPeak == '=') {
                 _ = try chars.take();
                 return Token.init(.SubEq, startIndex);
@@ -619,7 +623,11 @@ fn parseNextToken(chars: *CharUtil) !?Token {
                 chars.returnChar();
                 const numberInfo = try parseNumber(chars);
                 chars.returnChar();
-                return Token.initBounds(.{ .Number = numberInfo.numType orelse .U32 }, numberInfo.start, numberInfo.end);
+                return Token.initBounds(
+                    .{ .Number = numberInfo.numType orelse .U32 },
+                    numberInfo.start,
+                    numberInfo.end,
+                );
             }
 
             var char = first;

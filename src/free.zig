@@ -75,15 +75,19 @@ pub fn freeFuncDecUtil(allocator: Allocator, func: *const blitzAst.FuncDecNode, 
     }
 
     for (func.toScanTypes.items) |rels| {
-        for (rels) |item| {
-            freeAstTypeInfo(allocator, item.info);
-        }
-        allocator.free(rels);
+        freeGenInfoRels(allocator, rels);
     }
 
     func.toScanTypes.deinit();
     allocator.destroy(func.toScanTypes);
     allocator.destroy(func);
+}
+
+pub fn freeGenInfoRels(allocator: Allocator, rels: []blitzAst.GenToTypeInfoRel) void {
+    for (rels) |item| {
+        freeAstTypeInfo(allocator, item.info);
+    }
+    allocator.free(rels);
 }
 
 pub fn freeAttrs(allocator: Allocator, attrs: []blitzAst.StructAttribute) void {
@@ -305,6 +309,13 @@ pub fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) v
     if (dec.deriveType) |derived| {
         freeAstTypeInfo(allocator, derived);
     }
+
+    for (dec.toScanTypes.items) |rels| {
+        freeGenInfoRels(allocator, rels);
+    }
+
+    dec.toScanTypes.deinit();
+    allocator.destroy(dec.toScanTypes);
 }
 
 pub fn freeNodes(allocator: Allocator, nodes: []*blitzAst.AstNode) void {

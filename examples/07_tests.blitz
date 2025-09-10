@@ -8,10 +8,11 @@ fn thing1() u32 {
 
 struct [T] M {
   pub fn test(val: T) T {
-    return "here";
+    return 2;
   }
 }
 
 let a = thing();
 let m = M<u32> {};
+let m1 = M<u32> {};
 let b = m.test(2);

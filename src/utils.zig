@@ -52,7 +52,11 @@ pub inline fn astTypesPtrToInfo(astType: *blitzAst.AstTypes, isConst: bool) blit
     };
 }
 
-pub inline fn astTypesToInfo(allocator: Allocator, astType: blitzAst.AstTypes, isConst: bool) !blitzAst.AstTypeInfo {
+pub inline fn astTypesToInfo(
+    allocator: Allocator,
+    astType: blitzAst.AstTypes,
+    isConst: bool,
+) !blitzAst.AstTypeInfo {
     const ptr = try createMut(blitzAst.AstTypes, allocator, astType);
     return .{
         .isConst = isConst,

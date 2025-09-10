@@ -285,7 +285,10 @@ pub const GenInfo = struct {
     pub fn init(
         allocator: Allocator,
     ) !Self {
-        const varNameRegRel = try utils.initMutPtrT(StringHashMap(VariableRegLocationInfo), allocator);
+        const varNameRegRel = try utils.initMutPtrT(
+            StringHashMap(VariableRegLocationInfo),
+            allocator,
+        );
         const regScopes = try RegScopes.init(allocator);
         const regScopesPtr = try utils.createMut(RegScopes, allocator, regScopes);
 
@@ -347,7 +350,11 @@ pub const GenInfo = struct {
         return null;
     }
 
-    pub fn availableRegReplaceRelease(self: *Self, reg1: RegisterNumber, reg2: RegisterNumber) !RegisterNumber {
+    pub fn availableRegReplaceRelease(
+        self: *Self,
+        reg1: RegisterNumber,
+        reg2: RegisterNumber,
+    ) !RegisterNumber {
         if (!self.variableRegisters[reg1]) {
             self.releaseIfPossible(reg2);
             return reg1;
@@ -414,7 +421,12 @@ fn writeIntSliceToInstr(
     num: []u8,
 ) !void {
     const size = @sizeOf(T);
-    std.mem.writeInt(T, @ptrCast(buf[offset .. size + offset]), try std.fmt.parseInt(T, num, 10), .little);
+    std.mem.writeInt(
+        T,
+        @ptrCast(buf[offset .. size + offset]),
+        try std.fmt.parseInt(T, num, 10),
+        .little,
+    );
 }
 
 pub fn genBytecode(
@@ -429,9 +441,11 @@ pub fn genBytecode(
             }
         },
         .VarDec => |dec| {
-            const reg = try genBytecode(allocator, genInfo, dec.setNode) orelse return CodeGenError.ReturnedRegisterNotFound;
+            const reg = try genBytecode(allocator, genInfo, dec.setNode) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
             if (genInfo.variableRegisters[reg]) {
-                const newReg = genInfo.getAvailableReg() orelse return CodeGenError.NoAvailableRegisters;
+                const newReg = genInfo.getAvailableReg() orelse
+                    return CodeGenError.NoAvailableRegisters;
                 genInfo.reserveRegister(reg);
 
                 const buf = try Instructions.Mov.allocBuf(allocator);
@@ -444,7 +458,8 @@ pub fn genBytecode(
         .Value => |value| {
             switch (value) {
                 .RawNumber => |num| {
-                    const reg = genInfo.getAvailableReg() orelse return CodeGenError.NoAvailableRegisters;
+                    const reg = genInfo.getAvailableReg() orelse
+                        return CodeGenError.NoAvailableRegisters;
                     genInfo.reserveRegister(reg);
 
                     const buf = try Instructions.SetRegHalf.allocBuf(allocator);
@@ -455,7 +470,8 @@ pub fn genBytecode(
                     return reg;
                 },
                 .Bool => |b| {
-                    const reg = genInfo.getAvailableReg() orelse return CodeGenError.NoAvailableRegisters;
+                    const reg = genInfo.getAvailableReg() orelse
+                        return CodeGenError.NoAvailableRegisters;
                     genInfo.reserveRegister(reg);
 
                     const buf = try Instructions.SetRegByte.allocBuf(allocator);
@@ -473,11 +489,14 @@ pub fn genBytecode(
 
             const leftExprDeeper = blitzAst.getExprDepth(expr.left) > blitzAst.getExprDepth(expr.right);
             if (leftExprDeeper) {
-                leftReg = try genBytecode(allocator, genInfo, expr.left) orelse return CodeGenError.ReturnedRegisterNotFound;
+                leftReg = try genBytecode(allocator, genInfo, expr.left) orelse
+                    return CodeGenError.ReturnedRegisterNotFound;
             }
-            const rightReg = try genBytecode(allocator, genInfo, expr.right) orelse return CodeGenError.ReturnedRegisterNotFound;
+            const rightReg = try genBytecode(allocator, genInfo, expr.right) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
             if (!leftExprDeeper) {
-                leftReg = try genBytecode(allocator, genInfo, expr.left) orelse return CodeGenError.ReturnedRegisterNotFound;
+                leftReg = try genBytecode(allocator, genInfo, expr.left) orelse
+                    return CodeGenError.ReturnedRegisterNotFound;
             }
 
             var outReg: ?RegisterNumber = null;
@@ -547,7 +566,8 @@ pub fn genBytecode(
             return storedReg;
         },
         .IfStatement => |statement| {
-            const condReg = try genBytecode(allocator, genInfo, statement.condition) orelse return CodeGenError.ReturnedRegisterNotFound;
+            const condReg = try genBytecode(allocator, genInfo, statement.condition) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
 
             const buf = try Instructions.CmpConstByte.allocBuf(allocator);
             buf[1] = condReg;
@@ -694,11 +714,16 @@ fn compOpToJump(opType: blitzAst.OpExprTypes, back: bool) !Instructions {
     };
 }
 
-fn generateFallback(allocator: Allocator, genInfo: *GenInfo, fallback: *const blitzAst.IfFallback) !void {
+fn generateFallback(
+    allocator: Allocator,
+    genInfo: *GenInfo,
+    fallback: *const blitzAst.IfFallback,
+) !void {
     var jumpSlice: ?[]u8 = null;
 
     if (fallback.condition) |condition| {
-        const condReg = try genBytecode(allocator, genInfo, condition) orelse return CodeGenError.ReturnedRegisterNotFound;
+        const condReg = try genBytecode(allocator, genInfo, condition) orelse
+            return CodeGenError.ReturnedRegisterNotFound;
 
         const buf = try Instructions.CmpConstByte.allocBuf(allocator);
         buf[1] = condReg;

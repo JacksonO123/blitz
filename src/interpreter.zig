@@ -115,19 +115,19 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
                 runtimeInfo.registers[bytecode[current + 1]] = bytecode[current + 2];
             },
             .Add => {
-                const reg1 = bytecode[current + 2];
-                const reg2 = bytecode[current + 3];
-                runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.registers[reg1] + runtimeInfo.registers[reg2];
+                const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
+                const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
+                runtimeInfo.registers[bytecode[current + 1]] = reg1Val + reg2Val;
             },
             .Sub => {
-                const reg1 = bytecode[current + 2];
-                const reg2 = bytecode[current + 3];
-                runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.registers[reg1] - runtimeInfo.registers[reg2];
+                const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
+                const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
+                runtimeInfo.registers[bytecode[current + 1]] = reg1Val - reg2Val;
             },
             .Mult => {
-                const reg1 = bytecode[current + 2];
-                const reg2 = bytecode[current + 3];
-                runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.registers[reg1] * runtimeInfo.registers[reg2];
+                const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
+                const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
+                runtimeInfo.registers[bytecode[current + 1]] = reg1Val * reg2Val;
             },
             .Cmp => {
                 const reg1Value = runtimeInfo.registers[bytecode[current + 1]];
@@ -161,11 +161,19 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
                 });
             },
             .Jump => {
-                const amount = std.mem.readInt(u16, @ptrCast(bytecode[current + 1 .. current + 3]), .little);
+                const amount = std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 1 .. current + 3]),
+                    .little,
+                );
                 current += amount;
             },
             .JumpBack => {
-                const amount = std.mem.readInt(u16, @ptrCast(bytecode[current + 1 .. current + 3]), .little);
+                const amount = std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 1 .. current + 3]),
+                    .little,
+                );
                 current -= amount;
                 continue;
             },
@@ -176,7 +184,11 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
             .JumpGTE,
             .JumpLTE,
             => {
-                const amount = std.mem.readInt(u16, @ptrCast(bytecode[current + 1 .. current + 3]), .little);
+                const amount = std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 1 .. current + 3]),
+                    .little,
+                );
                 if (getFlagFromJump(inst, runtimeInfo.flags)) {
                     current += amount;
                 }
@@ -188,7 +200,11 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
             .JumpBackGTE,
             .JumpBackLTE,
             => {
-                const amount = std.mem.readInt(u16, @ptrCast(bytecode[current + 1 .. current + 3]), .little);
+                const amount = std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 1 .. current + 3]),
+                    .little,
+                );
                 if (getFlagFromJump(inst, runtimeInfo.flags)) {
                     current -= amount;
                     continue;

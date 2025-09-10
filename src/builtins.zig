@@ -25,7 +25,10 @@ fn toNumSig(allocator: Allocator, num: blitzAst.AstNumberVariants) !*blitzAst.As
     return try createMut(blitzAst.AstTypes, allocator, .{ .Number = num });
 }
 
-fn paramsFromTypes(allocator: Allocator, paramTypes: []const blitzAst.AstTypeInfo) ![]blitzAst.Parameter {
+fn paramsFromTypes(
+    allocator: Allocator,
+    paramTypes: []const blitzAst.AstTypeInfo,
+) ![]blitzAst.Parameter {
     var res = try allocator.alloc(blitzAst.Parameter, paramTypes.len);
 
     for (paramTypes, 0..) |param, index| {
@@ -75,7 +78,14 @@ fn updateBuiltinFn(
         builtin.params = try paramsFromTypes(allocator, params);
         builtin.returnType = returnType;
     } else {
-        builtinFn.* = try toFuncSignature(allocator, compInfo, "push", params, returnType, withGenDef);
+        builtinFn.* = try toFuncSignature(
+            allocator,
+            compInfo,
+            "push",
+            params,
+            returnType,
+            withGenDef,
+        );
     }
 
     return try create(blitzAst.AstTypes, allocator, .{ .Function = builtinFn.*.? });
@@ -87,7 +97,11 @@ const PropInfo = struct {
     isFunc: bool,
 };
 
-fn getPropSignature(allocator: Allocator, props: []const PropInfo, prop: []u8) !*const blitzAst.AstTypes {
+fn getPropSignature(
+    allocator: Allocator,
+    props: []const PropInfo,
+    prop: []u8,
+) !*const blitzAst.AstTypes {
     var res: ?*const blitzAst.AstTypes = null;
 
     for (props) |p| {
