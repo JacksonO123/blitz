@@ -39,8 +39,6 @@ pub const ScanError = error{
     ElseBranchOutOfOrder,
     NestedVarInfoDetected,
 
-    Unimplemented,
-
     // pointers
     PointerTypeMismatch,
     CannotDereferenceNonPointerValue,
@@ -90,12 +88,12 @@ pub const ScanError = error{
     InvalidProperty,
     StaticAccessFromStructInstance,
     NonStaticAccessFromStaticStructReference,
-    UnexpectedDeriveType,
     SelfUsedOutsideStruct,
     UndefinedStruct,
     RestrictedPropertyAccess,
     InvalidPropertySource,
     NonPublicStructFieldAccessFromOutsideDefinition,
+    GenericStructMethodRedefiningStructGeneric,
 
     // operations
     MathOpOnNonNumberType,
@@ -117,6 +115,11 @@ pub const ScanError = error{
     ExpectedUseOfErrorVariants,
     ErrorDoesNotHaveVariants,
     ErrorVariantDoesNotExist,
+};
+
+const StructInitMemberInfo = struct {
+    initInfo: blitzAst.AstTypeInfo,
+    defInfo: blitzAst.AstTypeInfo,
 };
 
 pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, compInfo: *CompInfo) !void {
@@ -410,8 +413,8 @@ pub fn scanNode(
             }
 
             const origValueInfo = try scanNode(allocator, compInfo, access.value, withGenDef);
-            defer free.freeAstTypeInfo(allocator, origValueInfo);
-            const valueInfo = try escapeVarInfo(origValueInfo);
+            const valueInfo = try escapeVarInfoAndFree(allocator, origValueInfo);
+            defer free.freeAstTypeInfo(allocator, valueInfo);
             compInfo.scanner.allowStaticStructInstance = false;
             compInfo.scanner.allowErrorWithoutVariants = false;
 
@@ -552,7 +555,7 @@ pub fn scanNode(
                     return ScanError.VariableAnnotationMismatch;
                 }
 
-                free.freeAstTypeInfo(allocator, origSetType);
+                free.freeAstTypeInfo(allocator, setType);
                 setType = try clone.cloneAstTypeInfo(allocator, compInfo, annotation, withGenDef);
             }
 
@@ -851,10 +854,6 @@ pub fn scanNode(
                 withGenDef,
             );
 
-            // if (structDec.deriveType) |derive| {
-            //     try setInitDeriveGenerics(allocator, compInfo, derive);
-            // }
-
             if (init.attributes.len != structDec.totalMemberList.len) {
                 return ScanError.StructInitAttributeCountMismatch;
             }
@@ -865,46 +864,87 @@ pub fn scanNode(
                     for (structDec.attributes) |attr| {
                         if (attr.attr != .Function) continue;
                         const func = attr.attr.Function;
-                        const scannedBefore = try fnHasScannedWithSameGenTypes(
+                        if (func.generics == null) {
+                            const scannedBefore = try fnHasScannedWithSameGenTypes(
+                                allocator,
+                                compInfo,
+                                func,
+                                scope,
+                                withGenDef,
+                            );
+                            if (scannedBefore) continue;
+                        }
+
+                        const scopeRels = try genScopeToRels(
                             allocator,
                             compInfo,
-                            func,
                             scope,
                             withGenDef,
                         );
-                        if (scannedBefore) continue;
+                        defer allocator.free(scopeRels);
 
-                        const genRels = try genScopeToRels(allocator, compInfo, scope, withGenDef);
-                        try func.toScanTypes.append(genRels);
-                        try compInfo.addFuncToScan(func, genRels, withGenDef);
+                        for (scopeRels) |rel| {
+                            var typeCaptures = func.capturedTypes orelse a: {
+                                const captures = try utils.initMutPtrT(
+                                    blitzCompInfo.CaptureScope,
+                                    allocator,
+                                );
+                                func.capturedTypes = captures;
+                                break :a captures;
+                            };
+
+                            if (typeCaptures.contains(rel.str)) {
+                                free.freeAstTypeInfo(allocator, rel.info);
+                            } else {
+                                try typeCaptures.put(rel.str, rel.info);
+                            }
+                        }
                     }
                 }
             }
 
-            for (structDec.totalMemberList) |attr| {
-                if (attr.static) continue;
-                if (attr.attr != .Member) continue;
+            var initAttrRel = ArrayList(StructInitMemberInfo).init(allocator);
+            defer {
+                for (initAttrRel.items) |item| {
+                    free.freeAstTypeInfo(allocator, item.initInfo);
+                }
+                initAttrRel.deinit();
+            }
 
-                var attrNode: ?*blitzAst.AstNode = null;
+            for (structDec.attributes) |attr| {
+                if (attr.attr != .Member or attr.static) continue;
+
+                var found = false;
                 for (init.attributes) |initAttr| {
                     if (string.compString(initAttr.name, attr.name)) {
-                        attrNode = initAttr.value;
+                        found = true;
+                        const attrType = try scanNode(allocator, compInfo, initAttr.value, withGenDef);
+                        try initAttrRel.append(.{
+                            .initInfo = attrType,
+                            .defInfo = attr.attr.Member,
+                        });
                         break;
                     }
                 }
 
-                if (attrNode == null) {
+                if (!found) {
                     return ScanError.StructInitAttributeNotFound;
                 }
+            }
 
-                const attrType = try scanNode(allocator, compInfo, attrNode.?, withGenDef);
-                defer free.freeAstTypeInfo(allocator, attrType);
+            try compInfo.pushGenScope(true);
+            defer compInfo.popGenScope();
 
+            if (structDec.deriveType) |derive| {
+                try setInitDeriveGenerics(allocator, compInfo, derive);
+            }
+
+            for (initAttrRel.items) |attrRel| {
                 const matches = try matchTypes(
                     allocator,
                     compInfo,
-                    attr.attr.Member,
-                    attrType,
+                    attrRel.defInfo,
+                    attrRel.initInfo,
                     withGenDef,
                 );
                 if (!matches) {
@@ -1045,6 +1085,16 @@ pub fn scanNode(
             }, true);
         },
     }
+}
+
+fn genInGenInfoRels(rels: []blitzAst.StrToTypeInfoRel, name: []u8) bool {
+    for (rels) |rel| {
+        if (string.compString(name, rel.gen)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 fn typeInfoToVarInfo(
@@ -1232,7 +1282,12 @@ fn scanFunctionCalls(allocator: Allocator, compInfo: *CompInfo) !void {
                 const value = item.value_ptr.*;
                 const paramType = try escapeVarInfo(value);
 
-                const clonedType = try clone.cloneAstTypeInfo(allocator, compInfo, paramType, false);
+                const clonedType = try clone.cloneAstTypeInfo(
+                    allocator,
+                    compInfo,
+                    paramType,
+                    false,
+                );
                 try compInfo.setVariableType(
                     item.key_ptr.*,
                     clonedType,
@@ -1243,7 +1298,7 @@ fn scanFunctionCalls(allocator: Allocator, compInfo: *CompInfo) !void {
 
         for (toScanItem.genTypes) |rel| {
             const typeClone = try clone.cloneAstTypeInfo(allocator, compInfo, rel.info, false);
-            try compInfo.setGeneric(rel.gen, typeClone);
+            try compInfo.setGeneric(rel.str, typeClone);
         }
 
         try scanFuncBodyAndReturn(allocator, compInfo, func, toScanItem.withGenDef);
@@ -1345,13 +1400,13 @@ fn genScopeToRels(
     compInfo: *CompInfo,
     genScope: *blitzCompInfo.TypeScope,
     withGenDef: bool,
-) ![]blitzAst.GenToTypeInfoRel {
-    const slice = try allocator.alloc(blitzAst.GenToTypeInfoRel, genScope.count());
+) ![]blitzAst.StrToTypeInfoRel {
+    const slice = try allocator.alloc(blitzAst.StrToTypeInfoRel, genScope.count());
     var i: usize = 0;
     var scopeIt = genScope.iterator();
     while (scopeIt.next()) |entry| {
         slice[i] = .{
-            .gen = entry.key_ptr.*,
+            .str = entry.key_ptr.*,
             .info = try clone.cloneAstTypeInfo(
                 allocator,
                 compInfo,
@@ -1375,11 +1430,12 @@ fn fnHasScannedWithSameGenTypes(
 ) !bool {
     outer: for (func.toScanTypes.items) |scannedScope| {
         for (scannedScope) |rel| {
-            const genType = genScope.get(rel.gen).?;
+            const genType = genScope.get(rel.str);
+            if (genType == null) continue :outer;
             const matches = try matchTypesUtil(
                 allocator,
                 compInfo,
-                genType,
+                genType.?,
                 rel.info,
                 withGenDef,
                 .Strict,
@@ -1723,7 +1779,7 @@ fn validateCustomProps(
                     prop,
                     withGenDef,
                 ),
-                else => return ScanError.UnexpectedDeriveType,
+                else => unreachable,
             }
         }
 
@@ -1739,27 +1795,7 @@ fn scanAttributes(allocator: Allocator, compInfo: *CompInfo, dec: *blitzAst.Stru
         switch (attr.attr) {
             .Member => {},
             .Function => |func| {
-                // if (!attr.static) {
-                //     const captures = if (func.capturedValues) |captured| captured else a: {
-                //         const valueCaptures = try utils.initMutPtrT(
-                //             blitzCompInfo.CaptureScope,
-                //             allocator,
-                //         );
-                //         func.capturedValues = valueCaptures;
-                //         break :a valueCaptures;
-                //     };
-
-                //     const info = try utils.astTypesToInfo(allocator, .{
-                //         .Custom = .{
-                //             .name = try string.cloneString(allocator, dec.name),
-                //             .generics = &[_]blitzAst.AstTypeInfo{},
-                //             .allowPrivateReads = true,
-                //         },
-                //     }, true);
-                //     try captures.put("self", info);
-                // }
-
-                try compInfo.addFuncToScan(func, &[_]blitzAst.GenToTypeInfoRel{}, false);
+                try compInfo.addFuncToScan(func, &[_]blitzAst.StrToTypeInfoRel{}, false);
             },
         }
     }

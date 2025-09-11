@@ -83,7 +83,7 @@ pub fn freeFuncDecUtil(allocator: Allocator, func: *const blitzAst.FuncDecNode, 
     allocator.destroy(func);
 }
 
-pub fn freeGenInfoRels(allocator: Allocator, rels: []blitzAst.GenToTypeInfoRel) void {
+pub fn freeGenInfoRels(allocator: Allocator, rels: []blitzAst.StrToTypeInfoRel) void {
     for (rels) |item| {
         freeAstTypeInfo(allocator, item.info);
     }

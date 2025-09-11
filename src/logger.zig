@@ -213,5 +213,6 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.StructDefinedInLowerScope => "struct defined in lower scope",
         AstError.ErrorDefinedInLowerScope => "struct defined in lower scope",
         AstError.FunctionDefinedInLowerScope => "function defined in lower scope",
+        AstError.UnexpectedDeriveType => "unexpected derive type",
     };
 }

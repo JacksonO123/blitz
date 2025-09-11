@@ -753,13 +753,13 @@ pub fn cloneFuncDec(
 pub fn cloneGenToInfoRels(
     allocator: Allocator,
     compInfo: *CompInfo,
-    rels: []blitzAst.GenToTypeInfoRel,
+    rels: []blitzAst.StrToTypeInfoRel,
     replaceGenerics: bool,
-) ![]blitzAst.GenToTypeInfoRel {
-    const newSlice = try allocator.alloc(blitzAst.GenToTypeInfoRel, rels.len);
+) ![]blitzAst.StrToTypeInfoRel {
+    const newSlice = try allocator.alloc(blitzAst.StrToTypeInfoRel, rels.len);
     for (rels, 0..) |item, index| {
         newSlice[index] = .{
-            .gen = item.gen,
+            .str = item.str,
             .info = try cloneAstTypeInfo(allocator, compInfo, item.info, replaceGenerics),
         };
     }
@@ -842,10 +842,10 @@ pub fn cloneGenerics(
 pub fn cloneGenRels(
     allocator: Allocator,
     compInfo: *CompInfo,
-    rels: []blitzAst.GenToTypeInfoRel,
+    rels: []blitzAst.StrToTypeInfoRel,
     replaceGenerics: bool,
-) ![]blitzAst.GenToTypeInfoRel {
-    const res = try allocator.alloc(blitzAst.GenToTypeInfoRel, rels.len);
+) ![]blitzAst.StrToTypeInfoRel {
+    const res = try allocator.alloc(blitzAst.StrToTypeInfoRel, rels.len);
 
     for (rels, 0..) |rel, index| {
         res[index] = .{

@@ -316,12 +316,12 @@ pub const StructAttribute = struct {
     static: bool,
 };
 
-pub const GenToTypeInfoRel = struct {
-    gen: []const u8,
+pub const StrToTypeInfoRel = struct {
+    str: []const u8,
     info: AstTypeInfo,
 };
 
-pub const ToScanTypesList = ArrayList([]GenToTypeInfoRel);
+pub const ToScanTypesList = ArrayList([]StrToTypeInfoRel);
 
 pub const StructDecNode = struct {
     const Self = @This();
@@ -605,6 +605,7 @@ pub const AstError = error{
     StructDefinedInLowerScope,
     ErrorDefinedInLowerScope,
     FunctionDefinedInLowerScope,
+    UnexpectedDeriveType,
 };
 
 const RegisterStructsAndErrorsResult = struct {
@@ -950,6 +951,12 @@ fn parseStruct(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
         }
 
         deriveType = try parseType(allocator, compInfo);
+        if (deriveType) |*derive| {
+            if (derive.astType.* != .Custom) {
+                return compInfo.logger.logError(AstError.UnexpectedDeriveType);
+            }
+            derive.astType.Custom.allowPrivateReads = true;
+        }
         try compInfo.tokens.expectToken(.LBrace);
     } else if (next.type != .LBrace) {
         return compInfo.logger.logError(AstError.UnexpectedToken);
@@ -969,7 +976,11 @@ fn parseStruct(allocator: Allocator, compInfo: *CompInfo) !?*AstNode {
     });
 }
 
-fn parseStructAttributes(allocator: Allocator, compInfo: *CompInfo, structName: []u8) ![]StructAttribute {
+fn parseStructAttributes(
+    allocator: Allocator,
+    compInfo: *CompInfo,
+    structName: []u8,
+) ![]StructAttribute {
     var attributes = ArrayList(StructAttribute).init(allocator);
     defer attributes.deinit();
 

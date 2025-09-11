@@ -35,6 +35,7 @@ let r: rectangle<char> = rectangle<char> {
 let n = 10;
 let s: square<rectangle<char>> = square.create(n, r);
 
+// let a: char = s.inner.nothing;
 let a: char = s.inner.nothing;
 
 // // should error

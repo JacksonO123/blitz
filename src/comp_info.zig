@@ -28,7 +28,7 @@ pub const StringListScope = ArrayList([]const u8);
 
 const ToScanItem = struct {
     func: *blitzAst.FuncDecNode,
-    genTypes: []blitzAst.GenToTypeInfoRel,
+    genTypes: []blitzAst.StrToTypeInfoRel,
     withGenDef: bool,
 };
 const ToScanStack = ArrayList(ToScanItem);
@@ -572,7 +572,7 @@ pub const CompInfo = struct {
     pub fn addFuncToScan(
         self: *Self,
         func: *blitzAst.FuncDecNode,
-        rels: []blitzAst.GenToTypeInfoRel,
+        rels: []blitzAst.StrToTypeInfoRel,
         withGenDef: bool,
     ) !void {
         try self.functionsToScan.append(.{

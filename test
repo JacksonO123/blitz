@@ -1,19 +1,17 @@
 #! /usr/bin/env bash
 
-# INPUT_DIR="examples"
-INPUT_DIR="input"
+INPUT_DIR="examples"
+# INPUT_DIR="input"
 
 function run() {
   zig run src/compiler.zig -- "$1"
 }
 
-function run_log() {
+function test_file() {
   filename="$INPUT_DIR/$1.blitz"
-  log=false
 
   if [ "$1" == "-l" ]; then
     filename="$INPUT_DIR/$2.blitz"
-    log=true
   elif [ "$1" == "-p" ]; then
     shopt -s nullglob
     pattern="$INPUT_DIR/*$2*"
@@ -29,11 +27,7 @@ function run_log() {
     fi
   fi
 
-  if [[ "$log" == true ]]; then
-    run "$INPUT_DIR/$filename.blitz" 2>"./logs/$filename.txt"
-  else
-    run "$filename"
-  fi
+  run "$filename"
 
   OUT=$(echo $?)
 
@@ -45,15 +39,7 @@ function run_log() {
 }
 
 function run_dbg_build() {
-  blitzc-debug "$INPUT_DIR/$1"
-}
-
-function run_log_dbg_build() {
-  if [ "$2" == "-l" ]; then
-    run_dbg_build "$1.blitz" 2>./logs/"$1.txt"
-  else
-    run_dbg_build "$1.blitz"
-  fi
+  blitzc-debug "$INPUT_DIR/$1.blitz" 2>/dev/null
 
   OUT=$(echo $?)
 
@@ -68,7 +54,7 @@ function run_log_dbg_build() {
 if [[ "$(pwd)" == *\/blitz ]] && [ -e "$(pwd)/build.zig" ] && [ -e "$(pwd)/.zig-cache" ]; then
   if [ "$1" == "" ]; then
     while IFS="" read -r p || [ -n "$p" ]; do
-      run_log_dbg_build "$p" -l &
+      run_dbg_build "$p" &
     done <"$INPUT_DIR/working.txt"
   else
     if [[ "$1" == *\.blitz ]]; then
@@ -76,7 +62,7 @@ if [[ "$(pwd)" == *\/blitz ]] && [ -e "$(pwd)/build.zig" ] && [ -e "$(pwd)/.zig-
       exit 0
     fi
 
-    run_log $@
+    test_file $@
   fi
 else
   echo "expected to be in project root"
