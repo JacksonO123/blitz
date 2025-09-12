@@ -1,3 +1,4 @@
-for (let mut i = 0; i < 100; i++) {
-  let a = i;
-}
+struct M {}
+
+let ptr = new M {};
+*(ptr) = M {};

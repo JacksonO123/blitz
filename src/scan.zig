@@ -63,7 +63,7 @@ pub const ScanError = error{
     AssigningToConstVariable,
     PointerTypeConstMismatch,
     StrictMutTypeMismatch,
-    CannotSetToNonVarTypeValue,
+    InvalidSetValueTarget,
 
     // functions
     ExpectedFunctionReturn,
@@ -359,7 +359,7 @@ pub fn scanNode(
         },
         .IncOne, .DecOne => |val| {
             const valType = try scanNode(allocator, compInfo, val, withGenDef);
-            if (valType.astType.* != .VarInfo) return ScanError.CannotSetToNonVarTypeValue;
+            if (valType.astType.* != .VarInfo) return ScanError.InvalidSetValueTarget;
             if (valType.isConst) return ScanError.AssigningToConstVariable;
             return utils.astTypesPtrToInfo(valType.astType, false);
         },
@@ -567,8 +567,10 @@ pub fn scanNode(
         .ValueSet => |set| {
             const origValType = try scanNode(allocator, compInfo, set.value, withGenDef);
             defer free.freeAstTypeInfo(allocator, origValType);
+            if (set.value.* != .Dereference and origValType.astType.* != .VarInfo) {
+                return ScanError.InvalidSetValueTarget;
+            }
             if (origValType.isConst) return ScanError.AssigningToConstVariable;
-            if (origValType.astType.* != .VarInfo) return ScanError.CannotSetToNonVarTypeValue;
             const valType = try escapeVarInfo(origValType);
 
             const setType = try scanNode(allocator, compInfo, set.setNode, withGenDef);
@@ -584,7 +586,8 @@ pub fn scanNode(
         .VarEqOp => |op| {
             switch (op.opType) {
                 .AddEq, .SubEq, .MultEq, .DivEq => {
-                    const variable = if (try compInfo.getVariableType(op.variable, withGenDef)) |val|
+                    const varType = try compInfo.getVariableType(op.variable, withGenDef);
+                    const variable = if (varType) |val|
                         val
                     else {
                         return ScanError.VariableIsUndefined;

@@ -883,6 +883,21 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
                 .Scope = seq,
             });
         },
+        .Asterisk => {
+            compInfo.tokens.returnToken();
+            const toExpr = try parseExpression(allocator, compInfo) orelse
+                return compInfo.logger.logError(AstError.ExpectedExpression);
+            try compInfo.tokens.expectToken(.EqSet);
+            const fromExpr = try parseExpression(allocator, compInfo) orelse
+                return compInfo.logger.logError(AstError.ExpectedExpression);
+
+            return try createMut(AstNode, allocator, .{
+                .ValueSet = .{
+                    .value = toExpr,
+                    .setNode = fromExpr,
+                },
+            });
+        },
         else => {
             return compInfo.logger.logError(AstError.UnexpectedToken);
         },

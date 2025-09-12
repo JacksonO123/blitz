@@ -575,6 +575,7 @@ pub const CompInfo = struct {
         rels: []blitzAst.StrToTypeInfoRel,
         withGenDef: bool,
     ) !void {
+        std.debug.print("ADDING\n", .{});
         try self.functionsToScan.append(.{
             .func = func,
             .genTypes = rels,
