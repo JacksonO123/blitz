@@ -55,7 +55,9 @@ pub const Instructions = enum(u8) {
     CmpConstByte, // inst, reg1, 1B data
     IncConstByte, // inst, in/out reg, 1B data
     DecConstByte, // inst, in/out reg, 1B data
-    Mov,
+    Mov, // inst, reg1, reg2
+    Xor, // inst, out reg, reg1, reg2
+    XorConstByte, // inst, out reg, reg1, 1B data
 
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
@@ -98,7 +100,8 @@ pub const Instructions = enum(u8) {
             => 4,
             .CmpConstByte => 3,
             .IncConstByte, .DecConstByte => 3,
-            .Mov => 3,
+            .Mov => 4,
+            .Xor, .XorConstByte => 4,
         };
     }
 
@@ -135,6 +138,8 @@ pub const Instructions = enum(u8) {
             .IncConstByte => "inc_const_byte",
             .DecConstByte => "dec_const_byte",
             .Mov => "mov",
+            .Xor => "xor",
+            .XorConstByte => "xor_const_byte",
         };
     }
 };
@@ -258,9 +263,13 @@ const RegScopes = struct {
     }
 };
 
+// const VarInfo = struct {
+//     instPtr: *InstrChunk,
+//     origRegister: RegisterNumber,
+// };
+
 const GenInfoSettings = struct {
-    // is preserved until codegen for expr node
-    // setting only respected for for one expr node, then set to default
+    // respected for one expr node, then set to default
     outputCmpAsRegister: bool,
 };
 
@@ -281,6 +290,7 @@ pub const GenInfo = struct {
     varNameRegRel: *StringHashMap(VariableRegLocationInfo),
     byteCounter: usize,
     settings: GenInfoSettings,
+    // varInfo: StringHashMap(*ArrayList(VarInfo)),
 
     pub fn init(
         allocator: Allocator,
@@ -399,6 +409,18 @@ pub const GenInfo = struct {
 
     pub fn popScope(self: *Self) ![]RegisterNumber {
         return self.regScopes.popScope();
+    }
+
+    pub fn releaseScope(self: *Self) !void {
+        const old = try self.popScope();
+        self.releaseRegisters(old);
+        self.allocator.free(old);
+    }
+
+    fn releaseRegisters(self: *Self, regs: []RegisterNumber) void {
+        for (regs) |reg| {
+            self.releaseRegister(reg);
+        }
     }
 };
 
@@ -595,6 +617,9 @@ pub fn genBytecode(
                 try generateFallback(allocator, genInfo, fallback);
                 const jumpEndDiff = @as(u16, @intCast(genInfo.byteCounter - preFallbackByteCount));
                 std.mem.writeInt(u16, @ptrCast(jumpEndBuf[1..]), jumpEndDiff, .little);
+            } else {
+                const diff = @as(u16, @intCast(genInfo.byteCounter - byteCount));
+                std.mem.writeInt(u16, @ptrCast(jumpBuf[1..]), diff, .little);
             }
         },
         .ForLoop => |loop| {
@@ -624,16 +649,18 @@ pub fn genBytecode(
             const condReg = try genBytecode(allocator, genInfo, loop.condition);
             genInfo.settings.outputCmpAsRegister = prevCmpAsReg;
 
-            // TODO
-            _ = condReg;
-
             const preBodyByteCount = genInfo.byteCounter;
-            const jumpEndBuf = try Instructions.JumpGTE.allocBuf(allocator);
+            const jumpEndBuf = try Instructions.JumpNE.allocBuf(allocator);
 
             if (isCompExprType) {
                 const oppositeComp = loop.condition.OpExpr.type.getOppositeCompOp();
                 const jumpInstruction = try compOpToJump(oppositeComp, false);
                 jumpEndBuf[0] = jumpInstruction.getInstrByte();
+            } else {
+                const buf = try Instructions.CmpConstByte.allocBuf(allocator);
+                buf[1] = condReg orelse return CodeGenError.ReturnedRegisterNotFound;
+                buf[2] = 1;
+                try genInfo.appendChunk(buf);
             }
 
             try genInfo.appendChunk(jumpEndBuf);
@@ -675,6 +702,36 @@ pub fn genBytecode(
         },
         .Group => |group| {
             return genBytecode(allocator, genInfo, group);
+        },
+        .ValueSet => |set| {
+            const resReg = try genBytecode(allocator, genInfo, set.setNode) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
+            const toReg = try genBytecode(allocator, genInfo, set.value) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
+
+            const buf = try Instructions.Mov.allocBuf(allocator);
+            buf[1] = toReg;
+            buf[2] = resReg;
+            try genInfo.appendChunk(buf);
+        },
+        .Bang => |expr| {
+            const reg = try genBytecode(allocator, genInfo, expr) orelse
+                return CodeGenError.NoAvailableRegisters;
+            const setReg = if (genInfo.variableRegisters[reg]) genInfo.getAvailableReg() orelse
+                return CodeGenError.NoAvailableRegisters else reg;
+
+            const buf = try Instructions.XorConstByte.allocBuf(allocator);
+            buf[1] = setReg;
+            buf[2] = reg;
+            buf[3] = 1;
+            try genInfo.appendChunk(buf);
+
+            return setReg;
+        },
+        .Scope => |scope| {
+            try genInfo.pushScope();
+            _ = try genBytecode(allocator, genInfo, scope);
+            try genInfo.releaseScope();
         },
         else => {},
     }

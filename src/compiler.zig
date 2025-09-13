@@ -84,17 +84,17 @@ pub fn main() !void {
 
     var bufferedWriter = utils.getBufferedWriter();
     defer bufferedWriter.flush() catch {};
-    // const writer = bufferedWriter.writer();
+    const writer = bufferedWriter.writer();
 
-    // try codegen.codegenAst(allocator, &genInfo, ast);
-    // std.debug.print("--- bytecode out ---\n", .{});
-    // try debug.printBytecodeChunks(&genInfo, writer);
-    // std.debug.print("\n------------\n", .{});
+    try codegen.codegenAst(allocator, &genInfo, ast);
+    std.debug.print("--- bytecode out ---\n", .{});
+    try debug.printBytecodeChunks(&genInfo, writer);
+    std.debug.print("\n------------\n", .{});
 
-    // const outFile = try std.fs.cwd().createFile("out.bzc", .{});
-    // defer outFile.close();
-    // var fileBufferedWriter = std.io.bufferedWriter(outFile.writer());
-    // defer fileBufferedWriter.flush() catch {};
-    // const fileWriter = fileBufferedWriter.writer();
-    // try genInfo.writeChunks(fileWriter);
+    const outFile = try std.fs.cwd().createFile("out.bzc", .{});
+    defer outFile.close();
+    var fileBufferedWriter = std.io.bufferedWriter(outFile.writer());
+    defer fileBufferedWriter.flush() catch {};
+    const fileWriter = fileBufferedWriter.writer();
+    try genInfo.writeChunks(fileWriter);
 }

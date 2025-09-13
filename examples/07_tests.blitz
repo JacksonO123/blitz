@@ -1,10 +1,8 @@
-struct [T] M {
-  pub fn [G] test(val: T, val2: G) T {
-    return val2;
-  }
+let a = 12;
+let b = 2;
+
+{
+  let c = 4;
 }
 
-let m = M<u32> {};
-let m1 = M<u32> {};
-let b = m.test(2, 4);
-//let b = m.test(2, 4usize);
+let d = 5;

@@ -44,10 +44,10 @@ pub fn main() !void {
 
     interpretBytecode(&runtimeInfo, bytecode);
 
-    // var buf = utils.getBufferedWriter();
-    // defer buf.flush() catch {};
-    // const writer = buf.writer();
-    // try runtimeInfo.dumpRegisters(12, writer);
+    var buf = utils.getBufferedWriter();
+    defer buf.flush() catch {};
+    const writer = buf.writer();
+    try runtimeInfo.dumpRegisters(12, writer);
 }
 
 const Flags = struct {
@@ -215,6 +215,16 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
             },
             .DecConstByte => {
                 runtimeInfo.registers[bytecode[current + 1]] -= bytecode[current + 2];
+            },
+            .Xor => {
+                const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
+                const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
+                runtimeInfo.registers[bytecode[current + 1]] = reg1Val ^ reg2Val;
+            },
+            .XorConstByte => {
+                const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
+                const byte = bytecode[current + 3];
+                runtimeInfo.registers[bytecode[current + 1]] = reg1Val ^ byte;
             },
         }
 

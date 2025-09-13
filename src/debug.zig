@@ -717,6 +717,7 @@ fn printChunk(bytecode: []u8, byteCounter: usize, writer: anytype) !usize {
         .CmpSetRegLT,
         .CmpSetRegGTE,
         .CmpSetRegLTE,
+        .Xor,
         => {
             try writer.writeAll(" r");
             try writeByte(bytecode[1], writer);
@@ -760,6 +761,14 @@ fn printChunk(bytecode: []u8, byteCounter: usize, writer: anytype) !usize {
             try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
             try writer.writeAll(" r");
             try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
+        },
+        .XorConstByte => {
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
+            try writer.writeByte(' ');
+            try writeHexDecNumber(bytecode[3..4], writer);
         },
     }
 
