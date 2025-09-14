@@ -33,35 +33,31 @@ pub const AstNumberVariants = enum {
     U32,
     U64,
     U128,
-    USize,
     I8,
     I16,
     I32,
     I64,
     I128,
-    ISize,
     F32,
     F64,
     F128,
 
     pub fn getSize(self: Self) u8 {
         return switch (self) {
-            .Char => @sizeOf(u8),
-            .U8 => @sizeOf(u8),
-            .U16 => @sizeOf(u16),
-            .U32 => @sizeOf(u32),
-            .U64 => @sizeOf(u64),
-            .U128 => @sizeOf(u128),
-            .USize => @sizeOf(usize),
-            .I8 => @sizeOf(i8),
-            .I16 => @sizeOf(i16),
-            .I32 => @sizeOf(i32),
-            .I64 => @sizeOf(i64),
-            .I128 => @sizeOf(i128),
-            .ISize => @sizeOf(isize),
-            .F32 => @sizeOf(f32),
-            .F64 => @sizeOf(f64),
-            .F128 => @sizeOf(f128),
+            .Char => 1,
+            .U8 => 1,
+            .U16 => 2,
+            .U32 => 4,
+            .U64 => 8,
+            .U128 => 16,
+            .I8 => 1,
+            .I16 => 2,
+            .I32 => 4,
+            .I64 => 8,
+            .I128 => 16,
+            .F32 => 4,
+            .F64 => 8,
+            .F128 => 16,
         };
     }
 
@@ -81,8 +77,6 @@ pub const AstNumberVariants = enum {
             .{ .str = "f32", .val = .F32 },
             .{ .str = "f64", .val = .F64 },
             .{ .str = "f128", .val = .F128 },
-            .{ .str = "usize", .val = .USize },
-            .{ .str = "isize", .val = .ISize },
         };
 
         for (rels) |rel| {
@@ -100,13 +94,11 @@ pub const AstNumberVariants = enum {
             .U32 => "u32",
             .U64 => "u64",
             .U128 => "u128",
-            .USize => "usize",
             .I8 => "i8",
             .I16 => "i16",
             .I32 => "i32",
             .I64 => "i64",
             .I128 => "i128",
-            .ISize => "isize",
             .F32 => "f32",
             .F64 => "f64",
             .F128 => "f128",
@@ -123,13 +115,11 @@ pub const AstNumber = union(AstNumberVariants) {
     U32: u32,
     U64: u64,
     U128: u128,
-    USize: usize,
     I8: i8,
     I16: i16,
     I32: i32,
     I64: i64,
     I128: i128,
-    ISize: isize,
     F32: f32,
     F64: f64,
     F128: f128,
@@ -142,13 +132,11 @@ pub const AstNumber = union(AstNumberVariants) {
             .U32 => "u32",
             .U64 => "u64",
             .U128 => "u128",
-            .USize => "usize",
             .I8 => "i8",
             .I16 => "i16",
             .I32 => "i32",
             .I64 => "i64",
             .I128 => "i128",
-            .ISize => "isize",
             .F32 => "f32",
             .F64 => "f64",
             .F128 => "f128",
@@ -163,13 +151,11 @@ pub const AstNumber = union(AstNumberVariants) {
             .U32 => .U32,
             .U64 => .U64,
             .U128 => .U128,
-            .USize => .USize,
             .I8 => .I8,
             .I16 => .I16,
             .I32 => .I32,
             .I64 => .I64,
             .I128 => .I128,
-            .ISize => .ISize,
             .F32 => .F32,
             .F64 => .F64,
             .F128 => .F128,
@@ -255,7 +241,7 @@ const StaticTypes = enum {
     Null,
 };
 
-const RawNumberNode = struct {
+pub const RawNumberNode = struct {
     digits: []u8,
     numType: AstNumberVariants,
 };
@@ -501,6 +487,8 @@ const ArrayInitNode = struct {
 const AstNodeVariants = enum {
     NoOp,
     StructPlaceholder,
+    Break,
+    Continue,
     Seq,
     VarDec,
     ValueSet,
@@ -539,6 +527,8 @@ const AstNodeVariants = enum {
 pub const AstNode = union(AstNodeVariants) {
     NoOp,
     StructPlaceholder,
+    Break,
+    Continue,
     Seq: SeqNode,
     VarDec: VarDecNode,
     ValueSet: ValueSetNode,
@@ -601,11 +591,12 @@ pub const AstError = error{
     ErrorPayloadMayNotBeError,
     UnexpectedGeneric,
     UnexpectedMutSpecifierOnGeneric,
-    ExpectedUSizeForArraySize,
+    ExpectedU64ForArraySize,
     StructDefinedInLowerScope,
     ErrorDefinedInLowerScope,
     FunctionDefinedInLowerScope,
     UnexpectedDeriveType,
+    NegativeNumberWithUnsignedTypeConflict,
 };
 
 const RegisterStructsAndErrorsResult = struct {
@@ -897,6 +888,12 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
                     .setNode = fromExpr,
                 },
             });
+        },
+        .Break => {
+            return try createMut(AstNode, allocator, .Break);
+        },
+        .Continue => {
+            return try createMut(AstNode, allocator, .Continue);
         },
         else => {
             return compInfo.logger.logError(AstError.UnexpectedToken);
@@ -1236,7 +1233,24 @@ fn parseExpressionUtil(
                 },
             });
         },
-        .Number, .NegNumber => |numType| {
+        .Number => |numType| {
+            return try createMut(AstNode, allocator, .{
+                .Value = .{
+                    .RawNumber = .{
+                        .digits = try string.cloneString(allocator, compInfo.getTokString(first)),
+                        .numType = numType,
+                    },
+                },
+            });
+        },
+        .NegNumber => |numType| {
+            switch (numType) {
+                .Char, .U8, .U16, .U32, .U64, .U128 => {
+                    return compInfo.logger.logError(AstError.NegativeNumberWithUnsignedTypeConflict);
+                },
+                else => {},
+            }
+
             return try createMut(AstNode, allocator, .{
                 .Value = .{
                     .RawNumber = .{
@@ -1388,7 +1402,6 @@ fn parseExpressionUtil(
         .I32,
         .I64,
         .I128,
-        .USize,
         .StringType,
         .CharType,
         .Bool,
@@ -1457,8 +1470,8 @@ fn parseArray(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
             const initNode = try parseExpression(allocator, compInfo) orelse
                 return compInfo.logger.logError(AstError.ExpectedExpression);
 
-            if (numType != .USize) {
-                return compInfo.logger.logError(AstError.ExpectedUSizeForArraySize);
+            if (numType != .U64) {
+                return compInfo.logger.logError(AstError.ExpectedU64ForArraySize);
             }
 
             return createMut(AstNode, allocator, .{
@@ -1974,7 +1987,6 @@ fn parseType(allocator: Allocator, compInfo: *CompInfo) (AstError || Allocator.E
         .F32 => .{ .Number = .F32 },
         .F64 => .{ .Number = .F64 },
         .F128 => .{ .Number = .F128 },
-        .USize => .{ .Number = .USize },
         .CharType => .Char,
         .Asterisk => a: {
             const pointer = try parseType(allocator, compInfo);

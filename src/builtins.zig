@@ -125,7 +125,7 @@ pub fn getStringPropType(allocator: Allocator, prop: []u8) !blitzAst.AstTypeInfo
     const props = &[_]PropTypeMap{
         .{
             .prop = "len",
-            .type = try toNumSig(allocator, .USize),
+            .type = try toNumSig(allocator, .U64),
             .isConst = true,
         },
     };
@@ -137,7 +137,7 @@ pub fn getArraySlicePropType(allocator: Allocator, prop: []u8) !blitzAst.AstType
     const props = &[_]PropTypeMap{
         .{
             .prop = "len",
-            .type = try toNumSig(allocator, .USize),
+            .type = try toNumSig(allocator, .U64),
             .isConst = true,
         },
     };

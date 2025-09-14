@@ -32,12 +32,13 @@ pub const ScanError = error{
     ExpectedBooleanBang,
     ExpectedBooleanIfCondition,
     UnsupportedFeature,
-    ExpectedUSizeForIndex,
+    ExpectedU64ForIndex,
     StaticStructInstanceCannotBeUsedAsVariable,
     InvalidNumber,
     IfStatementMayOnlyHaveOneElse,
     ElseBranchOutOfOrder,
     NestedVarInfoDetected,
+    RawNumberTooBigForType,
 
     // pointers
     PointerTypeMismatch,
@@ -47,13 +48,14 @@ pub const ScanError = error{
     // arrays
     ArraySliceTypeMismatch,
     ExpectedArrayForIndexTarget,
-    ExpectedUSizeOrU32ForArraySliceSize,
+    ExpectedU64OrU32ForArraySliceSize,
     ExpectedEqualArraySliceSizes,
     SizedSliceSetToUnknownSizedSlice,
     ArrayInitTypeInitializerMismatch,
 
     // loops
     ExpectedBooleanLoopCondition,
+    LoopControlFlowUsedOutsideOfLoop,
 
     // variables
     VariableAnnotationMismatch,
@@ -198,7 +200,12 @@ pub fn scanNode(
                 .Bool => .Bool,
                 .Char => .Char,
                 .Number => |num| .{ .Number = num.toAstNumberVariant() },
-                .RawNumber => |num| .{ .Number = num.numType },
+                .RawNumber => |num| a: {
+                    if (!verifyRawNumberMagnitude(num)) {
+                        return ScanError.RawNumberTooBigForType;
+                    }
+                    break :a .{ .Number = num.numType };
+                },
                 .ArraySlice => |arr| {
                     const inferredType = try inferArraySliceType(
                         allocator,
@@ -211,7 +218,7 @@ pub fn scanNode(
                             .type = inferredType,
                             .size = try createMut(blitzAst.AstNode, allocator, .{
                                 .Value = .{
-                                    .Number = .{ .USize = arr.len },
+                                    .Number = .{ .U64 = arr.len },
                                 },
                             }),
                         },
@@ -232,8 +239,8 @@ pub fn scanNode(
             defer free.freeAstTypeInfo(allocator, origValueType);
             const valueType = try escapeVarInfo(origValueType);
 
-            if (indexType.astType.* == .Number and indexType.astType.Number != .USize) {
-                return ScanError.ExpectedUSizeForIndex;
+            if (indexType.astType.* == .Number and indexType.astType.Number != .U64) {
+                return ScanError.ExpectedU64ForIndex;
             }
 
             if (valueType.astType.* == .ArraySlice) {
@@ -677,7 +684,7 @@ pub fn scanNode(
             return try utils.astTypesToInfo(allocator, .Void, true);
         },
         .ForLoop => |loop| {
-            try compInfo.pushScope(true);
+            try compInfo.pushScopeWithType(true, .Loop);
             defer compInfo.popScope();
             const prev = try compInfo.returnInfo.newInfo(false);
 
@@ -707,6 +714,8 @@ pub fn scanNode(
             return try utils.astTypesToInfo(allocator, .Void, true);
         },
         .WhileLoop => |loop| {
+            try compInfo.pushScopeWithType(true, .Loop);
+            defer compInfo.popScope();
             const prev = try compInfo.returnInfo.newInfo(false);
 
             const origConditionType = try scanNode(allocator, compInfo, loop.condition, withGenDef);
@@ -727,7 +736,7 @@ pub fn scanNode(
             return try utils.astTypesToInfo(allocator, .Void, true);
         },
         .FuncDec => |name| {
-            try compInfo.pushScope(true);
+            try compInfo.pushScopeWithType(true, .Function);
             defer compInfo.popScope();
             try compInfo.pushGenScope(true);
             defer compInfo.popGenScope();
@@ -783,7 +792,7 @@ pub fn scanNode(
             }
 
             {
-                try compInfo.pushScope(true);
+                try compInfo.pushScopeWithType(true, .Function);
                 defer compInfo.popScope();
 
                 _ = try setGenTypesFromParams(
@@ -1072,7 +1081,7 @@ pub fn scanNode(
                         .Value = .{
                             .RawNumber = .{
                                 .digits = try string.cloneString(allocator, init.size),
-                                .numType = .USize,
+                                .numType = .U64,
                             },
                         },
                     }),
@@ -1086,6 +1095,12 @@ pub fn scanNode(
                     .variant = try string.cloneString(allocator, variant),
                 },
             }, true);
+        },
+        .Break, .Continue => {
+            if (!compInfo.inLoopScope()) {
+                return ScanError.LoopControlFlowUsedOutsideOfLoop;
+            }
+            return try utils.astTypesToInfo(allocator, .Void, true);
         },
     }
 }
@@ -1242,8 +1257,6 @@ fn checkUndefVarsIfFallback(
 }
 
 fn scanFunctionCalls(allocator: Allocator, compInfo: *CompInfo) !void {
-    try compInfo.pushScope(false);
-    defer compInfo.popScope();
     _ = compInfo.returnInfo.setInFunction(true);
     defer compInfo.returnInfo.revertInFunction(false);
 
@@ -1254,7 +1267,7 @@ fn scanFunctionCalls(allocator: Allocator, compInfo: *CompInfo) !void {
 
         try compInfo.pushGenScope(false);
         defer compInfo.popGenScope();
-        try compInfo.pushScope(false);
+        try compInfo.pushScopeWithType(false, .Function);
         defer compInfo.popScope();
 
         const lastRetInfo = try compInfo.returnInfo.newInfo(true);
@@ -1389,7 +1402,6 @@ fn estimateStackSize(astType: *const blitzAst.AstTypes) u32 {
                 .U32, .I32, .F32 => 4,
                 .U64, .I64, .F64 => 8,
                 .U128, .I128, .F128 => 16,
-                .USize, .ISize => 8,
             };
         },
         else => {},
@@ -1644,7 +1656,7 @@ fn scanFuncBodyAndReturn(
     func: *blitzAst.FuncDecNode,
     withGenDef: bool,
 ) !void {
-    try compInfo.pushScope(true);
+    try compInfo.pushScopeWithType(true, .Function);
     defer compInfo.popScope();
 
     for (func.params) |param| {
@@ -1814,7 +1826,7 @@ fn isNumber(astType: blitzAst.AstTypes) bool {
 fn isUnsignedInt(astType: blitzAst.AstTypes) bool {
     return switch (astType) {
         .Number => |num| switch (num) {
-            .U8, .U16, .U32, .U64, .U128, .USize => true,
+            .U8, .U16, .U32, .U64, .U128 => true,
             else => false,
         },
         else => false,
@@ -1829,7 +1841,6 @@ fn isInt(astType: *const blitzAst.AstTypes) bool {
             .U32,
             .U64,
             .U128,
-            .USize,
             .I8,
             .I16,
             .I32,
@@ -2289,41 +2300,20 @@ fn scanNodeForFunctions(
     }
 }
 
-// const MaxTypeRel = struct {
-//     str: []const u8,
-//     type: blitzAst.AstNumberVariants,
-// };
+fn verifyRawNumberMagnitude(node: blitzAst.RawNumberNode) bool {
+    switch (node.numType) {
+        .U8 => _ = std.fmt.parseInt(u8, node.digits, 10) catch return false,
+        .U16 => _ = std.fmt.parseInt(u16, node.digits, 10) catch return false,
+        .U32 => _ = std.fmt.parseInt(u32, node.digits, 10) catch return false,
+        .U64 => _ = std.fmt.parseInt(u64, node.digits, 10) catch return false,
+        .U128 => _ = std.fmt.parseInt(u128, node.digits, 10) catch return false,
+        .I8 => _ = std.fmt.parseInt(i8, node.digits, 10) catch return false,
+        .I16 => _ = std.fmt.parseInt(i16, node.digits, 10) catch return false,
+        .I32 => _ = std.fmt.parseInt(i32, node.digits, 10) catch return false,
+        .I64 => _ = std.fmt.parseInt(i64, node.digits, 10) catch return false,
+        .I128 => _ = std.fmt.parseInt(i128, node.digits, 10) catch return false,
+        else => return true,
+    }
 
-// fn getBestNumberType(num: []u8) !blitzAst.AstNumberVariants {
-//     const u32Max = getStrTypeRel(.U32, "4294967295");
-//     const u64Max = getStrTypeRel(.U64, "18446744073709551615");
-//     const u128Max = getStrTypeRel(.U128, "340282366920938463463374607431768211455");
-//     const uNumMaxes = &[_]MaxTypeRel{ u32Max, u64Max, u128Max };
-
-//     for (uNumMaxes) |max| {
-//         if (num.len < max.str.len) {
-//             return max.type;
-//         }
-
-//         if (num.len > max.str.len) {
-//             continue;
-//         }
-
-//         var i: u32 = 0;
-//         while (i < max.str.len) : (i += 1) {
-//             const index = max.str.len - i - 1;
-//             if (max.str[index] < num[index]) continue;
-//         }
-
-//         return max.type;
-//     }
-
-//     return CodeGenError.RawNumberIsTooBig;
-// }
-
-// fn getStrTypeRel(numType: blitzAst.AstNumberVariants, str: []const u8) MaxTypeRel {
-//     return .{
-//         .str = str,
-//         .type = numType,
-//     };
-// }
+    return true;
+}

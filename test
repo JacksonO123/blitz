@@ -39,7 +39,7 @@ function test_file() {
 }
 
 function run_dbg_build() {
-  blitzc-debug "$INPUT_DIR/$1.blitz" 2>/dev/null
+  blitzc-debug "$INPUT_DIR/$1.blitz" >/dev/null 2>&1
 
   OUT=$(echo $?)
 

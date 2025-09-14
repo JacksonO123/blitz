@@ -209,10 +209,11 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.ExpectedNameForFunction => "expected name for function",
         AstError.UnexpectedGeneric => "unexpected generic",
         AstError.UnexpectedMutSpecifierOnGeneric => "unexpected mut specifier on generic",
-        AstError.ExpectedUSizeForArraySize => "expected usize for array size",
+        AstError.ExpectedU64ForArraySize => "expected u64 for array size",
         AstError.StructDefinedInLowerScope => "struct defined in lower scope",
         AstError.ErrorDefinedInLowerScope => "struct defined in lower scope",
         AstError.FunctionDefinedInLowerScope => "function defined in lower scope",
         AstError.UnexpectedDeriveType => "unexpected derive type",
+        AstError.NegativeNumberWithUnsignedTypeConflict => "negative number with unsigned type conflict",
     };
 }

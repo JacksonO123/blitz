@@ -33,6 +33,12 @@ const ToScanItem = struct {
 };
 const ToScanStack = ArrayList(ToScanItem);
 
+const ScopeType = enum {
+    Normal,
+    Loop,
+    Function,
+};
+
 pub const CompInfo = struct {
     const Self = @This();
 
@@ -45,6 +51,7 @@ pub const CompInfo = struct {
     genericCaptures: *ScopeUtil(*TypeScope),
     functionCaptures: *ScopeUtil(*StringListScope),
     parsedGenerics: *ScopeUtil(*StringListScope),
+    scopeTypes: *ArrayList(ScopeType),
     // how many scopes up the current scope has access
     functions: *StringHashMap(*blitzAst.FuncDecNode),
     functionsInScope: *ScopeUtil(*StringListScope),
@@ -93,6 +100,9 @@ pub const CompInfo = struct {
         const genericCaptures = try initScopeUtil(TypeScope, allocator);
         const functionCaptures = try initScopeUtil(StringListScope, allocator);
         const parsedGenerics = try initScopeUtil(StringListScope, allocator);
+        const scopeTypesUtil = ArrayList(ScopeType).init(allocator);
+        const scopeTypesPtr = try utils.createMut(ArrayList(ScopeType), allocator, scopeTypesUtil);
+        try scopeTypesPtr.append(.Normal);
 
         const returnInfoUtil = try ReturnInfo.init(allocator);
         const returnInfo = try utils.createMut(ReturnInfo, allocator, returnInfoUtil);
@@ -107,6 +117,7 @@ pub const CompInfo = struct {
             .functionCaptures = functionCaptures,
             .genericCaptures = genericCaptures,
             .parsedGenerics = parsedGenerics,
+            .scopeTypes = scopeTypesPtr,
             .functions = functions,
             .functionsInScope = functionsInScope,
             .structDecs = structs,
@@ -168,6 +179,9 @@ pub const CompInfo = struct {
         self.parsedGenerics.deinit(free.freeStringListScope);
         self.allocator.destroy(self.parsedGenerics);
 
+        self.scopeTypes.deinit();
+        self.allocator.destroy(self.scopeTypes);
+
         self.functions.deinit();
         self.allocator.destroy(self.functions);
 
@@ -205,14 +219,20 @@ pub const CompInfo = struct {
     }
 
     pub fn pushScope(self: *Self, leak: bool) !void {
+        try self.pushScopeWithType(leak, .Normal);
+    }
+
+    pub fn pushScopeWithType(self: *Self, leak: bool, scopeType: ScopeType) !void {
         const scope = try utils.initMutPtrT(VarScope, self.allocator);
         try self.variableScopes.add(scope, leak);
         try self.pushScopedFunctionScope(leak);
+        try self.scopeTypes.append(scopeType);
     }
 
     pub fn popScope(self: *Self) void {
         self.variableScopes.pop(free.freeVariableScope);
         self.popScopedFunctionScope();
+        _ = self.scopeTypes.pop();
     }
 
     pub fn addCaptureScope(self: *Self) !void {
@@ -663,6 +683,22 @@ pub const CompInfo = struct {
 
     pub fn getErrorDec(self: Self, name: []u8) ?*const blitzAst.ErrorDecNode {
         return self.errorDecs.get(name);
+    }
+
+    pub fn inLoopScope(self: Self) bool {
+        const scopeTypes = self.scopeTypes.items;
+        var current = scopeTypes.len - 1;
+        while (true) : (current -= 1) {
+            switch (scopeTypes[current]) {
+                .Loop => return true,
+                .Function => break,
+                else => {},
+            }
+
+            if (current == 0) break;
+        }
+
+        return false;
     }
 };
 

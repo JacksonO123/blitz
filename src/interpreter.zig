@@ -226,6 +226,7 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
                 const byte = bytecode[current + 3];
                 runtimeInfo.registers[bytecode[current + 1]] = reg1Val ^ byte;
             },
+            else => {},
         }
 
         current += instLen;

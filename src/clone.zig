@@ -224,7 +224,7 @@ pub fn cloneAstNode(
     replaceGenerics: bool,
 ) !blitzAst.AstNode {
     switch (node) {
-        .NoOp, .StructPlaceholder => return node,
+        .NoOp, .StructPlaceholder, .Break, .Continue => return node,
         .IndexValue => |index| return .{
             .IndexValue = .{
                 .index = try cloneAstNodePtrMut(allocator, compInfo, index.index, replaceGenerics),

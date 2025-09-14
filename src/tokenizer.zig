@@ -92,8 +92,6 @@ const TokenVariants = enum {
     F32,
     F64,
     F128,
-    USize,
-    ISize,
     StringType,
     Bool,
     Null,
@@ -185,8 +183,6 @@ pub const TokenType = union(TokenVariants) {
     F32,
     F64,
     F128,
-    USize,
-    ISize,
     StringType,
     Bool,
     Null,
@@ -255,8 +251,6 @@ pub const TokenType = union(TokenVariants) {
             .F32 => "f32",
             .F64 => "f64",
             .F128 => "f128",
-            .USize => "usize",
-            .ISize => "isize",
             .StringType => "string",
             .StringToken => "(string data...)",
             .Bool => "bool",
@@ -466,7 +460,7 @@ fn parseNextToken(chars: *CharUtil) !?Token {
                 chars.returnChar();
                 return Token.initBounds(
                     .{ .NegNumber = numberInfo.numType orelse .I32 },
-                    numberInfo.start,
+                    numberInfo.start - 1,
                     numberInfo.end,
                 );
             } else if (nextPeak == '=') {
@@ -691,6 +685,7 @@ fn parseNumber(chars: *CharUtil) !ParsedNumberInfo {
 
     if (std.ascii.isAlphabetic(char)) {
         chars.returnChar();
+        const endIndex = chars.index;
 
         const typeStrings = &[_][]const u8{
             "char",
@@ -707,8 +702,6 @@ fn parseNumber(chars: *CharUtil) !ParsedNumberInfo {
             "f32",
             "f64",
             "f128",
-            "usize",
-            "isize",
         };
 
         for (typeStrings) |str| {
@@ -720,7 +713,7 @@ fn parseNumber(chars: *CharUtil) !ParsedNumberInfo {
                 const variant = blitzAst.AstNumberVariants.fromStr(str).?;
                 return .{
                     .start = startIndex,
-                    .end = chars.index - 1,
+                    .end = endIndex,
                     .numType = variant,
                 };
             }
@@ -776,7 +769,6 @@ fn isDatatype(chars: []const u8) ?TokenType {
         .{ .string = "string", .token = .StringType },
         .{ .string = "bool", .token = .Bool },
         // numbers
-        .{ .string = "usize", .token = .USize },
         .{ .string = "u8", .token = .U8 },
         .{ .string = "u16", .token = .U16 },
         .{ .string = "u32", .token = .U32 },

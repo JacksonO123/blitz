@@ -184,13 +184,11 @@ fn printAstNumber(num: blitzAst.AstNumber) void {
         .U32 => |val| printAstNumberUtil(val, num),
         .U64 => |val| printAstNumberUtil(val, num),
         .U128 => |val| printAstNumberUtil(val, num),
-        .USize => |val| printAstNumberUtil(val, num),
         .I8 => |val| printAstNumberUtil(val, num),
         .I16 => |val| printAstNumberUtil(val, num),
         .I32 => |val| printAstNumberUtil(val, num),
         .I64 => |val| printAstNumberUtil(val, num),
         .I128 => |val| printAstNumberUtil(val, num),
-        .ISize => |val| printAstNumberUtil(val, num),
         .F32 => |val| printAstNumberUtil(val, num),
         .F64 => |val| printAstNumberUtil(val, num),
         .F128 => |val| printAstNumberUtil(val, num),
@@ -457,6 +455,12 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode) void {
         .InferErrorVariant => |variant| {
             print("infer error from variant {s}", .{variant});
         },
+        .Continue => {
+            print("continue", .{});
+        },
+        .Break => {
+            print("break", .{});
+        },
     }
 }
 
@@ -632,7 +636,7 @@ pub fn printBytecodeChunks(genInfo: *const GenInfo, writer: anytype) !void {
     const rootChunk = genInfo.instructionList;
 
     if (rootChunk) |chunk| {
-        const bytecode = chunk.chunk;
+        const bytecode = chunk.data;
         const stackSizeType = @TypeOf(genInfo.stackStartSize);
         const stackSizeBufLen = @sizeOf(stackSizeType);
 
@@ -644,7 +648,7 @@ pub fn printBytecodeChunks(genInfo: *const GenInfo, writer: anytype) !void {
         var byteCounter: usize = 0;
         var next = chunk.next;
         while (next) |nextChunk| {
-            byteCounter += try printChunk(nextChunk.chunk, byteCounter, writer);
+            byteCounter += try printChunk(nextChunk.data, byteCounter, writer);
             next = nextChunk.next;
         }
 
@@ -769,6 +773,18 @@ fn printChunk(bytecode: []u8, byteCounter: usize, writer: anytype) !usize {
             try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
             try writer.writeByte(' ');
             try writeHexDecNumber(bytecode[3..4], writer);
+        },
+        .AddSp,
+        .SubSp,
+        => {
+            try writer.writeByte(' ');
+            try writeHexDecNumber(bytecode[1..4], writer);
+        },
+        .AddSpReg,
+        .SubSpReg,
+        => {
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
         },
     }
 

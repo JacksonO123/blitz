@@ -123,7 +123,7 @@ pub fn freeValueNode(allocator: Allocator, node: *const blitzAst.AstValues) void
 
 pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
     switch (node.*) {
-        .NoOp, .StructPlaceholder => {},
+        .NoOp, .StructPlaceholder, .Break, .Continue => {},
         .IndexValue => |index| {
             freeNode(allocator, index.index);
             freeNode(allocator, index.value);

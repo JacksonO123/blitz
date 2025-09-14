@@ -18,6 +18,7 @@ const CodeGenError = error{
     NoAvailableRegisters,
     ReturnedRegisterNotFound,
     NoJumpInstructionMatchingComp,
+    ExpectedLoopInfo,
 };
 
 const GenBytecodeError = CodeGenError || Allocator.Error || std.fmt.ParseIntError;
@@ -58,6 +59,10 @@ pub const Instructions = enum(u8) {
     Mov, // inst, reg1, reg2
     Xor, // inst, out reg, reg1, reg2
     XorConstByte, // inst, out reg, reg1, 1B data
+    AddSp, // inst, 4B data
+    SubSp, // inst, 4B data
+    AddSpReg, // inst, reg
+    SubSpReg, // inst, reg
 
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
@@ -102,6 +107,12 @@ pub const Instructions = enum(u8) {
             .IncConstByte, .DecConstByte => 3,
             .Mov => 4,
             .Xor, .XorConstByte => 4,
+            .AddSp,
+            .SubSp,
+            => 5,
+            .AddSpReg,
+            .SubSpReg,
+            => 2,
         };
     }
 
@@ -140,6 +151,10 @@ pub const Instructions = enum(u8) {
             .Mov => "mov",
             .Xor => "xor",
             .XorConstByte => "xor_const_byte",
+            .AddSp => "add_sp",
+            .SubSp => "sub_sp",
+            .AddSpReg => "add_sp_reg",
+            .SubSpReg => "sub_sp_reg",
         };
     }
 };
@@ -149,13 +164,13 @@ pub const InstrChunk = struct {
 
     next: ?*InstrChunk,
     prev: ?*InstrChunk,
-    chunk: []u8,
+    data: []u8,
 
-    pub fn init(chunk: []u8) Self {
+    pub fn init(data: []u8) Self {
         return .{
             .next = null,
             .prev = null,
-            .chunk = chunk,
+            .data = data,
         };
     }
 };
@@ -263,10 +278,59 @@ const RegScopes = struct {
     }
 };
 
-// const VarInfo = struct {
-//     instPtr: *InstrChunk,
-//     origRegister: RegisterNumber,
-// };
+const InstrInfo = struct {
+    chunk: *InstrChunk,
+    location: usize,
+};
+
+const LoopInfo = struct {
+    const Self = @This();
+
+    allocator: Allocator,
+    continueByte: usize,
+    breaks: *ArrayList(InstrInfo),
+    continues: *ArrayList(InstrInfo),
+
+    pub fn init(allocator: Allocator) !Self {
+        const breaks = ArrayList(InstrInfo).init(allocator);
+        const breaksPtr = try utils.createMut(ArrayList(InstrInfo), allocator, breaks);
+        const continues = ArrayList(InstrInfo).init(allocator);
+        const continuesPtr = try utils.createMut(ArrayList(InstrInfo), allocator, continues);
+
+        return .{
+            .allocator = allocator,
+            .continueByte = 0,
+            .breaks = breaksPtr,
+            .continues = continuesPtr,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.breaks.deinit();
+        self.allocator.destroy(self.breaks);
+
+        self.continues.deinit();
+        self.allocator.destroy(self.continues);
+    }
+
+    pub fn appendBreak(self: *Self, instr: *InstrChunk, location: usize) !void {
+        try self.breaks.append(.{
+            .chunk = instr,
+            .location = location,
+        });
+    }
+
+    pub fn appendContinue(self: *Self, instr: *InstrChunk, location: usize) !void {
+        try self.continues.append(.{
+            .chunk = instr,
+            .location = location,
+        });
+    }
+
+    pub fn setContinueByte(self: *Self, byte: usize) void {
+        self.continueByte = byte;
+    }
+};
 
 const GenInfoSettings = struct {
     // respected for one expr node, then set to default
@@ -290,7 +354,7 @@ pub const GenInfo = struct {
     varNameRegRel: *StringHashMap(VariableRegLocationInfo),
     byteCounter: usize,
     settings: GenInfoSettings,
-    // varInfo: StringHashMap(*ArrayList(VarInfo)),
+    loopInfo: *ArrayList(*LoopInfo),
 
     pub fn init(
         allocator: Allocator,
@@ -301,6 +365,8 @@ pub const GenInfo = struct {
         );
         const regScopes = try RegScopes.init(allocator);
         const regScopesPtr = try utils.createMut(RegScopes, allocator, regScopes);
+        const loopInfo = ArrayList(*LoopInfo).init(allocator);
+        const loopInfoPtr = try utils.createMut(ArrayList(*LoopInfo), allocator, loopInfo);
 
         return .{
             .allocator = allocator,
@@ -311,13 +377,14 @@ pub const GenInfo = struct {
             .regScopes = regScopesPtr,
             .byteCounter = 0,
             .settings = CODEGEN_DEFAULT_SETTINGS,
+            .loopInfo = loopInfoPtr,
         };
     }
 
     pub fn deinit(self: Self) void {
         var current = self.instructionList;
         while (current != null) : (current = current.?.next) {
-            self.allocator.free(current.?.chunk);
+            self.allocator.free(current.?.data);
             self.allocator.destroy(current.?);
         }
 
@@ -326,19 +393,26 @@ pub const GenInfo = struct {
 
         self.regScopes.deinit();
         self.allocator.destroy(self.regScopes);
+
+        for (self.loopInfo.items) |item| {
+            item.deinit();
+            self.allocator.destroy(item);
+        }
+        self.loopInfo.deinit();
+        self.allocator.destroy(self.loopInfo);
     }
 
     pub fn writeChunks(self: Self, writer: anytype) !void {
         var current = self.instructionList;
         while (current) |instr| {
-            try writer.writeAll(instr.chunk);
+            try writer.writeAll(instr.data);
             current = instr.next;
         }
     }
 
-    pub fn appendChunk(self: *Self, chunk: []u8) !void {
-        self.byteCounter += chunk.len;
-        const newChunk = try utils.createMut(InstrChunk, self.allocator, InstrChunk.init(chunk));
+    pub fn appendChunk(self: *Self, data: []u8) !void {
+        self.byteCounter += data.len;
+        const newChunk = try utils.createMut(InstrChunk, self.allocator, InstrChunk.init(data));
 
         if (self.last) |last| {
             last.next = newChunk;
@@ -411,6 +485,34 @@ pub const GenInfo = struct {
         return self.regScopes.popScope();
     }
 
+    pub fn pushLoopInfo(self: *Self) !void {
+        const newLoop = try LoopInfo.init(self.allocator);
+        const newLoopPtr = try utils.createMut(LoopInfo, self.allocator, newLoop);
+        try self.loopInfo.append(newLoopPtr);
+    }
+
+    pub fn popLoopInfo(self: *Self) void {
+        const last = self.loopInfo.pop();
+        const endByte = self.byteCounter;
+
+        if (last) |info| {
+            for (info.breaks.items) |chunk| {
+                writeLoopJump(chunk, endByte);
+            }
+
+            for (info.continues.items) |chunk| {
+                writeLoopJump(chunk, info.continueByte);
+            }
+
+            info.deinit();
+            self.allocator.destroy(info);
+        }
+    }
+
+    pub fn currentLoopInfo(self: Self) ?*LoopInfo {
+        return self.loopInfo.getLastOrNull();
+    }
+
     pub fn releaseScope(self: *Self) !void {
         const old = try self.popScope();
         self.releaseRegisters(old);
@@ -422,7 +524,19 @@ pub const GenInfo = struct {
             self.releaseRegister(reg);
         }
     }
+
+    pub fn setContinueByte(self: *Self) void {
+        const loopInfo = self.currentLoopInfo();
+        if (loopInfo) |info| {
+            info.setContinueByte(self.byteCounter);
+        }
+    }
 };
+
+fn writeLoopJump(info: InstrInfo, endByte: usize) void {
+    const diff = @as(u16, @intCast(endByte - info.location));
+    std.mem.writeInt(u16, @ptrCast(info.chunk.data[1..3]), diff, .little);
+}
 
 pub fn codegenAst(allocator: Allocator, genInfo: *GenInfo, ast: blitzAst.Ast) !void {
     try writeStartVMInfo(allocator, genInfo);
@@ -645,6 +759,9 @@ pub fn genBytecode(
                 genInfo.settings.outputCmpAsRegister = false;
             }
 
+            try genInfo.pushLoopInfo();
+            defer genInfo.popLoopInfo();
+
             const preConditionByteCount = genInfo.byteCounter;
             const condReg = try genBytecode(allocator, genInfo, loop.condition);
             genInfo.settings.outputCmpAsRegister = prevCmpAsReg;
@@ -672,6 +789,7 @@ pub fn genBytecode(
                 genInfo.releaseRegister(oldReg);
             }
             allocator.free(oldContents);
+            genInfo.setContinueByte();
             _ = try genBytecode(allocator, genInfo, loop.incNode);
 
             const jumpEndDiff = @as(u16, @intCast(genInfo.byteCounter - preBodyByteCount));
@@ -732,6 +850,26 @@ pub fn genBytecode(
             try genInfo.pushScope();
             _ = try genBytecode(allocator, genInfo, scope);
             try genInfo.releaseScope();
+        },
+        .Break => {
+            const loopInfo = genInfo.currentLoopInfo() orelse
+                return CodeGenError.ExpectedLoopInfo;
+
+            const buf = try Instructions.Jump.allocBuf(allocator);
+            try genInfo.appendChunk(buf);
+            const byteCount = genInfo.byteCounter;
+            const chunk = genInfo.last.?;
+            try loopInfo.appendBreak(chunk, byteCount);
+        },
+        .Continue => {
+            const loopInfo = genInfo.currentLoopInfo() orelse
+                return CodeGenError.ExpectedLoopInfo;
+
+            const buf = try Instructions.Jump.allocBuf(allocator);
+            try genInfo.appendChunk(buf);
+            const byteCount = genInfo.byteCounter;
+            const chunk = genInfo.last.?;
+            try loopInfo.appendContinue(chunk, byteCount);
         },
         else => {},
     }
