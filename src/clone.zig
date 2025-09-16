@@ -4,15 +4,13 @@ const blitzAst = blitz.ast;
 const utils = blitz.utils;
 const string = blitz.string;
 const blitzCompInfo = blitz.compInfo;
+const debug = blitz.debug;
 const Allocator = std.mem.Allocator;
 const create = utils.create;
 const createMut = utils.createMut;
 const CompInfo = blitzCompInfo.CompInfo;
 const StringHashMap = std.StringHashMap;
 const ArrayList = std.ArrayList;
-
-// DEBUG
-const debug = @import("debug.zig");
 
 pub const CloneError = error{
     GenericNotFound,

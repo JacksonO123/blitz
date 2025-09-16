@@ -97,7 +97,7 @@ const RuntimeInfo = struct {
 fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
     var current: usize = vmInfo.VM_INFO_BYTECODE_LEN;
     while (current < bytecode.len) {
-        const inst = @as(codegen.Instructions, @enumFromInt(bytecode[current]));
+        const inst = @as(codegen.InstructionVariants, @enumFromInt(bytecode[current]));
         const instLen = inst.getInstrLen();
         switch (inst) {
             .Mov => {
@@ -233,7 +233,7 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
     }
 }
 
-fn getFlagFromJump(jump: codegen.Instructions, flags: Flags) bool {
+fn getFlagFromJump(jump: codegen.InstructionVariants, flags: Flags) bool {
     return switch (jump) {
         .JumpEQ, .JumpBackEQ => flags.EQ,
         .JumpNE, .JumpBackNE => flags.NE,

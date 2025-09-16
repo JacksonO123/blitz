@@ -8,6 +8,7 @@ const utils = blitz.utils;
 const free = blitz.free;
 const codegen = blitz.codegen;
 const blitzCompInfo = blitz.compInfo;
+const debug = blitz.debug;
 const create = utils.create;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
@@ -15,9 +16,6 @@ const Allocator = std.mem.Allocator;
 const CompInfo = blitzCompInfo.CompInfo;
 const TokenUtil = tokenizer.TokenUtil;
 const GenInfo = codegen.GenInfo;
-
-// debug
-const debug = @import("debug.zig");
 
 const RuntimeError = error{NoInputFile};
 
@@ -36,7 +34,13 @@ pub fn main() !void {
 
     const path = args[1];
 
-    std.debug.print("opening: {s}\n", .{path});
+    var bufferedWriter = utils.getBufferedWriter();
+    defer bufferedWriter.flush() catch {};
+    const writer = bufferedWriter.writer();
+
+    try writer.writeAll("opening ");
+    try writer.writeAll(path);
+    try writer.writeByte('\n');
 
     const code = try utils.readRelativeFile(allocator, path);
     defer allocator.free(code);
@@ -45,7 +49,7 @@ pub fn main() !void {
     defer allocator.free(tokens);
 
     const names = try blitzAst.findStructsAndErrors(allocator, tokens, code);
-    debug.printStructAndErrorNames(names);
+    try debug.printStructAndErrorNames(names, writer);
 
     var compInfo = try CompInfo.init(allocator, tokens, names, code);
     defer compInfo.deinit();
@@ -58,8 +62,8 @@ pub fn main() !void {
 
     try compInfo.prepareForAst();
 
-    debug.printRegisteredStructs(&compInfo, structsAndErrors.structs);
-    debug.printRegisteredErrors(structsAndErrors.errors);
+    try debug.printRegisteredStructs(&compInfo, structsAndErrors.structs, writer);
+    try debug.printRegisteredErrors(structsAndErrors.errors, writer);
 
     for (structsAndErrors.structs) |s| {
         var node: blitzAst.AstNode = .{
@@ -72,24 +76,21 @@ pub fn main() !void {
     var ast = try blitzAst.createAst(allocator, &compInfo);
     defer ast.deinit();
 
-    std.debug.print("--- code ---\n{s}\n------------\n", .{code});
-    debug.printAst(&compInfo, ast);
+    try writer.writeAll("--- code ---\n");
+    try writer.writeAll(code);
+    try writer.writeAll("\n------------\n\n");
+    try debug.printAst(&compInfo, ast, writer);
 
     try scanner.typeScan(allocator, ast, &compInfo);
-    std.debug.print("\n", .{});
 
     var genInfo = try GenInfo.init(allocator);
     defer genInfo.deinit();
-    genInfo.stackStartSize = compInfo.stackSizeEstimate;
-
-    var bufferedWriter = utils.getBufferedWriter();
-    defer bufferedWriter.flush() catch {};
-    const writer = bufferedWriter.writer();
+    genInfo.vmInfo.stackStartSize = compInfo.stackSizeEstimate;
 
     try codegen.codegenAst(allocator, &genInfo, ast);
-    std.debug.print("--- bytecode out ---\n", .{});
+    try writer.writeAll("--- bytecode out ---\n");
     try debug.printBytecodeChunks(&genInfo, writer);
-    std.debug.print("\n------------\n", .{});
+    try writer.writeAll("\n------------\n");
 
     const outFile = try std.fs.cwd().createFile("out.bzc", .{});
     defer outFile.close();

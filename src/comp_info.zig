@@ -9,6 +9,7 @@ const builtins = blitz.builtins;
 const string = blitz.string;
 const clone = blitz.clone;
 const scanner = blitz.scanner;
+const vmInfo = blitz.vmInfo;
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const ArrayList = std.ArrayList;
@@ -71,7 +72,7 @@ pub const CompInfo = struct {
     },
     returnInfo: *ReturnInfo,
     builtins: builtins.BuiltinFuncMemo,
-    stackSizeEstimate: u32,
+    stackSizeEstimate: vmInfo.StartStackType,
 
     pub fn init(
         allocator: Allocator,
@@ -595,7 +596,6 @@ pub const CompInfo = struct {
         rels: []blitzAst.StrToTypeInfoRel,
         withGenDef: bool,
     ) !void {
-        std.debug.print("ADDING\n", .{});
         try self.functionsToScan.append(.{
             .func = func,
             .genTypes = rels,
