@@ -17,6 +17,8 @@ pub const TokenizeError = error{
 };
 
 const TokenVariants = enum {
+    const Self = @This();
+
     // keywords
     Let,
     Fn,
@@ -35,6 +37,7 @@ const TokenVariants = enum {
     Mut,
     New,
     With,
+    Delete,
 
     // symbols
     Colon,
@@ -103,6 +106,94 @@ const TokenVariants = enum {
     Number,
     NegNumber,
     NewLine,
+
+    pub fn toString(self: Self) []const u8 {
+        return switch (self) {
+            // keywords + operators
+            .Let => "let",
+            .Mut => "mut",
+            .Pub => "pub",
+            .Prot => "prot",
+            .Fn => "fn",
+            .Struct => "struct",
+            .If => "if",
+            .Else => "else",
+            .For => "for",
+            .While => "while",
+            .Continue => "continue",
+            .Break => "break",
+            .Colon => ":",
+            .Semicolon => ";",
+            .Ampersand => "&",
+            .Asterisk => "*",
+            .LParen => "(",
+            .RParen => ")",
+            .LBracket => "[",
+            .RBracket => "]",
+            .LBrace => "{",
+            .RBrace => "}",
+            .LAngle => "<",
+            .RAngle => ">",
+            .BitOr => "|",
+            .BitAndEq => "&=",
+            .BitOrEq => "|=",
+            .AndEq => "&=",
+            .OrEq => "|=",
+            .And => "&&",
+            .Or => "||",
+            .EqSet => "=",
+            .Sub => "-",
+            .Add => "+",
+            .Div => "/",
+            .Mod => "%",
+            .Bang => "!",
+            .Period => ".",
+            .Comma => ",",
+            .CharType => "char",
+            .U8 => "u8",
+            .U16 => "u16",
+            .U32 => "u32",
+            .U64 => "u64",
+            .U128 => "u128",
+            .I8 => "i8",
+            .I16 => "i16",
+            .I32 => "i32",
+            .I64 => "i64",
+            .I128 => "i128",
+            .F32 => "f32",
+            .F64 => "f64",
+            .F128 => "f128",
+            .StringType => "string",
+            .Bool => "bool",
+            .Null => "null",
+            .EqComp => "==",
+            .LAngleEq => "<=",
+            .RAngleEq => ">=",
+            .SubEq => "-=",
+            .AddEq => "+=",
+            .MultEq => "*=",
+            .DivEq => "/=",
+            .Inc => "++",
+            .Dec => "--",
+            .QuestionMark => "?",
+            .True => "true",
+            .False => "false",
+            .Static => "static",
+            .Return => "return",
+            .Error => "error",
+            .New => "new",
+            .With => "with",
+            .Delete => "delete",
+
+            // misc
+            .NewLine => "newline",
+            .CharToken => "(char data...)",
+            .StringToken => "(string data...)",
+            .Identifier => "identifier",
+            .Number => "number",
+            .NegNumber => "[-]number",
+        };
+    }
 };
 
 pub const TokenType = union(TokenVariants) {
@@ -126,6 +217,7 @@ pub const TokenType = union(TokenVariants) {
     Mut,
     New,
     With,
+    Delete,
 
     // symbols
     Colon,
@@ -196,87 +288,8 @@ pub const TokenType = union(TokenVariants) {
     NewLine,
 
     pub fn toString(self: Self) []const u8 {
-        return switch (self) {
-            .Let => "let",
-            .Mut => "mut",
-            .Pub => "pub",
-            .Prot => "prot",
-            .Fn => "fn",
-            .Struct => "struct",
-            .If => "if",
-            .Else => "else",
-            .For => "for",
-            .While => "while",
-            .Continue => "continue",
-            .Break => "break",
-            .Colon => ":",
-            .Semicolon => ";",
-            .Ampersand => "&",
-            .Asterisk => "*",
-            .LParen => "(",
-            .RParen => ")",
-            .LBracket => "[",
-            .RBracket => "]",
-            .LBrace => "{",
-            .RBrace => "}",
-            .LAngle => "<",
-            .RAngle => ">",
-            .BitOr => "|",
-            .BitAndEq => "&=",
-            .BitOrEq => "|=",
-            .AndEq => "&=",
-            .OrEq => "|=",
-            .And => "&&",
-            .Or => "||",
-            .EqSet => "=",
-            .Sub => "-",
-            .Add => "+",
-            .Div => "/",
-            .Mod => "%",
-            .Bang => "!",
-            .Period => ".",
-            .Comma => ",",
-            .CharType => "char",
-            .CharToken => "(char data...)",
-            .U8 => "u8",
-            .U16 => "u16",
-            .U32 => "u32",
-            .U64 => "u64",
-            .U128 => "u128",
-            .I8 => "i8",
-            .I16 => "i16",
-            .I32 => "i32",
-            .I64 => "i64",
-            .I128 => "i128",
-            .F32 => "f32",
-            .F64 => "f64",
-            .F128 => "f128",
-            .StringType => "string",
-            .StringToken => "(string data...)",
-            .Bool => "bool",
-            .Null => "null",
-            .Identifier => "identifier",
-            .Number => "number",
-            .NegNumber => "[-]number",
-            .EqComp => "==",
-            .LAngleEq => "<=",
-            .RAngleEq => ">=",
-            .SubEq => "-=",
-            .AddEq => "+=",
-            .MultEq => "*=",
-            .DivEq => "/=",
-            .Inc => "++",
-            .Dec => "--",
-            .QuestionMark => "?",
-            .True => "true",
-            .False => "false",
-            .Static => "static",
-            .Return => "return",
-            .Error => "error",
-            .New => "new",
-            .NewLine => "newline",
-            .With => "with",
-        };
+        const active = std.meta.activeTag(self);
+        return active.toString();
     }
 };
 
@@ -764,59 +777,59 @@ fn isValidNameChar(char: u8) bool {
 }
 
 fn isDatatype(chars: []const u8) ?TokenType {
-    const datatypes = [_]TokenTypeMap{
-        .{ .string = "char", .token = .CharType },
-        .{ .string = "string", .token = .StringType },
-        .{ .string = "bool", .token = .Bool },
-        // numbers
-        .{ .string = "u8", .token = .U8 },
-        .{ .string = "u16", .token = .U16 },
-        .{ .string = "u32", .token = .U32 },
-        .{ .string = "u64", .token = .U64 },
-        .{ .string = "u128", .token = .U128 },
-        .{ .string = "i8", .token = .I8 },
-        .{ .string = "i16", .token = .I16 },
-        .{ .string = "i32", .token = .I32 },
-        .{ .string = "i64", .token = .I64 },
-        .{ .string = "i128", .token = .I128 },
-        .{ .string = "f32", .token = .F32 },
-        .{ .string = "f64", .token = .F64 },
-        .{ .string = "f128", .token = .F128 },
+    const datatypes = .{
+        .CharType,
+        .StringType,
+        .Bool,
+        .U8,
+        .U16,
+        .U32,
+        .U64,
+        .U128,
+        .I8,
+        .I16,
+        .I32,
+        .I64,
+        .I128,
+        .F32,
+        .F64,
+        .F128,
     };
 
-    return getTypeFromMap(chars, datatypes);
+    return getTypeFromTuple(chars, datatypes);
 }
 
 fn isKeyword(chars: []const u8) ?TokenType {
-    const keywords = [_]TokenTypeMap{
-        .{ .string = "let", .token = .Let },
-        .{ .string = "mut", .token = .Mut },
-        .{ .string = "fn", .token = .Fn },
-        .{ .string = "struct", .token = .Struct },
-        .{ .string = "if", .token = .If },
-        .{ .string = "else", .token = .Else },
-        .{ .string = "for", .token = .For },
-        .{ .string = "while", .token = .While },
-        .{ .string = "continue", .token = .Continue },
-        .{ .string = "break", .token = .Break },
-        .{ .string = "true", .token = .True },
-        .{ .string = "false", .token = .False },
-        .{ .string = "pub", .token = .Pub },
-        .{ .string = "prot", .token = .Prot },
-        .{ .string = "static", .token = .Static },
-        .{ .string = "return", .token = .Return },
-        .{ .string = "error", .token = .Error },
-        .{ .string = "new", .token = .New },
-        .{ .string = "with", .token = .With },
+    const keywords = .{
+        .Let,
+        .Mut,
+        .Fn,
+        .Struct,
+        .If,
+        .Else,
+        .For,
+        .While,
+        .Continue,
+        .Break,
+        .True,
+        .False,
+        .Pub,
+        .Prot,
+        .Static,
+        .Return,
+        .Error,
+        .New,
+        .With,
+        .Delete,
     };
 
-    return getTypeFromMap(chars, keywords);
+    return getTypeFromTuple(chars, keywords);
 }
 
-fn getTypeFromMap(chars: []const u8, map: anytype) ?TokenType {
-    for (map) |mapItem| {
-        if (string.compString(chars, mapItem.string)) {
-            return mapItem.token;
+fn getTypeFromTuple(chars: []const u8, tuple: anytype) ?TokenType {
+    inline for (tuple) |item| {
+        if (string.compString(chars, @as(TokenType, item).toString())) {
+            return item;
         }
     }
 

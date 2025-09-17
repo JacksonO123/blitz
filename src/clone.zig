@@ -363,6 +363,14 @@ pub fn cloneAstNode(
                 },
             };
         },
+        .HeapFree => |toFree| return .{
+            .HeapFree = try cloneAstNodePtrMut(
+                allocator,
+                compInfo,
+                toFree,
+                replaceGenerics,
+            ),
+        },
         .StructDec => |dec| {
             const clonedGenerics = try cloneGenerics(
                 allocator,

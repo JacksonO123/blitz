@@ -44,6 +44,7 @@ pub const ScanError = error{
     PointerTypeMismatch,
     CannotDereferenceNonPointerValue,
     CannotTakePointerOfRawValue,
+    CannotFreeNonPointerType,
 
     // arrays
     ArraySliceTypeMismatch,
@@ -1050,6 +1051,16 @@ pub fn scanNode(
             });
 
             return utils.astTypesPtrToInfo(ptrType, false);
+        },
+        .HeapFree => |toFree| {
+            var exprType = try scanNode(allocator, compInfo, toFree, withGenDef);
+            exprType = try escapeVarInfoAndFree(allocator, exprType);
+            defer free.freeAstTypeInfo(allocator, exprType);
+            if (exprType.astType.* != .Pointer and exprType.astType.* != .ArraySlice) {
+                return ScanError.CannotFreeNonPointerType;
+            }
+
+            return try utils.astTypesToInfo(allocator, .Void, true);
         },
         .ArrayInit => |init| {
             var initNodeType = try scanNode(allocator, compInfo, init.initNode, withGenDef);

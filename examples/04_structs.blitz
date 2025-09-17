@@ -13,3 +13,6 @@ let val = M<Box>{
 };
 
 thing(val);
+
+let mHeap: *Box = new Box {};
+delete mHeap;

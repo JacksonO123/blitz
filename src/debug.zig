@@ -371,6 +371,10 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: anytype) 
             try writer.writeAll("heap alloc ");
             try printNode(compInfo, alloc.node, writer);
         },
+        .HeapFree => |val| {
+            try writer.writeAll("heap free ");
+            try printNode(compInfo, val, writer);
+        },
         .StructPlaceholder => {
             try writer.writeAll("struct dec");
         },

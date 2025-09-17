@@ -521,6 +521,7 @@ const AstNodeVariants = enum {
     Pointer,
     Dereference,
     HeapAlloc,
+    HeapFree,
     ArrayInit,
 };
 
@@ -561,6 +562,7 @@ pub const AstNode = union(AstNodeVariants) {
     Pointer: PointerNode,
     Dereference: *AstNode,
     HeapAlloc: HeapAllocNode,
+    HeapFree: *AstNode,
     ArrayInit: ArrayInitNode,
 };
 
@@ -894,6 +896,13 @@ fn parseStatement(allocator: Allocator, compInfo: *CompInfo) (AstError || Alloca
         },
         .Continue => {
             return try createMut(AstNode, allocator, .Continue);
+        },
+        .Delete => {
+            const expr = try parseExpression(allocator, compInfo) orelse
+                return compInfo.logger.logError(AstError.ExpectedExpression);
+            return try createMut(AstNode, allocator, .{
+                .HeapFree = expr,
+            });
         },
         else => {
             return compInfo.logger.logError(AstError.UnexpectedToken);

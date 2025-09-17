@@ -139,6 +139,7 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         .Group,
         .Scope,
         .Dereference,
+        .HeapFree,
         => |val| {
             freeNode(allocator, val);
         },
