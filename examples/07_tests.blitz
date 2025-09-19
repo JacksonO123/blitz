@@ -1,5 +1,4 @@
-for (let mut i = 0; i < 10000; i++) {
-  continue;
-  let a = 2;
-  let c = 3;
+let mut i = 0;
+while (i < 10000) {
+  i = i + 1;
 }

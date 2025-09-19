@@ -22,6 +22,11 @@ const CodeGenError = error{
 
 const GenBytecodeError = CodeGenError || Allocator.Error || std.fmt.ParseIntError;
 
+const LoopCondInfo = struct {
+    prevCmpAsReg: bool,
+    isCompExpr: bool,
+};
+
 pub const InstructionVariants = enum(u8) {
     const Self = @This();
 
@@ -877,35 +882,19 @@ pub fn genBytecode(
                 _ = try genBytecode(allocator, genInfo, initNode);
             }
 
-            const prevCmpAsReg = genInfo.settings.outputCmpAsRegister;
-            const isCompExprType = if (loop.condition.* == .OpExpr)
-                switch (loop.condition.OpExpr.type) {
-                    .LessThan,
-                    .GreaterThan,
-                    .LessThanEq,
-                    .GreaterThanEq,
-                    .Equal,
-                    => true,
-                    else => false,
-                }
-            else
-                false;
-
-            if (isCompExprType) {
-                genInfo.settings.outputCmpAsRegister = false;
-            }
+            const condInfo = prepForLoopCondition(genInfo, loop.condition);
 
             try genInfo.pushLoopInfo();
             defer genInfo.popLoopInfo();
 
             const preConditionByteCount = genInfo.byteCounter;
             const condReg = try genBytecode(allocator, genInfo, loop.condition);
-            genInfo.settings.outputCmpAsRegister = prevCmpAsReg;
+            genInfo.settings.outputCmpAsRegister = condInfo.prevCmpAsReg;
 
             const preBodyByteCount = genInfo.byteCounter;
             var jumpEndInstr = Instr{ .JumpNE = .{} };
 
-            if (isCompExprType) {
+            if (condInfo.isCompExpr) {
                 const oppositeComp = loop.condition.OpExpr.type.getOppositeCompOp();
                 const jumpInstruction = try compOpToJump(oppositeComp, false);
                 jumpEndInstr = jumpInstruction;
@@ -928,6 +917,49 @@ pub fn genBytecode(
             allocator.free(oldContents);
             genInfo.setContinueByte();
             _ = try genBytecode(allocator, genInfo, loop.incNode);
+
+            const jumpEndDiff = @as(u16, @intCast(genInfo.byteCounter - preBodyByteCount));
+            setJumpAmount(jumpEndChunk, jumpEndDiff);
+
+            var jumpStartInstr = Instr{ .JumpBack = .{} };
+            const jumpStartDiff = @as(u16, @intCast(genInfo.byteCounter - preConditionByteCount));
+            jumpStartInstr.JumpBack.amount = jumpStartDiff;
+            _ = try genInfo.appendChunk(jumpStartInstr);
+        },
+        .WhileLoop => |loop| {
+            try genInfo.pushLoopInfo();
+            defer genInfo.popLoopInfo();
+
+            const condInfo = prepForLoopCondition(genInfo, loop.condition);
+
+            const preConditionByteCount = genInfo.byteCounter;
+            const condReg = try genBytecode(allocator, genInfo, loop.condition);
+
+            const preBodyByteCount = genInfo.byteCounter;
+            var jumpEndInstr = Instr{ .JumpNE = .{} };
+
+            if (condInfo.isCompExpr) {
+                const oppositeComp = loop.condition.OpExpr.type.getOppositeCompOp();
+                const jumpInstruction = try compOpToJump(oppositeComp, false);
+                jumpEndInstr = jumpInstruction;
+            } else {
+                var cmpInstr = Instr{ .CmpConstByte = .{} };
+                cmpInstr.CmpConstByte.reg = condReg orelse
+                    return CodeGenError.ReturnedRegisterNotFound;
+                cmpInstr.CmpConstByte.data = 1;
+                _ = try genInfo.appendChunk(cmpInstr);
+            }
+
+            const jumpEndChunk = try genInfo.appendChunk(jumpEndInstr);
+
+            try genInfo.pushScope();
+            _ = try genBytecode(allocator, genInfo, loop.body);
+            const oldContents = try genInfo.popScope();
+            for (oldContents) |oldReg| {
+                genInfo.releaseRegister(oldReg);
+            }
+            allocator.free(oldContents);
+            genInfo.setContinueByte();
 
             const jumpEndDiff = @as(u16, @intCast(genInfo.byteCounter - preBodyByteCount));
             setJumpAmount(jumpEndChunk, jumpEndDiff);
@@ -1009,6 +1041,31 @@ pub fn genBytecode(
     }
 
     return null;
+}
+
+fn prepForLoopCondition(genInfo: *GenInfo, condition: *blitzAst.AstNode) LoopCondInfo {
+    const prevCmpAsReg = genInfo.settings.outputCmpAsRegister;
+    const isCompExprType = if (condition.* == .OpExpr)
+        switch (condition.OpExpr.type) {
+            .LessThan,
+            .GreaterThan,
+            .LessThanEq,
+            .GreaterThanEq,
+            .Equal,
+            => true,
+            else => false,
+        }
+    else
+        false;
+
+    if (isCompExprType) {
+        genInfo.settings.outputCmpAsRegister = false;
+    }
+
+    return .{
+        .prevCmpAsReg = prevCmpAsReg,
+        .isCompExpr = isCompExprType,
+    };
 }
 
 fn setJumpAmount(chunk: *InstrChunk, amount: u16) void {
