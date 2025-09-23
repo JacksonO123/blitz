@@ -1063,6 +1063,19 @@ pub fn scanNode(
             return try utils.astTypesToInfo(allocator, .Void, true);
         },
         .ArrayInit => |init| {
+            try compInfo.pushScope(true);
+            defer compInfo.popScope();
+
+            if (init.indexIdent) |ident| {
+                const info = try utils.astTypesToInfo(allocator, .{ .Number = .U64 }, true);
+                try compInfo.setVariableType(ident, info, true);
+            }
+
+            if (init.ptrIdent) |ident| {
+                const info = try utils.astTypesToInfo(allocator, .{ .Number = .U64 }, true);
+                try compInfo.setVariableType(ident, info, true);
+            }
+
             var initNodeType = try scanNode(allocator, compInfo, init.initNode, withGenDef);
             initNodeType = try escapeVarInfoAndFree(allocator, initNodeType);
             defer free.freeAstTypeInfo(allocator, initNodeType);

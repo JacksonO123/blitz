@@ -30,9 +30,10 @@ const LoopCondInfo = struct {
 pub const InstructionVariants = enum(u8) {
     const Self = @This();
 
-    SetReg, // inst, reg, 8B data
-    SetRegHalf, // inst, reg, 4B data
-    SetRegByte, // inst, reg, 1B data
+    SetReg64, // inst, reg, 8B data
+    SetReg32, // inst, reg, 4B data
+    SetReg16, // inst, reg, 2B data
+    SetReg8, // inst, reg, 1B data
     Add, // inst, out reg, reg1, reg2
     Sub, // inst, out reg, reg1, reg2
     Mult, // inst, out reg, reg1, reg2
@@ -74,9 +75,10 @@ pub const InstructionVariants = enum(u8) {
 
     pub fn getInstrLen(self: Self) u8 {
         return switch (self) {
-            .SetReg => 10,
-            .SetRegHalf => 6,
-            .SetRegByte => 3,
+            .SetReg64 => 10,
+            .SetReg32 => 6,
+            .SetReg16 => 4,
+            .SetReg8 => 3,
             .Add, .Sub, .Mult => 4,
             .Jump,
             .JumpEQ,
@@ -112,9 +114,10 @@ pub const InstructionVariants = enum(u8) {
 
     pub fn toString(self: Self) []const u8 {
         return switch (self) {
-            .SetReg => "set_reg",
-            .SetRegHalf => "set_reg_half",
-            .SetRegByte => "set_reg_byte",
+            .SetReg64 => "set_reg_64",
+            .SetReg32 => "set_reg_32",
+            .SetReg16 => "set_reg_16",
+            .SetReg8 => "set_reg_8",
             .Add => "add",
             .Sub => "sub",
             .Mult => "mult",
@@ -195,9 +198,10 @@ const CmpSetRegInstr = TwoOpResultInstr;
 pub const Instr = union(InstructionVariants) {
     const Self = @This();
 
-    SetReg: SetRegInstr(u64),
-    SetRegHalf: SetRegInstr(u32),
-    SetRegByte: SetRegInstr(u8),
+    SetReg64: SetRegInstr(u64),
+    SetReg32: SetRegInstr(u32),
+    SetReg16: SetRegInstr(u16),
+    SetReg8: SetRegInstr(u8),
     Add: MathInstr,
     Sub: MathInstr,
     Mult: MathInstr,
@@ -720,28 +724,62 @@ pub fn genBytecode(
         .Value => |value| {
             switch (value) {
                 .RawNumber => |num| {
-                    switch (num.numType) {
-                        .U32 => {
-                            const reg = try genInfo.getAvailableReg();
-                            genInfo.reserveRegister(reg);
+                    var reg: ?u32 = null;
+                    const instr = switch (num.numType) {
+                        .U64 => {
+                            reg = try genInfo.getAvailableReg();
+                            genInfo.reserveRegister(reg.?);
 
-                            var instr = Instr{ .SetRegHalf = .{} };
-                            instr.SetRegHalf.reg = reg;
-                            instr.SetRegHalf.data = try std.fmt.parseInt(u32, num.digits, 10);
+                            var instr = Instr{ .SetReg64 = .{} };
+                            instr.SetReg64.reg = reg.?;
+                            instr.SetReg64.data = try std.fmt.parseInt(u64, num.digits, 10);
 
                             _ = try genInfo.appendChunk(instr);
                             return reg;
                         },
+                        .U32 => a: {
+                            reg = try genInfo.getAvailableReg();
+                            genInfo.reserveRegister(reg.?);
+
+                            var instr = Instr{ .SetReg32 = .{} };
+                            instr.SetReg32.reg = reg.?;
+                            instr.SetReg32.data = try std.fmt.parseInt(u32, num.digits, 10);
+
+                            break :a instr;
+                        },
+                        .U16 => a: {
+                            reg = try genInfo.getAvailableReg();
+                            genInfo.reserveRegister(reg.?);
+
+                            var instr = Instr{ .SetReg16 = .{} };
+                            instr.SetReg16.reg = reg.?;
+                            instr.SetReg16.data = try std.fmt.parseInt(u16, num.digits, 10);
+
+                            break :a instr;
+                        },
+                        .U8 => a: {
+                            reg = try genInfo.getAvailableReg();
+                            genInfo.reserveRegister(reg.?);
+
+                            var instr = Instr{ .SetReg8 = .{} };
+                            instr.SetReg8.reg = reg.?;
+                            instr.SetReg8.data = try std.fmt.parseInt(u8, num.digits, 10);
+
+                            break :a instr;
+                        },
                         else => utils.unimplemented(),
-                    }
+                    };
+
+                    _ = try genInfo.appendChunk(instr);
+                    return reg;
                 },
                 .Bool => |b| {
                     const reg = try genInfo.getAvailableReg();
                     genInfo.reserveRegister(reg);
 
-                    var instr = Instr{ .SetRegByte = .{} };
-                    instr.SetRegByte.reg = reg;
-                    instr.SetRegByte.data = @as(u8, @intFromBool(b));
+                    var instr = Instr{ .SetReg8 = .{} };
+                    instr.SetReg8.reg = reg;
+                    instr.SetReg8.data = @as(u8, @intFromBool(b));
 
                     _ = try genInfo.appendChunk(instr);
                     return reg;
@@ -1170,15 +1208,19 @@ fn writeChunk(chunk: *InstrChunk, writer: anytype) !void {
     try writer.writeByte(chunk.data.getInstrByte());
 
     switch (chunk.data) {
-        .SetReg => |inst| {
+        .SetReg64 => |inst| {
             try writer.writeByte(@intCast(inst.reg));
             try writeNumber(u64, inst.data, writer);
         },
-        .SetRegHalf => |inst| {
+        .SetReg32 => |inst| {
             try writer.writeByte(@intCast(inst.reg));
             try writeNumber(u32, inst.data, writer);
         },
-        .SetRegByte => |inst| {
+        .SetReg16 => |inst| {
+            try writer.writeByte(@intCast(inst.reg));
+            try writeNumber(u32, inst.data, writer);
+        },
+        .SetReg8 => |inst| {
             try writer.writeByte(@intCast(inst.reg));
             try writeNumber(u8, inst.data, writer);
         },

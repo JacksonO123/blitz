@@ -482,6 +482,8 @@ const ArrayInitNode = struct {
     size: []u8,
     initType: AstTypeInfo,
     initNode: *AstNode,
+    indexIdent: ?[]const u8,
+    ptrIdent: ?[]const u8,
 };
 
 const AstNodeVariants = enum {
@@ -599,6 +601,8 @@ pub const AstError = error{
     FunctionDefinedInLowerScope,
     UnexpectedDeriveType,
     NegativeNumberWithUnsignedTypeConflict,
+    ExpectedIdentifierForArrayInitIndex,
+    ExpectedIdentifierForArrayInitPtr,
 };
 
 const RegisterStructsAndErrorsResult = struct {
@@ -1398,29 +1402,12 @@ fn parseExpressionUtil(
         .LBracket => return parseArray(allocator, compInfo),
         .True => return try createBoolNode(allocator, true),
         .False => return try createBoolNode(allocator, false),
-        .U8,
-        .U16,
-        .U32,
-        .U64,
-        .U128,
-        .F32,
-        .F64,
-        .F128,
-        .I8,
-        .I16,
-        .I32,
-        .I64,
-        .I128,
-        .StringType,
-        .CharType,
-        .Bool,
-        => {
-            compInfo.tokens.returnToken();
-            const toType = try parseType(allocator, compInfo);
+        .Cast => {
             try compInfo.tokens.expectToken(.LParen);
+            const toType = try parseType(allocator, compInfo);
+            try compInfo.tokens.expectToken(.RParen);
             const inner = try parseExpression(allocator, compInfo) orelse
                 return compInfo.logger.logError(AstError.ExpectedExpression);
-            try compInfo.tokens.expectToken(.RParen);
 
             return try createMut(AstNode, allocator, .{
                 .Cast = .{
@@ -1475,7 +1462,39 @@ fn parseArray(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
                 compInfo.tokens.returnToken();
                 break :a;
             };
+
             try compInfo.tokens.expectToken(.With);
+
+            var indexIdent: ?[]const u8 = null;
+            var ptrIdent: ?[]const u8 = null;
+            var hasIdents = false;
+            if ((try compInfo.tokens.peak()).type == .LParen) b: {
+                hasIdents = true;
+
+                _ = try compInfo.tokens.take();
+                const indexToken = try compInfo.tokens.take();
+                if (indexToken.type != .Identifier) {
+                    return compInfo.logger.logError(AstError.ExpectedIdentifierForArrayInitIndex);
+                }
+                indexIdent = compInfo.getTokString(indexToken);
+
+                if ((try compInfo.tokens.peak()).type != .Comma) {
+                    break :b;
+                }
+
+                _ = try compInfo.tokens.take();
+
+                const ptrToken = try compInfo.tokens.take();
+                if (ptrToken.type != .Identifier) {
+                    return compInfo.logger.logError(AstError.ExpectedIdentifierForArrayInitPtr);
+                }
+                ptrIdent = compInfo.getTokString(ptrToken);
+            }
+
+            if (hasIdents) {
+                try compInfo.tokens.expectToken(.RParen);
+            }
+
             const initNode = try parseExpression(allocator, compInfo) orelse
                 return compInfo.logger.logError(AstError.ExpectedExpression);
 
@@ -1488,6 +1507,8 @@ fn parseArray(allocator: Allocator, compInfo: *CompInfo) !*AstNode {
                     .size = try string.cloneString(allocator, compInfo.getTokString(current)),
                     .initType = arrType,
                     .initNode = initNode,
+                    .indexIdent = indexIdent,
+                    .ptrIdent = ptrIdent,
                 },
             });
         },

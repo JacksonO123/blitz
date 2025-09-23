@@ -71,21 +71,28 @@ fn printBytecodeSlice(bytecode: []u8, writer: anytype) !void {
     try writer.writeAll(inst.toString());
 
     switch (inst) {
-        .SetReg => {
+        .SetReg64 => {
             try writer.writeAll(" r");
             try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
             try writer.writeAll(" ");
             const num = bytecode[2..10];
             try writeHexDecNumberSlice(num, writer);
         },
-        .SetRegHalf => {
+        .SetReg32 => {
             try writer.writeAll(" r");
             try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
             try writer.writeAll(" ");
             const num = bytecode[2..6];
             try writeHexDecNumberSlice(num, writer);
         },
-        .SetRegByte, .CmpConstByte => {
+        .SetReg16 => {
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.writeAll(" ");
+            const num = bytecode[2..4];
+            try writeHexDecNumberSlice(num, writer);
+        },
+        .SetReg8, .CmpConstByte => {
             try writer.writeAll(" r");
             try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
             try writer.writeAll(" ");

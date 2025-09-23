@@ -215,5 +215,7 @@ fn astErrorToString(errorType: AstError) []const u8 {
         AstError.FunctionDefinedInLowerScope => "function defined in lower scope",
         AstError.UnexpectedDeriveType => "unexpected derive type",
         AstError.NegativeNumberWithUnsignedTypeConflict => "negative number with unsigned type conflict",
+        AstError.ExpectedIdentifierForArrayInitIndex => "expected identifier for array init index",
+        AstError.ExpectedIdentifierForArrayInitPtr => "expected identifier for array init ptr",
     };
 }

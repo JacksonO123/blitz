@@ -576,6 +576,8 @@ pub fn cloneAstNode(
                     init.initNode,
                     replaceGenerics,
                 ),
+                .indexIdent = init.indexIdent,
+                .ptrIdent = init.ptrIdent,
             },
         },
     }

@@ -762,19 +762,25 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: anytype) !void {
     try writer.writeAll(chunk.data.toString());
 
     switch (chunk.data) {
-        .SetReg => |inst| {
+        .SetReg64 => |inst| {
             try writer.writeAll(" r");
             try std.fmt.formatInt(inst.reg, 10, .lower, .{}, writer);
             try writer.writeAll(" ");
             try writeHexDecNumber(u64, inst.data, writer);
         },
-        .SetRegHalf => |inst| {
+        .SetReg32 => |inst| {
             try writer.writeAll(" r");
             try std.fmt.formatInt(inst.reg, 10, .lower, .{}, writer);
             try writer.writeAll(" ");
             try writeHexDecNumber(u32, inst.data, writer);
         },
-        .SetRegByte => |inst| {
+        .SetReg16 => |inst| {
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(inst.reg, 10, .lower, .{}, writer);
+            try writer.writeAll(" ");
+            try writeHexDecNumber(u16, inst.data, writer);
+        },
+        .SetReg8 => |inst| {
             try writer.writeAll(" r");
             try std.fmt.formatInt(inst.reg, 10, .lower, .{}, writer);
             try writer.writeAll(" ");

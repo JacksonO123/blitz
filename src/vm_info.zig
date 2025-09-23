@@ -8,3 +8,6 @@ pub const REGISTER_SIZE = 8; // bytes
 pub const StartStackType = u32;
 pub const startStackSize = @sizeOf(StartStackType);
 pub const VM_INFO_BYTECODE_LEN = 1 + startStackSize;
+
+// behavior
+pub const ARRAY_INIT_UNROLL_LIMIT = 1024;

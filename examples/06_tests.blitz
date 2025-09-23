@@ -1,7 +1,1 @@
-let a = 10;
-let b = 12;
-let expr = a < b;
-
-if (expr) {
-  let c = 5;
-}
+let a = 10u16;

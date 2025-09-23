@@ -69,6 +69,6 @@ pub fn intToHex(num: usize) u8 {
     return if (num < 10) ('0' + @as(u8, @intCast(num))) else ('a' + @as(u8, @intCast(num - 10)));
 }
 
-pub fn unimplemented() void {
+pub inline fn unimplemented() void {
     unreachable;
 }

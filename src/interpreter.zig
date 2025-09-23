@@ -103,15 +103,19 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
             .Mov => {
                 runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.registers[bytecode[current + 2]];
             },
-            .SetReg => {
+            .SetReg64 => {
                 const value = std.mem.readInt(u64, @ptrCast(bytecode[current + 2 .. current + 10]), .little);
                 runtimeInfo.registers[bytecode[current + 1]] = value;
             },
-            .SetRegHalf => {
+            .SetReg32 => {
                 const value = std.mem.readInt(u32, @ptrCast(bytecode[current + 2 .. current + 6]), .little);
                 runtimeInfo.registers[bytecode[current + 1]] = value;
             },
-            .SetRegByte => {
+            .SetReg16 => {
+                const value = std.mem.readInt(u16, @ptrCast(bytecode[current + 2 .. current + 6]), .little);
+                runtimeInfo.registers[bytecode[current + 1]] = value;
+            },
+            .SetReg8 => {
                 runtimeInfo.registers[bytecode[current + 1]] = bytecode[current + 2];
             },
             .Add => {
