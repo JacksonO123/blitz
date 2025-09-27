@@ -68,6 +68,7 @@ pub const InstructionVariants = enum(u8) {
     SubSp, // inst, 4B data
     AddSpReg, // inst, reg
     SubSpReg, // inst, reg
+    StoreOffsetByte, // inst, reg, to reg (ptr), offset 1B
 
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
@@ -109,6 +110,7 @@ pub const InstructionVariants = enum(u8) {
             .Xor, .XorConstByte => 4,
             .AddSp, .SubSp => 5,
             .AddSpReg, .SubSpReg => 2,
+            .StoreOffsetByte => 4,
         };
     }
 
@@ -152,6 +154,7 @@ pub const InstructionVariants = enum(u8) {
             .SubSp => "sub_sp",
             .AddSpReg => "add_sp_reg",
             .SubSpReg => "sub_sp_reg",
+            .StoreOffsetByte => "store_offset_byte",
         };
     }
 };
@@ -243,6 +246,11 @@ pub const Instr = union(InstructionVariants) {
     SubSp: SpInstr,
     AddSpReg: SpRegInstr,
     SubSpReg: SpRegInstr,
+    StoreOffsetByte: struct {
+        fromReg: u32 = 0,
+        toReg: u32 = 0,
+        offset: u8 = 0,
+    },
 
     pub fn getInstrLen(self: Self) u8 {
         const active = std.meta.activeTag(self);
@@ -619,6 +627,11 @@ pub const GenInfo = struct {
         return self.regScopes.popScope();
     }
 
+    pub fn popScopeAndRelease(self: *Self) !void {
+        const old = try self.popScope();
+        self.releaseRegisters(old);
+    }
+
     pub fn pushLoopInfo(self: *Self) !void {
         const newLoop = try LoopInfo.init(self.allocator);
         const newLoopPtr = try utils.createMut(LoopInfo, self.allocator, newLoop);
@@ -724,48 +737,33 @@ pub fn genBytecode(
         .Value => |value| {
             switch (value) {
                 .RawNumber => |num| {
-                    var reg: ?u32 = null;
+                    const reg = try genInfo.getAvailableReg();
+                    genInfo.reserveRegister(reg);
+
                     const instr = switch (num.numType) {
-                        .U64 => {
-                            reg = try genInfo.getAvailableReg();
-                            genInfo.reserveRegister(reg.?);
-
-                            var instr = Instr{ .SetReg64 = .{} };
-                            instr.SetReg64.reg = reg.?;
-                            instr.SetReg64.data = try std.fmt.parseInt(u64, num.digits, 10);
-
-                            _ = try genInfo.appendChunk(instr);
-                            return reg;
+                        .U64 => Instr{
+                            .SetReg64 = .{
+                                .reg = reg,
+                                .data = try std.fmt.parseInt(u64, num.digits, 10),
+                            },
                         },
-                        .U32 => a: {
-                            reg = try genInfo.getAvailableReg();
-                            genInfo.reserveRegister(reg.?);
-
-                            var instr = Instr{ .SetReg32 = .{} };
-                            instr.SetReg32.reg = reg.?;
-                            instr.SetReg32.data = try std.fmt.parseInt(u32, num.digits, 10);
-
-                            break :a instr;
+                        .U32 => Instr{
+                            .SetReg32 = .{
+                                .reg = reg,
+                                .data = try std.fmt.parseInt(u32, num.digits, 10),
+                            },
                         },
-                        .U16 => a: {
-                            reg = try genInfo.getAvailableReg();
-                            genInfo.reserveRegister(reg.?);
-
-                            var instr = Instr{ .SetReg16 = .{} };
-                            instr.SetReg16.reg = reg.?;
-                            instr.SetReg16.data = try std.fmt.parseInt(u16, num.digits, 10);
-
-                            break :a instr;
+                        .U16 => Instr{
+                            .SetReg16 = .{
+                                .reg = reg,
+                                .data = try std.fmt.parseInt(u16, num.digits, 10),
+                            },
                         },
-                        .U8 => a: {
-                            reg = try genInfo.getAvailableReg();
-                            genInfo.reserveRegister(reg.?);
-
-                            var instr = Instr{ .SetReg8 = .{} };
-                            instr.SetReg8.reg = reg.?;
-                            instr.SetReg8.data = try std.fmt.parseInt(u8, num.digits, 10);
-
-                            break :a instr;
+                        .U8 => Instr{
+                            .SetReg8 = .{
+                                .reg = reg,
+                                .data = try std.fmt.parseInt(u8, num.digits, 10),
+                            },
                         },
                         else => utils.unimplemented(),
                     };
@@ -777,12 +775,71 @@ pub fn genBytecode(
                     const reg = try genInfo.getAvailableReg();
                     genInfo.reserveRegister(reg);
 
-                    var instr = Instr{ .SetReg8 = .{} };
-                    instr.SetReg8.reg = reg;
-                    instr.SetReg8.data = @as(u8, @intFromBool(b));
+                    const instr = Instr{
+                        .SetReg8 = .{
+                            .reg = reg,
+                            .data = @as(u8, @intFromBool(b)),
+                        },
+                    };
 
                     _ = try genInfo.appendChunk(instr);
                     return reg;
+                },
+                .Char => |ch| {
+                    const reg = try genInfo.getAvailableReg();
+                    genInfo.reserveRegister(reg);
+
+                    var instr = Instr{ .SetReg8 = .{} };
+                    instr.SetReg8.reg = reg;
+                    instr.SetReg8.data = ch;
+
+                    _ = try genInfo.appendChunk(instr);
+                    return reg;
+                },
+                .Number => |num| {
+                    const reg = try genInfo.getAvailableReg();
+                    genInfo.reserveRegister(reg);
+
+                    const instr = switch (num) {
+                        .Char, .U8 => |byte| Instr{
+                            .SetReg8 = .{
+                                .reg = reg,
+                                .data = byte,
+                            },
+                        },
+                        .U64 => |data| Instr{
+                            .SetReg64 = .{
+                                .reg = reg,
+                                .data = data,
+                            },
+                        },
+                        .U32 => |data| Instr{
+                            .SetReg32 = .{
+                                .reg = reg,
+                                .data = data,
+                            },
+                        },
+                        .U16 => |data| Instr{
+                            .SetReg16 = .{
+                                .reg = reg,
+                                .data = data,
+                            },
+                        },
+                        else => utils.unimplemented(),
+                    };
+
+                    _ = try genInfo.appendChunk(instr);
+                    return reg;
+                },
+                .ArraySlice => |items| {
+                    for (items) |item| {
+                        try genInfo.pushScope();
+
+                        const reg = try genBytecode(allocator, genInfo, item);
+                        _ = reg;
+
+                        try genInfo.popScopeAndRelease();
+                    }
                 },
                 else => {},
             }
@@ -816,7 +873,7 @@ pub fn genBytecode(
                         .Add => .{ .Add = mathInstr },
                         .Sub => .{ .Sub = mathInstr },
                         .Mult => .{ .Mult = mathInstr },
-                        else => unreachable,
+                        else => utils.unimplemented(),
                     };
                 },
                 .LessThan,
@@ -869,7 +926,7 @@ pub fn genBytecode(
 
                     break :a instr;
                 },
-                else => unreachable,
+                else => utils.unimplemented(),
             };
 
             _ = try genInfo.appendChunk(buf);
@@ -1283,6 +1340,11 @@ fn writeChunk(chunk: *InstrChunk, writer: anytype) !void {
         },
         .AddSpReg, .SubSpReg => |inst| {
             try writeNumber(u32, inst.amount, writer);
+        },
+        .StoreOffsetByte => |inst| {
+            try writer.writeByte(@intCast(inst.fromReg));
+            try writer.writeByte(@intCast(inst.toReg));
+            try writer.writeByte(inst.offset);
         },
     }
 }

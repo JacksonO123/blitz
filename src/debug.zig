@@ -876,6 +876,14 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: anytype) !void {
             try writer.writeAll(" r");
             try std.fmt.formatInt(inst.amount, 10, .lower, .{}, writer);
         },
+        .StoreOffsetByte => |inst| {
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(inst.fromReg, 10, .lower, .{}, writer);
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(inst.fromReg, 10, .lower, .{}, writer);
+            try writer.writeByte(' ');
+            try writeHexDecNumber(u8, inst.offset, writer);
+        },
     }
 
     try writer.writeByte('\n');

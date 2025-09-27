@@ -175,6 +175,14 @@ fn printBytecodeSlice(bytecode: []u8, writer: anytype) !void {
             try writer.writeAll(" r");
             try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
         },
+        .StoreOffsetByte => {
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.writeAll(" r");
+            try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[3..4], writer);
+        },
     }
 
     try writer.writeByte('\n');

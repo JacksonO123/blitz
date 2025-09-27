@@ -13,7 +13,7 @@ const AutoHashMap = std.AutoHashMap;
 const AstError = blitzAst.AstError;
 const ScanError = scanner.ScanError;
 
-const bufferedWriterSize = 4096;
+const bufferedWriterSize = 1024 * 32;
 pub const BufferedWriterType = std.io.BufferedWriter(bufferedWriterSize, std.fs.File.Writer);
 
 pub fn getBufferedWriter() BufferedWriterType {
