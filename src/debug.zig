@@ -6,13 +6,13 @@ const tokenizer = blitz.tokenizer;
 const codegen = blitz.codegen;
 const blitzCompInfo = blitz.compInfo;
 const vmInfo = blitz.vmInfo;
-const CompInfo = blitzCompInfo.CompInfo;
 const GenInfo = codegen.GenInfo;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
+const Context = blitz.Context;
 
-pub fn printAst(compInfo: *CompInfo, ast: blitzAst.Ast, writer: *Writer) !void {
-    try printNode(compInfo, ast.root, writer);
+pub fn printAst(context: *Context, ast: blitzAst.Ast, writer: *Writer) !void {
+    try printNode(context, ast.root, writer);
 }
 
 pub fn printStructAndErrorNames(names: blitzAst.HoistedNames, writer: *Writer) !void {
@@ -30,15 +30,15 @@ pub fn printStructAndErrorNames(names: blitzAst.HoistedNames, writer: *Writer) !
     try writer.writeAll("------------\n");
 }
 
-pub fn printTypeInfo(compInfo: *CompInfo, info: blitzAst.AstTypeInfo, writer: *Writer) !void {
+pub fn printTypeInfo(context: *Context, info: blitzAst.AstTypeInfo, writer: *Writer) !void {
     if (!info.isConst) {
         try writer.writeAll("mut ");
     }
-    try printType(compInfo, info.astType, writer);
+    try printType(context, info.astType, writer);
 }
 
 pub fn printType(
-    compInfo: *CompInfo,
+    context: *Context,
     typeNode: *const blitzAst.AstTypes,
     writer: *Writer,
 ) anyerror!void {
@@ -51,26 +51,26 @@ pub fn printType(
         .Bool => try writer.writeAll("bool"),
         .VarInfo => |info| {
             try writer.writeAll("var info ");
-            try printTypeInfo(compInfo, info, writer);
+            try printTypeInfo(context, info, writer);
         },
         .ArraySlice => |arr| {
             try writer.writeAll("ArraySlice<");
             if (arr.size) |size| {
-                try printNode(compInfo, size, writer);
+                try printNode(context, size, writer);
             } else {
                 try writer.writeAll("unknown");
             }
             try writer.writeAll(", ");
-            try printTypeInfo(compInfo, arr.type, writer);
+            try printTypeInfo(context, arr.type, writer);
             try writer.writeAll(">");
         },
         .Pointer => |ptr| {
             try writer.writeAll("*");
-            try printTypeInfo(compInfo, ptr, writer);
+            try printTypeInfo(context, ptr, writer);
         },
         .Nullable => |n| {
             try writer.writeAll("?");
-            try printTypeInfo(compInfo, n, writer);
+            try printTypeInfo(context, n, writer);
         },
         .Number => |num| {
             try writer.writeAll(num.toString());
@@ -87,7 +87,7 @@ pub fn printType(
             }
 
             for (custom.generics, 0..) |generic, index| {
-                try printTypeInfo(compInfo, generic, writer);
+                try printTypeInfo(context, generic, writer);
 
                 if (index < custom.generics.len - 1) {
                     try writer.writeAll(", ");
@@ -109,7 +109,7 @@ pub fn printType(
             try writer.writeAll("\"");
 
             if (func.generics) |generics| {
-                try printGenerics(compInfo, generics, writer);
+                try printGenerics(context, generics, writer);
             }
 
             try writer.writeAll(" (");
@@ -118,7 +118,7 @@ pub fn printType(
                 try writer.writeAll("(");
                 try writer.writeAll(param.name);
                 try writer.writeAll(")[");
-                try printTypeInfo(compInfo, param.type, writer);
+                try printTypeInfo(context, param.type, writer);
                 try writer.writeAll("]");
 
                 if (index < func.params.len - 1) {
@@ -127,7 +127,7 @@ pub fn printType(
             }
 
             try writer.writeAll(" ");
-            try printTypeInfo(compInfo, func.returnType, writer);
+            try printTypeInfo(context, func.returnType, writer);
 
             try writer.writeAll(")");
         },
@@ -142,7 +142,7 @@ pub fn printType(
             try writer.writeAll(")");
             if (err.payload) |payload| {
                 try writer.writeAll("[");
-                try printTypeInfo(compInfo, payload, writer);
+                try printTypeInfo(context, payload, writer);
                 try writer.writeAll("]");
             }
         },
@@ -157,7 +157,7 @@ pub fn printType(
 }
 
 fn printValue(
-    compInfo: *CompInfo,
+    context: *Context,
     value: *const blitzAst.AstValues,
     writer: *Writer,
 ) anyerror!void {
@@ -169,7 +169,7 @@ fn printValue(
             try writer.writeAll("[ArraySlice]([");
 
             for (arr, 0..) |val, index| {
-                try printNode(compInfo, val, writer);
+                try printNode(context, val, writer);
 
                 if (index < arr.len - 1) {
                     try writer.writeAll(", ");
@@ -230,17 +230,17 @@ fn printAstNumber(num: blitzAst.AstNumber, writer: *Writer) !void {
     };
 }
 
-pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) anyerror!void {
+pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) anyerror!void {
     switch (node.*) {
         .IndexValue => |index| {
             try writer.writeAll("indexing ");
-            try printNode(compInfo, index.value, writer);
+            try printNode(context, index.value, writer);
             try writer.writeAll(" with ");
-            try printNode(compInfo, index.index, writer);
+            try printNode(context, index.index, writer);
         },
         .OpExpr => |op| {
             try writer.writeAll("(");
-            try printNode(compInfo, op.left, writer);
+            try printNode(context, op.left, writer);
             try writer.writeAll(") (");
 
             const opString = switch (op.type) {
@@ -263,17 +263,17 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) 
             try writer.writeAll(")");
 
             try writer.writeAll(" (");
-            try printNode(compInfo, op.right, writer);
+            try printNode(context, op.right, writer);
             try writer.writeAll(")");
         },
         .IncOne => |val| {
             try writer.writeAll("(");
-            try printNode(compInfo, val, writer);
+            try printNode(context, val, writer);
             try writer.writeAll("++)");
         },
         .DecOne => |val| {
             try writer.writeAll("(");
-            try printNode(compInfo, val, writer);
+            try printNode(context, val, writer);
             try writer.writeAll("--)");
         },
         .VarEqOp => |op| {
@@ -294,7 +294,7 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) 
             };
             try writer.writeAll(opString);
             try writer.writeAll(" ");
-            try printNode(compInfo, op.value, writer);
+            try printNode(context, op.value, writer);
             try writer.writeAll(")");
         },
         .FuncReference => |ref| {
@@ -311,7 +311,7 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) 
             try writer.writeAll("accessing ");
             try writer.writeAll(access.property);
             try writer.writeAll(" from ");
-            try printNode(compInfo, access.value, writer);
+            try printNode(context, access.value, writer);
         },
         .VarDec => |*dec| {
             try writer.writeAll("declare (");
@@ -320,37 +320,37 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) 
             try writer.writeAll(dec.name);
             try writer.writeAll(") = ");
 
-            try printNode(compInfo, dec.setNode, writer);
+            try printNode(context, dec.setNode, writer);
 
             if (dec.annotation != null) {
                 try writer.writeAll(" with annotation: ");
-                try printTypeInfo(compInfo, dec.annotation.?, writer);
+                try printTypeInfo(context, dec.annotation.?, writer);
             }
         },
         .ValueSet => |set| {
             try writer.writeAll("set ");
-            try printNode(compInfo, set.value, writer);
+            try printNode(context, set.value, writer);
             try writer.writeAll(" to ");
-            try printNode(compInfo, set.setNode, writer);
+            try printNode(context, set.setNode, writer);
         },
         .Value => |*val| {
-            try printValue(compInfo, val, writer);
+            try printValue(context, val, writer);
         },
         .Type => |*t| {
-            try printType(compInfo, t, writer);
+            try printType(context, t, writer);
         },
         .Seq => |*seq| {
             if (seq.nodes.len == 0) {
                 try writer.writeAll("(empty seq)");
             } else {
-                try printNodes(compInfo, seq.nodes, writer);
+                try printNodes(context, seq.nodes, writer);
             }
         },
         .Cast => |*cast| {
             try writer.writeAll("cast ");
-            try printNode(compInfo, cast.node, writer);
+            try printNode(context, cast.node, writer);
             try writer.writeAll(" to ");
-            try printTypeInfo(compInfo, cast.toType, writer);
+            try printTypeInfo(context, cast.toType, writer);
         },
         .Variable => |variable| {
             try writer.writeAll("[variable: (");
@@ -362,19 +362,19 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) 
                 try writer.writeAll("mut ");
             }
             try writer.writeAll("pointer to ");
-            try printNode(compInfo, ptr.node, writer);
+            try printNode(context, ptr.node, writer);
         },
         .Dereference => |deref| {
             try writer.writeAll("dereference ");
-            try printNode(compInfo, deref, writer);
+            try printNode(context, deref, writer);
         },
         .HeapAlloc => |alloc| {
             try writer.writeAll("heap alloc ");
-            try printNode(compInfo, alloc.node, writer);
+            try printNode(context, alloc.node, writer);
         },
         .HeapFree => |val| {
             try writer.writeAll("heap free ");
-            try printNode(compInfo, val, writer);
+            try printNode(context, val, writer);
         },
         .StructPlaceholder => {
             try writer.writeAll("struct dec");
@@ -386,25 +386,25 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) 
 
             if (dec.generics.len > 0) {
                 try writer.writeAll(" with generics [");
-                try printGenerics(compInfo, dec.generics, writer);
+                try printGenerics(context, dec.generics, writer);
                 try writer.writeAll("]");
             }
 
             if (dec.attributes.len > 0) {
                 try writer.writeAll(" with attributes [");
-                try printAttributes(compInfo, dec.attributes, writer);
+                try printAttributes(context, dec.attributes, writer);
                 try writer.writeAll("]");
             }
         },
         .IfStatement => |statement| {
             try writer.writeAll("if ");
-            try printNode(compInfo, statement.condition, writer);
+            try printNode(context, statement.condition, writer);
             try writer.writeAll(" then -- body --\n");
-            try printNode(compInfo, statement.body, writer);
+            try printNode(context, statement.body, writer);
             try writer.writeAll(" -- body end --\n");
 
             if (statement.fallback) |fallback| {
-                try printIfFallback(compInfo, fallback, writer);
+                try printIfFallback(context, fallback, writer);
             }
         },
         .ForLoop => |loop| {
@@ -412,40 +412,40 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) 
 
             if (loop.initNode) |init| {
                 try writer.writeAll(" init ");
-                try printNode(compInfo, init, writer);
+                try printNode(context, init, writer);
             }
 
             try writer.writeAll(" with condition ");
-            try printNode(compInfo, loop.condition, writer);
+            try printNode(context, loop.condition, writer);
 
             try writer.writeAll(" with inc ");
-            try printNode(compInfo, loop.incNode, writer);
+            try printNode(context, loop.incNode, writer);
 
             try writer.writeAll(" -- body --\n");
-            try printNode(compInfo, loop.body, writer);
+            try printNode(context, loop.body, writer);
             try writer.writeAll(" -- body end --\n");
         },
         .WhileLoop => |loop| {
             try writer.writeAll("while ");
-            try printNode(compInfo, loop.condition, writer);
+            try printNode(context, loop.condition, writer);
             try writer.writeAll(" -- body --\n");
-            try printNode(compInfo, loop.body, writer);
+            try printNode(context, loop.body, writer);
             try writer.writeAll(" -- body end --\n");
         },
         .NoOp => {
             try writer.writeAll("(noop)");
         },
         .FuncDec => |name| {
-            const dec = compInfo.getFunctionAsGlobal(name).?;
-            try printFuncDec(compInfo, dec, writer);
+            const dec = context.compInfo.getFunctionAsGlobal(name).?;
+            try printFuncDec(context, dec, writer);
         },
         .FuncCall => |call| {
             try writer.writeAll("calling ");
-            try printNode(compInfo, call.func, writer);
+            try printNode(context, call.func, writer);
             try writer.writeAll(" with params [");
 
             for (call.params, 0..) |param, index| {
-                try printNode(compInfo, param, writer);
+                try printNode(context, param, writer);
                 if (index < call.params.len - 1) {
                     try writer.writeAll(", ");
                 }
@@ -455,7 +455,7 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) 
         },
         .ReturnNode => |ret| {
             try writer.writeAll("return ");
-            try printNode(compInfo, ret, writer);
+            try printNode(context, ret, writer);
         },
         .StructInit => |init| {
             try writer.writeAll("initializing (");
@@ -466,7 +466,7 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) 
                 try writer.writeAll("[generics: ");
 
                 for (init.generics, 0..) |generic, index| {
-                    try printTypeInfo(compInfo, generic, writer);
+                    try printTypeInfo(context, generic, writer);
 
                     if (index < init.generics.len - 1) {
                         try writer.writeAll(", ");
@@ -481,7 +481,7 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) 
             for (init.attributes, 0..) |attr, index| {
                 try writer.writeAll(attr.name);
                 try writer.writeAll(": ");
-                try printNode(compInfo, attr.value, writer);
+                try printNode(context, attr.value, writer);
                 if (index < init.attributes.len - 1) {
                     try writer.writeAll(", ");
                 }
@@ -490,7 +490,7 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) 
         },
         .Bang => |bang| {
             try writer.writeAll("[bang]!");
-            try printNode(compInfo, bang, writer);
+            try printNode(context, bang, writer);
         },
         .ErrorDec => |def| try printRegisteredError(def, writer),
         .Error => |err| {
@@ -500,21 +500,21 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) 
         },
         .Group => |group| {
             try writer.writeAll("[group](");
-            try printNode(compInfo, group, writer);
+            try printNode(context, group, writer);
             try writer.writeAll(")");
         },
         .Scope => |scope| {
             try writer.writeAll("\n--- entering scope ---\n");
-            try printNode(compInfo, scope, writer);
+            try printNode(context, scope, writer);
             try writer.writeAll("\n--- exiting scope ---\n");
         },
         .ArrayInit => |init| {
             try writer.writeAll("init array [");
             try writer.writeAll(init.size);
             try writer.writeAll("]");
-            try printTypeInfo(compInfo, init.initType, writer);
+            try printTypeInfo(context, init.initType, writer);
             try writer.writeAll(" with initializer ");
-            try printNode(compInfo, init.initNode, writer);
+            try printNode(context, init.initNode, writer);
         },
         .InferErrorVariant => |variant| {
             try writer.writeAll("infer error from variant ");
@@ -530,7 +530,7 @@ pub fn printNode(compInfo: *CompInfo, node: *blitzAst.AstNode, writer: *Writer) 
 }
 
 fn printIfFallback(
-    compInfo: *CompInfo,
+    context: *Context,
     fallback: *const blitzAst.IfFallback,
     writer: *Writer,
 ) anyerror!void {
@@ -538,36 +538,36 @@ fn printIfFallback(
 
     if (fallback.condition) |condition| {
         try writer.writeAll(" if ");
-        try printNode(compInfo, condition, writer);
+        try printNode(context, condition, writer);
     }
 
     try writer.writeAll("-- body --\n");
-    try printNode(compInfo, fallback.body, writer);
+    try printNode(context, fallback.body, writer);
     try writer.writeAll(" -- body end --\n");
 
     if (fallback.fallback) |innerFallback| {
-        try printIfFallback(compInfo, innerFallback, writer);
+        try printIfFallback(context, innerFallback, writer);
     }
 }
 
 pub fn printFuncDec(
-    compInfo: *CompInfo,
+    context: *Context,
     func: *const blitzAst.FuncDecNode,
     writer: *Writer,
 ) !void {
     try writer.writeAll("declare function [");
-    try printTypeInfo(compInfo, func.returnType, writer);
+    try printTypeInfo(context, func.returnType, writer);
     try writer.writeAll("] (");
     try writer.writeAll(func.name);
     try writer.writeAll(")");
     if (func.generics) |generics| {
         try writer.writeAll(" with generics [");
-        try printGenerics(compInfo, generics, writer);
+        try printGenerics(context, generics, writer);
         try writer.writeAll("]");
     }
 
     try writer.writeAll(" with params [");
-    try printParams(compInfo, func.params, writer);
+    try printParams(context, func.params, writer);
 
     if (func.capturedValues) |captured| {
         try writer.writeAll("] capturing [");
@@ -576,18 +576,18 @@ pub fn printFuncDec(
             try writer.writeAll("(");
             try writer.writeAll(item.key_ptr.*);
             try writer.writeAll(": ");
-            try printTypeInfo(compInfo, item.value_ptr.*, writer);
+            try printTypeInfo(context, item.value_ptr.*, writer);
             try writer.writeAll(")");
         }
     }
 
     try writer.writeAll("] -- body --\n");
-    try printNode(compInfo, func.body, writer);
+    try printNode(context, func.body, writer);
     try writer.writeAll(" -- body end --\n");
 }
 
 pub fn printAttributes(
-    compInfo: *CompInfo,
+    context: *Context,
     attrs: []blitzAst.StructAttribute,
     writer: *Writer,
 ) !void {
@@ -602,8 +602,8 @@ pub fn printAttributes(
         try writer.writeAll(") ");
 
         try switch (attr.attr) {
-            .Function => |func| printFuncDec(compInfo, func, writer),
-            .Member => |mem| printTypeInfo(compInfo, mem, writer),
+            .Function => |func| printFuncDec(context, func, writer),
+            .Member => |mem| printTypeInfo(context, mem, writer),
         };
 
         if (index < attrs.len - 1) {
@@ -612,7 +612,7 @@ pub fn printAttributes(
     }
 }
 
-fn printParams(compInfo: *CompInfo, params: []blitzAst.Parameter, writer: *Writer) !void {
+fn printParams(context: *Context, params: []blitzAst.Parameter, writer: *Writer) !void {
     if (params.len == 0) {
         try writer.writeAll("(no params)");
         return;
@@ -620,7 +620,7 @@ fn printParams(compInfo: *CompInfo, params: []blitzAst.Parameter, writer: *Write
 
     for (params, 0..) |param, index| {
         try writer.writeAll("[");
-        try printTypeInfo(compInfo, param.type, writer);
+        try printTypeInfo(context, param.type, writer);
         try writer.writeAll("](");
         try writer.writeAll(param.name);
         try writer.writeAll(")");
@@ -632,7 +632,7 @@ fn printParams(compInfo: *CompInfo, params: []blitzAst.Parameter, writer: *Write
 }
 
 pub fn printGenerics(
-    compInfo: *CompInfo,
+    context: *Context,
     generics: []blitzAst.GenericType,
     writer: *Writer,
 ) !void {
@@ -640,7 +640,7 @@ pub fn printGenerics(
         try writer.writeAll("[");
 
         if (generic.restriction) |restriction| {
-            try printTypeInfo(compInfo, restriction, writer);
+            try printTypeInfo(context, restriction, writer);
         } else {
             try writer.writeAll("any");
         }
@@ -655,9 +655,9 @@ pub fn printGenerics(
     }
 }
 
-fn printNodes(compInfo: *CompInfo, nodes: []*blitzAst.AstNode, writer: *Writer) anyerror!void {
+fn printNodes(context: *Context, nodes: []*blitzAst.AstNode, writer: *Writer) anyerror!void {
     for (nodes) |node| {
-        try printNode(compInfo, node, writer);
+        try printNode(context, node, writer);
         try writer.writeAll("\n");
     }
 }
@@ -682,7 +682,7 @@ pub fn printRegisteredErrors(errors: []*const blitzAst.ErrorDecNode, writer: *Wr
 }
 
 pub fn printRegisteredStructs(
-    compInfo: *CompInfo,
+    context: *Context,
     structs: []*blitzAst.StructDecNode,
     writer: *Writer,
 ) !void {
@@ -692,17 +692,17 @@ pub fn printRegisteredStructs(
 
         if (s.deriveType) |derived| {
             try writer.writeAll(" extending ");
-            try printTypeInfo(compInfo, derived, writer);
+            try printTypeInfo(context, derived, writer);
         }
 
         if (s.generics.len > 0) {
             try writer.writeAll(" with generics [");
-            try printGenerics(compInfo, s.generics, writer);
+            try printGenerics(context, s.generics, writer);
             try writer.writeAll("]");
         }
 
         try writer.writeAll(" with attributes [");
-        try printAttributes(compInfo, s.attributes, writer);
+        try printAttributes(context, s.attributes, writer);
         try writer.writeAll("]");
 
         try writer.writeAll("\n");

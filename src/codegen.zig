@@ -845,7 +845,9 @@ pub fn genBytecode(
         .OpExpr => |expr| {
             var leftReg: u32 = undefined;
 
-            const leftExprDeeper = blitzAst.getExprDepth(expr.left) > blitzAst.getExprDepth(expr.right);
+            const leftDepth = blitzAst.getExprDepth(expr.left);
+            const rightDepth = blitzAst.getExprDepth(expr.right);
+            const leftExprDeeper = leftDepth > rightDepth;
             if (leftExprDeeper) {
                 leftReg = try genBytecode(allocator, genInfo, expr.left) orelse
                     return CodeGenError.ReturnedRegisterNotFound;

@@ -19,6 +19,11 @@ pub const TokenizeError = error{
     CharTokenTooShort,
 };
 
+pub const TokenError = error{
+    ExpectedTokenFoundNothing,
+    UnexpectedToken,
+};
+
 const TokenVariants = enum {
     const Self = @This();
 
@@ -380,7 +385,7 @@ const CharUtil = struct {
 
     pub fn advance(self: *Self, amount: usize) !void {
         if (self.index + amount > self.chars.len) {
-            return self.logError(TokenizeError.ExpectedCharacterFoundNothing);
+            return TokenizeError.ExpectedCharacterFoundNothing;
         }
 
         self.index += amount;
@@ -388,7 +393,7 @@ const CharUtil = struct {
 
     pub fn take(self: *Self) !u8 {
         if (self.index == self.chars.len) {
-            return self.logError(TokenizeError.ExpectedCharacterFoundNothing);
+            return TokenizeError.ExpectedCharacterFoundNothing;
         }
 
         const char = self.chars[self.index];
@@ -412,7 +417,7 @@ const CharUtil = struct {
         return self.chars;
     }
 
-    pub fn logError(self: *Self, err: TokenizeError) TokenizeError {
+    pub fn logError(self: *Self, err: TokenizeError) void {
         const writer = self.writer;
         const errStr = tokenizeErrorToString(err);
 
@@ -433,18 +438,18 @@ const CharUtil = struct {
         }
 
         writer.writeAll("^\n") catch {};
-
-        return err;
     }
 };
 
 pub fn tokenize(allocator: Allocator, input: []const u8, writer: *Writer) ![]Token {
     var tokens = try ArrayList(Token).initCapacity(allocator, INIT_TOK_CAPACITY);
-    defer tokens.deinit(allocator);
     var charUtil = CharUtil.init(input, writer);
 
     while (charUtil.hasNext()) {
-        const token = try parseNextToken(&charUtil);
+        const token = parseNextToken(&charUtil) catch |e| {
+            charUtil.logError(e);
+            return e;
+        };
         if (token) |tok| {
             try tokens.append(allocator, tok);
         }
@@ -560,7 +565,7 @@ fn parseNextToken(chars: *CharUtil) !?Token {
             const next = try chars.peak();
             if (!std.ascii.isAlphabetic(next) and !isValidNameChar(next)) {
                 _ = try chars.take();
-                return chars.logError(TokenizeError.UnexpectedCharacter);
+                return TokenizeError.UnexpectedCharacter;
             }
 
             return Token.init(.Period, startIndex);
@@ -610,11 +615,11 @@ fn parseNextToken(chars: *CharUtil) !?Token {
             if (next == '\\') {
                 next = try chars.take();
             } else if (next == '\'') {
-                return chars.logError(TokenizeError.CharTokenTooShort);
+                return TokenizeError.CharTokenTooShort;
             }
 
             const endTick = try chars.take();
-            if (endTick != '\'') return chars.logError(TokenizeError.CharTokenTooLong);
+            if (endTick != '\'') return TokenizeError.CharTokenTooLong;
 
             return Token.initBounds(.CharToken, startIndex, chars.index);
         },
@@ -626,7 +631,7 @@ fn parseNextToken(chars: *CharUtil) !?Token {
                 current = next;
 
                 if (!chars.hasNext()) {
-                    return chars.logError(TokenizeError.NoClosingQuote);
+                    return TokenizeError.NoClosingQuote;
                 }
                 next = try chars.take();
             }
@@ -672,7 +677,7 @@ fn parseNextToken(chars: *CharUtil) !?Token {
                 return Token.initBounds(.Identifier, startIndex, endIndex);
             }
 
-            return chars.logError(TokenizeError.UnexpectedCharacter);
+            return TokenizeError.UnexpectedCharacter;
         },
     }
 }
@@ -688,14 +693,14 @@ fn parseNumber(chars: *CharUtil) !ParsedNumberInfo {
 
     var char = try chars.take();
     if (char == '.') {
-        return chars.logError(TokenizeError.UnexpectedCharacter);
+        return TokenizeError.UnexpectedCharacter;
     }
 
     var foundPeriod = false;
     while (std.ascii.isDigit(char) or char == '.') {
         if (char == '.') {
             if (foundPeriod) {
-                return chars.logError(TokenizeError.NumberHasTwoPeriods);
+                return TokenizeError.NumberHasTwoPeriods;
             }
 
             foundPeriod = true;
@@ -864,20 +869,16 @@ const TokenPosition = struct {
 pub const TokenUtil = struct {
     const Self = @This();
 
-    allocator: Allocator,
     pos: TokenPosition,
     tokens: []Token,
-    logger: *Logger,
 
-    pub fn init(allocator: Allocator, logger: *Logger, tokens: []Token) Self {
+    pub fn init(tokens: []Token) Self {
         return Self{
-            .allocator = allocator,
             .pos = .{
                 .index = 0,
                 .currentLine = 0,
             },
             .tokens = tokens,
-            .logger = logger,
         };
     }
 
@@ -900,7 +901,7 @@ pub const TokenUtil = struct {
 
     pub fn takeFixed(self: *Self) !Token {
         if (self.pos.index >= self.tokens.len) {
-            return self.logger.logError(blitzAst.AstError.ExpectedTokenFoundNothing);
+            return TokenError.ExpectedTokenFoundNothing;
         }
 
         const res = self.tokens[self.pos.index];
@@ -915,7 +916,7 @@ pub const TokenUtil = struct {
 
     pub fn peakFixed(self: Self) !Token {
         if (self.pos.index >= self.tokens.len) {
-            return blitzAst.AstError.ExpectedTokenFoundNothing;
+            return TokenError.ExpectedTokenFoundNothing;
         }
 
         return self.tokens[self.pos.index];
@@ -947,7 +948,7 @@ pub const TokenUtil = struct {
     pub fn expectToken(self: *Self, tokenType: TokenType) !void {
         const token = try self.take();
         if (std.meta.activeTag(token.type) != std.meta.activeTag(tokenType)) {
-            return self.logger.logError(blitzAst.AstError.UnexpectedToken);
+            return TokenError.UnexpectedToken;
         }
     }
 

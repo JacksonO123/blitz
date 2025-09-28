@@ -30,7 +30,11 @@ pub fn freeFuncDec(allocator: Allocator, func: *const blitzAst.FuncDecNode) void
     freeFuncDecUtil(allocator, func, false);
 }
 
-pub fn freeFuncDecUtil(allocator: Allocator, func: *const blitzAst.FuncDecNode, builtin: bool) void {
+pub fn freeFuncDecUtil(
+    allocator: Allocator,
+    func: *const blitzAst.FuncDecNode,
+    builtin: bool,
+) void {
     allocator.free(func.name);
     if (builtin) {
         shallowFreeFuncDecParams(allocator, func.params);

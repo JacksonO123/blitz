@@ -5,7 +5,6 @@ const blitzAst = blitz.ast;
 const tokenizer = blitz.tokenizer;
 const TokenUtil = tokenizer.TokenUtil;
 const File = std.fs.File;
-const Allocator = std.mem.Allocator;
 const AstError = blitzAst.AstError;
 const Writer = std.Io.Writer;
 
@@ -22,21 +21,19 @@ const SurroundingBounds = struct {
 pub const Logger = struct {
     const Self = @This();
 
-    allocator: Allocator,
     writer: *Writer,
     tokens: *TokenUtil,
     code: []const u8,
 
-    pub fn init(allocator: Allocator, tokens: *TokenUtil, code: []const u8, writer: *Writer) Self {
+    pub fn init(tokens: *TokenUtil, code: []const u8, writer: *Writer) Self {
         return Self{
-            .allocator = allocator,
             .writer = writer,
             .tokens = tokens,
             .code = code,
         };
     }
 
-    pub fn logError(self: *Self, err: blitzAst.AstError) blitzAst.AstError {
+    pub fn logError(self: *Self, err: blitzAst.AstError) void {
         const writer = self.writer;
         const errStr = astErrorToString(err);
 
@@ -78,8 +75,6 @@ pub const Logger = struct {
             writer.writeAll(afterLines) catch {};
             writer.writeByte('\n') catch {};
         }
-
-        return err;
     }
 };
 
@@ -98,7 +93,11 @@ fn getStartOffset(loc: usize, code: []const u8) usize {
     return offset;
 }
 
-fn findSurroundingLines(code: []const u8, line: usize, numSurroundingLines: usize) SurroundingBounds {
+fn findSurroundingLines(
+    code: []const u8,
+    line: usize,
+    numSurroundingLines: usize,
+) SurroundingBounds {
     var surroundingBefore = numSurroundingLines;
 
     if (line < numSurroundingLines) {
@@ -186,7 +185,6 @@ fn findLineBounds(code: []const u8, line: usize) LineBounds {
 
 fn astErrorToString(errorType: AstError) []const u8 {
     return switch (errorType) {
-        AstError.UnexpectedToken => "unexpected token",
         AstError.ExpectedNameForStruct => "expected name for struct",
         AstError.ExpectedIdentifierPropertyAccessSource => "expected identifier for property access source",
         AstError.ExpectedStructDeriveType => "expected struct derive type",

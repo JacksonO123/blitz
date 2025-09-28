@@ -13,7 +13,7 @@ const vmInfo = blitz.vmInfo;
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const ArrayList = std.ArrayList;
-const Writer = std.Io.Writer;
+const Context = blitz.Context;
 
 fn initScopeUtil(comptime T: type, allocator: Allocator) !*ScopeUtil(*T) {
     const baseScope = try utils.initMutPtrT(T, allocator);
@@ -53,7 +53,7 @@ pub const CompInfo = struct {
     const Self = @This();
 
     allocator: Allocator,
-    code: []const u8,
+    context: *Context = undefined, // to be set before usage in compiler.zig
     structNames: [][]const u8,
     errorNames: [][]const u8,
     variableScopes: *ScopeUtil(*VarScope),
@@ -71,40 +71,25 @@ pub const CompInfo = struct {
     // each number describes how far from
     // the struct method a child node is
     genericScopes: *ScopeUtil(*TypeScope),
-    previousAccessedStruct: ?[]u8,
     preAst: bool,
-    tokens: *tokenizer.TokenUtil,
-    logger: *logger.Logger,
-    scanner: struct {
-        allowErrorWithoutVariants: bool,
-        allowStaticStructInstance: bool,
-    },
     returnInfo: *ReturnInfo,
     builtins: builtins.BuiltinFuncMemo,
     stackSizeEstimate: vmInfo.StartStackType,
 
     pub fn init(
         allocator: Allocator,
-        tokens: []tokenizer.Token,
         names: blitzAst.HoistedNames,
-        code: []const u8,
-        writer: *Writer,
     ) !Self {
-        const loggerUtil = try allocator.create(logger.Logger);
-        const tokenUtil = try utils.createMut(
-            tokenizer.TokenUtil,
-            allocator,
-            tokenizer.TokenUtil.init(allocator, loggerUtil, tokens),
-        );
-        loggerUtil.* = logger.Logger.init(allocator, tokenUtil, code, writer);
-
         const functionsToScan = try utils.createMut(ToScanStack, allocator, .empty);
         const scopeTypesPtr = try utils.createMut(ArrayList(ScopeType), allocator, .empty);
         try scopeTypesPtr.append(allocator, .Normal);
 
         const functions = try utils.initMutPtrT(StringHashMap(*blitzAst.FuncDecNode), allocator);
         const structs = try utils.initMutPtrT(StringHashMap(*blitzAst.StructDecNode), allocator);
-        const errors = try utils.initMutPtrT(StringHashMap(*const blitzAst.ErrorDecNode), allocator);
+        const errors = try utils.initMutPtrT(
+            StringHashMap(*const blitzAst.ErrorDecNode),
+            allocator,
+        );
 
         const genericScopes = try initScopeUtil(TypeScope, allocator);
         const variableScopes = try initScopeUtil(VarScope, allocator);
@@ -119,7 +104,6 @@ pub const CompInfo = struct {
 
         return Self{
             .allocator = allocator,
-            .code = code,
             .structNames = names.structNames,
             .errorNames = names.errorNames,
             .variableScopes = variableScopes,
@@ -134,14 +118,7 @@ pub const CompInfo = struct {
             .errorDecs = errors,
             .functionsToScan = functionsToScan,
             .genericScopes = genericScopes,
-            .previousAccessedStruct = null,
             .preAst = true,
-            .tokens = tokenUtil,
-            .logger = loggerUtil,
-            .scanner = .{
-                .allowErrorWithoutVariants = false,
-                .allowStaticStructInstance = false,
-            },
             .returnInfo = returnInfo,
             .builtins = .{},
             .stackSizeEstimate = 1024, // 1kb
@@ -207,19 +184,8 @@ pub const CompInfo = struct {
         self.genericScopes.deinit(free.freeGenericScope);
         self.allocator.destroy(self.genericScopes);
 
-        self.allocator.destroy(self.tokens);
-        self.allocator.destroy(self.logger);
-
         self.functionsInScope.deinit(free.freeScopedFunctionScope);
         self.allocator.destroy(self.functionsInScope);
-    }
-
-    pub fn getTokString(self: Self, tok: tokenizer.Token) []const u8 {
-        return self.code[tok.start..tok.end];
-    }
-
-    pub fn getTokStringDropQuotes(self: Self, tok: tokenizer.Token) []const u8 {
-        return self.code[tok.start + 1 .. tok.end - 1];
     }
 
     pub fn getScopeDepth(self: Self) usize {
@@ -333,7 +299,7 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn prepareForAst(self: *Self) !void {
+    pub fn prepareForAst(self: *Self, context: *Context) !void {
         self.preAst = false;
 
         {
@@ -341,7 +307,12 @@ pub const CompInfo = struct {
             while (structIt.next()) |s| {
                 const attributes = s.*.attributes;
                 const arr = if (s.*.deriveType) |derived| a: {
-                    break :a try blitzAst.mergeMembers(self.allocator, self, attributes, derived);
+                    break :a try blitzAst.mergeMembers(
+                        self.allocator,
+                        context,
+                        attributes,
+                        derived,
+                    );
                 } else a: {
                     var members = try ArrayList(blitzAst.StructAttribute).initCapacity(
                         self.allocator,
@@ -377,29 +348,23 @@ pub const CompInfo = struct {
                     const f = attr.attr.Function;
                     free.freeNode(self.allocator, f.body);
 
-                    const oldTokens = self.tokens;
-                    self.tokens = try utils.createMut(
+                    const prevTokens = context.tokens;
+                    const tempTokens = try utils.createMut(
                         tokenizer.TokenUtil,
                         self.allocator,
-                        tokenizer.TokenUtil.init(self.allocator, self.logger, f.bodyTokens),
+                        tokenizer.TokenUtil.init(f.bodyTokens),
                     );
-                    f.body = try blitzAst.parseSequence(self.allocator, self, true);
+                    context.tokens = tempTokens;
+                    // TODO - log here
+                    f.body = try blitzAst.parseSequence(self.allocator, context, true);
 
-                    self.allocator.destroy(self.tokens);
-                    self.tokens = oldTokens;
+                    context.tokens = prevTokens;
+                    self.allocator.destroy(tempTokens);
                 }
             }
         }
 
-        self.tokens.reset();
-    }
-
-    pub fn setPreviousAccessedStruct(self: *Self, name: ?[]u8) void {
-        self.previousAccessedStruct = name;
-    }
-
-    pub fn getPreviousAccessedStruct(self: Self) ?[]u8 {
-        return self.previousAccessedStruct;
+        context.tokens.reset();
     }
 
     pub fn hasStruct(self: Self, name: []const u8) bool {
@@ -451,7 +416,12 @@ pub const CompInfo = struct {
 
                 const captureScope = self.genericCaptures.getCurrentScope();
                 if (captureScope) |capScope| {
-                    const clonedType = try clone.cloneAstTypeInfo(self.allocator, self, t, true);
+                    const clonedType = try clone.cloneAstTypeInfo(
+                        self.allocator,
+                        self.context,
+                        t,
+                        true,
+                    );
                     const existing = capScope.get(name);
 
                     if (existing) |exist| {
@@ -532,7 +502,7 @@ pub const CompInfo = struct {
                 if (captureScope) |capScope| {
                     const clonedType = try clone.cloneAstTypeInfo(
                         self.allocator,
-                        self,
+                        self.context,
                         t,
                         replaceGenerics,
                     );
@@ -890,7 +860,7 @@ pub const ReturnInfo = struct {
     /// IMPORTANT - invalidates prev
     pub fn collapse(
         self: *Self,
-        compInfo: *CompInfo,
+        context: *Context,
         prev: *ReturnInfoData,
         withGenDef: bool,
     ) !void {
@@ -898,7 +868,7 @@ pub const ReturnInfo = struct {
             if (self.info.retType) |firstRetType| {
                 const matches = try scanner.matchTypes(
                     self.allocator,
-                    compInfo,
+                    context,
                     retType,
                     firstRetType,
                     withGenDef,

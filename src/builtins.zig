@@ -145,7 +145,11 @@ pub fn getArraySlicePropType(allocator: Allocator, prop: []u8) !blitzAst.AstType
     return try getPropType(allocator, props, prop);
 }
 
-fn getPropType(allocator: Allocator, props: []const PropTypeMap, prop: []u8) !blitzAst.AstTypeInfo {
+fn getPropType(
+    allocator: Allocator,
+    props: []const PropTypeMap,
+    prop: []u8,
+) !blitzAst.AstTypeInfo {
     for (props) |item| {
         if (string.compString(item.prop, prop)) {
             return .{

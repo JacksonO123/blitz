@@ -9,6 +9,7 @@ const free = blitz.free;
 const codegen = blitz.codegen;
 const blitzCompInfo = blitz.compInfo;
 const debug = blitz.debug;
+const logger = blitz.logger;
 const create = utils.create;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
@@ -52,41 +53,57 @@ pub fn main() !void {
     const names = try blitzAst.findStructsAndErrors(allocator, tokens, code);
     try debug.printStructAndErrorNames(names, writer);
 
-    var compInfo = try CompInfo.init(allocator, tokens, names, code, writer);
+    var tokenUtil = tokenizer.TokenUtil.init(tokens);
+    var loggerUtil = logger.Logger.init(&tokenUtil, code, writer);
+
+    var compInfo = try CompInfo.init(allocator, names);
     defer compInfo.deinit();
 
-    const structsAndErrors = try blitzAst.registerStructsAndErrors(allocator, &compInfo);
+    var scanInfo = scanner.ScanInfo{};
+
+    var genInfo = try GenInfo.init(allocator);
+    defer genInfo.deinit();
+    genInfo.vmInfo.stackStartSize = compInfo.stackSizeEstimate;
+
+    var context = blitz.Context{
+        .logger = &loggerUtil,
+        .tokens = &tokenUtil,
+        .compInfo = &compInfo,
+        .scanInfo = &scanInfo,
+        .genInfo = &genInfo,
+        .code = code,
+    };
+
+    compInfo.context = &context;
+
+    const structsAndErrors = try blitzAst.registerStructsAndErrors(allocator, &context);
     defer allocator.free(structsAndErrors.structs);
     defer allocator.free(structsAndErrors.errors);
     try compInfo.setStructDecs(structsAndErrors.structs);
     try compInfo.setErrorDecs(structsAndErrors.errors);
 
-    try compInfo.prepareForAst();
+    try compInfo.prepareForAst(&context);
 
-    try debug.printRegisteredStructs(&compInfo, structsAndErrors.structs, writer);
+    try debug.printRegisteredStructs(&context, structsAndErrors.structs, writer);
     try debug.printRegisteredErrors(structsAndErrors.errors, writer);
 
     for (structsAndErrors.structs) |s| {
         var node: blitzAst.AstNode = .{
             .StructDec = s,
         };
-        const nodeType = try scanner.scanNode(allocator, &compInfo, &node, true);
+        const nodeType = try scanner.scanNode(allocator, &context, &node, true);
         free.freeAstTypeInfo(allocator, nodeType);
     }
 
-    var ast = try blitzAst.createAst(allocator, &compInfo);
+    var ast = try blitzAst.createAst(allocator, &context);
     defer ast.deinit();
 
     try writer.writeAll("--- code ---\n");
     try writer.writeAll(code);
     try writer.writeAll("\n------------\n\n");
-    try debug.printAst(&compInfo, ast, writer);
+    try debug.printAst(&context, ast, writer);
 
-    try scanner.typeScan(allocator, ast, &compInfo);
-
-    var genInfo = try GenInfo.init(allocator);
-    defer genInfo.deinit();
-    genInfo.vmInfo.stackStartSize = compInfo.stackSizeEstimate;
+    try scanner.typeScan(allocator, ast, &context);
 
     // try codegen.codegenAst(allocator, &genInfo, ast);
     // try writer.writeAll("--- bytecode out ---\n");
