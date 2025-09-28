@@ -1,5 +1,5 @@
 const std = @import("std");
-const blitz = @import("root").blitz;
+const blitz = @import("blitz.zig");
 const blitzAst = blitz.ast;
 const utils = blitz.utils;
 const string = blitz.string;
@@ -401,7 +401,7 @@ pub fn cloneAstNode(
                 );
             }
 
-            const list = try dec.toScanTypes.clone();
+            const list = try dec.toScanTypes.clone(allocator);
             for (list.items) |*item| {
                 item.* = try cloneGenToInfoRels(allocator, compInfo, item.*, replaceGenerics);
             }
@@ -735,7 +735,7 @@ pub fn cloneFuncDec(
         capturedFuncs.?.appendSliceAssumeCapacity(capturedFuncNames);
     }
 
-    const list = try dec.toScanTypes.clone();
+    const list = try dec.toScanTypes.clone(allocator);
     for (list.items) |*item| {
         item.* = try cloneGenToInfoRels(allocator, compInfo, item.*, replaceGenerics);
     }

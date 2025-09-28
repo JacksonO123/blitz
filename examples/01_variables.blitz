@@ -47,7 +47,7 @@ boolValue = true
 let ch = 'b';
 
 // number types:
-// u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, f32, f64, f128
+// u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, f32, f64, f128
 // by default numbers are u32/i32
 // if you would like them to be a different type, they must be cast
 // constants that are cast are understood at compile time
@@ -57,22 +57,22 @@ let anyNum1 = 123;
 // by default i32
 let anyNum2 = -123;
 
-let numberU16 = u16(32);
+let numberU16 = cast(u16) 32;
 
 // array slices
 // unknown size array (eventually stored as struct with ptr and size)
 let slice: u32[] = [1, 2, 3, 4];
-// known struct array
+// known length array
 let ab: u32[3] = [3, 2, 1];
 // if the size is known at compile time then the size is optimized out of the slice so
 // the slice is just a ptr, otherwise it is stored as struct with ptr and size
 // initialize a large stack array without specifying each individual element with the
 // initializer syntax:
 // basic number example
-let initSlice = [256usize]u32 with 0;
+let initSlice = [256u64]u32 with 0;
 // struct example
 struct Data { size: u32; }
-let dataArr = [350usize]Data with Data { size = 10 };
+let dataArr = [350u64]Data with Data { size = 10 };
 
 // nullable
 let mut numOrNull: ?u32 = null;

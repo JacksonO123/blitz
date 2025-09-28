@@ -2,16 +2,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
-pub fn findChar(items: []const u8, start: usize, item: u8) ?usize {
-    var i = start;
-
-    while (i < items.len) : (i += 1) {
-        if (items[i] == item) return i;
-    }
-
-    return null;
-}
-
 pub inline fn cloneString(allocator: Allocator, string: []const u8) ![]u8 {
     return try allocator.dupe(u8, string);
 }

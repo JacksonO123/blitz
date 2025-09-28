@@ -34,24 +34,25 @@ pub fn main() !void {
 
     const path = args[1];
 
-    var bufferedWriter = utils.getBufferedWriter();
-    defer bufferedWriter.flush() catch {};
-    const writer = bufferedWriter.writer();
+    var buffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buffer);
+    defer stdout.end() catch {};
+    var writer = &stdout.interface;
 
     try writer.writeAll("opening ");
     try writer.writeAll(path);
-    try writer.writeByte('\n');
+    try writer.writeAll("\n");
 
     const code = try utils.readRelativeFile(allocator, path);
     defer allocator.free(code);
 
-    const tokens = try tokenizer.tokenize(allocator, code);
+    const tokens = try tokenizer.tokenize(allocator, code, writer);
     defer allocator.free(tokens);
 
     const names = try blitzAst.findStructsAndErrors(allocator, tokens, code);
     try debug.printStructAndErrorNames(names, writer);
 
-    var compInfo = try CompInfo.init(allocator, tokens, names, code);
+    var compInfo = try CompInfo.init(allocator, tokens, names, code, writer);
     defer compInfo.deinit();
 
     const structsAndErrors = try blitzAst.registerStructsAndErrors(allocator, &compInfo);
@@ -87,15 +88,16 @@ pub fn main() !void {
     defer genInfo.deinit();
     genInfo.vmInfo.stackStartSize = compInfo.stackSizeEstimate;
 
-    try codegen.codegenAst(allocator, &genInfo, ast);
-    try writer.writeAll("--- bytecode out ---\n");
-    try debug.printBytecodeChunks(&genInfo, writer);
-    try writer.writeAll("\n------------\n");
+    // try codegen.codegenAst(allocator, &genInfo, ast);
+    // try writer.writeAll("--- bytecode out ---\n");
+    // try debug.printBytecodeChunks(&genInfo, writer);
+    // try writer.writeAll("\n------------\n");
 
-    const outFile = try std.fs.cwd().createFile("out.bzc", .{});
-    defer outFile.close();
-    var fileBufferedWriter = std.io.bufferedWriter(outFile.writer());
-    defer fileBufferedWriter.flush() catch {};
-    const fileWriter = fileBufferedWriter.writer();
-    try genInfo.writeChunks(fileWriter);
+    // const outFile = try std.fs.cwd().createFile("out.bzc", .{});
+    // defer outFile.close();
+    // var fileBuffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
+    // var fileBufferedWriter = outFile.writer(&fileBuffer);
+    // defer fileBufferedWriter.end() catch {};
+    // const fileWriter = &fileBufferedWriter.interface;
+    // try genInfo.writeChunks(fileWriter);
 }

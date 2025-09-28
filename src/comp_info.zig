@@ -1,5 +1,5 @@
 const std = @import("std");
-const blitz = @import("root").blitz;
+const blitz = @import("blitz.zig");
 const blitzAst = blitz.ast;
 const utils = blitz.utils;
 const free = blitz.free;
@@ -13,9 +13,18 @@ const vmInfo = blitz.vmInfo;
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const ArrayList = std.ArrayList;
+const Writer = std.Io.Writer;
 
 fn initScopeUtil(comptime T: type, allocator: Allocator) !*ScopeUtil(*T) {
     const baseScope = try utils.initMutPtrT(T, allocator);
+    const scopeUtil = try ScopeUtil(*T).init(allocator);
+    const scopePtr = try utils.createMut(ScopeUtil(*T), allocator, scopeUtil);
+    try scopePtr.add(baseScope, false);
+    return scopePtr;
+}
+
+fn initScopeUtilWithBase(comptime T: type, allocator: Allocator, base: T) !*ScopeUtil(*T) {
+    const baseScope = try utils.createMut(T, allocator, base);
     const scopeUtil = try ScopeUtil(*T).init(allocator);
     const scopePtr = try utils.createMut(ScopeUtil(*T), allocator, scopeUtil);
     try scopePtr.add(baseScope, false);
@@ -79,31 +88,31 @@ pub const CompInfo = struct {
         tokens: []tokenizer.Token,
         names: blitzAst.HoistedNames,
         code: []const u8,
+        writer: *Writer,
     ) !Self {
         const loggerUtil = try allocator.create(logger.Logger);
         const tokenUtil = try utils.createMut(
             tokenizer.TokenUtil,
             allocator,
-            try tokenizer.TokenUtil.init(allocator, loggerUtil, tokens),
+            tokenizer.TokenUtil.init(allocator, loggerUtil, tokens),
         );
-        loggerUtil.* = logger.Logger.init(allocator, tokenUtil, code);
+        loggerUtil.* = logger.Logger.init(allocator, tokenUtil, code, writer);
 
-        const functionsToScan = try utils.initMutPtrT(ToScanStack, allocator);
+        const functionsToScan = try utils.createMut(ToScanStack, allocator, .empty);
+        const scopeTypesPtr = try utils.createMut(ArrayList(ScopeType), allocator, .empty);
+        try scopeTypesPtr.append(allocator, .Normal);
+
         const functions = try utils.initMutPtrT(StringHashMap(*blitzAst.FuncDecNode), allocator);
         const structs = try utils.initMutPtrT(StringHashMap(*blitzAst.StructDecNode), allocator);
-
         const errors = try utils.initMutPtrT(StringHashMap(*const blitzAst.ErrorDecNode), allocator);
 
         const genericScopes = try initScopeUtil(TypeScope, allocator);
-        const functionsInScope = try initScopeUtil(StringListScope, allocator);
         const variableScopes = try initScopeUtil(VarScope, allocator);
         const variableCaptures = try initScopeUtil(CaptureScope, allocator);
         const genericCaptures = try initScopeUtil(TypeScope, allocator);
-        const functionCaptures = try initScopeUtil(StringListScope, allocator);
-        const parsedGenerics = try initScopeUtil(StringListScope, allocator);
-        const scopeTypesUtil = ArrayList(ScopeType).init(allocator);
-        const scopeTypesPtr = try utils.createMut(ArrayList(ScopeType), allocator, scopeTypesUtil);
-        try scopeTypesPtr.append(.Normal);
+        const functionCaptures = try initScopeUtilWithBase(StringListScope, allocator, .empty);
+        const parsedGenerics = try initScopeUtilWithBase(StringListScope, allocator, .empty);
+        const functionsInScope = try initScopeUtilWithBase(StringListScope, allocator, .empty);
 
         const returnInfoUtil = try ReturnInfo.init(allocator);
         const returnInfo = try utils.createMut(ReturnInfo, allocator, returnInfoUtil);
@@ -180,7 +189,7 @@ pub const CompInfo = struct {
         self.parsedGenerics.deinit(free.freeStringListScope);
         self.allocator.destroy(self.parsedGenerics);
 
-        self.scopeTypes.deinit();
+        self.scopeTypes.deinit(self.allocator);
         self.allocator.destroy(self.scopeTypes);
 
         self.functions.deinit();
@@ -192,15 +201,13 @@ pub const CompInfo = struct {
         self.errorDecs.deinit();
         self.allocator.destroy(self.errorDecs);
 
-        self.functionsToScan.deinit();
+        self.functionsToScan.deinit(self.allocator);
         self.allocator.destroy(self.functionsToScan);
 
         self.genericScopes.deinit(free.freeGenericScope);
         self.allocator.destroy(self.genericScopes);
 
-        self.tokens.deinit();
         self.allocator.destroy(self.tokens);
-
         self.allocator.destroy(self.logger);
 
         self.functionsInScope.deinit(free.freeScopedFunctionScope);
@@ -227,7 +234,7 @@ pub const CompInfo = struct {
         const scope = try utils.initMutPtrT(VarScope, self.allocator);
         try self.variableScopes.add(scope, leak);
         try self.pushScopedFunctionScope(leak);
-        try self.scopeTypes.append(scopeType);
+        try self.scopeTypes.append(self.allocator, scopeType);
     }
 
     pub fn popScope(self: *Self) void {
@@ -241,7 +248,7 @@ pub const CompInfo = struct {
         try self.functionsInScope.addCaptureIndex();
 
         const newVarScope = try utils.initMutPtrT(CaptureScope, self.allocator);
-        const newFuncScope = try utils.initMutPtrT(StringListScope, self.allocator);
+        const newFuncScope = try utils.createMut(StringListScope, self.allocator, .empty);
 
         try self.variableCaptures.add(newVarScope, false);
         try self.functionCaptures.add(newFuncScope, false);
@@ -275,7 +282,7 @@ pub const CompInfo = struct {
     }
 
     pub fn pushScopedFunctionScope(self: *Self, leak: bool) !void {
-        const scope = try utils.initMutPtrT(StringListScope, self.allocator);
+        const scope = try utils.createMut(StringListScope, self.allocator, .empty);
         try self.functionsInScope.add(scope, leak);
     }
 
@@ -286,12 +293,12 @@ pub const CompInfo = struct {
     pub fn addScopedFunction(self: *Self, name: []u8) !void {
         const scope = self.functionsInScope.getCurrentScope();
         if (scope) |s| {
-            try s.append(name);
+            try s.append(self.allocator, name);
         }
     }
 
     pub fn pushParsedGenericsScope(self: *Self, leak: bool) !void {
-        const newScope = try utils.initMutPtrT(StringListScope, self.allocator);
+        const newScope = try utils.createMut(StringListScope, self.allocator, .empty);
         try self.parsedGenerics.add(newScope, leak);
     }
 
@@ -302,7 +309,7 @@ pub const CompInfo = struct {
     pub fn addParsedGeneric(self: *Self, gen: []const u8) !void {
         const scope = self.parsedGenerics.getCurrentScope();
         if (scope) |s| {
-            try s.append(gen);
+            try s.append(self.allocator, gen);
         }
     }
 
@@ -343,10 +350,10 @@ pub const CompInfo = struct {
 
                     for (attributes) |attr| {
                         if (attr.attr != .Member) continue;
-                        try members.append(attr);
+                        try members.append(self.allocator, attr);
                     }
 
-                    break :a try members.toOwnedSlice();
+                    break :a try members.toOwnedSlice(self.allocator);
                 };
 
                 s.*.totalMemberList = arr;
@@ -374,11 +381,10 @@ pub const CompInfo = struct {
                     self.tokens = try utils.createMut(
                         tokenizer.TokenUtil,
                         self.allocator,
-                        try tokenizer.TokenUtil.init(self.allocator, self.logger, f.bodyTokens),
+                        tokenizer.TokenUtil.init(self.allocator, self.logger, f.bodyTokens),
                     );
                     f.body = try blitzAst.parseSequence(self.allocator, self, true);
 
-                    self.tokens.deinit();
                     self.allocator.destroy(self.tokens);
                     self.tokens = oldTokens;
                 }
@@ -596,7 +602,7 @@ pub const CompInfo = struct {
         rels: []blitzAst.StrToTypeInfoRel,
         withGenDef: bool,
     ) !void {
-        try self.functionsToScan.append(.{
+        try self.functionsToScan.append(self.allocator, .{
             .func = func,
             .genTypes = rels,
             .withGenDef = withGenDef,
@@ -611,7 +617,7 @@ pub const CompInfo = struct {
 
             if (captureScope) |capScope| {
                 if (!string.inStringArr(capScope.items, name)) {
-                    try capScope.append(name);
+                    try capScope.append(self.allocator, name);
                 }
             }
 
@@ -635,7 +641,7 @@ pub const CompInfo = struct {
 
                     if (captureScope) |capScope| {
                         if (!string.inStringArr(capScope.items, name)) {
-                            try capScope.append(name);
+                            try capScope.append(self.allocator, name);
                         }
                     }
 
@@ -720,9 +726,9 @@ fn ScopeUtil(comptime T: type) type {
         current: usize,
 
         pub fn init(allocator: Allocator) !Self {
-            const leaks = try utils.initMutPtrT(ArrayList(usize), allocator);
-            const scopes = try utils.initMutPtrT(ArrayList(T), allocator);
-            const captureIndexes = try utils.initMutPtrT(ArrayList(usize), allocator);
+            const leaks = try utils.createMut(ArrayList(usize), allocator, .empty);
+            const scopes = try utils.createMut(ArrayList(T), allocator, .empty);
+            const captureIndexes = try utils.createMut(ArrayList(usize), allocator, .empty);
 
             return Self{
                 .allocator = allocator,
@@ -736,33 +742,32 @@ fn ScopeUtil(comptime T: type) type {
         pub fn deinit(self: *Self, freeFn: fn (Allocator, T) void) void {
             for (self.scopes.items) |item| {
                 freeFn(self.allocator, item);
-                item.deinit();
                 self.allocator.destroy(item);
             }
 
-            self.scopes.deinit();
+            self.scopes.deinit(self.allocator);
             self.allocator.destroy(self.scopes);
 
-            self.leaks.deinit();
+            self.leaks.deinit(self.allocator);
             self.allocator.destroy(self.leaks);
 
-            self.captureIndexes.deinit();
+            self.captureIndexes.deinit(self.allocator);
             self.allocator.destroy(self.captureIndexes);
         }
 
         pub fn addCaptureIndex(self: *Self) !void {
             const index = self.scopes.items.len;
-            try self.captureIndexes.append(index);
+            try self.captureIndexes.append(self.allocator, index);
         }
 
         pub fn add(self: *Self, scope: T, leak: bool) !void {
-            try self.scopes.append(scope);
+            try self.scopes.append(self.allocator, scope);
 
             if (leak) {
                 const index = self.leaks.items.len - 1;
                 self.leaks.items[index] += 1;
             } else {
-                try self.leaks.append(0);
+                try self.leaks.append(self.allocator, 0);
             }
 
             self.current = self.scopes.items.len;
@@ -795,7 +800,6 @@ fn ScopeUtil(comptime T: type) type {
 
             if (last) |item| {
                 freeFn(self.allocator, item);
-                item.deinit();
                 self.allocator.destroy(item);
             }
         }

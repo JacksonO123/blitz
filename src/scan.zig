@@ -1,5 +1,5 @@
 const std = @import("std");
-const blitz = @import("root").blitz;
+const blitz = @import("blitz.zig");
 const blitzAst = blitz.ast;
 const utils = blitz.utils;
 const free = blitz.free;
@@ -439,8 +439,8 @@ pub fn scanNode(
                         allocator,
                         custom.generics.len,
                     );
-                    defer genNameArr.deinit();
-                    defer genTypeArr.deinit();
+                    defer genNameArr.deinit(allocator);
+                    defer genTypeArr.deinit(allocator);
 
                     for (custom.generics, 0..) |gen, index| {
                         const genDef = def.generics[index];
@@ -450,8 +450,8 @@ pub fn scanNode(
                             gen,
                             withGenDef,
                         );
-                        try genNameArr.append(genDef.name);
-                        try genTypeArr.append(typeClone);
+                        try genNameArr.append(allocator, genDef.name);
+                        try genTypeArr.append(allocator, typeClone);
                     }
 
                     try compInfo.pushGenScope(false);
@@ -644,6 +644,7 @@ pub fn scanNode(
                 return try clone.cloneAstTypeInfo(allocator, compInfo, info, withGenDef);
             }
 
+            std.debug.print("var :: {s}\n\n", .{name});
             return ScanError.VariableIsUndefined;
         },
         .StructPlaceholder => return try utils.astTypesToInfo(allocator, .Void, false),
@@ -837,7 +838,7 @@ pub fn scanNode(
                         genScope,
                         withGenDef,
                     );
-                    try func.toScanTypes.append(scopeRels);
+                    try func.toScanTypes.append(allocator, scopeRels);
                     try compInfo.addFuncToScan(func, scopeRels, withGenDef);
                 }
             }
@@ -916,12 +917,12 @@ pub fn scanNode(
                 }
             }
 
-            var initAttrRel = ArrayList(StructInitMemberInfo).init(allocator);
+            var initAttrRel: ArrayList(StructInitMemberInfo) = .empty;
             defer {
                 for (initAttrRel.items) |item| {
                     free.freeAstTypeInfo(allocator, item.initInfo);
                 }
-                initAttrRel.deinit();
+                initAttrRel.deinit(allocator);
             }
 
             for (structDec.attributes) |attr| {
@@ -932,7 +933,7 @@ pub fn scanNode(
                     if (string.compString(initAttr.name, attr.name)) {
                         found = true;
                         const attrType = try scanNode(allocator, compInfo, initAttr.value, withGenDef);
-                        try initAttrRel.append(.{
+                        try initAttrRel.append(allocator, .{
                             .initInfo = attrType,
                             .defInfo = attr.attr.Member,
                         });
@@ -1501,7 +1502,6 @@ fn applyVariableCaptures(
 ) !void {
     if (func.capturedValues) |captured| {
         free.freeVariableCaptures(allocator, captured);
-        captured.deinit();
         allocator.destroy(captured);
     }
 
@@ -1515,7 +1515,6 @@ fn applyGenericCaptures(
 ) !void {
     if (func.capturedTypes) |captured| {
         free.freeGenericCaptures(allocator, captured);
-        captured.deinit();
         allocator.destroy(captured);
     }
 
@@ -1528,7 +1527,7 @@ fn applyFunctionCaptures(
     scope: *blitzCompInfo.StringListScope,
 ) !void {
     if (func.capturedFuncs) |captured| {
-        captured.deinit();
+        captured.deinit(allocator);
         allocator.destroy(captured);
     }
 

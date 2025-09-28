@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const blitz = @import("root").blitz;
+const blitz = @import("blitz.zig");
 const blitzAst = blitz.ast;
 const utils = blitz.utils;
 const string = blitz.string;
@@ -11,6 +11,7 @@ const StringHashMap = std.StringHashMap;
 const AutoHashMap = std.AutoHashMap;
 const ArrayList = std.ArrayList;
 const PointerType = vmInfo.PointerType;
+const Writer = std.Io.Writer;
 
 const CodeGenError = error{
     RawNumberIsTooBig,
@@ -301,7 +302,7 @@ const RegScope = struct {
     registers: *ArrayList(u32),
 
     pub fn init(allocator: Allocator) !Self {
-        const registers = try utils.initMutPtrT(ArrayList(u32), allocator);
+        const registers = try utils.createMut(ArrayList(u32), allocator, .empty);
 
         return .{
             .allocator = allocator,
@@ -310,16 +311,16 @@ const RegScope = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.registers.deinit();
+        self.registers.deinit(self.allocator);
         self.allocator.destroy(self.registers);
     }
 
     pub fn empty(self: *Self) ![]u32 {
-        return self.registers.toOwnedSlice();
+        return try self.registers.toOwnedSlice(self.allocator);
     }
 
     pub fn addRegister(self: *Self, reg: u32) !void {
-        try self.registers.append(reg);
+        try self.registers.append(self.allocator, reg);
     }
 };
 
@@ -332,8 +333,8 @@ const RegScopes = struct {
     pub fn init(allocator: Allocator) !Self {
         const firstScope = try RegScope.init(allocator);
         const firstScopePtr = try utils.createMut(RegScope, allocator, firstScope);
-        var scopes = try utils.initMutPtrT(ArrayList(*RegScope), allocator);
-        try scopes.append(firstScopePtr);
+        var scopes = try utils.createMut(ArrayList(*RegScope), allocator, .empty);
+        try scopes.append(allocator, firstScopePtr);
 
         return .{
             .allocator = allocator,
@@ -351,14 +352,14 @@ const RegScopes = struct {
             self.deinitScope(scope);
         }
 
-        self.scopes.deinit();
+        self.scopes.deinit(self.allocator);
         self.allocator.destroy(self.scopes);
     }
 
     pub fn pushScope(self: *Self) !void {
         const newScope = try RegScope.init(self.allocator);
         const newScopePtr = try utils.createMut(RegScope, self.allocator, newScope);
-        try self.scopes.append(newScopePtr);
+        try self.scopes.append(self.allocator, newScopePtr);
     }
 
     pub fn popScope(self: *Self) ![]u32 {
@@ -368,7 +369,7 @@ const RegScopes = struct {
         }
 
         const scope = self.scopes.pop().?;
-        const oldContents = try scope.registers.toOwnedSlice();
+        const oldContents = try scope.registers.toOwnedSlice(self.allocator);
         self.deinitScope(scope);
         return oldContents;
     }
@@ -401,10 +402,8 @@ const LoopInfo = struct {
     continues: *ArrayList(InstrInfo),
 
     pub fn init(allocator: Allocator) !Self {
-        const breaks = ArrayList(InstrInfo).init(allocator);
-        const breaksPtr = try utils.createMut(ArrayList(InstrInfo), allocator, breaks);
-        const continues = ArrayList(InstrInfo).init(allocator);
-        const continuesPtr = try utils.createMut(ArrayList(InstrInfo), allocator, continues);
+        const breaksPtr = try utils.createMut(ArrayList(InstrInfo), allocator, .empty);
+        const continuesPtr = try utils.createMut(ArrayList(InstrInfo), allocator, .empty);
 
         return .{
             .allocator = allocator,
@@ -415,22 +414,22 @@ const LoopInfo = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.breaks.deinit();
+        self.breaks.deinit(self.allocator);
         self.allocator.destroy(self.breaks);
 
-        self.continues.deinit();
+        self.continues.deinit(self.allocator);
         self.allocator.destroy(self.continues);
     }
 
     pub fn appendBreak(self: *Self, instr: *InstrChunk, location: u64) !void {
-        try self.breaks.append(.{
+        try self.breaks.append(self.allocator, .{
             .chunk = instr,
             .location = location,
         });
     }
 
     pub fn appendContinue(self: *Self, instr: *InstrChunk, location: u64) !void {
-        try self.continues.append(.{
+        try self.continues.append(self.allocator, .{
             .chunk = instr,
             .location = location,
         });
@@ -481,8 +480,7 @@ pub const GenInfo = struct {
         );
         const regScopes = try RegScopes.init(allocator);
         const regScopesPtr = try utils.createMut(RegScopes, allocator, regScopes);
-        const loopInfo = ArrayList(*LoopInfo).init(allocator);
-        const loopInfoPtr = try utils.createMut(ArrayList(*LoopInfo), allocator, loopInfo);
+        const loopInfoPtr = try utils.createMut(ArrayList(*LoopInfo), allocator, .empty);
 
         const registers = try ArrayList(RegInfo).initCapacity(allocator, vmInfo.NUM_REGISTERS);
         const registersPtr = try utils.createMut(ArrayList(RegInfo), allocator, registers);
@@ -510,7 +508,7 @@ pub const GenInfo = struct {
             self.allocator.destroy(current.?);
         }
 
-        self.registers.deinit();
+        self.registers.deinit(self.allocator);
         self.allocator.destroy(self.registers);
 
         self.varNameRegRel.deinit();
@@ -523,11 +521,11 @@ pub const GenInfo = struct {
             item.deinit();
             self.allocator.destroy(item);
         }
-        self.loopInfo.deinit();
+        self.loopInfo.deinit(self.allocator);
         self.allocator.destroy(self.loopInfo);
     }
 
-    pub fn writeChunks(self: Self, writer: anytype) !void {
+    pub fn writeChunks(self: Self, writer: *Writer) !void {
         try writer.writeByte(self.vmInfo.version);
         var buf: [vmInfo.startStackSize]u8 = undefined;
         std.mem.writeInt(vmInfo.StartStackType, &buf, self.vmInfo.stackStartSize, .little);
@@ -562,7 +560,7 @@ pub const GenInfo = struct {
             }
         }
 
-        try self.registers.append(.{});
+        try self.registers.append(self.allocator, .{});
         return @intCast(self.registers.items.len - 1);
     }
 
@@ -635,7 +633,7 @@ pub const GenInfo = struct {
     pub fn pushLoopInfo(self: *Self) !void {
         const newLoop = try LoopInfo.init(self.allocator);
         const newLoopPtr = try utils.createMut(LoopInfo, self.allocator, newLoop);
-        try self.loopInfo.append(newLoopPtr);
+        try self.loopInfo.append(self.allocator, newLoopPtr);
     }
 
     pub fn popLoopInfo(self: *Self) void {
@@ -1261,7 +1259,7 @@ fn generateFallback(
     }
 }
 
-fn writeChunk(chunk: *InstrChunk, writer: anytype) !void {
+fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
     try writer.writeByte(chunk.data.getInstrByte());
 
     switch (chunk.data) {
@@ -1349,7 +1347,7 @@ fn writeChunk(chunk: *InstrChunk, writer: anytype) !void {
     }
 }
 
-fn writeNumber(comptime T: type, data: T, writer: anytype) !void {
+fn writeNumber(comptime T: type, data: T, writer: *Writer) !void {
     var buf: [@sizeOf(T)]u8 = undefined;
     std.mem.writeInt(T, &buf, data, .little);
     try writer.writeAll(&buf);

@@ -1,4 +1,4 @@
-const blitz = @import("root").blitz;
+const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 
 pub fn numberLength(num: usize) usize {

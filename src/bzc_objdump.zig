@@ -5,6 +5,7 @@ const string = blitz.string;
 const utils = blitz.utils;
 const codegen = blitz.codegen;
 const vmInfo = blitz.vmInfo;
+const Writer = std.Io.Writer;
 
 const BzcObjDumpError = error{
     InvalidArgCount,
@@ -32,23 +33,25 @@ pub fn main() !void {
     const bytecode = try utils.readRelativeFile(allocator, bzcFilename);
     defer allocator.free(bytecode);
 
-    var buf = utils.getBufferedWriter();
-    const writer = buf.writer();
-    defer buf.flush() catch {};
+    var buffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buffer);
+    defer stdout.end() catch {};
+    const writer = &stdout.interface;
+
     try printBytecode(bytecode, writer);
 }
 
-pub fn printBytecode(bytecode: []u8, writer: anytype) !void {
+pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
     try printVMStartInfo(bytecode[0..vmInfo.VM_INFO_BYTECODE_LEN], writer);
     var current: u64 = vmInfo.VM_INFO_BYTECODE_LEN;
     while (current < bytecode.len) {
         const instr = @as(codegen.InstructionVariants, @enumFromInt(bytecode[current]));
         const size = instr.getInstrLen();
 
-        try writer.writeByte('[');
-        try std.fmt.formatInt(current, 10, .lower, .{}, writer);
+        try writer.writeAll("[");
+        try writer.printInt(current, 10, .lower, .{});
         try writer.writeAll("] (");
-        try std.fmt.formatInt(size, 10, .lower, .{}, writer);
+        try writer.printInt(size, 10, .lower, .{});
         try writer.writeAll(") ");
 
         try printBytecodeSlice(bytecode[current .. current + size], writer);
@@ -56,16 +59,16 @@ pub fn printBytecode(bytecode: []u8, writer: anytype) !void {
     }
 }
 
-pub fn printVMStartInfo(info: []u8, writer: anytype) !void {
+pub fn printVMStartInfo(info: []u8, writer: *Writer) !void {
     try writer.writeAll("blitz bytecode version ");
-    try std.fmt.formatInt(info[0], 10, .lower, .{}, writer);
+    try writer.printInt(info[0], 10, .lower, .{});
     try writer.writeAll("\nstarting stack size: ");
     const startStackSize = std.mem.readInt(u32, @ptrCast(info[1..5]), .little);
-    try std.fmt.formatInt(startStackSize, 10, .lower, .{}, writer);
-    try writer.writeByte('\n');
+    try writer.printInt(startStackSize, 10, .lower, .{});
+    try writer.writeAll("\n");
 }
 
-fn printBytecodeSlice(bytecode: []u8, writer: anytype) !void {
+fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
     const inst = @as(codegen.InstructionVariants, @enumFromInt(bytecode[0]));
 
     try writer.writeAll(inst.toString());
@@ -73,36 +76,36 @@ fn printBytecodeSlice(bytecode: []u8, writer: anytype) !void {
     switch (inst) {
         .SetReg64 => {
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" ");
             const num = bytecode[2..10];
             try writeHexDecNumberSlice(num, writer);
         },
         .SetReg32 => {
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" ");
             const num = bytecode[2..6];
             try writeHexDecNumberSlice(num, writer);
         },
         .SetReg16 => {
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" ");
             const num = bytecode[2..4];
             try writeHexDecNumberSlice(num, writer);
         },
         .SetReg8, .CmpConstByte => {
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" ");
             try writeHexDecNumberSlice(bytecode[2..3], writer);
         },
         .Cmp => {
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[2], 10, .lower, .{});
         },
         .CmpSetRegEQ,
         .CmpSetRegNE,
@@ -113,11 +116,11 @@ fn printBytecodeSlice(bytecode: []u8, writer: anytype) !void {
         .Xor,
         => {
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[2], 10, .lower, .{});
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[3], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[3], 10, .lower, .{});
         },
         .Add,
         .Sub,
@@ -138,74 +141,74 @@ fn printBytecodeSlice(bytecode: []u8, writer: anytype) !void {
         .JumpBackGTE,
         .JumpBackLTE,
         => {
-            try writer.writeByte(' ');
+            try writer.writeAll(" ");
             try writeHexDecNumberSlice(bytecode[1..], writer);
         },
         .IncConstByte,
         .DecConstByte,
         => {
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
-            try writer.writeByte(' ');
+            try writer.printInt(bytecode[1], 10, .lower, .{});
+            try writer.writeAll(" ");
             try writeHexDecNumberSlice(bytecode[2..3], writer);
         },
         .Mov => {
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[2], 10, .lower, .{});
         },
         .XorConstByte => {
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
-            try writer.writeByte(' ');
+            try writer.printInt(bytecode[2], 10, .lower, .{});
+            try writer.writeAll(" ");
             try writeHexDecNumberSlice(bytecode[3..4], writer);
         },
         .AddSp,
         .SubSp,
         => {
-            try writer.writeByte(' ');
+            try writer.writeAll(" ");
             try writeHexDecNumberSlice(bytecode[1..4], writer);
         },
         .AddSpReg,
         .SubSpReg,
         => {
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[1], 10, .lower, .{});
         },
         .StoreOffsetByte => {
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+            try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" r");
-            try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
-            try writer.writeByte(' ');
+            try writer.printInt(bytecode[2], 10, .lower, .{});
+            try writer.writeAll(" ");
             try writeHexDecNumberSlice(bytecode[3..4], writer);
         },
     }
 
-    try writer.writeByte('\n');
+    try writer.writeAll("\n");
 }
 
-fn writeHexDecNumberSlice(constStr: []u8, writer: anytype) !void {
+fn writeHexDecNumberSlice(constStr: []u8, writer: *Writer) !void {
     try writer.writeAll("0x");
     try formatHexByteSlice(constStr, writer);
-    try writer.writeByte('(');
+    try writer.writeAll("(");
     try formatIntByteSlice(constStr, writer);
-    try writer.writeByte(')');
+    try writer.writeAll(")");
 }
 
-fn formatHexByteSlice(slice: []u8, writer: anytype) !void {
+fn formatHexByteSlice(slice: []u8, writer: *Writer) !void {
     for (slice) |byte| {
-        try std.fmt.formatInt(byte, 16, .lower, .{
+        try writer.printInt(byte, 16, .lower, .{
             .width = 2,
             .fill = '0',
-        }, writer);
+        });
     }
 }
 
-fn formatIntByteSlice(slice: []u8, writer: anytype) !void {
+fn formatIntByteSlice(slice: []u8, writer: *Writer) !void {
     switch (slice.len) {
         1 => try formatIntByteSliceUtil(u8, slice, writer),
         2 => try formatIntByteSliceUtil(u16, slice, writer),
@@ -215,7 +218,7 @@ fn formatIntByteSlice(slice: []u8, writer: anytype) !void {
     }
 }
 
-fn formatIntByteSliceUtil(comptime T: type, slice: []u8, writer: anytype) !void {
+fn formatIntByteSliceUtil(comptime T: type, slice: []u8, writer: *Writer) !void {
     var temp: T = 0;
 
     var i: usize = slice.len - 1;
@@ -226,14 +229,14 @@ fn formatIntByteSliceUtil(comptime T: type, slice: []u8, writer: anytype) !void 
         if (i == 0) break;
     }
 
-    try std.fmt.formatInt(temp, 10, .lower, .{}, writer);
+    try writer.printInt(temp, 10, .lower, .{});
 }
 
-fn printBytecodeOpExprSlice(bytecode: []u8, writer: anytype) !void {
+fn printBytecodeOpExprSlice(bytecode: []u8, writer: *Writer) !void {
     try writer.writeAll(" r");
-    try std.fmt.formatInt(bytecode[1], 10, .lower, .{}, writer);
+    try writer.printInt(bytecode[1], 10, .lower, .{});
     try writer.writeAll(" r");
-    try std.fmt.formatInt(bytecode[2], 10, .lower, .{}, writer);
+    try writer.printInt(bytecode[2], 10, .lower, .{});
     try writer.writeAll(" r");
-    try std.fmt.formatInt(bytecode[3], 10, .lower, .{}, writer);
+    try writer.printInt(bytecode[3], 10, .lower, .{});
 }

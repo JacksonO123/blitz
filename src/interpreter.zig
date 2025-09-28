@@ -7,6 +7,7 @@ const codegen = blitz.codegen;
 const version = blitz.version;
 const Allocator = std.mem.Allocator;
 const RegisterType = vmInfo.RegisterType;
+const Writer = std.Io.Writer;
 
 const InterpreterError = error{
     NoInputFile,
@@ -44,9 +45,10 @@ pub fn main() !void {
 
     interpretBytecode(&runtimeInfo, bytecode);
 
-    var buf = utils.getBufferedWriter();
-    defer buf.flush() catch {};
-    const writer = buf.writer();
+    var buffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buffer);
+    defer stdout.end() catch {};
+    const writer = &stdout.interface;
     try runtimeInfo.dumpRegisters(12, writer);
 }
 
@@ -80,15 +82,15 @@ const RuntimeInfo = struct {
         self.allocator.free(self.stack);
     }
 
-    pub fn dumpRegisters(self: Self, until: usize, writer: anytype) !void {
+    pub fn dumpRegisters(self: Self, until: usize, writer: *Writer) !void {
         try writer.writeAll("##STACK_START##\n");
         var i: usize = 0;
         while (i < vmInfo.NUM_REGISTERS) : (i += 1) {
             if (i == until) break;
-            try std.fmt.formatInt(i, 10, .lower, .{}, writer);
+            try writer.printInt(i, 10, .lower, .{});
             try writer.writeAll(") ");
-            try std.fmt.formatInt(self.registers[i], 10, .lower, .{}, writer);
-            try writer.writeByte('\n');
+            try writer.printInt(self.registers[i], 10, .lower, .{});
+            try writer.writeAll("\n");
         }
         try writer.writeAll("##STACK_END##\n");
     }

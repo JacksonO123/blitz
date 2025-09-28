@@ -6,6 +6,9 @@ const utils = blitz.utils;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Logger = blitz.logger.Logger;
+const Writer = std.Io.Writer;
+
+const INIT_TOK_CAPACITY = 1024 * 10;
 
 pub const TokenizeError = error{
     NumberHasTwoPeriods,
@@ -355,11 +358,13 @@ const LineBounds = struct {
 const CharUtil = struct {
     const Self = @This();
 
+    writer: *Writer,
     index: usize,
     chars: []const u8,
 
-    pub fn init(chars: []const u8) Self {
+    pub fn init(chars: []const u8, writer: *Writer) Self {
         return Self{
+            .writer = writer,
             .index = 0,
             .chars = chars,
         };
@@ -408,7 +413,7 @@ const CharUtil = struct {
     }
 
     pub fn logError(self: *Self, err: TokenizeError) TokenizeError {
-        const writer = std.io.getStdOut().writer();
+        const writer = self.writer;
         const errStr = tokenizeErrorToString(err);
 
         const index = self.index - 1;
@@ -427,25 +432,25 @@ const CharUtil = struct {
             writer.writeByte(' ') catch {};
         }
 
-        writer.writeAll(&[_]u8{ '^', '\n' }) catch {};
+        writer.writeAll("^\n") catch {};
 
         return err;
     }
 };
 
-pub fn tokenize(allocator: Allocator, input: []const u8) ![]Token {
-    var tokens = ArrayList(Token).init(allocator);
-    defer tokens.deinit();
-    var charUtil = CharUtil.init(input);
+pub fn tokenize(allocator: Allocator, input: []const u8, writer: *Writer) ![]Token {
+    var tokens = try ArrayList(Token).initCapacity(allocator, INIT_TOK_CAPACITY);
+    defer tokens.deinit(allocator);
+    var charUtil = CharUtil.init(input, writer);
 
     while (charUtil.hasNext()) {
         const token = try parseNextToken(&charUtil);
         if (token) |tok| {
-            try tokens.append(tok);
+            try tokens.append(allocator, tok);
         }
     }
 
-    return tokens.toOwnedSlice();
+    return try tokens.toOwnedSlice(allocator);
 }
 
 fn parseNextToken(chars: *CharUtil) !?Token {
@@ -862,12 +867,9 @@ pub const TokenUtil = struct {
     allocator: Allocator,
     pos: TokenPosition,
     tokens: []Token,
-    windows: *ArrayList(usize),
     logger: *Logger,
 
-    pub fn init(allocator: Allocator, logger: *Logger, tokens: []Token) !Self {
-        const windows = try utils.initMutPtrT(ArrayList(usize), allocator);
-
+    pub fn init(allocator: Allocator, logger: *Logger, tokens: []Token) Self {
         return Self{
             .allocator = allocator,
             .pos = .{
@@ -875,14 +877,8 @@ pub const TokenUtil = struct {
                 .currentLine = 0,
             },
             .tokens = tokens,
-            .windows = windows,
             .logger = logger,
         };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.windows.deinit();
-        self.allocator.destroy(self.windows);
     }
 
     pub fn reset(self: *Self) void {
@@ -890,7 +886,6 @@ pub const TokenUtil = struct {
             .index = 0,
             .currentLine = 0,
         };
-        self.windows.clearRetainingCapacity();
     }
 
     pub fn take(self: *Self) !Token {

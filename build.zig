@@ -21,23 +21,29 @@ pub fn build(b: *std.Build) void {
 
     const compilerExe = b.addExecutable(.{
         .name = compilerName,
-        .root_source_file = b.path("src/compiler.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/compiler.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     const objdumpExe = b.addExecutable(.{
         .name = objdumpName,
-        .root_source_file = b.path("src/bzc_objdump.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/bzc_objdump.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     const interpreterExe = b.addExecutable(.{
         .name = interpreterName,
-        .root_source_file = b.path("src/interpreter.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/interpreter.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     // This declares intent for the executable to be installed into the

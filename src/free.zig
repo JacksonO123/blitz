@@ -1,5 +1,5 @@
 const std = @import("std");
-const blitz = @import("root").blitz;
+const blitz = @import("blitz.zig");
 const blitzAst = blitz.ast;
 const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
@@ -59,18 +59,16 @@ pub fn freeFuncDecUtil(allocator: Allocator, func: *const blitzAst.FuncDecNode, 
 
     if (func.capturedValues) |captured| {
         freeVariableCaptures(allocator, captured);
-        captured.deinit();
         allocator.destroy(captured);
     }
 
     if (func.capturedTypes) |captured| {
         freeGenericCaptures(allocator, captured);
-        captured.deinit();
         allocator.destroy(captured);
     }
 
     if (func.capturedFuncs) |captured| {
-        captured.deinit();
+        captured.deinit(allocator);
         allocator.destroy(captured);
     }
 
@@ -78,7 +76,7 @@ pub fn freeFuncDecUtil(allocator: Allocator, func: *const blitzAst.FuncDecNode, 
         freeGenInfoRels(allocator, rels);
     }
 
-    func.toScanTypes.deinit();
+    func.toScanTypes.deinit(allocator);
     allocator.destroy(func.toScanTypes);
     allocator.destroy(func);
 }
@@ -315,7 +313,7 @@ pub fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) v
         freeGenInfoRels(allocator, rels);
     }
 
-    dec.toScanTypes.deinit();
+    dec.toScanTypes.deinit(allocator);
     allocator.destroy(dec.toScanTypes);
 }
 
@@ -399,6 +397,7 @@ pub fn freeVariableScope(allocator: Allocator, scope: *compInfo.VarScope) void {
     while (scopeIt.next()) |v| {
         freeAstTypeInfo(allocator, v.*);
     }
+    scope.deinit();
 }
 
 pub fn freeVariableCaptures(allocator: Allocator, scope: *compInfo.CaptureScope) void {
@@ -406,6 +405,7 @@ pub fn freeVariableCaptures(allocator: Allocator, scope: *compInfo.CaptureScope)
     while (scopeIt.next()) |v| {
         freeAstTypeInfo(allocator, v.*);
     }
+    scope.deinit();
 }
 
 pub const freeGenericCaptures = freeGenericScope;
@@ -414,6 +414,7 @@ pub fn freeScopedFunctionScope(allocator: Allocator, scope: *compInfo.StringList
     for (scope.items) |item| {
         allocator.free(item);
     }
+    scope.deinit(allocator);
 }
 
 pub fn freeGenericScope(allocator: Allocator, scope: *compInfo.TypeScope) void {
@@ -421,10 +422,9 @@ pub fn freeGenericScope(allocator: Allocator, scope: *compInfo.TypeScope) void {
     while (genericIt.next()) |gen| {
         freeAstTypeInfo(allocator, gen.*);
     }
+    scope.deinit();
 }
 
 pub fn freeStringListScope(allocator: Allocator, scope: *compInfo.StringListScope) void {
-    _ = allocator;
-    _ = scope;
-    // no operation needed
+    scope.deinit(allocator);
 }

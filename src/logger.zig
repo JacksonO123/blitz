@@ -1,5 +1,5 @@
 const std = @import("std");
-const blitz = @import("root").blitz;
+const blitz = @import("blitz.zig");
 const utils = blitz.utils;
 const blitzAst = blitz.ast;
 const tokenizer = blitz.tokenizer;
@@ -7,6 +7,7 @@ const TokenUtil = tokenizer.TokenUtil;
 const File = std.fs.File;
 const Allocator = std.mem.Allocator;
 const AstError = blitzAst.AstError;
+const Writer = std.Io.Writer;
 
 const LineBounds = struct {
     start: usize,
@@ -22,19 +23,21 @@ pub const Logger = struct {
     const Self = @This();
 
     allocator: Allocator,
+    writer: *Writer,
     tokens: *TokenUtil,
     code: []const u8,
 
-    pub fn init(allocator: Allocator, tokens: *TokenUtil, code: []const u8) Self {
+    pub fn init(allocator: Allocator, tokens: *TokenUtil, code: []const u8, writer: *Writer) Self {
         return Self{
             .allocator = allocator,
+            .writer = writer,
             .tokens = tokens,
             .code = code,
         };
     }
 
     pub fn logError(self: *Self, err: blitzAst.AstError) blitzAst.AstError {
-        const writer = std.io.getStdOut().writer();
+        const writer = self.writer;
         const errStr = astErrorToString(err);
 
         const numSurroundingLines = 1;

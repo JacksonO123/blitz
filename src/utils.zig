@@ -1,5 +1,5 @@
 const std = @import("std");
-const blitz = @import("root").blitz;
+const blitz = @import("blitz.zig");
 const tokenizer = blitz.tokenizer;
 const blitzAst = blitz.ast;
 const string = blitz.string;
@@ -13,16 +13,7 @@ const AutoHashMap = std.AutoHashMap;
 const AstError = blitzAst.AstError;
 const ScanError = scanner.ScanError;
 
-const bufferedWriterSize = 1024 * 32;
-pub const BufferedWriterType = std.io.BufferedWriter(bufferedWriterSize, std.fs.File.Writer);
-
-pub fn getBufferedWriter() BufferedWriterType {
-    const stdout = std.io.getStdOut();
-    const stdoutWriter = stdout.writer();
-    return std.io.BufferedWriter(bufferedWriterSize, @TypeOf(stdoutWriter)){
-        .unbuffered_writer = stdoutWriter,
-    };
-}
+pub const BUFFERED_WRITER_SIZE = 1024 * 32;
 
 pub inline fn create(comptime T: type, allocator: Allocator, obj: T) Allocator.Error!*const T {
     return createMut(T, allocator, obj);
