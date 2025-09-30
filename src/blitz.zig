@@ -13,22 +13,5 @@ pub const version = @import("version.zig");
 pub const compInfo = @import("comp_info.zig");
 pub const debug = @import("debug.zig");
 pub const vmInfo = @import("vm_info.zig");
-
-pub const Context = struct {
-    const Self = @This();
-
-    logger: *logger.Logger,
-    tokens: *tokenizer.TokenUtil,
-    compInfo: *compInfo.CompInfo,
-    scanInfo: *scanner.ScanInfo,
-    genInfo: *codegen.GenInfo,
-    code: []u8,
-
-    pub fn getTokString(self: Self, tok: tokenizer.Token) []const u8 {
-        return self.code[tok.start..tok.end];
-    }
-
-    pub fn getTokStringDropQuotes(self: Self, tok: tokenizer.Token) []const u8 {
-        return self.code[tok.start + 1 .. tok.end - 1];
-    }
-};
+pub const allocPools = @import("alloc_pools.zig");
+pub const context = @import("context.zig");

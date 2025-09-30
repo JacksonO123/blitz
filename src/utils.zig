@@ -12,6 +12,7 @@ const Allocator = std.mem.Allocator;
 const AutoHashMap = std.AutoHashMap;
 const AstError = blitzAst.AstError;
 const ScanError = scanner.ScanError;
+const ArrayList = std.ArrayList;
 
 pub const BUFFERED_WRITER_SIZE = 1024 * 32;
 

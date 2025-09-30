@@ -10,13 +10,15 @@ const codegen = blitz.codegen;
 const blitzCompInfo = blitz.compInfo;
 const debug = blitz.debug;
 const logger = blitz.logger;
-const create = utils.create;
+const allocPools = blitz.allocPools;
+const blitzContext = blitz.context;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = std.mem.Allocator;
 const CompInfo = blitzCompInfo.CompInfo;
 const TokenUtil = tokenizer.TokenUtil;
 const GenInfo = codegen.GenInfo;
+const Context = blitzContext.Context;
 
 const RuntimeError = error{NoInputFile};
 
@@ -47,6 +49,9 @@ pub fn main() !void {
     const code = try utils.readRelativeFile(allocator, path);
     defer allocator.free(code);
 
+    var pools = try allocPools.Pools.init(allocator);
+    defer pools.deinit();
+
     const tokens = try tokenizer.tokenize(allocator, code, writer);
     defer allocator.free(tokens);
 
@@ -65,12 +70,17 @@ pub fn main() !void {
     defer genInfo.deinit();
     genInfo.vmInfo.stackStartSize = compInfo.stackSizeEstimate;
 
-    var context = blitz.Context{
+    var deferCleanup = try blitzContext.DeferCleanup.init(allocator);
+    defer deferCleanup.deinit();
+
+    var context = Context{
+        .pools = &pools,
         .logger = &loggerUtil,
         .tokens = &tokenUtil,
         .compInfo = &compInfo,
         .scanInfo = &scanInfo,
         .genInfo = &genInfo,
+        .deferCleanup = &deferCleanup,
         .code = code,
     };
 

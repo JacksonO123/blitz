@@ -6,21 +6,6 @@ const utils = blitz.utils;
 const builtins = blitz.builtins;
 const compInfo = blitz.compInfo;
 const Allocator = std.mem.Allocator;
-const CompInfo = utils.CompInfo;
-
-pub fn freeNestedSlice(comptime T: type, allocator: Allocator, slices: [][]const T) void {
-    for (slices) |name| {
-        allocator.free(name);
-    }
-
-    allocator.free(slices);
-}
-
-pub fn shallowFreeFuncDecParams(allocator: Allocator, params: []blitzAst.Parameter) void {
-    for (params) |param| {
-        allocator.free(param.name);
-    }
-}
 
 pub fn freeBuiltinFuncDec(allocator: Allocator, func: *const blitzAst.FuncDecNode) void {
     freeFuncDecUtil(allocator, func, true);
@@ -35,21 +20,15 @@ pub fn freeFuncDecUtil(
     func: *const blitzAst.FuncDecNode,
     builtin: bool,
 ) void {
-    allocator.free(func.name);
-    if (builtin) {
-        shallowFreeFuncDecParams(allocator, func.params);
-    } else {
+    if (!builtin) {
         for (func.params) |param| {
             freeAstTypeInfo(allocator, param.type);
-            allocator.free(param.name);
         }
     }
     allocator.free(func.params);
 
     if (func.generics) |generics| {
         for (generics) |generic| {
-            allocator.free(generic.name);
-
             if (generic.restriction) |rest| {
                 freeAstTypeInfo(allocator, rest);
             }
@@ -94,16 +73,10 @@ pub fn freeGenInfoRels(allocator: Allocator, rels: []blitzAst.StrToTypeInfoRel) 
 
 pub fn freeAttrs(allocator: Allocator, attrs: []blitzAst.StructAttribute) void {
     for (attrs) |attr| {
-        freeAttr(allocator, attr);
-    }
-}
-
-pub fn freeAttr(allocator: Allocator, attr: blitzAst.StructAttribute) void {
-    allocator.free(attr.name);
-
-    switch (attr.attr) {
-        .Member => |mem| freeAstTypeInfo(allocator, mem),
-        .Function => |func| freeFuncDec(allocator, func),
+        switch (attr.attr) {
+            .Member => |mem| freeAstTypeInfo(allocator, mem),
+            .Function => |func| freeFuncDec(allocator, func),
+        }
     }
 }
 
@@ -112,12 +85,6 @@ pub fn freeValueNode(allocator: Allocator, node: *const blitzAst.AstValues) void
         .ArraySlice => |arr| {
             freeNodes(allocator, arr);
             allocator.free(arr);
-        },
-        .String => |string| {
-            allocator.free(string);
-        },
-        .RawNumber => |num| {
-            allocator.free(num.digits);
         },
         else => {},
     }
@@ -145,15 +112,8 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         => |val| {
             freeNode(allocator, val);
         },
-        .FuncReference => |ref| {
-            allocator.free(ref);
-        },
-        .StaticStructInstance => |inst| {
-            allocator.free(inst);
-        },
         .PropertyAccess => |access| {
             freeNode(allocator, access.value);
-            allocator.free(access.property);
         },
         .VarDec => |dec| {
             freeNode(allocator, dec.setNode);
@@ -161,8 +121,6 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             if (dec.annotation) |annotation| {
                 freeAstTypeInfo(allocator, annotation);
             }
-
-            allocator.free(dec.name);
         },
         .ValueSet => |set| {
             freeNode(allocator, set.value);
@@ -170,7 +128,6 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         },
         .VarEqOp => |op| {
             freeNode(allocator, op.value);
-            allocator.free(op.variable);
         },
         .Seq => |seq| {
             for (seq.nodes) |seqNode| {
@@ -187,9 +144,6 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         .Cast => |cast| {
             freeNode(allocator, cast.node);
             freeAstTypeInfo(allocator, cast.toType);
-        },
-        .Variable => |variable| {
-            allocator.free(variable);
         },
         .Pointer => |ptr| {
             freeNode(allocator, ptr.node);
@@ -224,9 +178,6 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             freeNode(allocator, loop.condition);
             freeNode(allocator, loop.body);
         },
-        .FuncDec => |name| {
-            allocator.free(name);
-        },
         .FuncCall => |call| {
             freeNode(allocator, call.func);
 
@@ -237,10 +188,7 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             allocator.free(call.params);
         },
         .StructInit => |init| {
-            allocator.free(init.name);
-
             for (init.attributes) |attr| {
-                allocator.free(attr.name);
                 freeNode(allocator, attr.value);
             }
 
@@ -252,19 +200,13 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
             allocator.free(init.generics);
         },
         .ErrorDec => |dec| {
-            freeErrorDec(allocator, dec);
-        },
-        .Error => |err| {
-            allocator.free(err);
+            allocator.free(dec.variants);
         },
         .ArrayInit => |init| {
-            allocator.free(init.size);
             freeNode(allocator, init.initNode);
             freeAstTypeInfo(allocator, init.initType);
         },
-        .InferErrorVariant => |variant| {
-            allocator.free(variant);
-        },
+        else => {},
     }
 
     allocator.destroy(node);
@@ -283,24 +225,11 @@ fn freeIfFallback(allocator: Allocator, fallback: *const blitzAst.IfFallback) vo
     allocator.destroy(fallback);
 }
 
-pub fn freeErrorDec(allocator: Allocator, dec: *const blitzAst.ErrorDecNode) void {
-    allocator.free(dec.name);
-
-    for (dec.variants) |variant| {
-        allocator.free(variant);
-    }
-
-    allocator.free(dec.variants);
-}
-
 pub fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) void {
-    allocator.free(dec.name);
-
     for (dec.generics) |generic| {
         if (generic.restriction) |restriction| {
             freeAstTypeInfo(allocator, restriction);
         }
-        allocator.free(generic.name);
     }
 
     freeAttrs(allocator, dec.attributes);
@@ -347,25 +276,11 @@ pub fn freeStackType(allocator: Allocator, node: *const blitzAst.AstTypes) void 
             }
 
             allocator.free(custom.generics);
-            allocator.free(custom.name);
-        },
-        .Generic => |gen| {
-            allocator.free(gen);
         },
         .Error => |err| {
-            allocator.free(err.name);
             if (err.payload) |payload| {
                 freeAstTypeInfo(allocator, payload);
             }
-        },
-        .ErrorVariant => |err| {
-            if (err.from) |from| {
-                allocator.free(from);
-            }
-            allocator.free(err.variant);
-        },
-        .StaticStructInstance => |inst| {
-            allocator.free(inst);
         },
         .VarInfo => |info| {
             freeType(allocator, info.astType);
@@ -414,13 +329,6 @@ pub fn freeVariableCaptures(allocator: Allocator, scope: *compInfo.CaptureScope)
 
 pub const freeGenericCaptures = freeGenericScope;
 
-pub fn freeScopedFunctionScope(allocator: Allocator, scope: *compInfo.StringListScope) void {
-    for (scope.items) |item| {
-        allocator.free(item);
-    }
-    scope.deinit(allocator);
-}
-
 pub fn freeGenericScope(allocator: Allocator, scope: *compInfo.TypeScope) void {
     var genericIt = scope.valueIterator();
     while (genericIt.next()) |gen| {
@@ -429,6 +337,6 @@ pub fn freeGenericScope(allocator: Allocator, scope: *compInfo.TypeScope) void {
     scope.deinit();
 }
 
-pub fn freeStringListScope(allocator: Allocator, scope: *compInfo.StringListScope) void {
+pub fn deinitScope(allocator: Allocator, scope: *compInfo.StringListScope) void {
     scope.deinit(allocator);
 }

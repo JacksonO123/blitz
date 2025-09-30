@@ -9,7 +9,7 @@ const vmInfo = blitz.vmInfo;
 const GenInfo = codegen.GenInfo;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
-const Context = blitz.Context;
+const Context = blitz.context.Context;
 
 pub fn printAst(context: *Context, ast: blitzAst.Ast, writer: *Writer) !void {
     try printNode(context, ast.root, writer);

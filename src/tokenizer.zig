@@ -345,7 +345,7 @@ pub const Token = struct {
         return if (includeAngle) temp or self.type == .RAngle else temp;
     }
 
-    pub fn strFromCode(self: Self, code: []u8) []u8 {
+    pub fn strFromCode(self: Self, code: []const u8) []const u8 {
         return code[self.start..self.end];
     }
 };

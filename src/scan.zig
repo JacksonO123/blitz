@@ -12,7 +12,7 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const create = utils.create;
 const createMut = utils.createMut;
-const Context = blitz.Context;
+const Context = blitz.context.Context;
 
 pub const ScanInfo = struct {
     allowErrorWithoutVariants: bool = false,
@@ -167,7 +167,7 @@ pub fn scanNode(
             }
 
             return try utils.astTypesToInfo(allocator, .{
-                .StaticStructInstance = try string.cloneString(allocator, inst),
+                .StaticStructInstance = inst,
             }, true);
         },
         .Cast => |cast| {
@@ -441,7 +441,7 @@ pub fn scanNode(
                 .Custom => |custom| a: {
                     const def = context.compInfo.getStructDec(custom.name) orelse break :a false;
 
-                    var genNameArr = try ArrayList([]u8).initCapacity(
+                    var genNameArr = try ArrayList([]const u8).initCapacity(
                         allocator,
                         custom.generics.len,
                     );
@@ -537,8 +537,8 @@ pub fn scanNode(
 
                     return try utils.astTypesToInfo(allocator, .{
                         .ErrorVariant = .{
-                            .from = try string.cloneString(allocator, err.name),
-                            .variant = try string.cloneString(allocator, access.property),
+                            .from = err.name,
+                            .variant = access.property,
                         },
                     }, valueInfo.isConst);
                 },
@@ -1000,7 +1000,7 @@ pub fn scanNode(
             return try utils.astTypesToInfo(allocator, .{
                 .Custom = .{
                     .generics = generics,
-                    .name = try string.cloneString(allocator, init.name),
+                    .name = init.name,
                     .allowPrivateReads = false,
                 },
             }, false);
@@ -1021,7 +1021,7 @@ pub fn scanNode(
 
             return try utils.astTypesToInfo(allocator, .{
                 .Error = .{
-                    .name = try string.cloneString(allocator, err),
+                    .name = err,
                     .payload = null,
                 },
             }, true);
@@ -1131,7 +1131,7 @@ pub fn scanNode(
                     .size = try createMut(blitzAst.AstNode, allocator, .{
                         .Value = .{
                             .RawNumber = .{
-                                .digits = try string.cloneString(allocator, init.size),
+                                .digits = init.size,
                                 .numType = .U64,
                             },
                         },
@@ -1143,7 +1143,7 @@ pub fn scanNode(
             return utils.astTypesToInfo(allocator, .{
                 .ErrorVariant = .{
                     .from = null,
-                    .variant = try string.cloneString(allocator, variant),
+                    .variant = variant,
                 },
             }, true);
         },
@@ -1156,7 +1156,7 @@ pub fn scanNode(
     }
 }
 
-fn genInGenInfoRels(rels: []blitzAst.StrToTypeInfoRel, name: []u8) bool {
+fn genInGenInfoRels(rels: []blitzAst.StrToTypeInfoRel, name: []const u8) bool {
     for (rels) |rel| {
         if (string.compString(name, rel.gen)) {
             return true;
@@ -1339,7 +1339,7 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
 
         if (func.capturedFuncs) |captured| {
             for (captured.items) |item| {
-                try context.compInfo.addScopedFunction(try string.cloneString(allocator, item));
+                try context.compInfo.addScopedFunction(item);
             }
         }
 
@@ -1739,7 +1739,14 @@ fn scanFuncBodyAndReturn(
         }
 
         if (context.compInfo.returnInfo.info.retType) |retType| {
-            if (!try matchTypes(allocator, context, func.returnType, retType, withGenDef)) {
+            const matches = try matchTypes(
+                allocator,
+                context,
+                func.returnType,
+                retType,
+                withGenDef,
+            );
+            if (!matches) {
                 return ScanError.FunctionReturnTypeMismatch;
             }
         } else {
@@ -1753,8 +1760,8 @@ fn scanFuncBodyAndReturn(
 fn validateSelfProps(
     allocator: Allocator,
     context: *Context,
-    name: []u8,
-    prop: []u8,
+    name: []const u8,
+    prop: []const u8,
     inOwnedMethod: bool,
 ) !?blitzAst.AstTypeInfo {
     const structDec = context.compInfo.getStructDec(name);
@@ -1793,8 +1800,8 @@ fn validateSelfProps(
 fn validateStaticStructProps(
     allocator: Allocator,
     context: *Context,
-    name: []u8,
-    prop: []u8,
+    name: []const u8,
+    prop: []const u8,
 ) !?blitzAst.AstTypeInfo {
     const dec = context.compInfo.getStructDec(name).?;
 
@@ -1813,7 +1820,7 @@ fn validateCustomProps(
     allocator: Allocator,
     context: *Context,
     custom: blitzAst.CustomType,
-    prop: []u8,
+    prop: []const u8,
     withGenDef: bool,
 ) !?blitzAst.AstTypeInfo {
     const dec = context.compInfo.getStructDec(custom.name);
@@ -2127,9 +2134,14 @@ pub fn matchTypesUtil(
             return try matchMutState(toType, fromType, true, mutMatchBehavior);
         },
         .Error => |err| switch (type2) {
-            .Error => |err2| string.compString(err.name, err2.name),
+            .Error => |err2| a: {
+                break :a string.compString(err.name, err2.name);
+            },
             .ErrorVariant => |err2| {
+                std.debug.print("@@SOMEHOW HERE\n", .{});
                 if (err2.from) |from| {
+                    std.debug.print("({s})\n", .{err.name});
+                    std.debug.print("({s})\n", .{from});
                     return string.compString(err.name, from);
                 }
 
@@ -2141,6 +2153,7 @@ pub fn matchTypesUtil(
                 return false;
             },
             else => {
+                std.debug.print("@@NO", .{});
                 if (err.payload) |payload| {
                     const matches = try matchTypesUtil(
                         allocator,
@@ -2241,7 +2254,7 @@ fn getPropertyType(
     allocator: Allocator,
     context: *Context,
     source: blitzAst.AstTypes,
-    prop: []u8,
+    prop: []const u8,
 ) !blitzAst.AstTypes {
     return switch (source) {
         .StaticStructInstance => |inst| try getStructPropType(context, false, inst, prop),
@@ -2256,7 +2269,7 @@ fn getCustomPropType(
     allocator: Allocator,
     context: *Context,
     custom: blitzAst.CustomType,
-    prop: []u8,
+    prop: []const u8,
 ) !blitzAst.AstTypes {
     const dec = context.compInfo.getStructDec(custom.name);
     if (dec) |structDec| {
@@ -2284,8 +2297,8 @@ fn getCustomPropType(
 fn getStructPropType(
     context: *Context,
     allowNonStatic: bool,
-    inst: []u8,
-    prop: []u8,
+    inst: []const u8,
+    prop: []const u8,
 ) !blitzAst.AstTypes {
     const dec = context.compInfo.getStructDec(inst) orelse return ScanError.InvalidPropertySource;
 
@@ -2339,7 +2352,7 @@ fn scanNodeForFunctions(
 ) !void {
     switch (node.*) {
         .FuncDec => |dec| {
-            try context.compInfo.addScopedFunction(try string.cloneString(allocator, dec));
+            try context.compInfo.addScopedFunction(dec);
         },
         .Seq => |seq| {
             for (seq.nodes) |seqNode| {

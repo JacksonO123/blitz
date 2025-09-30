@@ -7,11 +7,12 @@ const scanner = blitz.scanner;
 const string = blitz.string;
 const clone = blitz.clone;
 const free = blitz.free;
+const blitzContext = blitz.context;
 const Allocator = std.mem.Allocator;
 const ScanError = scanner.ScanError;
-const CompInfo = utils.CompInfo;
 const createMut = utils.createMut;
 const create = utils.create;
+const Context = blitzContext.Context;
 
 pub const BuiltinFuncMemo = struct {};
 
@@ -27,14 +28,17 @@ fn toNumSig(allocator: Allocator, num: blitzAst.AstNumberVariants) !*blitzAst.As
 
 fn paramsFromTypes(
     allocator: Allocator,
+    context: *Context,
     paramTypes: []const blitzAst.AstTypeInfo,
 ) ![]blitzAst.Parameter {
     var res = try allocator.alloc(blitzAst.Parameter, paramTypes.len);
 
     for (paramTypes, 0..) |param, index| {
         const hex = utils.intToHex(index);
+        const slice = try string.cloneString(allocator, &[_]u8{hex});
+        try context.deferCleanup.appendString(slice);
         res[index] = .{
-            .name = try string.cloneString(allocator, &[_]u8{hex}),
+            .name = slice,
             .type = param,
         };
     }
@@ -44,21 +48,21 @@ fn paramsFromTypes(
 
 fn toFuncSignature(
     allocator: Allocator,
-    compInfo: *CompInfo,
+    context: *Context,
     name: []const u8,
     paramTypes: []const blitzAst.AstTypeInfo,
     returnType: blitzAst.AstTypeInfo,
     withGenDef: bool,
 ) !*blitzAst.FuncDecNode {
-    const params = try paramsFromTypes(allocator, paramTypes);
+    const params = try paramsFromTypes(allocator, context, paramTypes);
 
     return try createMut(blitzAst.FuncDecNode, allocator, .{
-        .name = try string.cloneString(allocator, name),
+        .name = name,
         .generics = null,
         .params = params,
         .body = try create(blitzAst.AstNode, allocator, .NoOp),
         .bodyTokens = &[_]tokenizer.Token{},
-        .returnType = try clone.cloneAstTypeInfo(allocator, compInfo, returnType, withGenDef),
+        .returnType = try clone.cloneAstTypeInfo(allocator, context, returnType, withGenDef),
         .capturedValues = null,
         .capturedTypes = null,
         .builtin = true,
@@ -67,7 +71,7 @@ fn toFuncSignature(
 
 fn updateBuiltinFn(
     allocator: Allocator,
-    compInfo: *CompInfo,
+    context: *Context,
     builtinFn: *?*blitzAst.FuncDecNode,
     params: []const blitzAst.AstTypeInfo,
     returnType: blitzAst.AstTypeInfo,
@@ -80,7 +84,7 @@ fn updateBuiltinFn(
     } else {
         builtinFn.* = try toFuncSignature(
             allocator,
-            compInfo,
+            context,
             "push",
             params,
             returnType,
@@ -100,7 +104,7 @@ const PropInfo = struct {
 fn getPropSignature(
     allocator: Allocator,
     props: []const PropInfo,
-    prop: []u8,
+    prop: []const u8,
 ) !*const blitzAst.AstTypes {
     var res: ?*const blitzAst.AstTypes = null;
 
@@ -121,7 +125,7 @@ fn getPropSignature(
     return ScanError.InvalidProperty;
 }
 
-pub fn getStringPropType(allocator: Allocator, prop: []u8) !blitzAst.AstTypeInfo {
+pub fn getStringPropType(allocator: Allocator, prop: []const u8) !blitzAst.AstTypeInfo {
     const props = &[_]PropTypeMap{
         .{
             .prop = "len",
@@ -133,7 +137,7 @@ pub fn getStringPropType(allocator: Allocator, prop: []u8) !blitzAst.AstTypeInfo
     return try getPropType(allocator, props, prop);
 }
 
-pub fn getArraySlicePropType(allocator: Allocator, prop: []u8) !blitzAst.AstTypeInfo {
+pub fn getArraySlicePropType(allocator: Allocator, prop: []const u8) !blitzAst.AstTypeInfo {
     const props = &[_]PropTypeMap{
         .{
             .prop = "len",
@@ -148,7 +152,7 @@ pub fn getArraySlicePropType(allocator: Allocator, prop: []u8) !blitzAst.AstType
 fn getPropType(
     allocator: Allocator,
     props: []const PropTypeMap,
-    prop: []u8,
+    prop: []const u8,
 ) !blitzAst.AstTypeInfo {
     for (props) |item| {
         if (string.compString(item.prop, prop)) {

@@ -13,7 +13,7 @@ const vmInfo = blitz.vmInfo;
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const ArrayList = std.ArrayList;
-const Context = blitz.Context;
+const Context = blitz.context.Context;
 
 fn initScopeUtil(comptime T: type, allocator: Allocator) !*ScopeUtil(*T) {
     const baseScope = try utils.initMutPtrT(T, allocator);
@@ -139,12 +139,12 @@ pub const CompInfo = struct {
 
         var errorsIt = self.errorDecs.valueIterator();
         while (errorsIt.next()) |err| {
-            free.freeErrorDec(self.allocator, err.*);
+            self.allocator.free(err.*.variants);
             self.allocator.destroy(err.*);
         }
 
-        free.freeNestedSlice(u8, self.allocator, self.structNames);
-        free.freeNestedSlice(u8, self.allocator, self.errorNames);
+        self.allocator.free(self.structNames);
+        self.allocator.free(self.errorNames);
 
         free.freeBuiltins(self.allocator, self.builtins);
 
@@ -160,10 +160,10 @@ pub const CompInfo = struct {
         self.genericCaptures.deinit(free.freeGenericCaptures);
         self.allocator.destroy(self.genericCaptures);
 
-        self.functionCaptures.deinit(free.freeStringListScope);
+        self.functionCaptures.deinit(free.deinitScope);
         self.allocator.destroy(self.functionCaptures);
 
-        self.parsedGenerics.deinit(free.freeStringListScope);
+        self.parsedGenerics.deinit(free.deinitScope);
         self.allocator.destroy(self.parsedGenerics);
 
         self.scopeTypes.deinit(self.allocator);
@@ -184,7 +184,7 @@ pub const CompInfo = struct {
         self.genericScopes.deinit(free.freeGenericScope);
         self.allocator.destroy(self.genericScopes);
 
-        self.functionsInScope.deinit(free.freeScopedFunctionScope);
+        self.functionsInScope.deinit(free.deinitScope);
         self.allocator.destroy(self.functionsInScope);
     }
 
@@ -222,7 +222,7 @@ pub const CompInfo = struct {
 
     pub fn popCaptureScope(self: *Self) void {
         self.variableCaptures.pop(free.freeVariableCaptures);
-        self.functionCaptures.pop(free.freeStringListScope);
+        self.functionCaptures.pop(free.deinitScope);
     }
 
     pub fn addGenericCaptureScope(self: *Self) !void {
@@ -253,10 +253,10 @@ pub const CompInfo = struct {
     }
 
     pub fn popScopedFunctionScope(self: *Self) void {
-        self.functionsInScope.pop(free.freeScopedFunctionScope);
+        self.functionsInScope.pop(free.deinitScope);
     }
 
-    pub fn addScopedFunction(self: *Self, name: []u8) !void {
+    pub fn addScopedFunction(self: *Self, name: []const u8) !void {
         const scope = self.functionsInScope.getCurrentScope();
         if (scope) |s| {
             try s.append(self.allocator, name);
@@ -269,7 +269,7 @@ pub const CompInfo = struct {
     }
 
     pub fn popParsedGenericsScope(self: *Self) void {
-        self.parsedGenerics.pop(free.freeStringListScope);
+        self.parsedGenerics.pop(free.deinitScope);
     }
 
     pub fn addParsedGeneric(self: *Self, gen: []const u8) !void {
@@ -279,7 +279,7 @@ pub const CompInfo = struct {
         }
     }
 
-    pub fn hasParsedGeneric(self: Self, gen: []u8) bool {
+    pub fn hasParsedGeneric(self: Self, gen: []const u8) bool {
         var scope: ?*StringListScope = self.parsedGenerics.getCurrentScope();
         defer self.parsedGenerics.resetLeakIndex();
 
@@ -375,7 +375,7 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn hasError(self: Self, name: []u8) bool {
+    pub fn hasError(self: Self, name: []const u8) bool {
         for (self.errorNames) |errorName| {
             if (string.compString(errorName, name)) return true;
         }
@@ -405,7 +405,7 @@ pub const CompInfo = struct {
         }
     }
 
-    pub fn getGeneric(self: *Self, name: []u8) !?blitzAst.AstTypeInfo {
+    pub fn getGeneric(self: *Self, name: []const u8) !?blitzAst.AstTypeInfo {
         var genScope: ?*TypeScope = self.genericScopes.getCurrentScope();
         defer self.genericScopes.resetLeakIndex();
         var capture = false;
@@ -446,7 +446,7 @@ pub const CompInfo = struct {
         return null;
     }
 
-    pub fn hasGeneric(self: Self, name: []u8) bool {
+    pub fn hasGeneric(self: Self, name: []const u8) bool {
         var scope: ?*TypeScope = self.genericScopes.getCurrentScope();
         defer self.genericScopes.resetLeakIndex();
 
@@ -482,14 +482,14 @@ pub const CompInfo = struct {
         }
     }
 
-    pub fn removeVariableType(self: *Self, name: []u8) void {
+    pub fn removeVariableType(self: *Self, name: []const u8) void {
         const scope = self.variableScopes.getCurrentScope();
         if (scope) |s| {
             _ = s.remove(name);
         }
     }
 
-    pub fn getVariableType(self: *Self, name: []u8, replaceGenerics: bool) !?blitzAst.AstTypeInfo {
+    pub fn getVariableType(self: *Self, name: []const u8, replaceGenerics: bool) !?blitzAst.AstTypeInfo {
         var scope: ?*VarScope = self.variableScopes.getCurrentScope();
         defer self.variableScopes.resetLeakIndex();
         var capture = false;
@@ -530,7 +530,7 @@ pub const CompInfo = struct {
         return null;
     }
 
-    pub fn isVariableInScope(self: *Self, name: []u8) bool {
+    pub fn isVariableInScope(self: *Self, name: []const u8) bool {
         var scope: ?*VarScope = self.variableScopes.getCurrentScope();
         defer self.variableScopes.resetLeakIndex();
 
@@ -550,7 +550,7 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn getVariableTypeFixed(self: *Self, name: []u8) ?blitzAst.AstTypeInfo {
+    pub fn getVariableTypeFixed(self: *Self, name: []const u8) ?blitzAst.AstTypeInfo {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
@@ -562,7 +562,7 @@ pub const CompInfo = struct {
         return null;
     }
 
-    pub fn addFunction(self: *Self, name: []u8, dec: *blitzAst.FuncDecNode) !void {
+    pub fn addFunction(self: *Self, name: []const u8, dec: *blitzAst.FuncDecNode) !void {
         try self.functions.put(name, dec);
     }
 
@@ -579,7 +579,7 @@ pub const CompInfo = struct {
         });
     }
 
-    pub fn getFunction(self: Self, name: []u8) !?*blitzAst.FuncDecNode {
+    pub fn getFunction(self: Self, name: []const u8) !?*blitzAst.FuncDecNode {
         const func = self.getFunctionAsGlobal(name);
         const captureScope = self.functionCaptures.getCurrentScope();
         if (func) |funcDec| a: {
@@ -633,11 +633,11 @@ pub const CompInfo = struct {
         return null;
     }
 
-    pub fn getFunctionAsGlobal(self: Self, name: []u8) ?*blitzAst.FuncDecNode {
+    pub fn getFunctionAsGlobal(self: Self, name: []const u8) ?*blitzAst.FuncDecNode {
         return self.functions.get(name);
     }
 
-    pub fn setStructDec(self: *Self, name: []u8, node: *blitzAst.StructDecNode) !void {
+    pub fn setStructDec(self: *Self, name: []const u8, node: *blitzAst.StructDecNode) !void {
         try self.structDecs.put(name, node);
     }
 
@@ -653,11 +653,11 @@ pub const CompInfo = struct {
         }
     }
 
-    pub fn getStructDec(self: Self, name: []u8) ?*const blitzAst.StructDecNode {
+    pub fn getStructDec(self: Self, name: []const u8) ?*const blitzAst.StructDecNode {
         return self.structDecs.get(name);
     }
 
-    pub fn getErrorDec(self: Self, name: []u8) ?*const blitzAst.ErrorDecNode {
+    pub fn getErrorDec(self: Self, name: []const u8) ?*const blitzAst.ErrorDecNode {
         return self.errorDecs.get(name);
     }
 

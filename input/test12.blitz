@@ -1,5 +1,5 @@
-const h = 2;
+let h = 2;
 
 {
-  const h = 4;
+  let h = 4;
 }

@@ -12,7 +12,7 @@ const createMut = utils.createMut;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
-const Context = blitz.Context;
+const Context = blitz.context.Context;
 const TokenError = tokenizer.TokenError;
 
 pub const SeqNode = struct {
@@ -169,18 +169,18 @@ pub const AstArraySliceType = struct {
 };
 
 pub const CustomType = struct {
-    name: []u8,
+    name: []const u8,
     generics: []AstTypeInfo,
     allowPrivateReads: bool,
 };
 
 const ErrorVariantType = struct {
-    from: ?[]u8,
-    variant: []u8,
+    from: ?[]const u8,
+    variant: []const u8,
 };
 
 const ErrorAstType = struct {
-    name: []u8,
+    name: []const u8,
     payload: ?AstTypeInfo,
 };
 
@@ -213,14 +213,14 @@ pub const AstTypes = union(Types) {
     Null,
     Any,
     Number: AstNumberVariants,
-    RawNumber: []u8,
+    RawNumber: []const u8,
     ArraySlice: AstArraySliceType,
     Pointer: AstTypeInfo,
     Nullable: AstTypeInfo,
     Custom: CustomType,
-    Generic: []u8,
+    Generic: []const u8,
     Function: *FuncDecNode,
-    StaticStructInstance: []u8,
+    StaticStructInstance: []const u8,
     Error: ErrorAstType,
     ErrorVariant: ErrorVariantType,
     VarInfo: AstTypeInfo,
@@ -242,12 +242,12 @@ const StaticTypes = enum {
 };
 
 pub const RawNumberNode = struct {
-    digits: []u8,
+    digits: []const u8,
     numType: AstNumberVariants,
 };
 
 pub const AstValues = union(StaticTypes) {
-    String: []u8,
+    String: []const u8,
     Bool: bool,
     Char: u8,
     Number: AstNumber,
@@ -257,7 +257,7 @@ pub const AstValues = union(StaticTypes) {
 };
 
 const VarDecNode = struct {
-    name: []u8,
+    name: []const u8,
     isConst: bool,
     setNode: *AstNode,
     annotation: ?AstTypeInfo,
@@ -296,7 +296,7 @@ pub const StructAttributeUnion = union(StructAttributeVariants) {
 };
 
 pub const StructAttribute = struct {
-    name: []u8,
+    name: []const u8,
     attr: StructAttributeUnion,
     visibility: MemberVisibility,
     static: bool,
@@ -312,7 +312,7 @@ pub const ToScanTypesList = ArrayList([]StrToTypeInfoRel);
 pub const StructDecNode = struct {
     const Self = @This();
 
-    name: []u8,
+    name: []const u8,
     generics: []GenericType,
     attributes: []StructAttribute,
     totalMemberList: []StructAttribute,
@@ -321,18 +321,18 @@ pub const StructDecNode = struct {
 };
 
 pub const AttributeDefinition = struct {
-    name: []u8,
+    name: []const u8,
     value: *AstNode,
 };
 
 const StructInitNode = struct {
-    name: []u8,
+    name: []const u8,
     attributes: []AttributeDefinition,
     generics: []AstTypeInfo,
 };
 
 pub const GenericType = struct {
-    name: []u8,
+    name: []const u8,
     restriction: ?AstTypeInfo,
 };
 
@@ -349,7 +349,7 @@ const IfStatementNode = struct {
 };
 
 pub const Parameter = struct {
-    name: []u8,
+    name: []const u8,
     type: AstTypeInfo,
     isConst: bool,
 };
@@ -361,7 +361,7 @@ const FuncType = enum {
 };
 
 pub const FuncDecNode = struct {
-    name: []u8,
+    name: []const u8,
     generics: ?[]GenericType,
     params: []Parameter,
     body: *AstNode,
@@ -383,7 +383,7 @@ const FuncCallNode = struct {
 
 const PropertyAccess = struct {
     value: *AstNode,
-    property: []u8,
+    property: []const u8,
 };
 
 pub const OpExprTypes = enum(u8) {
@@ -430,7 +430,7 @@ const IndexValueNode = struct {
 };
 
 pub const ErrorDecNode = struct {
-    name: []u8,
+    name: []const u8,
     variants: [][]const u8,
 };
 
@@ -453,7 +453,7 @@ const EqOpTypes = enum {
 const VarEqOpNode = struct {
     opType: EqOpTypes,
     value: *AstNode,
-    variable: []u8,
+    variable: []const u8,
 };
 
 const ForLoopNode = struct {
@@ -479,7 +479,7 @@ const HeapAllocNode = struct {
 };
 
 const ArrayInitNode = struct {
-    size: []u8,
+    size: []const u8,
     initType: AstTypeInfo,
     initNode: *AstNode,
     indexIdent: ?[]const u8,
@@ -539,22 +539,22 @@ pub const AstNode = union(AstNodeVariants) {
     Type: AstTypes,
     Value: AstValues,
     Cast: CastNode,
-    Variable: []u8,
+    Variable: []const u8,
     StructDec: *StructDecNode,
     IfStatement: IfStatementNode,
-    FuncDec: []u8,
+    FuncDec: []const u8,
     FuncCall: FuncCallNode,
     ReturnNode: *AstNode,
     StructInit: StructInitNode,
     Bang: *AstNode,
     PropertyAccess: PropertyAccess,
-    StaticStructInstance: []u8,
-    FuncReference: []u8,
+    StaticStructInstance: []const u8,
+    FuncReference: []const u8,
     OpExpr: OpExpr,
     IndexValue: IndexValueNode,
     ErrorDec: *const ErrorDecNode,
-    Error: []u8,
-    InferErrorVariant: []u8,
+    Error: []const u8,
+    InferErrorVariant: []const u8,
     Group: *AstNode,
     Scope: *AstNode,
     IncOne: *AstNode,
@@ -726,7 +726,7 @@ fn parseStatement(
             try context.compInfo.addFunction(func.name, func);
 
             return try createMut(AstNode, allocator, .{
-                .FuncDec = try string.cloneString(allocator, func.name),
+                .FuncDec = func.name,
             });
         },
         .For => {
@@ -792,10 +792,7 @@ fn parseStatement(
                         .ValueSet = .{
                             .setNode = setNode,
                             .value = try createMut(AstNode, allocator, .{
-                                .Variable = try string.cloneString(
-                                    allocator,
-                                    context.getTokString(first),
-                                ),
+                                .Variable = context.getTokString(first),
                             }),
                         },
                     });
@@ -808,10 +805,7 @@ fn parseStatement(
                         .VarEqOp = .{
                             .opType = .AddEq,
                             .value = incNode,
-                            .variable = try string.cloneString(
-                                allocator,
-                                context.getTokString(first),
-                            ),
+                            .variable = context.getTokString(first),
                         },
                     });
                 },
@@ -828,7 +822,7 @@ fn parseStatement(
                     return parsePropertyAccess(allocator, context, identNode);
                 },
                 else => return try createMut(AstNode, allocator, .{
-                    .Variable = try string.cloneString(allocator, context.getTokString(first)),
+                    .Variable = context.getTokString(first),
                 }),
             }
         },
@@ -970,7 +964,7 @@ fn parseStruct(allocator: Allocator, context: *Context) !?*AstNode {
         return AstError.ExpectedIdentifierForStructName;
     }
 
-    const structName = try string.cloneString(allocator, context.getTokString(first));
+    const structName = context.getTokString(first);
     var next = try context.tokens.take();
 
     if (next.type == .Colon) {
@@ -1013,7 +1007,7 @@ fn parseStruct(allocator: Allocator, context: *Context) !?*AstNode {
 fn parseStructAttributes(
     allocator: Allocator,
     context: *Context,
-    structName: []u8,
+    structName: []const u8,
 ) ![]StructAttribute {
     var attributes: ArrayList(StructAttribute) = .empty;
     defer attributes.deinit(allocator);
@@ -1039,7 +1033,7 @@ fn parseStructAttributes(
 fn parseStructAttribute(
     allocator: Allocator,
     context: *Context,
-    structName: []u8,
+    structName: []const u8,
 ) !StructAttribute {
     const first = try context.tokens.take();
     switch (first.type) {
@@ -1058,7 +1052,7 @@ fn parseStructAttribute(
 fn parseStructAttributeUtil(
     allocator: Allocator,
     context: *Context,
-    structName: []u8,
+    structName: []const u8,
     visibility: MemberVisibility,
 ) !StructAttribute {
     var first = try context.tokens.take();
@@ -1075,7 +1069,7 @@ fn parseStructAttributeUtil(
             const attrType = try parseType(allocator, context);
 
             return .{
-                .name = try string.cloneString(allocator, context.getTokString(first)),
+                .name = context.getTokString(first),
                 .attr = .{
                     .Member = attrType,
                 },
@@ -1094,7 +1088,7 @@ fn parseStructAttributeUtil(
                 def.capturedValues = valueCaptures;
                 const selfInfo = try utils.astTypesToInfo(allocator, .{
                     .Custom = .{
-                        .name = try string.cloneString(allocator, structName),
+                        .name = structName,
                         .generics = &[_]AstTypeInfo{},
                         .allowPrivateReads = true,
                     },
@@ -1103,7 +1097,7 @@ fn parseStructAttributeUtil(
             }
 
             return .{
-                .name = try string.cloneString(allocator, def.name),
+                .name = def.name,
                 .attr = .{
                     .Function = def,
                 },
@@ -1133,7 +1127,7 @@ fn parseError(allocator: Allocator, context: *Context) !*const ErrorDecNode {
     }
 
     return try create(ErrorDecNode, allocator, .{
-        .name = try string.cloneString(allocator, context.getTokString(name)),
+        .name = context.getTokString(name),
         .variants = variants,
     });
 }
@@ -1149,7 +1143,7 @@ fn parseVariants(allocator: Allocator, context: *Context) ![][]const u8 {
             return TokenError.UnexpectedToken;
         }
 
-        const variantClone = try string.cloneString(allocator, context.getTokString(variant));
+        const variantClone = context.getTokString(variant);
         try variants.append(allocator, variantClone);
 
         if (comma.type == .RBrace) break;
@@ -1263,7 +1257,7 @@ fn parseExpressionUtil(
             return try createMut(AstNode, allocator, .{
                 .Value = .{
                     .RawNumber = .{
-                        .digits = try string.cloneString(allocator, context.getTokString(first)),
+                        .digits = context.getTokString(first),
                         .numType = numType,
                     },
                 },
@@ -1280,7 +1274,7 @@ fn parseExpressionUtil(
             return try createMut(AstNode, allocator, .{
                 .Value = .{
                     .RawNumber = .{
-                        .digits = try string.cloneString(allocator, context.getTokString(first)),
+                        .digits = context.getTokString(first),
                         .numType = numType,
                     },
                 },
@@ -1293,7 +1287,7 @@ fn parseExpressionUtil(
             }
 
             return try createMut(AstNode, allocator, .{
-                .InferErrorVariant = try string.cloneString(allocator, context.getTokString(next)),
+                .InferErrorVariant = context.getTokString(next),
             });
         },
         .StringToken => {
@@ -1302,7 +1296,7 @@ fn parseExpressionUtil(
 
             const strNode = try createMut(AstNode, allocator, .{
                 .Value = .{
-                    .String = try string.cloneString(allocator, str),
+                    .String = str,
                 },
             });
 
@@ -1438,15 +1432,14 @@ fn parseExpressionUtil(
 }
 
 fn getIdentNode(allocator: Allocator, context: *Context, str: []const u8) !*AstNode {
-    const newStr = try string.cloneString(allocator, str);
     var node: AstNode = undefined;
 
-    if (context.compInfo.hasStruct(newStr)) {
-        node = .{ .StaticStructInstance = newStr };
-    } else if (context.compInfo.hasError(newStr)) {
-        node = .{ .Error = newStr };
+    if (context.compInfo.hasStruct(str)) {
+        node = .{ .StaticStructInstance = str };
+    } else if (context.compInfo.hasError(str)) {
+        node = .{ .Error = str };
     } else {
-        node = .{ .Variable = newStr };
+        node = .{ .Variable = str };
     }
 
     return try createMut(AstNode, allocator, node);
@@ -1521,7 +1514,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
 
             return createMut(AstNode, allocator, .{
                 .ArrayInit = .{
-                    .size = try string.cloneString(allocator, context.getTokString(current)),
+                    .size = context.getTokString(current),
                     .initType = arrType,
                     .initNode = initNode,
                     .indexIdent = indexIdent,
@@ -1571,7 +1564,7 @@ fn parseStructInit(allocator: Allocator, context: *Context, name: []const u8) !*
 
     return try createMut(AstNode, allocator, .{
         .StructInit = .{
-            .name = try string.cloneString(allocator, name),
+            .name = name,
             .attributes = attributes,
             .generics = generics,
         },
@@ -1608,9 +1601,9 @@ fn parseStructInitAttribute(allocator: Allocator, context: *Context) !AttributeD
     const next = try context.tokens.take();
     if (next.type == .Comma or next.type == .RBrace) {
         const res = AttributeDefinition{
-            .name = try string.cloneString(allocator, context.getTokString(first)),
+            .name = context.getTokString(first),
             .value = try createMut(AstNode, allocator, .{
-                .Variable = try string.cloneString(allocator, context.getTokString(first)),
+                .Variable = context.getTokString(first),
             }),
         };
 
@@ -1624,7 +1617,7 @@ fn parseStructInitAttribute(allocator: Allocator, context: *Context) !AttributeD
         return AstError.ExpectedValueForStructProperty;
 
     return .{
-        .name = try string.cloneString(allocator, context.getTokString(first)),
+        .name = context.getTokString(first),
         .value = eqNode,
     };
 }
@@ -1660,7 +1653,7 @@ fn parsePropertyAccess(allocator: Allocator, context: *Context, node: *AstNode) 
     var access = try createMut(AstNode, allocator, .{
         .PropertyAccess = .{
             .value = node,
-            .property = try string.cloneString(allocator, context.getTokString(ident)),
+            .property = context.getTokString(ident),
         },
     });
 
@@ -1716,7 +1709,7 @@ fn parsePropertyAccess(allocator: Allocator, context: *Context, node: *AstNode) 
 /// name expected to be cloned
 fn parseFuncCall(allocator: Allocator, context: *Context, name: []const u8) !*AstNode {
     const func = try createMut(AstNode, allocator, .{
-        .FuncReference = try string.cloneString(allocator, name),
+        .FuncReference = name,
     });
 
     const params = try parseFuncCallParams(allocator, context);
@@ -1734,7 +1727,7 @@ fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncD
     defer context.compInfo.popParsedGenericsScope();
 
     var next = try context.tokens.take();
-    var nameStr: []u8 = undefined;
+    var nameStr: []const u8 = undefined;
     var generics: ?[]GenericType = null;
 
     if (next.type == .LBracket) {
@@ -1743,7 +1736,7 @@ fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncD
     }
 
     if (next.type == .Identifier) {
-        nameStr = try string.cloneString(allocator, context.getTokString(next));
+        nameStr = context.getTokString(next);
     } else {
         return AstError.ExpectedIdentifierForFunctionName;
     }
@@ -1822,7 +1815,7 @@ fn parseGeneric(allocator: Allocator, context: *Context) !GenericType {
     }
 
     return .{
-        .name = try string.cloneString(allocator, context.getTokString(first)),
+        .name = context.getTokString(first),
         .restriction = restriction,
     };
 }
@@ -1869,7 +1862,7 @@ fn parseParam(allocator: Allocator, context: *Context) !Parameter {
     const paramType = try parseType(allocator, context);
 
     return .{
-        .name = try string.cloneString(allocator, context.getTokString(first)),
+        .name = context.getTokString(first),
         .type = paramType,
         .isConst = isConst,
     };
@@ -2002,7 +1995,7 @@ fn createVarDecNode(allocator: Allocator, context: *Context, isConst: bool) !?*A
 
     return try createMut(AstNode, allocator, .{
         .VarDec = .{
-            .name = try string.cloneString(allocator, context.getTokString(name)),
+            .name = context.getTokString(name),
             .isConst = isConst,
             .setNode = setValue,
             .annotation = annotation,
@@ -2051,7 +2044,7 @@ fn parseType(
             };
         },
         .Identifier => a: {
-            const str = try string.cloneString(allocator, context.getTokString(first));
+            const str = context.getTokString(first);
             if (context.compInfo.hasStruct(str)) {
                 const next = try context.tokens.peak();
                 var generics: []AstTypeInfo = &[_]AstTypeInfo{};
@@ -2140,7 +2133,7 @@ fn parseType(
 pub fn findStructsAndErrors(
     allocator: Allocator,
     tokens: []tokenizer.Token,
-    code: []u8,
+    code: []const u8,
 ) !HoistedNames {
     var structNames: ArrayList([]const u8) = .empty;
     defer structNames.deinit(allocator);
@@ -2163,7 +2156,7 @@ pub fn findStructsAndErrors(
                     return AstError.ExpectedNameForStruct;
                 }
 
-                const str = try string.cloneString(allocator, tokens[i + 1].strFromCode(code));
+                const str = tokens[i + 1].strFromCode(code);
                 try structNames.append(allocator, str);
             },
             .Error => {
@@ -2173,7 +2166,7 @@ pub fn findStructsAndErrors(
                     return AstError.ExpectedNameForError;
                 }
 
-                const str = try string.cloneString(allocator, tokens[i + 1].strFromCode(code));
+                const str = tokens[i + 1].strFromCode(code);
                 try errorNames.append(allocator, str);
             },
             .LBrace => scopeCount += 1,
