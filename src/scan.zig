@@ -687,7 +687,9 @@ pub fn scanNode(
             );
             defer free.freeAstTypeInfo(allocator, origConditionType);
             const conditionType = try escapeVarInfo(origConditionType);
-            if (conditionType.astType.* != .Bool) return ScanError.ExpectedBooleanIfCondition;
+            if (conditionType.astType.* != .Bool and statement.condition.* != .NoOp) {
+                return ScanError.ExpectedBooleanIfCondition;
+            }
 
             const body = try scanNode(allocator, context, statement.body, withGenDef);
             defer free.freeAstTypeInfo(allocator, body);
@@ -1241,7 +1243,7 @@ fn checkUndefVars(context: *Context, node: *const blitzAst.AstNode, allowSelf: b
             undef = undef or checkUndefVars(context, statement.body, allowSelf);
 
             if (statement.fallback) |fallback| {
-                undef = undef or checkUndefVarsIfFallback(context, fallback, allowSelf);
+                undef = undef or checkUndefVars(context, fallback.node, allowSelf);
             }
 
             return undef;
@@ -1287,24 +1289,6 @@ fn checkUndefVars(context: *Context, node: *const blitzAst.AstNode, allowSelf: b
         },
         else => return false,
     };
-}
-
-fn checkUndefVarsIfFallback(
-    context: *Context,
-    fallback: *const blitzAst.IfFallback,
-    allowSelf: bool,
-) bool {
-    var undef = false;
-    if (fallback.condition) |condition| {
-        undef = undef or checkUndefVars(context, condition, allowSelf);
-    }
-    undef = undef or checkUndefVars(context, fallback.body, allowSelf);
-
-    if (fallback.fallback) |innerFallback| {
-        undef = undef or checkUndefVarsIfFallback(context, innerFallback, allowSelf);
-    }
-
-    return undef;
 }
 
 fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
@@ -1564,37 +1548,19 @@ fn applyFunctionCaptures(
 fn scanIfFallback(
     allocator: Allocator,
     context: *Context,
-    fallback: *const blitzAst.IfFallback,
+    fallback: blitzAst.FallbackInfo,
     withGenDef: bool,
 ) !void {
-    const prev = try context.compInfo.returnInfo.newInfo(false);
-
-    if (fallback.condition == null and fallback.fallback != null) {
-        const nextFallback = fallback.fallback.?;
-        if (nextFallback.condition == null) {
+    if (!fallback.hasCondition and fallback.node.IfStatement.fallback != null) {
+        const nextFallback = fallback.node.IfStatement.fallback.?;
+        if (!nextFallback.hasCondition) {
             return ScanError.IfStatementMayOnlyHaveOneElse;
         } else {
             return ScanError.ElseBranchOutOfOrder;
         }
     }
 
-    if (fallback.condition) |condition| {
-        const nodeType = try scanNode(allocator, context, condition, withGenDef);
-        free.freeAstTypeInfo(allocator, nodeType);
-    }
-
-    const bodyType = try scanNode(allocator, context, fallback.body, withGenDef);
-    free.freeAstTypeInfo(allocator, bodyType);
-
-    if (context.compInfo.returnInfo.info.retType == null) {
-        context.compInfo.returnInfo.setExhaustive(false);
-    }
-
-    try context.compInfo.returnInfo.collapse(context, prev, withGenDef);
-
-    if (fallback.fallback) |innerFallback| {
-        try scanIfFallback(allocator, context, innerFallback, withGenDef);
-    }
+    _ = try scanNode(allocator, context, fallback.node, withGenDef);
 }
 
 fn setInitGenerics(

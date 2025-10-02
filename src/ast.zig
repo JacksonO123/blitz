@@ -337,16 +337,15 @@ pub const GenericType = struct {
     restriction: ?AstTypeInfo,
 };
 
-pub const IfFallback = struct {
-    condition: ?*AstNode,
-    body: *AstNode,
-    fallback: ?*const IfFallback,
+pub const FallbackInfo = struct {
+    node: *AstNode, // must always be an if statement node
+    hasCondition: bool,
 };
 
 const IfStatementNode = struct {
     condition: *AstNode,
     body: *AstNode,
-    fallback: ?*const IfFallback,
+    fallback: ?FallbackInfo,
 };
 
 pub const Parameter = struct {
@@ -914,7 +913,7 @@ fn parseStatement(
     }
 }
 
-fn parseIfChain(allocator: Allocator, context: *Context) !?*const IfFallback {
+fn parseIfChain(allocator: Allocator, context: *Context) !?FallbackInfo {
     if (!context.tokens.hasNext()) return null;
 
     const next = try context.tokens.peak();
@@ -939,11 +938,16 @@ fn parseIfChain(allocator: Allocator, context: *Context) !?*const IfFallback {
     try context.tokens.expectToken(.RBrace);
     const fallback = try parseIfChain(allocator, context);
 
-    return try create(IfFallback, allocator, .{
-        .condition = condition,
-        .body = body,
-        .fallback = fallback,
-    });
+    return .{
+        .node = try context.pools.nodes.new(.{
+            .IfStatement = .{
+                .condition = condition orelse try context.pools.nodes.new(.NoOp),
+                .body = body,
+                .fallback = fallback,
+            },
+        }),
+        .hasCondition = condition != null,
+    };
 }
 
 fn parseStruct(allocator: Allocator, context: *Context) !?*AstNode {

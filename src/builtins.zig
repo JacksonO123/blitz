@@ -36,7 +36,7 @@ fn paramsFromTypes(
     for (paramTypes, 0..) |param, index| {
         const hex = utils.intToHex(index);
         const slice = try string.cloneString(allocator, &[_]u8{hex});
-        try context.deferCleanup.appendString(slice);
+        try context.deferCleanup.slices.strings.append(slice);
         res[index] = .{
             .name = slice,
             .type = param,

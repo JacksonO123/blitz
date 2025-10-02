@@ -531,23 +531,11 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
 
 fn printIfFallback(
     context: *Context,
-    fallback: *const blitzAst.IfFallback,
+    fallback: blitzAst.FallbackInfo,
     writer: *Writer,
 ) anyerror!void {
     try writer.writeAll("else ");
-
-    if (fallback.condition) |condition| {
-        try writer.writeAll(" if ");
-        try printNode(context, condition, writer);
-    }
-
-    try writer.writeAll("-- body --\n");
-    try printNode(context, fallback.body, writer);
-    try writer.writeAll(" -- body end --\n");
-
-    if (fallback.fallback) |innerFallback| {
-        try printIfFallback(context, innerFallback, writer);
-    }
+    try printNode(context, fallback.node, writer);
 }
 
 pub fn printFuncDec(

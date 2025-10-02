@@ -212,17 +212,8 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
     // allocator.destroy(node);
 }
 
-fn freeIfFallback(allocator: Allocator, fallback: *const blitzAst.IfFallback) void {
-    if (fallback.condition) |condition| {
-        freeNode(allocator, condition);
-    }
-
-    if (fallback.fallback) |innerFallback| {
-        freeIfFallback(allocator, innerFallback);
-    }
-
-    freeNode(allocator, fallback.body);
-    allocator.destroy(fallback);
+fn freeIfFallback(allocator: Allocator, fallback: blitzAst.FallbackInfo) void {
+    freeNode(allocator, fallback.node);
 }
 
 pub fn freeStructDec(allocator: Allocator, dec: *const blitzAst.StructDecNode) void {
