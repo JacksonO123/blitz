@@ -93,7 +93,7 @@ fn AllocPool(comptime T: type, comptime size: comptime_int) type {
             self.allocator.destroy(self.freeNodes);
         }
 
-        pub fn newNode(self: *Self, val: T) !*T {
+        pub fn new(self: *Self, val: T) !*T {
             const freePtr = self.freeNodes.pop();
             if (freePtr) |ptr| {
                 ptr.* = val;
@@ -101,7 +101,7 @@ fn AllocPool(comptime T: type, comptime size: comptime_int) type {
             }
 
             try self.appendChunk();
-            return try self.newNode(val);
+            return try self.new(val);
         }
 
         fn appendChunk(self: *Self) !void {

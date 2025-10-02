@@ -219,10 +219,10 @@ pub fn scanNode(
                         arr,
                         withGenDef,
                     );
-                    const arraySliceType = try createMut(blitzAst.AstTypes, allocator, .{
+                    const arraySliceType = try context.pools.types.new(.{
                         .ArraySlice = .{
                             .type = inferredType,
-                            .size = try createMut(blitzAst.AstNode, allocator, .{
+                            .size = try context.pools.nodes.new(.{
                                 .Value = .{
                                     .Number = .{ .U64 = arr.len },
                                 },
@@ -482,7 +482,7 @@ pub fn scanNode(
                     if (propType) |*t| {
                         t.*.isConst = valueInfo.isConst;
                         return typeInfoToVarInfo(
-                            allocator,
+                            context,
                             t.*,
                             origValueInfo.isConst or valueInfo.isConst,
                         );
@@ -1073,7 +1073,7 @@ pub fn scanNode(
             const typeClone = try clone.cloneAstTypeInfo(allocator, context, exprType, withGenDef);
             alloc.allocType = exprType;
 
-            const ptrType = try createMut(blitzAst.AstTypes, allocator, .{
+            const ptrType = try context.pools.types.new(.{
                 .Pointer = typeClone,
             });
 
@@ -1128,7 +1128,7 @@ pub fn scanNode(
             return utils.astTypesToInfo(allocator, .{
                 .ArraySlice = .{
                     .type = initTypeClone,
-                    .size = try createMut(blitzAst.AstNode, allocator, .{
+                    .size = try context.pools.nodes.new(.{
                         .Value = .{
                             .RawNumber = .{
                                 .digits = init.size,
@@ -1167,12 +1167,12 @@ fn genInGenInfoRels(rels: []blitzAst.StrToTypeInfoRel, name: []const u8) bool {
 }
 
 fn typeInfoToVarInfo(
-    allocator: Allocator,
+    context: *Context,
     info: blitzAst.AstTypeInfo,
     isConst: bool,
 ) !blitzAst.AstTypeInfo {
     return .{
-        .astType = try createMut(blitzAst.AstTypes, allocator, .{
+        .astType = try context.pools.types.new(.{
             .VarInfo = info,
         }),
         .isConst = isConst,

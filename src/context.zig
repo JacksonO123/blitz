@@ -1,5 +1,6 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
+const blitzAst = blitz.ast;
 const logger = blitz.logger;
 const tokenizer = blitz.tokenizer;
 const compInfo = blitz.compInfo;
@@ -35,28 +36,70 @@ pub const DeferCleanup = struct {
     const Self = @This();
 
     allocator: Allocator,
-    strings: *ArrayList([]u8),
+    slices: struct {
+        strings: DeferedSlice([]u8),
+        nodeSlices: DeferedSlice([]*blitzAst.AstNode),
+        typeInfoSlices: DeferedSlice([]blitzAst.AstTypeInfo),
+        genericTypeSlices: DeferedSlice([]blitzAst.GenericType),
+    },
 
     pub fn init(allocator: Allocator) !Self {
-        const list: ArrayList([]u8) = .empty;
-        const listPtr = try utils.createMut(ArrayList([]u8), allocator, list);
-
         return .{
             .allocator = allocator,
-            .strings = listPtr,
+            .strings = try DeferedSlice([]u8).init(allocator),
+            .nodeSlices = try DeferedSlice([]*blitzAst.AstNode),
+            .typeInfoSlices = try DeferedSlice([]blitzAst.AstTypeInfo),
+            .genericTypeSlices = try DeferedSlice([]blitzAst.GenericType),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        for (self.strings.items) |str| {
-            self.allocator.free(str);
-        }
-
-        self.strings.deinit(self.allocator);
-        self.allocator.destroy(self.strings);
+        self.slices.strings.deinit();
+        self.slices.nodeSlices.deinit();
+        self.slices.typeInfoSlices.deinit();
+        self.slices.genericTypeSlices.deinit();
     }
 
     pub fn appendString(self: *Self, str: []const u8) !void {
-        try self.strings.append(self.allocator, str);
+        try self.slices.strings.append(self.allocator, str);
+    }
+
+    pub fn appendNodeSlice(self: *Self, slice: []*blitzAst.AstNode) !void {
+        try self.slices.nodeSlice.append(self.allocator, slice);
+    }
+
+    pub fn appendTypeInfoSlice(self: *Self, slice: []blitzAst.AstTypeInfo) !void {
+        try self.slices.typeInfoSlice.append(self.allocator, slice);
+    }
+
+    pub fn appendGenericTypeSlice(self: *Self, slice: []blitzAst.GenericType) !void {
+        try self.slices.genericTypeSlice.append(self.allocator, slice);
     }
 };
+
+fn DeferedSlice(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        allocator: Allocator,
+        slices: *ArrayList([]T),
+
+        pub fn init(allocator: Allocator) !Self {
+            const list: ArrayList([]T) = .empty;
+            const ptr = try utils.createMut(ArrayList([]T), allocator, list);
+
+            return .{
+                .allocator = allocator,
+                .slices = ptr,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            for (self.slices.items) |slice| {
+                self.allocator.free(slice);
+            }
+            self.slices.deinit();
+            self.allocator.destroy(self.slices);
+        }
+    };
+}
