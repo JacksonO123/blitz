@@ -209,7 +209,7 @@ pub fn freeNode(allocator: Allocator, node: *const blitzAst.AstNode) void {
         else => {},
     }
 
-    allocator.destroy(node);
+    // allocator.destroy(node);
 }
 
 fn freeIfFallback(allocator: Allocator, fallback: *const blitzAst.IfFallback) void {

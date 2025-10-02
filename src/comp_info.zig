@@ -355,8 +355,10 @@ pub const CompInfo = struct {
                         tokenizer.TokenUtil.init(f.bodyTokens),
                     );
                     context.tokens = tempTokens;
-                    // TODO - log here
-                    f.body = try blitzAst.parseSequence(self.allocator, context, true);
+                    f.body = blitzAst.parseSequence(self.allocator, context, true) catch |e| {
+                        logger.logParseError(context, e);
+                        return e;
+                    };
 
                     context.tokens = prevTokens;
                     self.allocator.destroy(tempTokens);

@@ -3,10 +3,13 @@ const blitz = @import("blitz.zig");
 const utils = blitz.utils;
 const blitzAst = blitz.ast;
 const tokenizer = blitz.tokenizer;
+const blitzContext = blitz.context;
 const TokenUtil = tokenizer.TokenUtil;
 const File = std.fs.File;
 const AstError = blitzAst.AstError;
 const Writer = std.Io.Writer;
+const Context = blitzContext.Context;
+const TokenError = tokenizer.TokenError;
 
 const LineBounds = struct {
     start: usize,
@@ -33,9 +36,8 @@ pub const Logger = struct {
         };
     }
 
-    pub fn logError(self: *Self, err: blitzAst.AstError) void {
+    pub fn logError(self: *Self, errStr: []const u8) void {
         const writer = self.writer;
-        const errStr = astErrorToString(err);
 
         const numSurroundingLines = 1;
         const contextBlock = findSurroundingLines(
@@ -183,40 +185,44 @@ fn findLineBounds(code: []const u8, line: usize) LineBounds {
     };
 }
 
-fn astErrorToString(errorType: AstError) []const u8 {
-    return switch (errorType) {
-        AstError.ExpectedNameForStruct => "expected name for struct",
-        AstError.ExpectedIdentifierPropertyAccessSource => "expected identifier for property access source",
-        AstError.ExpectedStructDeriveType => "expected struct derive type",
-        AstError.ExpectedIdentifierForDeriveType => "expected identifier for derive type",
-        AstError.ExpectedIdentifierForErrorName => "expected identifier for struct type",
-        AstError.ExpectedNameForError => "expected name for error",
-        AstError.ExpectedIdentifierForVariableName => "expected identifier for variable name",
-        AstError.InvalidExprOperand => "invalid expression operand",
-        AstError.ExpectedTokenFoundNothing => "expected token found nothing",
-        AstError.ExpectedExpression => "expected expression",
-        AstError.ExpectedIdentifierForFunctionName => "expected identifier for function name",
-        AstError.ExpectedIdentifierForParameterName => "expected identifier for parameter name",
-        AstError.ExpectedIdentifierForGenericType => "expected identifier for generic type",
-        AstError.ExpectedIdentifierForPropertyAccess => "expected identifier for struct property access",
-        AstError.ExpectedIdentifierForErrorVariant => "expected identifier for error variant",
-        AstError.ExpectedIdentifierForStructName => "expected identifier for struct name",
-        AstError.ExpectedSizeForArraySlice => "expected size for static array",
-        AstError.ExpectedIdentifierForStructProperty => "expected identifier for struct property",
-        AstError.ExpectedValueForStructProperty => "expected value for struct property",
-        AstError.UnexpectedGenericOnErrorType => "unexpected generic type",
-        AstError.ExpectedTypeExpression => "expected type expression",
-        AstError.ErrorPayloadMayNotBeError => "error payload may not be error",
-        AstError.ExpectedNameForFunction => "expected name for function",
-        AstError.UnexpectedGeneric => "unexpected generic",
-        AstError.UnexpectedMutSpecifierOnGeneric => "unexpected mut specifier on generic",
-        AstError.ExpectedU64ForArraySize => "expected u64 for array size",
-        AstError.StructDefinedInLowerScope => "struct defined in lower scope",
-        AstError.ErrorDefinedInLowerScope => "struct defined in lower scope",
-        AstError.FunctionDefinedInLowerScope => "function defined in lower scope",
-        AstError.UnexpectedDeriveType => "unexpected derive type",
-        AstError.NegativeNumberWithUnsignedTypeConflict => "negative number with unsigned type conflict",
-        AstError.ExpectedIdentifierForArrayInitIndex => "expected identifier for array init index",
-        AstError.ExpectedIdentifierForArrayInitPtr => "expected identifier for array init ptr",
+pub fn logParseError(context: *Context, err: blitzAst.ParseError) void {
+    const errString = switch (err) {
+        error.ExpectedNameForStruct => "expected name for struct",
+        error.ExpectedIdentifierPropertyAccessSource => "expected identifier for property access source",
+        error.ExpectedStructDeriveType => "expected struct derive type",
+        error.ExpectedIdentifierForDeriveType => "expected identifier for derive type",
+        error.ExpectedIdentifierForErrorName => "expected identifier for struct type",
+        error.ExpectedNameForError => "expected name for error",
+        error.ExpectedIdentifierForVariableName => "expected identifier for variable name",
+        error.InvalidExprOperand => "invalid expression operand",
+        error.ExpectedExpression => "expected expression",
+        error.ExpectedIdentifierForFunctionName => "expected identifier for function name",
+        error.ExpectedIdentifierForParameterName => "expected identifier for parameter name",
+        error.ExpectedIdentifierForGenericType => "expected identifier for generic type",
+        error.ExpectedIdentifierForPropertyAccess => "expected identifier for struct property access",
+        error.ExpectedIdentifierForErrorVariant => "expected identifier for error variant",
+        error.ExpectedIdentifierForStructName => "expected identifier for struct name",
+        error.ExpectedSizeForArraySlice => "expected size for static array",
+        error.ExpectedIdentifierForStructProperty => "expected identifier for struct property",
+        error.ExpectedValueForStructProperty => "expected value for struct property",
+        error.UnexpectedGenericOnErrorType => "unexpected generic type",
+        error.ExpectedTypeExpression => "expected type expression",
+        error.ErrorPayloadMayNotBeError => "error payload may not be error",
+        error.ExpectedNameForFunction => "expected name for function",
+        error.UnexpectedGeneric => "unexpected generic",
+        error.UnexpectedMutSpecifierOnGeneric => "unexpected mut specifier on generic",
+        error.ExpectedU64ForArraySize => "expected u64 for array size",
+        error.StructDefinedInLowerScope => "struct defined in lower scope",
+        error.ErrorDefinedInLowerScope => "struct defined in lower scope",
+        error.FunctionDefinedInLowerScope => "function defined in lower scope",
+        error.UnexpectedDeriveType => "unexpected derive type",
+        error.NegativeNumberWithUnsignedTypeConflict => "negative number with unsigned type conflict",
+        error.ExpectedIdentifierForArrayInitIndex => "expected identifier for array init index",
+        error.ExpectedIdentifierForArrayInitPtr => "expected identifier for array init ptr",
+        error.ExpectedTokenFoundNothing => "expected token found nothing",
+        error.UnexpectedToken => "unexpected token",
+        else => @panic(@errorName(err)),
     };
+
+    context.logger.logError(errString);
 }
