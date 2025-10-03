@@ -22,142 +22,39 @@ const PropTypeMap = struct {
     isConst: bool,
 };
 
-fn toNumSig(allocator: Allocator, num: blitzAst.AstNumberVariants) !*blitzAst.AstTypes {
-    return try createMut(blitzAst.AstTypes, allocator, .{ .Number = num });
-}
-
-fn paramsFromTypes(
-    allocator: Allocator,
-    context: *Context,
-    paramTypes: []const blitzAst.AstTypeInfo,
-) ![]blitzAst.Parameter {
-    var res = try allocator.alloc(blitzAst.Parameter, paramTypes.len);
-
-    for (paramTypes, 0..) |param, index| {
-        const hex = utils.intToHex(index);
-        const slice = try string.cloneString(allocator, &[_]u8{hex});
-        try context.deferCleanup.slices.strings.append(slice);
-        res[index] = .{
-            .name = slice,
-            .type = param,
-        };
-    }
-
-    return res;
-}
-
-fn toFuncSignature(
-    allocator: Allocator,
-    context: *Context,
-    name: []const u8,
-    paramTypes: []const blitzAst.AstTypeInfo,
-    returnType: blitzAst.AstTypeInfo,
-    withGenDef: bool,
-) !*blitzAst.FuncDecNode {
-    const params = try paramsFromTypes(allocator, context, paramTypes);
-
-    return try createMut(blitzAst.FuncDecNode, allocator, .{
-        .name = name,
-        .generics = null,
-        .params = params,
-        .body = try create(blitzAst.AstNode, allocator, .NoOp),
-        .bodyTokens = &[_]tokenizer.Token{},
-        .returnType = try clone.cloneAstTypeInfo(allocator, context, returnType, withGenDef),
-        .capturedValues = null,
-        .capturedTypes = null,
-        .builtin = true,
-    });
-}
-
-fn updateBuiltinFn(
-    allocator: Allocator,
-    context: *Context,
-    builtinFn: *?*blitzAst.FuncDecNode,
-    params: []const blitzAst.AstTypeInfo,
-    returnType: blitzAst.AstTypeInfo,
-    withGenDef: bool,
-) !*const blitzAst.AstTypes {
-    if (builtinFn.*) |builtin| {
-        free.shallowFreeFuncDecParams(allocator, builtin.params);
-        builtin.params = try paramsFromTypes(allocator, params);
-        builtin.returnType = returnType;
-    } else {
-        builtinFn.* = try toFuncSignature(
-            allocator,
-            context,
-            "push",
-            params,
-            returnType,
-            withGenDef,
-        );
-    }
-
-    return try create(blitzAst.AstTypes, allocator, .{ .Function = builtinFn.*.? });
-}
-
-const PropInfo = struct {
-    name: []const u8,
-    signature: *const blitzAst.AstTypes,
-    isFunc: bool,
-};
-
-fn getPropSignature(
-    allocator: Allocator,
-    props: []const PropInfo,
-    prop: []const u8,
-) !*const blitzAst.AstTypes {
-    var res: ?*const blitzAst.AstTypes = null;
-
-    for (props) |p| {
-        if (string.compString(p.name, prop)) {
-            res = p.signature;
-        } else if (p.isFunc) {
-            allocator.destroy(p.signature);
-        } else {
-            free.freeType(allocator, p.signature);
-        }
-    }
-
-    if (res) |propType| {
-        return propType;
-    }
-
-    return ScanError.InvalidProperty;
-}
-
-pub fn getStringPropType(allocator: Allocator, prop: []const u8) !blitzAst.AstTypeInfo {
+pub fn getStringPropType(context: *Context, prop: []const u8) !blitzAst.AstTypeInfo {
     const props = &[_]PropTypeMap{
         .{
             .prop = "len",
-            .type = try toNumSig(allocator, .U64),
+            .type = context.constTypeInfos.u64Type.astType,
             .isConst = true,
         },
     };
 
-    return try getPropType(allocator, props, prop);
+    return try getPropType(context, props, prop);
 }
 
-pub fn getArraySlicePropType(allocator: Allocator, prop: []const u8) !blitzAst.AstTypeInfo {
+pub fn getArraySlicePropType(context: *Context, prop: []const u8) !blitzAst.AstTypeInfo {
     const props = &[_]PropTypeMap{
         .{
             .prop = "len",
-            .type = try toNumSig(allocator, .U64),
+            .type = context.constTypeInfos.u64Type.astType,
             .isConst = true,
         },
     };
 
-    return try getPropType(allocator, props, prop);
+    return try getPropType(context, props, prop);
 }
 
 fn getPropType(
-    allocator: Allocator,
+    context: *Context,
     props: []const PropTypeMap,
     prop: []const u8,
 ) !blitzAst.AstTypeInfo {
     for (props) |item| {
         if (string.compString(item.prop, prop)) {
             return .{
-                .astType = try createMut(blitzAst.AstTypes, allocator, .{
+                .astType = try context.pools.types.new(.{
                     .VarInfo = .{
                         .astType = item.type,
                         .isConst = item.isConst,

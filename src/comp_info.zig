@@ -53,7 +53,7 @@ pub const CompInfo = struct {
     const Self = @This();
 
     allocator: Allocator,
-    context: *Context = undefined, // to be set before usage in compiler.zig
+    context: *Context,
     structNames: [][]const u8,
     errorNames: [][]const u8,
     variableScopes: *ScopeUtil(*VarScope),
@@ -78,6 +78,7 @@ pub const CompInfo = struct {
 
     pub fn init(
         allocator: Allocator,
+        context: *Context,
         names: blitzAst.HoistedNames,
     ) !Self {
         const functionsToScan = try utils.createMut(ToScanStack, allocator, .empty);
@@ -104,6 +105,7 @@ pub const CompInfo = struct {
 
         return Self{
             .allocator = allocator,
+            .context = context,
             .structNames = names.structNames,
             .errorNames = names.errorNames,
             .variableScopes = variableScopes,
@@ -346,27 +348,26 @@ pub const CompInfo = struct {
                     if (attr.attr != .Function) continue;
 
                     const f = attr.attr.Function;
-                    free.freeNode(self.allocator, f.body);
 
-                    const prevTokens = context.tokens;
+                    const prevTokenUtil = context.tokenUtil;
                     const tempTokens = try utils.createMut(
                         tokenizer.TokenUtil,
                         self.allocator,
                         tokenizer.TokenUtil.init(f.bodyTokens),
                     );
-                    context.tokens = tempTokens;
+                    context.tokenUtil = tempTokens;
                     f.body = blitzAst.parseSequence(self.allocator, context, true) catch |e| {
                         logger.logParseError(context, e);
                         return e;
                     };
 
-                    context.tokens = prevTokens;
+                    context.tokenUtil = prevTokenUtil;
                     self.allocator.destroy(tempTokens);
                 }
             }
         }
 
-        context.tokens.reset();
+        context.tokenUtil.reset();
     }
 
     pub fn hasStruct(self: Self, name: []const u8) bool {
@@ -398,11 +399,6 @@ pub const CompInfo = struct {
         const genScope = self.genericScopes.getCurrentScope();
 
         if (genScope) |scope| {
-            const value = scope.get(name);
-            if (value) |genValue| {
-                free.freeAstTypeInfo(self.allocator, genValue);
-            }
-
             try scope.put(name, gType);
         }
     }
@@ -424,12 +420,6 @@ pub const CompInfo = struct {
                         t,
                         true,
                     );
-                    const existing = capScope.get(name);
-
-                    if (existing) |exist| {
-                        free.freeAstTypeInfo(self.allocator, exist);
-                    }
-
                     try capScope.put(name, clonedType);
                 }
 
@@ -477,9 +467,9 @@ pub const CompInfo = struct {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
-            const varInfo = try utils.astTypesToInfo(self.allocator, .{
+            const varInfo = utils.astTypesPtrToInfo(try self.context.pools.types.new(.{
                 .VarInfo = info,
-            }, isConst);
+            }), isConst);
             try s.put(name, varInfo);
         }
     }
@@ -508,12 +498,6 @@ pub const CompInfo = struct {
                         t,
                         replaceGenerics,
                     );
-                    const existing = capScope.get(name);
-
-                    if (existing) |exist| {
-                        free.freeAstTypeInfo(self.allocator, exist);
-                    }
-
                     try capScope.put(name, clonedType);
                 }
 
@@ -852,9 +836,6 @@ pub const ReturnInfo = struct {
     }
 
     pub fn swapFree(self: *Self, oldRetInfo: *ReturnInfoData) void {
-        if (self.info.retType) |retType| {
-            free.freeAstTypeInfo(self.allocator, retType);
-        }
         self.allocator.destroy(self.info);
         self.info = oldRetInfo;
     }
@@ -878,8 +859,6 @@ pub const ReturnInfo = struct {
                 if (!matches) {
                     return scanner.ScanError.FunctionReturnsHaveDifferentTypes;
                 }
-
-                free.freeAstTypeInfo(self.allocator, retType);
             } else {
                 self.info.retType = retType;
             }

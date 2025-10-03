@@ -49,71 +49,35 @@ pub fn main() !void {
     const code = try utils.readRelativeFile(allocator, path);
     defer allocator.free(code);
 
-    var pools = try allocPools.Pools.init(allocator);
-    defer pools.deinit();
+    var context = try Context.init(allocator, code, writer);
+    defer context.deinit();
 
-    const tokens = try tokenizer.tokenize(allocator, code, writer);
-    defer allocator.free(tokens);
-
-    const names = try blitzAst.findStructsAndErrors(allocator, tokens, code);
-    try debug.printStructAndErrorNames(names, writer);
-
-    var tokenUtil = tokenizer.TokenUtil.init(tokens);
-    var loggerUtil = logger.Logger.init(&tokenUtil, code, writer);
-
-    var compInfo = try CompInfo.init(allocator, names);
-    defer compInfo.deinit();
-
-    var scanInfo = scanner.ScanInfo{};
-
-    var genInfo = try GenInfo.init(allocator);
-    defer genInfo.deinit();
-    genInfo.vmInfo.stackStartSize = compInfo.stackSizeEstimate;
-
-    var deferCleanup = try blitzContext.DeferCleanup.init(allocator);
-    defer deferCleanup.deinit();
-
-    var context = Context{
-        .pools = &pools,
-        .logger = &loggerUtil,
-        .tokens = &tokenUtil,
-        .compInfo = &compInfo,
-        .scanInfo = &scanInfo,
-        .genInfo = &genInfo,
-        .deferCleanup = &deferCleanup,
-        .code = code,
-    };
-
-    compInfo.context = &context;
-
-    const structsAndErrors = try blitzAst.registerStructsAndErrors(allocator, &context);
+    const structsAndErrors = try blitzAst.registerStructsAndErrors(allocator, context);
     defer allocator.free(structsAndErrors.structs);
     defer allocator.free(structsAndErrors.errors);
-    try compInfo.setStructDecs(structsAndErrors.structs);
-    try compInfo.setErrorDecs(structsAndErrors.errors);
+    try context.compInfo.setStructDecs(structsAndErrors.structs);
+    try context.compInfo.setErrorDecs(structsAndErrors.errors);
 
-    try compInfo.prepareForAst(&context);
+    try context.compInfo.prepareForAst(context);
 
-    try debug.printRegisteredStructs(&context, structsAndErrors.structs, writer);
+    try debug.printRegisteredStructs(context, structsAndErrors.structs, writer);
     try debug.printRegisteredErrors(structsAndErrors.errors, writer);
 
     for (structsAndErrors.structs) |s| {
         var node: blitzAst.AstNode = .{
             .StructDec = s,
         };
-        const nodeType = try scanner.scanNode(allocator, &context, &node, true);
-        free.freeAstTypeInfo(allocator, nodeType);
+        _ = try scanner.scanNode(allocator, context, &node, true);
     }
 
-    var ast = try blitzAst.createAst(allocator, &context);
-    defer ast.deinit();
+    const ast = try blitzAst.createAst(allocator, context);
 
     try writer.writeAll("--- code ---\n");
     try writer.writeAll(code);
     try writer.writeAll("\n------------\n\n");
-    try debug.printAst(&context, ast, writer);
+    try debug.printAst(context, ast, writer);
 
-    try scanner.typeScan(allocator, ast, &context);
+    try scanner.typeScan(allocator, ast, context);
 
     // try codegen.codegenAst(allocator, &genInfo, ast);
     // try writer.writeAll("--- bytecode out ---\n");

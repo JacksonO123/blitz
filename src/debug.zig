@@ -336,9 +336,6 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
         .Value => |*val| {
             try printValue(context, val, writer);
         },
-        .Type => |*t| {
-            try printType(context, t, writer);
-        },
         .Seq => |*seq| {
             if (seq.nodes.len == 0) {
                 try writer.writeAll("(empty seq)");

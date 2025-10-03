@@ -2,8 +2,11 @@ const std = @import("std");
 const blitz = @import("blitz.zig");
 const blitzAst = blitz.ast;
 const utils = blitz.utils;
+const free = blitz.free;
+const blitzContext = blitz.context;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const Context = blitzContext.Context;
 
 const POOL_SIZE = 1024 * 64;
 
@@ -17,10 +20,10 @@ pub const Pools = struct {
     nodes: *NodePool,
     types: *TypePool,
 
-    pub fn init(allocator: Allocator) !Self {
-        const nodePool = try NodePool.init(allocator);
+    pub fn init(allocator: Allocator, context: *Context) !Self {
+        const nodePool = try NodePool.init(allocator, context, &free.freeRecurseAstNode);
         const nodePoolPtr = try utils.createMut(NodePool, allocator, nodePool);
-        const typePool = try TypePool.init(allocator);
+        const typePool = try TypePool.init(allocator, context, &free.freeRecurseType);
         const typePoolPtr = try utils.createMut(TypePool, allocator, typePool);
 
         return .{
@@ -46,14 +49,20 @@ fn AllocPoolChunk(comptime T: type) type {
     };
 }
 
+fn FreeRecurseFn(comptime T: type) type {
+    return fn (allocator: Allocator, context: *Context, *T) void;
+}
+
 fn AllocPool(comptime T: type, comptime size: comptime_int) type {
     return struct {
         const Self = @This();
 
         allocator: Allocator,
+        context: *Context,
         root: *AllocPoolChunk(T),
         last: *AllocPoolChunk(T),
         freeNodes: *ArrayList(*T),
+        freeRecurseFn: *const FreeRecurseFn(T),
 
         fn newChunk(allocator: Allocator) !*AllocPoolChunk(T) {
             const nodes = try allocator.alloc(T, size);
@@ -64,7 +73,11 @@ fn AllocPool(comptime T: type, comptime size: comptime_int) type {
             return chunk;
         }
 
-        pub fn init(allocator: Allocator) !Self {
+        pub fn init(
+            allocator: Allocator,
+            context: *Context,
+            freeRecurseFn: *const FreeRecurseFn(T),
+        ) !Self {
             const chunk = try newChunk(allocator);
             const stack = try ArrayList(*T).initCapacity(allocator, size);
             var i: usize = 0;
@@ -75,9 +88,11 @@ fn AllocPool(comptime T: type, comptime size: comptime_int) type {
 
             return .{
                 .allocator = allocator,
+                .context = context,
                 .root = chunk,
                 .last = chunk,
                 .freeNodes = stackPtr,
+                .freeRecurseFn = freeRecurseFn,
             };
         }
 
@@ -102,6 +117,14 @@ fn AllocPool(comptime T: type, comptime size: comptime_int) type {
 
             try self.appendChunk();
             return try self.new(val);
+        }
+
+        pub fn free(self: *Self, ptr: *T) void {
+            self.freeNodes.append(self.allocator, ptr) catch @panic("Out of memory");
+        }
+
+        pub fn freeRecurse(self: *Self, ptr: *T) void {
+            self.freeRecurseFn(self.allocator, self.context, ptr);
         }
 
         fn appendChunk(self: *Self) !void {
