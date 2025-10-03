@@ -668,9 +668,12 @@ pub fn parseSequence(
         try seq.append(allocator, node);
     }
 
+    const ownedSlice = try seq.toOwnedSlice(allocator);
+    try context.deferCleanup.slices.nodeSlices.append(ownedSlice);
+
     return try context.pools.nodes.new(.{
         .Seq = .{
-            .nodes = try seq.toOwnedSlice(allocator),
+            .nodes = ownedSlice,
         },
     });
 }
@@ -1535,9 +1538,12 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
         current = try context.tokenUtil.peak();
     }
 
+    const slice = try items.toOwnedSlice(allocator);
+    try context.deferCleanup.slices.nodeSlices.append(slice);
+
     return try context.pools.nodes.new(.{
         .Value = .{
-            .ArraySlice = try items.toOwnedSlice(allocator),
+            .ArraySlice = slice,
         },
     });
 }
@@ -1582,7 +1588,10 @@ fn parseStructInitAttributes(allocator: Allocator, context: *Context) ![]Attribu
 
     try context.tokenUtil.expectToken(.RBrace);
 
-    return try attributes.toOwnedSlice(allocator);
+    const ownedSlice = try attributes.toOwnedSlice(allocator);
+    try context.deferCleanup.slices.attrDefSlices.append(ownedSlice);
+
+    return ownedSlice;
 }
 
 fn parseStructInitAttribute(allocator: Allocator, context: *Context) !AttributeDefinition {
@@ -1632,7 +1641,10 @@ fn parseStructInitGenerics(allocator: Allocator, context: *Context) ![]AstTypeIn
 
     try context.tokenUtil.expectToken(.RAngle);
 
-    return try generics.toOwnedSlice(allocator);
+    const ownedSlice = try generics.toOwnedSlice(allocator);
+    try context.deferCleanup.slices.typeInfoSlices.append(ownedSlice);
+
+    return ownedSlice;
 }
 
 fn parsePropertyAccess(allocator: Allocator, context: *Context, node: *AstNode) !*AstNode {
@@ -1884,7 +1896,10 @@ fn parseFuncCallParams(allocator: Allocator, context: *Context) ![]*AstNode {
 
     _ = try context.tokenUtil.take();
 
-    return try params.toOwnedSlice(allocator);
+    const ownedSlice = try params.toOwnedSlice(allocator);
+    try context.deferCleanup.slices.nodeSlices.append(ownedSlice);
+
+    return ownedSlice;
 }
 
 fn rotatePrecedence(rootExprNode: *AstNode) ?*AstNode {
@@ -2201,8 +2216,6 @@ pub fn registerStructsAndErrors(
             },
             else => unreachable,
         }
-
-        allocator.destroy(node);
     }
 
     return .{

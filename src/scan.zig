@@ -421,7 +421,8 @@ pub fn scanNode(
                     try context.compInfo.pushGenScope(false);
                     defer context.compInfo.popGenScope();
 
-                    for (custom.generics, def.generics) |customGen, genDef| {
+                    const defGenerics = def.generics[0..custom.generics.len];
+                    for (custom.generics, defGenerics) |customGen, genDef| {
                         const clonedGenType = try clone.replaceGenericsOnTypeInfo(
                             allocator,
                             context,
@@ -759,6 +760,7 @@ pub fn scanNode(
 
             const paramTypes = try allocator.alloc(blitzAst.AstTypeInfo, call.params.len);
             defer allocator.free(paramTypes);
+
             for (call.params, 0..) |param, index| {
                 paramTypes[index] = try scanNode(allocator, context, param, withGenDef);
             }
@@ -940,6 +942,7 @@ pub fn scanNode(
             }
 
             const generics = try allocator.alloc(blitzAst.AstTypeInfo, init.generics.len);
+            try context.deferCleanup.slices.typeInfoSlices.append(generics);
             for (init.generics, 0..) |gen, index| {
                 generics[index] = try clone.replaceGenericsOnTypeInfo(
                     allocator,
@@ -1126,6 +1129,7 @@ fn typeInfoToVarInfo(
     info: blitzAst.AstTypeInfo,
     isConst: bool,
 ) !blitzAst.AstTypeInfo {
+    std.debug.assert(info.astType.* != .VarInfo);
     return .{
         .astType = try context.pools.types.new(.{
             .VarInfo = info,
@@ -1378,8 +1382,6 @@ fn setGenTypesFromParams(
             return ScanError.ExpectedMutableParameter;
         }
 
-        context.pools.types.freeRecurse(origCallParamType.astType);
-
         includesGenerics = includesGenerics or isGeneric;
     }
 
@@ -1626,8 +1628,7 @@ fn scanFuncBodyAndReturn(
     }
 
     try scanNodeForFunctions(allocator, context, func.body);
-    const bodyType = try scanNode(allocator, context, func.body, withGenDef);
-    context.pools.types.freeRecurse(bodyType.astType);
+    _ = try scanNode(allocator, context, func.body, withGenDef);
 
     const scope = context.compInfo.consumeVariableCaptures();
     if (scope) |s| {
@@ -1996,9 +1997,7 @@ pub fn matchTypesUtil(
 
             if (arr.size != null and array.size != null) {
                 const sizeType1 = try scanNode(allocator, context, arr.size.?, withGenDef);
-                defer context.pools.types.freeRecurse(sizeType1.astType);
                 const sizeType2 = try scanNode(allocator, context, array.size.?, withGenDef);
-                defer context.pools.types.freeRecurse(sizeType2.astType);
 
                 if (!isInt(sizeType1.astType) or !isInt(sizeType2.astType)) {
                     return false;
@@ -2049,10 +2048,7 @@ pub fn matchTypesUtil(
                 break :a string.compString(err.name, err2.name);
             },
             .ErrorVariant => |err2| {
-                std.debug.print("@@SOMEHOW HERE\n", .{});
                 if (err2.from) |from| {
-                    std.debug.print("({s})\n", .{err.name});
-                    std.debug.print("({s})\n", .{from});
                     return string.compString(err.name, from);
                 }
 
@@ -2064,7 +2060,6 @@ pub fn matchTypesUtil(
                 return false;
             },
             else => {
-                std.debug.print("@@NO", .{});
                 if (err.payload) |payload| {
                     const matches = try matchTypesUtil(
                         allocator,
@@ -2244,7 +2239,6 @@ fn inferArraySliceType(
 
     for (arr[1..]) |item| {
         const exprType = try scanNode(allocator, context, item, withGenDef);
-        defer context.pools.types.freeRecurse(exprType.astType);
 
         isConst = isConst or exprType.isConst;
 

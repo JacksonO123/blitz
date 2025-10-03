@@ -467,6 +467,7 @@ pub const CompInfo = struct {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
+            std.debug.assert(info.astType.* != .VarInfo);
             const varInfo = utils.astTypesPtrToInfo(try self.context.pools.types.new(.{
                 .VarInfo = info,
             }), isConst);

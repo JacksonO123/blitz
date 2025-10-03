@@ -34,7 +34,7 @@ pub const Context = struct {
         // location which is allocated before initialization
         // to make this pattern safe, all of these util init functions must not
         // use context properties, as they are undefined
-        const context = try allocator.create(Self);
+        const context = try allocator.create(Context);
 
         const pools = try allocPools.Pools.init(allocator, context);
         const poolsPtr = try utils.createMut(allocPools.Pools, allocator, pools);
@@ -148,6 +148,7 @@ pub const DeferCleanup = struct {
         self.slices.nodeSlices.deinit();
         self.slices.typeInfoSlices.deinit();
         self.slices.genericTypeSlices.deinit();
+        self.slices.attrDefSlices.deinit();
     }
 };
 
@@ -159,8 +160,7 @@ fn DeferedSlice(comptime T: type) type {
         slices: *ArrayList(T),
 
         pub fn init(allocator: Allocator) !Self {
-            const list: ArrayList(T) = .empty;
-            const ptr = try utils.createMut(ArrayList(T), allocator, list);
+            const ptr = try utils.createMut(ArrayList(T), allocator, .empty);
 
             return .{
                 .allocator = allocator,

@@ -68,6 +68,7 @@ pub fn cloneAstTypes(
         .String, .Bool, .Char, .Void, .Number, .Null, .RawNumber, .Any => return types,
 
         .VarInfo => |info| {
+            std.debug.assert(info.astType.* != .VarInfo);
             return .{
                 .VarInfo = try cloneAstTypeInfo(allocator, context, info, withGenDef),
             };

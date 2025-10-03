@@ -53,6 +53,7 @@ fn getPropType(
 ) !blitzAst.AstTypeInfo {
     for (props) |item| {
         if (string.compString(item.prop, prop)) {
+            std.debug.assert(item.type.* != .VarInfo);
             return .{
                 .astType = try context.pools.types.new(.{
                     .VarInfo = .{

@@ -621,7 +621,7 @@ fn parseNextToken(chars: *CharUtil) !?Token {
             const endTick = try chars.take();
             if (endTick != '\'') return TokenizeError.CharTokenTooLong;
 
-            return Token.initBounds(.CharToken, startIndex, chars.index);
+            return Token.initBounds(.CharToken, startIndex + 1, chars.index + 1);
         },
         '"' => {
             var current = first;

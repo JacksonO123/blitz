@@ -187,9 +187,9 @@ fn printValue(
             try writer.writeAll(")");
         },
         .String => |str| {
-            try writer.writeAll("[string](\"");
+            try writer.writeAll("[string](");
             try writer.writeAll(str);
-            try writer.writeAll("\")");
+            try writer.writeAll(")");
         },
         .Char => |ch| {
             try writer.writeAll("[char](");

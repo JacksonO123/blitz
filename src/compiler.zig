@@ -50,7 +50,10 @@ pub fn main() !void {
     defer allocator.free(code);
 
     var context = try Context.init(allocator, code, writer);
-    defer context.deinit();
+    defer {
+        context.deinit();
+        allocator.destroy(context);
+    }
 
     const structsAndErrors = try blitzAst.registerStructsAndErrors(allocator, context);
     defer allocator.free(structsAndErrors.structs);

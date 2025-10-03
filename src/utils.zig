@@ -52,3 +52,15 @@ pub fn intToHex(num: usize) u8 {
 pub inline fn unimplemented() void {
     unreachable;
 }
+
+pub fn inplacePrintNode(context: *blitz.context.Context, node: *blitzAst.AstNode) void {
+    var stdout = std.fs.File.stdout().writer(&[_]u8{});
+    const writer = &stdout.interface;
+    blitz.debug.printNode(context, node, writer) catch {};
+}
+
+pub fn inplacePrintTypeInfo(context: *blitz.context.Context, info: blitzAst.AstTypeInfo) void {
+    var stdout = std.fs.File.stdout().writer(&[_]u8{});
+    const writer = &stdout.interface;
+    blitz.debug.printTypeInfo(context, info, writer) catch {};
+}
