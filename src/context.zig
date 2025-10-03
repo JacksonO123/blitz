@@ -87,6 +87,15 @@ pub const Context = struct {
         self.compInfo.deinit();
         self.genInfo.deinit();
         self.deferCleanup.deinit();
+
+        self.allocator.destroy(self.pools);
+        self.allocator.destroy(self.tokenUtil);
+        self.allocator.destroy(self.logger);
+        self.allocator.destroy(self.compInfo);
+        self.allocator.destroy(self.scanInfo);
+        self.allocator.destroy(self.genInfo);
+        self.allocator.destroy(self.deferCleanup);
+        self.allocator.destroy(self.constTypeInfos);
     }
 
     pub fn getTokString(self: Self, tok: tokenizer.Token) []const u8 {
