@@ -19,7 +19,7 @@ pub const BuiltinFuncMemo = struct {};
 const PropTypeMap = struct {
     prop: []const u8,
     type: *blitzAst.AstTypes,
-    isConst: bool,
+    mutState: scanner.MutState,
 };
 
 pub fn getStringPropType(context: *Context, prop: []const u8) !blitzAst.AstTypeInfo {
@@ -27,7 +27,7 @@ pub fn getStringPropType(context: *Context, prop: []const u8) !blitzAst.AstTypeI
         .{
             .prop = "len",
             .type = context.constTypeInfos.u64Type.astType,
-            .isConst = true,
+            .mutState = .Const,
         },
     };
 
@@ -39,7 +39,7 @@ pub fn getArraySlicePropType(context: *Context, prop: []const u8) !blitzAst.AstT
         .{
             .prop = "len",
             .type = context.constTypeInfos.u64Type.astType,
-            .isConst = true,
+            .mutState = .Const,
         },
     };
 
@@ -53,15 +53,14 @@ fn getPropType(
 ) !blitzAst.AstTypeInfo {
     for (props) |item| {
         if (string.compString(item.prop, prop)) {
-            std.debug.assert(item.type.* != .VarInfo);
             return .{
                 .astType = try context.pools.types.new(.{
                     .VarInfo = .{
                         .astType = item.type,
-                        .isConst = item.isConst,
+                        .mutState = item.mutState,
                     },
                 }),
-                .isConst = item.isConst,
+                .mutState = item.mutState,
             };
         }
     }

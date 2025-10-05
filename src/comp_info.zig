@@ -462,15 +462,14 @@ pub const CompInfo = struct {
         self: *Self,
         name: []const u8,
         info: blitzAst.AstTypeInfo,
-        isConst: bool,
+        mutState: scanner.MutState,
     ) !void {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
-            std.debug.assert(info.astType.* != .VarInfo);
             const varInfo = utils.astTypesPtrToInfo(try self.context.pools.types.new(.{
                 .VarInfo = info,
-            }), isConst);
+            }), mutState);
             try s.put(name, varInfo);
         }
     }
@@ -478,7 +477,9 @@ pub const CompInfo = struct {
     pub fn removeVariableType(self: *Self, name: []const u8) void {
         const scope = self.variableScopes.getCurrentScope();
         if (scope) |s| {
-            _ = s.remove(name);
+            if (s.fetchRemove(name)) |pair| {
+                self.context.pools.types.release(pair.value.astType);
+            }
         }
     }
 
@@ -795,6 +796,7 @@ fn ScopeUtil(comptime T: type) type {
 }
 
 pub const ReturnInfoData = struct {
+    // TODO - retType should have a way to say if the value was allocated
     retType: ?blitzAst.AstTypeInfo,
     inFunction: bool,
     exhaustive: bool,

@@ -16,10 +16,6 @@ const StringHashMap = std.StringHashMap;
 const TokenError = tokenizer.TokenError;
 const Context = blitz.context.Context;
 
-pub const SeqNode = struct {
-    nodes: []*AstNode,
-};
-
 const AstNumberVariantsStrRel = struct {
     str: []const u8,
     val: AstNumberVariants,
@@ -229,7 +225,7 @@ pub const AstTypes = union(Types) {
 
 pub const AstTypeInfo = struct {
     astType: *AstTypes,
-    isConst: bool,
+    mutState: scanner.MutState,
 };
 
 const StaticTypes = enum {
@@ -259,10 +255,9 @@ pub const AstValues = union(StaticTypes) {
 
 const VarDecNode = struct {
     name: []const u8,
-    isConst: bool,
+    mutState: scanner.MutState,
     setNode: *AstNode,
     annotation: ?AstTypeInfo,
-    setType: ?AstTypeInfo,
 };
 
 const CastNode = struct {
@@ -351,7 +346,7 @@ const IfStatementNode = struct {
 pub const Parameter = struct {
     name: []const u8,
     type: AstTypeInfo,
-    isConst: bool,
+    mutState: scanner.MutState,
 };
 
 const FuncType = enum {
@@ -470,12 +465,11 @@ const WhileLoopNode = struct {
 
 const PointerNode = struct {
     node: *AstNode,
-    isConst: bool,
+    mutState: scanner.MutState,
 };
 
 const HeapAllocNode = struct {
     node: *AstNode,
-    allocType: ?AstTypeInfo,
 };
 
 const ArrayInitNode = struct {
@@ -531,7 +525,7 @@ pub const AstNode = union(AstNodeVariants) {
     StructPlaceholder,
     Break,
     Continue,
-    Seq: SeqNode,
+    Seq: []*AstNode,
     VarDec: VarDecNode,
     ValueSet: ValueSetNode,
     VarEqOp: VarEqOpNode,
@@ -672,9 +666,7 @@ pub fn parseSequence(
     try context.deferCleanup.slices.nodeSlices.append(ownedSlice);
 
     return try context.pools.nodes.new(.{
-        .Seq = .{
-            .nodes = ownedSlice,
-        },
+        .Seq = ownedSlice,
     });
 }
 
@@ -686,14 +678,14 @@ fn parseStatement(
     switch (first.type) {
         .Let => {
             const next = try context.tokenUtil.peak();
-            var isConst = true;
+            var mutState: scanner.MutState = .Const;
 
             if (next.type == .Mut) {
-                isConst = false;
+                mutState = .Mut;
                 _ = try context.tokenUtil.take();
             }
 
-            return try createVarDecNode(allocator, context, isConst);
+            return try createVarDecNode(allocator, context, mutState);
         },
         .If => {
             try context.tokenUtil.expectToken(.LParen);
@@ -1090,7 +1082,7 @@ fn parseStructAttributeUtil(
                         .generics = &[_]AstTypeInfo{},
                         .allowPrivateReads = true,
                     },
-                }), true);
+                }), .Const);
                 try valueCaptures.put("self", selfInfo);
             }
 
@@ -1247,7 +1239,6 @@ fn parseExpressionUtil(
             return try context.pools.nodes.new(.{
                 .HeapAlloc = .{
                     .node = expr,
-                    .allocType = null,
                 },
             });
         },
@@ -1316,7 +1307,7 @@ fn parseExpressionUtil(
 
             const expr = try parseExpression(allocator, context) orelse
                 return AstError.ExpectedExpression;
-            expr.Pointer.isConst = false;
+            expr.Pointer.mutState = .Mut;
 
             return expr;
         },
@@ -1333,7 +1324,7 @@ fn parseExpressionUtil(
             return try context.pools.nodes.new(.{
                 .Pointer = .{
                     .node = expr,
-                    .isConst = true,
+                    .mutState = .Const,
                 },
             });
         },
@@ -1756,7 +1747,7 @@ fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncD
     if (retNext.type != .LBrace) {
         returnType = try parseType(allocator, context);
     } else {
-        returnType = utils.astTypesPtrToInfo(try context.pools.types.new(.Void), true);
+        returnType = utils.astTypesPtrToInfo(try context.pools.types.new(.Void), .Const);
     }
 
     try context.tokenUtil.expectToken(.LBrace);
@@ -1869,7 +1860,7 @@ fn parseParam(allocator: Allocator, context: *Context) !Parameter {
     return .{
         .name = context.getTokString(first),
         .type = paramType,
-        .isConst = isConst,
+        .mutState = if (isConst) .Const else .Mut,
     };
 }
 
@@ -1983,7 +1974,11 @@ fn createBoolNode(context: *Context, value: bool) !*AstNode {
     return node;
 }
 
-fn createVarDecNode(allocator: Allocator, context: *Context, isConst: bool) !?*AstNode {
+fn createVarDecNode(
+    allocator: Allocator,
+    context: *Context,
+    mutState: scanner.MutState,
+) !?*AstNode {
     const name = try context.tokenUtil.take();
     if (name.type != .Identifier) {
         return AstError.ExpectedIdentifierForVariableName;
@@ -2004,10 +1999,9 @@ fn createVarDecNode(allocator: Allocator, context: *Context, isConst: bool) !?*A
     return try context.pools.nodes.new(.{
         .VarDec = .{
             .name = context.getTokString(name),
-            .isConst = isConst,
+            .mutState = mutState,
             .setNode = setValue,
             .annotation = annotation,
-            .setType = annotation,
         },
     });
 }
@@ -2120,7 +2114,10 @@ fn parseType(
 
         try context.tokenUtil.expectToken(.RBracket);
 
-        const sliceType = utils.astTypesPtrToInfo(try context.pools.types.new(astType), isConst);
+        const sliceType = utils.astTypesPtrToInfo(
+            try context.pools.types.new(astType),
+            @enumFromInt(@intFromBool(isConst)),
+        );
         const newAstType = AstTypes{
             .ArraySlice = .{
                 .type = sliceType,
@@ -2135,7 +2132,10 @@ fn parseType(
         return AstError.UnexpectedMutSpecifierOnGeneric;
     }
 
-    return utils.astTypesPtrToInfo(try context.pools.types.new(astType), isConst);
+    return utils.astTypesPtrToInfo(
+        try context.pools.types.new(astType),
+        @enumFromInt(@intFromBool(isConst)),
+    );
 }
 
 pub fn findStructsAndErrors(

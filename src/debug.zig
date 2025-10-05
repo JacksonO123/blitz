@@ -31,7 +31,7 @@ pub fn printStructAndErrorNames(names: blitzAst.HoistedNames, writer: *Writer) !
 }
 
 pub fn printTypeInfo(context: *Context, info: blitzAst.AstTypeInfo, writer: *Writer) !void {
-    if (!info.isConst) {
+    if (info.mutState == .Mut) {
         try writer.writeAll("mut ");
     }
     try printType(context, info.astType, writer);
@@ -313,9 +313,9 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
             try writer.writeAll(" from ");
             try printNode(context, access.value, writer);
         },
-        .VarDec => |*dec| {
+        .VarDec => |dec| {
             try writer.writeAll("declare (");
-            try writer.writeAll(if (dec.isConst) "const" else "mutable");
+            try writer.writeAll(if (dec.mutState == .Const) "const" else "mutable");
             try writer.writeAll(") (");
             try writer.writeAll(dec.name);
             try writer.writeAll(") = ");
@@ -336,14 +336,14 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
         .Value => |*val| {
             try printValue(context, val, writer);
         },
-        .Seq => |*seq| {
-            if (seq.nodes.len == 0) {
+        .Seq => |seq| {
+            if (seq.len == 0) {
                 try writer.writeAll("(empty seq)");
             } else {
-                try printNodes(context, seq.nodes, writer);
+                try printNodes(context, seq, writer);
             }
         },
-        .Cast => |*cast| {
+        .Cast => |cast| {
             try writer.writeAll("cast ");
             try printNode(context, cast.node, writer);
             try writer.writeAll(" to ");
@@ -355,7 +355,7 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
             try writer.writeAll(")]");
         },
         .Pointer => |ptr| {
-            if (!ptr.isConst) {
+            if (ptr.mutState == .Mut) {
                 try writer.writeAll("mut ");
             }
             try writer.writeAll("pointer to ");

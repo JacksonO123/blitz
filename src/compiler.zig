@@ -82,6 +82,9 @@ pub fn main() !void {
 
     try scanner.typeScan(allocator, ast, context);
 
+    try writer.writeAll("\n------------\n");
+    try context.pools.writeStats(writer);
+
     // try codegen.codegenAst(allocator, &genInfo, ast);
     // try writer.writeAll("--- bytecode out ---\n");
     // try debug.printBytecodeChunks(&genInfo, writer);

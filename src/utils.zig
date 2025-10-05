@@ -37,10 +37,37 @@ pub fn initMutPtrT(comptime T: type, allocator: Allocator) !*T {
     return try createMut(T, allocator, data);
 }
 
-pub inline fn astTypesPtrToInfo(astType: *blitzAst.AstTypes, isConst: bool) blitzAst.AstTypeInfo {
+pub inline fn astTypesPtrToInfo(
+    astType: *blitzAst.AstTypes,
+    constState: scanner.MutState,
+) blitzAst.AstTypeInfo {
     return .{
-        .isConst = isConst,
+        .mutState = constState,
         .astType = astType,
+    };
+}
+
+pub inline fn astTypesPtrToScanResult(
+    astType: *blitzAst.AstTypes,
+    constState: scanner.MutState,
+    allocatedState: scanner.AllocatedState,
+) scanner.TypeAndAllocInfo {
+    return .{
+        .info = .{
+            .mutState = constState,
+            .astType = astType,
+        },
+        .allocState = allocatedState,
+    };
+}
+
+pub inline fn astTypeInfoToScanResult(
+    info: blitzAst.AstTypeInfo,
+    allocatedState: scanner.AllocatedState,
+) scanner.TypeAndAllocInfo {
+    return .{
+        .info = info,
+        .allocState = allocatedState,
     };
 }
 
@@ -53,14 +80,8 @@ pub inline fn unimplemented() void {
     unreachable;
 }
 
-pub fn inplacePrintNode(context: *blitz.context.Context, node: *blitzAst.AstNode) void {
+pub fn dbgWriter() *std.Io.Writer {
     var stdout = std.fs.File.stdout().writer(&[_]u8{});
     const writer = &stdout.interface;
-    blitz.debug.printNode(context, node, writer) catch {};
-}
-
-pub fn inplacePrintTypeInfo(context: *blitz.context.Context, info: blitzAst.AstTypeInfo) void {
-    var stdout = std.fs.File.stdout().writer(&[_]u8{});
-    const writer = &stdout.interface;
-    blitz.debug.printTypeInfo(context, info, writer) catch {};
+    return writer;
 }

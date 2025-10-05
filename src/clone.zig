@@ -5,6 +5,7 @@ const utils = blitz.utils;
 const string = blitz.string;
 const blitzCompInfo = blitz.compInfo;
 const debug = blitz.debug;
+const scanner = blitz.scanner;
 const Allocator = std.mem.Allocator;
 const create = utils.create;
 const createMut = utils.createMut;
@@ -38,13 +39,13 @@ pub fn cloneAstTypeInfo(
             .astType = try context.pools.types.new(.{
                 .Generic = generic,
             }),
-            .isConst = info.isConst,
+            .mutState = info.mutState,
         };
     }
 
     return .{
         .astType = try cloneAstTypesPtrMut(allocator, context, info.astType, withGenDef),
-        .isConst = info.isConst,
+        .mutState = info.mutState,
     };
 }
 
@@ -68,7 +69,6 @@ pub fn cloneAstTypes(
         .String, .Bool, .Char, .Void, .Number, .Null, .RawNumber, .Any => return types,
 
         .VarInfo => |info| {
-            std.debug.assert(info.astType.* != .VarInfo);
             return .{
                 .VarInfo = try cloneAstTypeInfo(allocator, context, info, withGenDef),
             };
@@ -197,10 +197,10 @@ pub fn cloneAstNode(
             };
         },
         .Seq => |seq| {
-            var newSeq = try allocator.alloc(*blitzAst.AstNode, seq.nodes.len);
+            var newSeq = try allocator.alloc(*blitzAst.AstNode, seq.len);
             try context.deferCleanup.slices.nodeSlices.append(newSeq);
 
-            for (seq.nodes, 0..) |seqNode, index| {
+            for (seq, 0..) |seqNode, index| {
                 newSeq[index] = try cloneAstNodePtrMut(
                     allocator,
                     context,
@@ -210,9 +210,7 @@ pub fn cloneAstNode(
             }
 
             return .{
-                .Seq = .{
-                    .nodes = newSeq,
-                },
+                .Seq = newSeq,
             };
         },
         .Value => |val| {
@@ -259,10 +257,9 @@ pub fn cloneAstNode(
             return .{
                 .VarDec = .{
                     .name = dec.name,
-                    .isConst = dec.isConst,
+                    .mutState = dec.mutState,
                     .setNode = nodePtr,
                     .annotation = clonedType,
-                    .setType = dec.setType,
                 },
             };
         },
@@ -301,18 +298,13 @@ pub fn cloneAstNode(
         .Pointer => |ptr| return .{
             .Pointer = .{
                 .node = try cloneAstNodePtrMut(allocator, context, ptr.node, withGenDef),
-                .isConst = ptr.isConst,
+                .mutState = ptr.mutState,
             },
         },
         .Dereference => |deref| return .{
             .Dereference = try cloneAstNodePtrMut(allocator, context, deref, withGenDef),
         },
         .HeapAlloc => |alloc| {
-            const allocTypeClone = if (alloc.allocType) |allocType|
-                try cloneAstTypeInfo(allocator, context, allocType, withGenDef)
-            else
-                null;
-
             return .{
                 .HeapAlloc = .{
                     .node = try cloneAstNodePtrMut(
@@ -321,7 +313,6 @@ pub fn cloneAstNode(
                         alloc.node,
                         withGenDef,
                     ),
-                    .allocType = allocTypeClone,
                 },
             };
         },
@@ -435,7 +426,10 @@ pub fn cloneAstNode(
             .ReturnNode = try cloneAstNodePtrMut(allocator, context, ret, withGenDef),
         },
         .StructInit => |init| {
-            const generics = try allocator.dupe(blitzAst.AstTypeInfo, init.generics);
+            const generics = try allocator.alloc(blitzAst.AstTypeInfo, init.generics.len);
+            for (init.generics, generics) |generic, *to| {
+                to.* = try cloneAstTypeInfo(allocator, context, generic, withGenDef);
+            }
             try context.deferCleanup.slices.typeInfoSlices.append(generics);
 
             const name = init.name;
@@ -625,7 +619,7 @@ pub fn cloneStructAttributeUnionType(
     return switch (structAttrUnion) {
         .Function => |func| utils.astTypesPtrToInfo(
             try context.pools.types.new(.{ .Function = func }),
-            true,
+            .Const,
         ),
         .Member => |member| try cloneAstTypeInfo(allocator, context, member, withGenDef),
     };
@@ -652,13 +646,20 @@ fn cloneAttrDef(
     return attributes;
 }
 
+// TODO - should return something like scan result in the future
 pub fn replaceGenericsOnTypeInfo(
     allocator: Allocator,
     context: *Context,
     info: blitzAst.AstTypeInfo,
     withGenDef: bool,
-) !blitzAst.AstTypeInfo {
-    if (!withGenDef) return info;
+) !scanner.TypeAndAllocInfo {
+    if (!withGenDef) return .{
+        .info = info,
+        .allocState = .Recycled,
+    };
 
-    return try cloneAstTypeInfo(allocator, context, info, withGenDef);
+    return .{
+        .info = try cloneAstTypeInfo(allocator, context, info, withGenDef),
+        .allocState = .Allocated,
+    };
 }
