@@ -16,6 +16,9 @@ const Context = blitz.context.Context;
 pub const CloneError = error{
     GenericNotFound,
     BadGenericClone,
+    CannotCloneFunction,
+    CannotCloneStructDec,
+    CannotCloneErrorDec,
 };
 
 pub fn cloneAstTypeInfo(
@@ -70,19 +73,21 @@ pub fn cloneAstTypes(
 
         .VarInfo => |info| {
             return .{
-                .VarInfo = utils.astTypeInfoToAllocInfo(
-                    try cloneAstTypeInfo(allocator, context, info.info, withGenDef),
-                    .Allocated,
-                ),
+                .VarInfo = (try cloneAstTypeInfo(
+                    allocator,
+                    context,
+                    info.info,
+                    withGenDef,
+                )).toAllocInfo(.Allocated),
             };
         },
         .ArraySlice => |arr| {
-            const typeClone = utils.astTypeInfoToAllocInfo(try cloneAstTypeInfo(
+            const typeClone = (try cloneAstTypeInfo(
                 allocator,
                 context,
                 arr.type.info,
                 withGenDef,
-            ), .Allocated);
+            )).toAllocInfo(.Allocated);
             var sizeClone: ?*blitzAst.AstNode = null;
             if (arr.size) |size| {
                 sizeClone = try cloneAstNodePtrMut(allocator, context, size, withGenDef);
@@ -102,10 +107,12 @@ pub fn cloneAstTypes(
         },
         .Pointer => |ptr| {
             return .{
-                .Pointer = utils.astTypeInfoToAllocInfo(
-                    try cloneAstTypeInfo(allocator, context, ptr.info, withGenDef),
-                    .Allocated,
-                ),
+                .Pointer = (try cloneAstTypeInfo(
+                    allocator,
+                    context,
+                    ptr.info,
+                    withGenDef,
+                )).toAllocInfo(.Allocated),
             };
         },
         .Nullable => |t| {
@@ -152,7 +159,7 @@ pub fn cloneAstTypes(
             };
         },
         .Generic => return CloneError.BadGenericClone,
-        .Function => @panic("No cloning functions"),
+        .Function => return CloneError.CannotCloneFunction,
     }
 }
 
@@ -512,8 +519,8 @@ pub fn cloneAstNode(
                 .ptrIdent = init.ptrIdent,
             },
         },
-        .StructDec => @panic("Cannot clone struct dec"),
-        .ErrorDec => @panic("Cannot clone error dec"),
+        .StructDec => return CloneError.CannotCloneStructDec,
+        .ErrorDec => return CloneError.CannotCloneErrorDec,
     }
 }
 
@@ -628,10 +635,9 @@ pub fn cloneStructAttributeUnionType(
     withGenDef: bool,
 ) !blitzAst.AstTypeInfo {
     return switch (structAttrUnion) {
-        .Function => |func| utils.astTypesPtrToInfo(
-            try context.pools.types.new(.{ .Function = func }),
-            .Const,
-        ),
+        .Function => |func| (try context.pools.types.new(.{
+            .Function = func,
+        })).toTypeInfo(.Const),
         .Member => |member| try cloneAstTypeInfo(allocator, context, member, withGenDef),
     };
 }

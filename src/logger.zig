@@ -221,7 +221,7 @@ pub fn logParseError(context: *Context, err: blitzAst.ParseError) void {
         error.ExpectedIdentifierForArrayInitPtr => "expected identifier for array init ptr",
         error.ExpectedTokenFoundNothing => "expected token found nothing",
         error.UnexpectedToken => "unexpected token",
-        else => @panic(@errorName(err)),
+        else => @errorName(err),
     };
 
     context.logger.logError(errString);

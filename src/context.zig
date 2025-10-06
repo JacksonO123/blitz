@@ -118,11 +118,11 @@ pub const ConstTypeInfos = struct {
 
     pub fn init(pools: *allocPools.Pools) !Self {
         return .{
-            .voidType = utils.astTypesPtrToInfo(try pools.types.new(.Void), .Const),
-            .boolType = utils.astTypesPtrToInfo(try pools.types.new(.Bool), .Mut),
-            .anyType = utils.astTypesPtrToInfo(try pools.types.new(.Any), .Mut),
-            .f32Type = utils.astTypesPtrToInfo(try pools.types.new(.{ .Number = .F32 }), .Mut),
-            .u64Type = utils.astTypesPtrToInfo(try pools.types.new(.{ .Number = .U64 }), .Mut),
+            .voidType = (try pools.types.new(.Void)).toTypeInfo(.Const),
+            .boolType = (try pools.types.new(.Bool)).toTypeInfo(.Mut),
+            .anyType = (try pools.types.new(.Any)).toTypeInfo(.Mut),
+            .f32Type = (try pools.types.new(.{ .Number = .F32 })).toTypeInfo(.Mut),
+            .u64Type = (try pools.types.new(.{ .Number = .U64 })).toTypeInfo(.Mut),
         };
     }
 };

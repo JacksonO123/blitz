@@ -186,19 +186,16 @@ pub fn scanNode(
     withGenDef: bool,
 ) ScanNodeError!TypeAndAllocInfo {
     switch (node.*) {
-        .NoOp, .ErrorDec => return utils.astTypeInfoToAllocInfo(
-            context.constTypeInfos.voidType,
-            .Recycled,
-        ),
+        .NoOp, .ErrorDec => return context.constTypeInfos.voidType.toAllocInfo(.Recycled),
 
         .StaticStructInstance => |inst| {
             if (!context.scanInfo.allowStaticStructInstance) {
                 return ScanError.StaticStructInstanceCannotBeUsedAsVariable;
             }
 
-            return utils.astTypesPtrToAllocInfo(try context.pools.types.new(.{
+            return (try context.pools.types.new(.{
                 .StaticStructInstance = inst,
-            }), .Const, .Allocated);
+            })).toAllocInfo(.Const, .Allocated);
         },
         .Cast => |cast| {
             const clonedCastResult = try clone.replaceGenericsOnTypeInfo(
@@ -214,7 +211,7 @@ pub fn scanNode(
 
             const origNodeType = try scanNode(allocator, context, cast.node, withGenDef);
             defer releaseIfAllocated(context, origNodeType);
-            const nodeType = escapeVarInfo(origNodeType.info);
+            const nodeType = try escapeVarInfo(origNodeType.info);
 
             if (isAnyType(nodeType.astType) or
                 isPrimitive(nodeType.astType) and
@@ -260,27 +257,19 @@ pub fn scanNode(
                         },
                     });
 
-                    return utils.astTypesPtrToAllocInfo(
-                        arraySliceType,
-                        inferredType.info.mutState,
-                        .Allocated,
-                    );
+                    return arraySliceType.toAllocInfo(inferredType.info.mutState, .Allocated);
                 },
             };
 
-            return utils.astTypesPtrToAllocInfo(
-                try context.pools.types.new(valueRes),
-                .Mut,
-                .Allocated,
-            );
+            return (try context.pools.types.new(valueRes)).toAllocInfo(.Mut, .Allocated);
         },
         .IndexValue => |indexInfo| {
             const origIndexType = try scanNode(allocator, context, indexInfo.index, withGenDef);
             defer releaseIfAllocated(context, origIndexType);
-            const indexType = escapeVarInfo(origIndexType.info);
+            const indexType = try escapeVarInfo(origIndexType.info);
             const origValueType = try scanNode(allocator, context, indexInfo.value, withGenDef);
             defer releaseIfAllocated(context, origValueType);
-            const valueType = escapeVarInfo(origValueType.info);
+            const valueType = try escapeVarInfo(origValueType.info);
 
             if (indexType.astType.* == .Number and indexType.astType.Number != .U64) {
                 return ScanError.ExpectedU64ForIndex;
@@ -301,10 +290,10 @@ pub fn scanNode(
         .OpExpr => |op| {
             const origLeft = try scanNode(allocator, context, op.left, withGenDef);
             defer releaseIfAllocated(context, origLeft);
-            const left = escapeVarInfo(origLeft.info);
+            const left = try escapeVarInfo(origLeft.info);
             const origRight = try scanNode(allocator, context, op.right, withGenDef);
             defer releaseIfAllocated(context, origRight);
-            const right = escapeVarInfo(origRight.info);
+            const right = try escapeVarInfo(origRight.info);
 
             switch (op.type) {
                 .BitAnd, .BitOr => {
@@ -328,10 +317,7 @@ pub fn scanNode(
                         return ScanError.ExpectedBoolInBoolOp;
                     }
 
-                    return utils.astTypeInfoToAllocInfo(
-                        context.constTypeInfos.boolType,
-                        .Recycled,
-                    );
+                    return context.constTypeInfos.boolType.toAllocInfo(.Recycled);
                 },
                 .Add, .Sub, .Mult, .Div => {
                     if (isAnyType(left.astType)) {
@@ -381,10 +367,7 @@ pub fn scanNode(
                             );
                         }
 
-                        return utils.astTypeInfoToAllocInfo(
-                            context.constTypeInfos.f32Type,
-                            .Recycled,
-                        );
+                        return context.constTypeInfos.f32Type.toAllocInfo(.Recycled);
                     }
 
                     return try clone.replaceGenericsOnTypeInfo(
@@ -413,10 +396,7 @@ pub fn scanNode(
                         }
                     }
 
-                    return utils.astTypeInfoToAllocInfo(
-                        context.constTypeInfos.boolType,
-                        .Recycled,
-                    );
+                    return context.constTypeInfos.boolType.toAllocInfo(.Recycled);
                 },
             }
         },
@@ -467,9 +447,9 @@ pub fn scanNode(
             const dec = try context.compInfo.getFunction(ref);
 
             if (dec) |funcRef| {
-                return utils.astTypesPtrToAllocInfo(try context.pools.types.new(.{
+                return (try context.pools.types.new(.{
                     .Function = funcRef,
-                }), .Const, .Allocated);
+                })).toAllocInfo(.Const, .Allocated);
             }
 
             return ScanError.IdentifierNotAFunction;
@@ -485,7 +465,7 @@ pub fn scanNode(
 
             const origValueInfo = try scanNode(allocator, context, access.value, withGenDef);
             defer releaseIfAllocated(context, origValueInfo);
-            const valueInfo = escapeVarInfo(origValueInfo.info);
+            const valueInfo = try escapeVarInfo(origValueInfo.info);
             context.scanInfo.allowStaticStructInstance = false;
             context.scanInfo.allowErrorWithoutVariants = false;
 
@@ -493,19 +473,16 @@ pub fn scanNode(
                 .Generic => {
                     var anyType = context.constTypeInfos.anyType;
                     anyType.mutState = valueInfo.mutState;
-                    return utils.astTypeInfoToAllocInfo(anyType, .Recycled);
+                    return anyType.toAllocInfo(.Recycled);
                 },
-                .ArraySlice => return utils.astTypeInfoToAllocInfo(
-                    try builtins.getArraySlicePropType(
-                        context,
-                        access.property,
-                    ),
-                    .Recycled,
-                ),
-                .String => return utils.astTypeInfoToAllocInfo(
-                    try builtins.getStringPropType(context, access.property),
-                    .Recycled,
-                ),
+                .ArraySlice => return (try builtins.getArraySlicePropType(
+                    context,
+                    access.property,
+                )).toAllocInfo(.Recycled),
+                .String => return (try builtins.getStringPropType(
+                    context,
+                    access.property,
+                )).toAllocInfo(.Recycled),
                 .Custom => |custom| a: {
                     const def = context.compInfo.getStructDec(custom.name) orelse break :a false;
 
@@ -573,7 +550,7 @@ pub fn scanNode(
                         }
 
                         propType.?.mutState = valueInfo.mutState;
-                        return utils.astTypeInfoToAllocInfo(t, .Allocated);
+                        return t.toAllocInfo(.Allocated);
                     }
 
                     break :a false;
@@ -588,12 +565,12 @@ pub fn scanNode(
                         return ScanError.ErrorDoesNotHaveVariants;
                     }
 
-                    return utils.astTypesPtrToAllocInfo(try context.pools.types.new(.{
+                    return (try context.pools.types.new(.{
                         .ErrorVariant = .{
                             .from = err.name,
                             .variant = access.property,
                         },
-                    }), valueInfo.mutState, .Allocated);
+                    })).toAllocInfo(valueInfo.mutState, .Allocated);
                 },
                 else => false,
             };
@@ -602,11 +579,11 @@ pub fn scanNode(
                 return ScanError.InvalidProperty;
             }
 
-            return utils.astTypeInfoToAllocInfo(context.constTypeInfos.voidType, .Recycled);
+            return context.constTypeInfos.voidType.toAllocInfo(.Recycled);
         },
         .Seq => |seq| {
             try scanNodes(allocator, context, seq, withGenDef);
-            return utils.astTypeInfoToAllocInfo(context.constTypeInfos.voidType, .Recycled);
+            return context.constTypeInfos.voidType.toAllocInfo(.Recycled);
         },
         .VarDec => |dec| {
             if (context.compInfo.getVariableTypeFixed(dec.name) != null) {
@@ -614,7 +591,7 @@ pub fn scanNode(
             }
 
             const origSetType = try scanNode(allocator, context, dec.setNode, withGenDef);
-            var setType = escapeVarInfoAndRelease(context, origSetType);
+            var setType = try escapeVarInfoAndRelease(context, origSetType);
 
             if (setType.info.astType.* == .Void) {
                 return ScanError.VoidVariableDec;
@@ -641,7 +618,7 @@ pub fn scanNode(
             }
 
             try context.compInfo.setVariableType(dec.name, setType, dec.mutState);
-            return utils.astTypeInfoToAllocInfo(context.constTypeInfos.voidType, .Recycled);
+            return context.constTypeInfos.voidType.toAllocInfo(.Recycled);
         },
         .ValueSet => |set| {
             const origValType = try scanNode(allocator, context, set.value, withGenDef);
@@ -650,7 +627,7 @@ pub fn scanNode(
                 return ScanError.InvalidSetValueTarget;
             }
             if (origValType.info.mutState == .Const) return ScanError.AssigningToConstVariable;
-            const valType = escapeVarInfo(origValType.info);
+            const valType = try escapeVarInfo(origValType.info);
 
             const setType = try scanNode(allocator, context, set.setNode, withGenDef);
             defer releaseIfAllocated(context, setType);
@@ -660,7 +637,7 @@ pub fn scanNode(
                 return ScanError.VariableTypeAndValueTypeMismatch;
             }
 
-            return utils.astTypeInfoToAllocInfo(context.constTypeInfos.voidType, .Recycled);
+            return context.constTypeInfos.voidType.toAllocInfo(.Recycled);
         },
         .VarEqOp => |op| {
             switch (op.opType) {
@@ -721,7 +698,7 @@ pub fn scanNode(
                 else => {},
             }
 
-            return utils.astTypeInfoToAllocInfo(context.constTypeInfos.voidType, .Recycled);
+            return context.constTypeInfos.voidType.toAllocInfo(.Recycled);
         },
         .Variable => |name| {
             const varInfo = try context.compInfo.getVariableType(name, withGenDef);
@@ -739,13 +716,10 @@ pub fn scanNode(
 
             return ScanError.VariableIsUndefined;
         },
-        .StructPlaceholder => return utils.astTypeInfoToAllocInfo(
-            context.constTypeInfos.voidType,
-            .Recycled,
-        ),
+        .StructPlaceholder => return context.constTypeInfos.voidType.toAllocInfo(.Recycled),
         .StructDec => |dec| {
             try scanAttributes(allocator, context, dec);
-            return utils.astTypeInfoToAllocInfo(context.constTypeInfos.voidType, .Recycled);
+            return context.constTypeInfos.voidType.toAllocInfo(.Recycled);
         },
         .IfStatement => |statement| {
             try context.compInfo.pushScope(true);
@@ -760,7 +734,7 @@ pub fn scanNode(
                 withGenDef,
             );
             defer releaseIfAllocated(context, origConditionType);
-            const conditionType = escapeVarInfo(origConditionType.info);
+            const conditionType = try escapeVarInfo(origConditionType.info);
             if (conditionType.astType.* != .Bool and statement.condition.* != .NoOp) {
                 return ScanError.ExpectedBooleanIfCondition;
             }
@@ -780,7 +754,7 @@ pub fn scanNode(
                 context.compInfo.returnInfo.setExhaustive(false);
             }
 
-            return utils.astTypeInfoToAllocInfo(context.constTypeInfos.voidType, .Recycled);
+            return context.constTypeInfos.voidType.toAllocInfo(.Recycled);
         },
         .ForLoop => |loop| {
             try context.compInfo.pushScopeWithType(true, .Loop);
@@ -794,7 +768,7 @@ pub fn scanNode(
 
             const origConditionType = try scanNode(allocator, context, loop.condition, withGenDef);
             defer releaseIfAllocated(context, origConditionType);
-            const conditionType = escapeVarInfo(origConditionType.info);
+            const conditionType = try escapeVarInfo(origConditionType.info);
             if (conditionType.astType.* != .Bool) {
                 return ScanError.ExpectedBooleanLoopCondition;
             }
@@ -809,7 +783,7 @@ pub fn scanNode(
                 context.compInfo.returnInfo.setExhaustive(false);
             }
 
-            return utils.astTypeInfoToAllocInfo(context.constTypeInfos.voidType, .Recycled);
+            return context.constTypeInfos.voidType.toAllocInfo(.Recycled);
         },
         .WhileLoop => |loop| {
             try context.compInfo.pushScopeWithType(true, .Loop);
@@ -818,7 +792,7 @@ pub fn scanNode(
 
             const origConditionType = try scanNode(allocator, context, loop.condition, withGenDef);
             defer releaseIfAllocated(context, origConditionType);
-            const conditionType = escapeVarInfo(origConditionType.info);
+            const conditionType = try escapeVarInfo(origConditionType.info);
             if (conditionType.astType.* != .Bool) {
                 return ScanError.ExpectedBooleanLoopCondition;
             }
@@ -831,7 +805,7 @@ pub fn scanNode(
                 context.compInfo.returnInfo.setExhaustive(false);
             }
 
-            return utils.astTypeInfoToAllocInfo(context.constTypeInfos.voidType, .Recycled);
+            return context.constTypeInfos.voidType.toAllocInfo(.Recycled);
         },
         .FuncDec => |name| {
             try context.compInfo.pushScopeWithType(true, .Function);
@@ -851,7 +825,7 @@ pub fn scanNode(
             const func = context.compInfo.getFunctionAsGlobal(name).?;
 
             if (func.visited) {
-                return utils.astTypeInfoToAllocInfo(context.constTypeInfos.voidType, .Recycled);
+                return context.constTypeInfos.voidType.toAllocInfo(.Recycled);
             }
 
             if (func.generics == null) {
@@ -860,7 +834,7 @@ pub fn scanNode(
 
             try scanFuncBodyAndReturn(allocator, context, func, false);
 
-            return utils.astTypeInfoToAllocInfo(context.constTypeInfos.voidType, .Recycled);
+            return context.constTypeInfos.voidType.toAllocInfo(.Recycled);
         },
         .FuncCall => |call| {
             const prev = context.compInfo.returnInfo.setInFunction(true);
@@ -871,7 +845,7 @@ pub fn scanNode(
 
             const tempDec = try scanNode(allocator, context, call.func, withGenDef);
             defer releaseIfAllocated(context, tempDec);
-            const dec = escapeVarInfo(tempDec.info);
+            const dec = try escapeVarInfo(tempDec.info);
             if (dec.astType.* != .Function) return ScanError.CannotCallNonFunctionNode;
             const func = dec.astType.Function;
 
@@ -1087,21 +1061,21 @@ pub fn scanNode(
                 );
             }
 
-            return utils.astTypesPtrToAllocInfo(try context.pools.types.new(.{
+            return (try context.pools.types.new(.{
                 .Custom = .{
                     .generics = generics,
                     .name = init.name,
                     .allowPrivateReads = false,
                 },
-            }), .Mut, .Allocated);
+            })).toAllocInfo(.Mut, .Allocated);
         },
         .Bang => |bang| {
             const origBangType = try scanNode(allocator, context, bang, withGenDef);
             defer releaseIfAllocated(context, origBangType);
-            const bangType = escapeVarInfo(origBangType.info);
+            const bangType = try escapeVarInfo(origBangType.info);
             if (bangType.astType.* != .Bool) return ScanError.ExpectedBooleanBang;
 
-            return utils.astTypeInfoToAllocInfo(context.constTypeInfos.boolType, .Recycled);
+            return context.constTypeInfos.boolType.toAllocInfo(.Recycled);
         },
         .Error => |err| {
             const dec = context.compInfo.getErrorDec(err).?;
@@ -1109,12 +1083,12 @@ pub fn scanNode(
                 return ScanError.ExpectedUseOfErrorVariants;
             }
 
-            return utils.astTypesPtrToAllocInfo(try context.pools.types.new(.{
+            return (try context.pools.types.new(.{
                 .Error = .{
                     .name = err,
                     .payload = null,
                 },
-            }), .Const, .Allocated);
+            })).toAllocInfo(.Const, .Allocated);
         },
         .Scope => |scope| {
             try context.compInfo.pushScope(true);
@@ -1143,15 +1117,15 @@ pub fn scanNode(
                 else => {},
             }
 
-            const ptrTypeInfo = escapeVarInfoAndRelease(context, ptrType);
+            const ptrTypeInfo = try escapeVarInfoAndRelease(context, ptrType);
 
-            return utils.astTypesPtrToAllocInfo(try context.pools.types.new(.{
+            return (try context.pools.types.new(.{
                 .Pointer = ptrTypeInfo,
-            }), ptr.mutState, .Allocated);
+            })).toAllocInfo(ptr.mutState, .Allocated);
         },
         .Dereference => |target| {
             const ptrTypeResult = try scanNode(allocator, context, target, withGenDef);
-            const ptrType = escapeVarInfo(ptrTypeResult.info);
+            const ptrType = try escapeVarInfo(ptrTypeResult.info);
             if (ptrType.astType.* != .Pointer) return ScanError.CannotDereferenceNonPointerValue;
 
             if (ptrTypeResult.allocState == .Allocated) {
@@ -1165,7 +1139,7 @@ pub fn scanNode(
         },
         .HeapAlloc => |*alloc| {
             const exprTypeResult = try scanNode(allocator, context, alloc.*.node, withGenDef);
-            const exprType = escapeVarInfo(exprTypeResult.info);
+            const exprType = try escapeVarInfo(exprTypeResult.info);
             const typeClone = try clone.replaceGenericsOnTypeInfo(
                 allocator,
                 context,
@@ -1173,19 +1147,19 @@ pub fn scanNode(
                 withGenDef,
             );
 
-            return utils.astTypesPtrToAllocInfo(try context.pools.types.new(.{
+            return (try context.pools.types.new(.{
                 .Pointer = typeClone,
-            }), .Mut, .Allocated);
+            })).toAllocInfo(.Mut, .Allocated);
         },
         .HeapFree => |toFree| {
             const exprTypeResult = try scanNode(allocator, context, toFree, withGenDef);
             defer releaseIfAllocated(context, exprTypeResult);
-            const exprType = escapeVarInfo(exprTypeResult.info);
+            const exprType = try escapeVarInfo(exprTypeResult.info);
             if (exprType.astType.* != .Pointer and exprType.astType.* != .ArraySlice) {
                 return ScanError.CannotFreeNonPointerType;
             }
 
-            return utils.astTypeInfoToAllocInfo(context.constTypeInfos.voidType, .Recycled);
+            return context.constTypeInfos.voidType.toAllocInfo(.Recycled);
         },
         .ArrayInit => |init| {
             try context.compInfo.pushScope(true);
@@ -1196,7 +1170,7 @@ pub fn scanNode(
                 info.mutState = .Const;
                 try context.compInfo.setVariableType(
                     ident,
-                    utils.astTypeInfoToAllocInfo(info, .Recycled),
+                    info.toAllocInfo(.Recycled),
                     .Const,
                 );
             }
@@ -1206,14 +1180,14 @@ pub fn scanNode(
                 info.mutState = .Const;
                 try context.compInfo.setVariableType(
                     ident,
-                    utils.astTypeInfoToAllocInfo(info, .Recycled),
+                    info.toAllocInfo(.Recycled),
                     .Const,
                 );
             }
 
             const initNodeTypeResult = try scanNode(allocator, context, init.initNode, withGenDef);
             defer releaseIfAllocated(context, initNodeTypeResult);
-            const initNodeType = escapeVarInfo(initNodeTypeResult.info);
+            const initNodeType = try escapeVarInfo(initNodeTypeResult.info);
 
             const matches = try matchTypes(
                 allocator,
@@ -1233,7 +1207,7 @@ pub fn scanNode(
                 withGenDef,
             );
 
-            return utils.astTypesPtrToAllocInfo(try context.pools.types.new(.{
+            const arraySliceType = try context.pools.types.new(.{
                 .ArraySlice = .{
                     .type = initTypeClone,
                     .size = try context.pools.nodes.new(.{
@@ -1245,24 +1219,23 @@ pub fn scanNode(
                         },
                     }),
                 },
-            }), .Mut, .Allocated);
+            });
+
+            return arraySliceType.toAllocInfo(.Mut, .Allocated);
         },
         .InferErrorVariant => |variant| {
-            return utils.astTypesPtrToAllocInfo(try context.pools.types.new(.{
+            return (try context.pools.types.new(.{
                 .ErrorVariant = .{
                     .from = null,
                     .variant = variant,
                 },
-            }), .Const, .Allocated);
+            })).toAllocInfo(.Const, .Allocated);
         },
         .Break, .Continue => {
             if (!context.compInfo.inLoopScope()) {
                 return ScanError.LoopControlFlowUsedOutsideOfLoop;
             }
-            return utils.astTypeInfoToAllocInfo(
-                context.constTypeInfos.voidType,
-                .Recycled,
-            );
+            return context.constTypeInfos.voidType.toAllocInfo(.Recycled);
         },
     }
 }
@@ -1283,15 +1256,12 @@ fn typeInfoToVarInfo(
     mutState: MutState,
     allocState: AllocatedState,
 ) !TypeAndAllocInfo {
-    return utils.astTypeInfoToAllocInfo(utils.astTypesPtrToInfo(
-        try context.pools.types.new(.{
-            .VarInfo = utils.astTypeInfoToAllocInfo(info, allocState),
-        }),
-        mutState,
-    ), allocState);
+    return (try context.pools.types.new(.{
+        .VarInfo = info.toAllocInfo(allocState),
+    })).toAllocInfo(mutState, allocState);
 }
 
-fn escapeVarInfo(node: blitzAst.AstTypeInfo) blitzAst.AstTypeInfo {
+fn escapeVarInfo(node: blitzAst.AstTypeInfo) !blitzAst.AstTypeInfo {
     var res = node;
 
     if (res.astType.* == .VarInfo) {
@@ -1299,13 +1269,13 @@ fn escapeVarInfo(node: blitzAst.AstTypeInfo) blitzAst.AstTypeInfo {
     }
 
     if (res.astType.* == .VarInfo) {
-        @panic("Nested var info detected");
+        return ScanError.NestedVarInfoDetected;
     }
 
     return res;
 }
 
-fn escapeVarInfoAndRelease(context: *Context, result: TypeAndAllocInfo) TypeAndAllocInfo {
+fn escapeVarInfoAndRelease(context: *Context, result: TypeAndAllocInfo) !TypeAndAllocInfo {
     const allocated = result.allocState;
     var res = result;
 
@@ -1321,7 +1291,7 @@ fn escapeVarInfoAndRelease(context: *Context, result: TypeAndAllocInfo) TypeAndA
     }
 
     if (res.info.astType.* == .VarInfo) {
-        @panic("Nested var info detected");
+        return ScanError.NestedVarInfoDetected;
     }
 
     return res;
@@ -1451,7 +1421,7 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
             var captureIt = captured.iterator();
             while (captureIt.next()) |item| {
                 const value = item.value_ptr.*;
-                const paramType = escapeVarInfo(value);
+                const paramType = try escapeVarInfo(value);
 
                 const clonedType = try clone.replaceGenericsOnTypeInfo(
                     allocator,
@@ -1492,7 +1462,7 @@ fn setGenTypesFromParams(
 
     for (func.params, paramTypes) |decParam, origCallParamTypeResult| {
         const origCallParamType = origCallParamTypeResult.info;
-        const callParamType = escapeVarInfo(origCallParamType);
+        const callParamType = try escapeVarInfo(origCallParamType);
         var isGeneric = false;
 
         switch (decParam.type.astType.*) {
@@ -2413,7 +2383,7 @@ fn inferArraySliceType(
     if (arr.len == 0) {
         var voidType = context.constTypeInfos.voidType;
         voidType.mutState = .Mut;
-        return utils.astTypeInfoToAllocInfo(voidType, .Recycled);
+        return voidType.toAllocInfo(.Recycled);
     }
 
     var firstType = try scanNode(allocator, context, arr[0], withGenDef);

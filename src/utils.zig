@@ -37,40 +37,6 @@ pub fn initMutPtrT(comptime T: type, allocator: Allocator) !*T {
     return try createMut(T, allocator, data);
 }
 
-pub inline fn astTypesPtrToInfo(
-    astType: *blitzAst.AstTypes,
-    constState: scanner.MutState,
-) blitzAst.AstTypeInfo {
-    return .{
-        .mutState = constState,
-        .astType = astType,
-    };
-}
-
-pub inline fn astTypesPtrToAllocInfo(
-    astType: *blitzAst.AstTypes,
-    constState: scanner.MutState,
-    allocatedState: scanner.AllocatedState,
-) scanner.TypeAndAllocInfo {
-    return .{
-        .info = .{
-            .mutState = constState,
-            .astType = astType,
-        },
-        .allocState = allocatedState,
-    };
-}
-
-pub inline fn astTypeInfoToAllocInfo(
-    info: blitzAst.AstTypeInfo,
-    allocatedState: scanner.AllocatedState,
-) scanner.TypeAndAllocInfo {
-    return .{
-        .info = info,
-        .allocState = allocatedState,
-    };
-}
-
 /// IMPORTANT: supports values 0 - 16
 pub fn intToHex(num: usize) u8 {
     return if (num < 10) ('0' + @as(u8, @intCast(num))) else ('a' + @as(u8, @intCast(num - 10)));

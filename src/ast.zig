@@ -203,6 +203,8 @@ const Types = enum {
 };
 
 pub const AstTypes = union(Types) {
+    const Self = @This();
+
     String,
     Bool,
     Char,
@@ -221,11 +223,41 @@ pub const AstTypes = union(Types) {
     Error: ErrorAstType,
     ErrorVariant: ErrorVariantType,
     VarInfo: scanner.TypeAndAllocInfo,
+
+    pub fn toTypeInfo(self: *Self, mutState: scanner.MutState) AstTypeInfo {
+        return .{
+            .astType = self,
+            .mutState = mutState,
+        };
+    }
+
+    pub fn toAllocInfo(
+        self: *Self,
+        mutState: scanner.MutState,
+        allocState: scanner.AllocatedState,
+    ) scanner.TypeAndAllocInfo {
+        return .{
+            .info = .{
+                .astType = self,
+                .mutState = mutState,
+            },
+            .allocState = allocState,
+        };
+    }
 };
 
 pub const AstTypeInfo = struct {
+    const Self = @This();
+
     astType: *AstTypes,
     mutState: scanner.MutState,
+
+    pub fn toAllocInfo(self: Self, state: scanner.AllocatedState) scanner.TypeAndAllocInfo {
+        return .{
+            .info = self,
+            .allocState = state,
+        };
+    }
 };
 
 const StaticTypes = enum {
@@ -1076,13 +1108,13 @@ fn parseStructAttributeUtil(
                     allocator,
                 );
                 def.capturedValues = valueCaptures;
-                const selfInfo = utils.astTypesPtrToInfo(try context.pools.types.new(.{
+                const selfInfo = (try context.pools.types.new(.{
                     .Custom = .{
                         .name = structName,
                         .generics = &.{},
                         .allowPrivateReads = true,
                     },
-                }), .Const);
+                })).toTypeInfo(.Const);
                 try valueCaptures.put("self", selfInfo);
             }
 
@@ -1747,7 +1779,7 @@ fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncD
     if (retNext.type != .LBrace) {
         returnType = try parseType(allocator, context);
     } else {
-        returnType = utils.astTypesPtrToInfo(try context.pools.types.new(.Void), .Const);
+        returnType = (try context.pools.types.new(.Void)).toTypeInfo(.Const);
     }
 
     try context.tokenUtil.expectToken(.LBrace);
@@ -2036,7 +2068,7 @@ fn parseType(
         .Asterisk => a: {
             const pointer = try parseType(allocator, context);
             break :a .{
-                .Pointer = utils.astTypeInfoToAllocInfo(pointer, .Recycled),
+                .Pointer = pointer.toAllocInfo(.Recycled),
             };
         },
         .QuestionMark => a: {
@@ -2114,13 +2146,10 @@ fn parseType(
 
         try context.tokenUtil.expectToken(.RBracket);
 
-        const sliceType = utils.astTypesPtrToInfo(
-            try context.pools.types.new(astType),
-            mutState,
-        );
+        const sliceType = (try context.pools.types.new(astType)).toTypeInfo(mutState);
         const newAstType = AstTypes{
             .ArraySlice = .{
-                .type = utils.astTypeInfoToAllocInfo(sliceType, .Recycled),
+                .type = sliceType.toAllocInfo(.Recycled),
                 .size = size,
             },
         };
@@ -2132,10 +2161,7 @@ fn parseType(
         return AstError.UnexpectedMutSpecifierOnGeneric;
     }
 
-    return utils.astTypesPtrToInfo(
-        try context.pools.types.new(astType),
-        mutState,
-    );
+    return (try context.pools.types.new(astType)).toTypeInfo(mutState);
 }
 
 pub fn findStructsAndErrors(

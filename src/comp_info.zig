@@ -467,12 +467,9 @@ pub const CompInfo = struct {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
-            const varInfo = utils.astTypeInfoToAllocInfo(
-                utils.astTypesPtrToInfo(try self.context.pools.types.new(.{
-                    .VarInfo = info,
-                }), mutState),
-                .Allocated,
-            );
+            const varInfo = (try self.context.pools.types.new(.{
+                .VarInfo = info,
+            })).toAllocInfo(mutState, .Allocated);
             try s.put(name, varInfo);
         }
     }
