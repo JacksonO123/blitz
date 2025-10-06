@@ -47,8 +47,8 @@ fn initScopeUtilWithBase(
 }
 
 pub const VarScope = StringHashMap(scanner.TypeAndAllocInfo);
-pub const CaptureScope = StringHashMap(blitzAst.AstTypeInfo);
-pub const TypeScope = StringHashMap(blitzAst.AstTypeInfo);
+pub const CaptureScope = StringHashMap(scanner.TypeAndAllocInfo);
+pub const TypeScope = StringHashMap(scanner.TypeAndAllocInfo);
 pub const StringListScope = ArrayList([]const u8);
 
 const ToScanItem = struct {
@@ -203,7 +203,7 @@ pub const CompInfo = struct {
 
         free.freeBuiltins(self.allocator, self.builtins);
 
-        self.returnInfo.deinit();
+        self.returnInfo.deinit(self.context);
         self.allocator.destroy(self.returnInfo);
 
         self.variableScopes.deinit();
@@ -241,6 +241,17 @@ pub const CompInfo = struct {
 
         self.functionsInScope.deinit();
         self.allocator.destroy(self.functionsInScope);
+    }
+
+    pub fn clearPoolMem(self: *Self) void {
+        self.variableScopes.clear();
+        self.variableCaptures.clear();
+        self.functionCaptures.clear();
+        self.genericCaptures.clear();
+        self.parsedGenerics.clear();
+        self.genericScopes.clear();
+
+        self.returnInfo.clear(self.context);
     }
 
     pub fn getScopeDepth(self: Self) usize {
@@ -448,7 +459,7 @@ pub const CompInfo = struct {
         self.genericScopes.pop();
     }
 
-    pub fn setGeneric(self: *Self, name: []const u8, gType: blitzAst.AstTypeInfo) !void {
+    pub fn setGeneric(self: *Self, name: []const u8, gType: scanner.TypeAndAllocInfo) !void {
         const genScope = self.genericScopes.getCurrentScope();
 
         if (genScope) |scope| {
@@ -456,27 +467,32 @@ pub const CompInfo = struct {
         }
     }
 
-    pub fn getGeneric(self: *Self, name: []const u8) !?blitzAst.AstTypeInfo {
+    pub fn getGeneric(self: *Self, name: []const u8) !?scanner.TypeAndAllocInfo {
         var genScope: ?*TypeScope = self.genericScopes.getCurrentScope();
         defer self.genericScopes.resetLeakIndex();
         var capture = false;
 
         while (genScope) |s| {
             if (s.get(name)) |t| {
-                if (!capture) return t;
+                var copy = t;
+                copy.allocState = .Recycled;
+
+                if (!capture) {
+                    return copy;
+                }
 
                 const captureScope = self.genericCaptures.getCurrentScope();
                 if (captureScope) |capScope| {
-                    const clonedType = try clone.cloneAstTypeInfo(
+                    const clonedType = try clone.replaceGenericsOnTypeInfo(
                         self.allocator,
                         self.context,
-                        t,
+                        copy,
                         true,
                     );
                     try capScope.put(name, clonedType);
                 }
 
-                return t;
+                return copy;
             }
 
             const nextLeak = self.genericScopes.getNextInLeak();
@@ -524,6 +540,7 @@ pub const CompInfo = struct {
                 .VarInfo = info,
             });
             const varInfo = varType.toAllocInfo(mutState, .Allocated);
+            std.debug.print("SETTING {s}\n", .{name});
             try s.put(name, varInfo);
         }
     }
@@ -533,26 +550,32 @@ pub const CompInfo = struct {
         name: []const u8,
         replaceGenerics: bool,
     ) !?scanner.TypeAndAllocInfo {
+        std.debug.print("GETTING {s}\n", .{name});
         var scope: ?*VarScope = self.variableScopes.getCurrentScope();
         defer self.variableScopes.resetLeakIndex();
         var capture = false;
 
         while (scope) |s| {
             if (s.get(name)) |t| {
-                if (!capture) return t;
+                var copy = t;
+                copy.allocState = .Recycled;
+
+                if (!capture) {
+                    return copy;
+                }
 
                 const captureScope = self.variableCaptures.getCurrentScope();
                 if (captureScope) |capScope| {
-                    const clonedType = try clone.cloneAstTypeInfo(
+                    const clonedType = try clone.replaceGenericsOnTypeInfo(
                         self.allocator,
                         self.context,
-                        t.info,
+                        copy,
                         replaceGenerics,
                     );
                     try capScope.put(name, clonedType);
                 }
 
-                return t;
+                return copy;
             }
 
             const nextLeak = self.variableScopes.getNextInLeak();
@@ -560,6 +583,7 @@ pub const CompInfo = struct {
                 scope = next.scope;
                 capture = next.capture;
             } else {
+                std.debug.print("NO MORE SCOPE\n", .{});
                 scope = null;
             }
         }
@@ -764,6 +788,17 @@ fn ScopeUtil(comptime T: type, freeFn: fn (Allocator, *Context, T) void) type {
             self.allocator.destroy(self.captureIndexes);
         }
 
+        pub fn clear(self: *Self) void {
+            for (self.scopes.items) |item| {
+                freeFn(self.allocator, self.context, item);
+                self.allocator.destroy(item);
+            }
+
+            self.scopes.clearRetainingCapacity();
+            self.leaks.clearRetainingCapacity();
+            self.captureIndexes.clearRetainingCapacity();
+        }
+
         pub fn addCaptureIndex(self: *Self) !void {
             const index = self.scopes.items.len;
             try self.captureIndexes.append(self.allocator, index);
@@ -847,7 +882,7 @@ fn ScopeUtil(comptime T: type, freeFn: fn (Allocator, *Context, T) void) type {
 }
 
 pub const ReturnInfoData = struct {
-    retType: ?blitzAst.AstTypeInfo,
+    retType: ?scanner.TypeAndAllocInfo,
     inFunction: bool,
     exhaustive: bool,
     lockExhaustive: bool,
@@ -873,8 +908,17 @@ pub const ReturnInfo = struct {
         };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, context: *Context) void {
+        self.clear(context);
         self.allocator.destroy(self.info);
+    }
+
+    pub fn clear(self: *Self, context: *Context) void {
+        if (self.info.retType) |retType| {
+            if (retType.allocState == .Allocated) {
+                context.pools.types.releaseRecurse(retType.info.astType);
+            }
+        }
     }
 
     pub fn newInfo(self: *Self, isFunction: bool) !*ReturnInfoData {
@@ -905,8 +949,8 @@ pub const ReturnInfo = struct {
                 const matches = try scanner.matchTypes(
                     self.allocator,
                     context,
-                    retType,
-                    firstRetType,
+                    retType.info,
+                    firstRetType.info,
                     withGenDef,
                 );
                 if (!matches) {

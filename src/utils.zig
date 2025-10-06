@@ -46,7 +46,7 @@ pub inline fn unimplemented() void {
     unreachable;
 }
 
-pub fn dbgWriter() *std.Io.Writer {
+pub inline fn dbgWriter() *std.Io.Writer {
     var stdout = std.fs.File.stdout().writer(&[_]u8{});
     const writer = &stdout.interface;
     return writer;

@@ -11,7 +11,6 @@ fn myFunc(mut count: u32, position: u16) {
 
 let a = 1;
 let b: u16 = cast(u16) 2;
-//let b = 2;
 myFunc(a, b);
 
 // function with params and return
@@ -71,30 +70,30 @@ fn [T] testCapture(value: T) T {
   return temp(value);
 }
 
-{
-  testCapture(4);
-}
-
-// recursive functions
-
-fn fibonacci1(num: u32) u32 {
-  if (num <= 1) {
-    return num;
-  }
-
-  return fibonacci1(num - 1) + fibonacci1(num - 2);
-}
-
-fibonacci1(5);
-
-// recursive functions can also be generic (implied but just saying, you never know)
-
-fn [T] fibonacci2(num: T) T {
-  if (num <= 1) {
-    return num;
-  }
-
-  return fibonacci2(num - 1) + fibonacci2(num - 2);
-}
-
-fibonacci2(6);
+//{
+//  testCapture(4);
+//}
+//
+//// recursive functions
+//
+//fn fibonacci1(num: u32) u32 {
+//  if (num <= 1) {
+//    return num;
+//  }
+//
+//  return fibonacci1(num - 1) + fibonacci1(num - 2);
+//}
+//
+//fibonacci1(5);
+//
+//// recursive functions can also be generic (implied but just saying, you never know)
+//
+//fn [T] fibonacci2(num: T) T {
+//  if (num <= 1) {
+//    return num;
+//  }
+//
+//  return fibonacci2(num - 1) + fibonacci2(num - 2);
+//}
+//
+//fibonacci2(6);

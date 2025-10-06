@@ -255,11 +255,11 @@ pub fn recursiveReleaseTypeUtil(
 
     switch (astType.*) {
         .Nullable => |info| {
-            recursiveReleaseTypeUtil(allocator, context, info.astType, releaseType);
+            recursiveReleaseType(allocator, context, info.astType);
         },
         .VarInfo, .Pointer => |info| {
-            if (info.allocState == .Allocated or releaseType == .All) {
-                recursiveReleaseTypeUtil(allocator, context, info.info.astType, releaseType);
+            if (info.allocState == .Allocated) {
+                recursiveReleaseType(allocator, context, info.info.astType);
             }
         },
         .ArraySlice => |slice| {
@@ -267,18 +267,18 @@ pub fn recursiveReleaseTypeUtil(
                 recursiveReleaseNodeUtil(allocator, context, size, releaseType);
             }
 
-            if (slice.type.allocState == .Allocated or releaseType == .All) {
-                recursiveReleaseTypeUtil(allocator, context, slice.type.info.astType, releaseType);
+            if (slice.type.allocState == .Allocated) {
+                recursiveReleaseType(allocator, context, slice.type.info.astType);
             }
         },
         .Custom => |custom| {
             for (custom.generics) |generic| {
-                recursiveReleaseTypeUtil(allocator, context, generic.astType, releaseType);
+                recursiveReleaseType(allocator, context, generic.astType);
             }
         },
         .Error => |err| {
             if (err.payload) |payload| {
-                recursiveReleaseTypeUtil(allocator, context, payload.astType, releaseType);
+                recursiveReleaseType(allocator, context, payload.astType);
             }
         },
         else => {},

@@ -81,6 +81,12 @@ pub const Context = struct {
         return context;
     }
 
+    pub fn clear(self: *Self) void {
+        self.compInfo.clear();
+        // self.genInfo.cleanup();
+        self.deferCleanup.clear();
+    }
+
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.tokens);
         self.compInfo.deinit();
@@ -168,6 +174,14 @@ pub const DeferCleanup = struct {
         };
     }
 
+    pub fn clear(self: *Self) void {
+        self.slices.strings.cleanup();
+        self.slices.nodeSlices.cleanup();
+        self.slices.typeInfoSlices.cleanup();
+        self.slices.genericTypeSlices.cleanup();
+        self.slices.attrDefSlices.cleanup();
+    }
+
     pub fn deinit(self: *Self) void {
         self.slices.strings.deinit();
         self.slices.nodeSlices.deinit();
@@ -199,6 +213,13 @@ fn DeferedSlice(comptime T: type) type {
             }
             self.slices.deinit(self.allocator);
             self.allocator.destroy(self.slices);
+        }
+
+        pub fn cleanup(self: *Self) void {
+            for (self.slices.items) |slice| {
+                self.allocator.free(slice);
+            }
+            self.slices.clearRetainingCapacity(self.allocator);
         }
 
         pub fn append(self: *Self, slice: T) !void {

@@ -332,7 +332,7 @@ pub const StructAttribute = struct {
 
 pub const StrToTypeInfoRel = struct {
     str: []const u8,
-    info: AstTypeInfo,
+    info: scanner.TypeAndAllocInfo,
 };
 
 pub const ToScanTypesList = ArrayList([]StrToTypeInfoRel);
@@ -393,7 +393,7 @@ pub const FuncDecNode = struct {
     params: []Parameter,
     body: *AstNode,
     bodyTokens: []tokenizer.Token,
-    returnType: scanner.TypeAndAllocInfo,
+    returnType: AstTypeInfo,
     capturedValues: ?*blitzCompInfo.CaptureScope,
     capturedTypes: ?*blitzCompInfo.TypeScope,
     capturedFuncs: ?*blitzCompInfo.StringListScope,
@@ -659,7 +659,7 @@ pub const Ast = struct {
         };
     }
 
-    pub fn deinit(self: *Self) !void {
+    pub fn deinit(self: *Self) void {
         free.recursiveReleaseNodeAll(self.allocator, self.context, self.root);
     }
 };
@@ -1114,13 +1114,14 @@ fn parseStructAttributeUtil(
                     allocator,
                 );
                 def.capturedValues = valueCaptures;
-                const selfInfo = (try context.pools.types.new(.{
+                const customType = try context.pools.types.new(.{
                     .Custom = .{
                         .name = structName,
                         .generics = &.{},
                         .allowPrivateReads = true,
                     },
-                })).toTypeInfo(.Const);
+                });
+                const selfInfo = customType.toAllocInfo(.Const, .Allocated);
                 try valueCaptures.put("self", selfInfo);
             }
 
@@ -1778,15 +1779,14 @@ fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncD
     try context.tokenUtil.expectToken(.LParen);
 
     const params = try parseParams(allocator, context);
-    var returnType: scanner.TypeAndAllocInfo = undefined;
+    var returnType: AstTypeInfo = undefined;
 
     const retNext = try context.tokenUtil.peak();
 
     if (retNext.type != .LBrace) {
-        const tempType = try parseType(allocator, context);
-        returnType = tempType.toAllocInfo(.Allocated);
+        returnType = try parseType(allocator, context);
     } else {
-        returnType = context.constTypeInfos.voidType.toAllocInfo(.Recycled);
+        returnType = context.constTypeInfos.voidType;
     }
 
     try context.tokenUtil.expectToken(.LBrace);

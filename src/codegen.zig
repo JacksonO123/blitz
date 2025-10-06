@@ -525,6 +525,11 @@ pub const GenInfo = struct {
         self.allocator.destroy(self.loopInfo);
     }
 
+    pub fn clear(self: *Self) void {
+        _ = self;
+        utils.unimplemented();
+    }
+
     pub fn writeChunks(self: Self, writer: *Writer) !void {
         try writer.writeByte(self.vmInfo.version);
         var buf: [vmInfo.startStackSize]u8 = undefined;

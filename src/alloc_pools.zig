@@ -19,6 +19,7 @@ const NodePool = AllocPool(
     free.recursiveReleaseNode,
     debug.printNode,
 );
+
 const TypePool = AllocPool(
     blitzAst.AstTypes,
     POOL_SIZE,

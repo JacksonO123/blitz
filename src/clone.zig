@@ -6,6 +6,7 @@ const string = blitz.string;
 const blitzCompInfo = blitz.compInfo;
 const debug = blitz.debug;
 const scanner = blitz.scanner;
+const free = blitz.free;
 const Allocator = std.mem.Allocator;
 const create = utils.create;
 const createMut = utils.createMut;
@@ -32,7 +33,13 @@ pub fn cloneAstTypeInfo(
         if (withGenDef) {
             const genType = try context.compInfo.getGeneric(generic);
             if (genType) |gType| {
-                return cloneAstTypeInfo(allocator, context, gType, withGenDef);
+                const clonedType = try cloneAstTypeInfo(
+                    allocator,
+                    context,
+                    gType.info,
+                    withGenDef,
+                );
+                return clonedType;
             }
 
             return CloneError.GenericNotFound;
@@ -666,16 +673,33 @@ fn cloneAttrDef(
 pub fn replaceGenericsOnTypeInfo(
     allocator: Allocator,
     context: *Context,
-    info: blitzAst.AstTypeInfo,
+    info: scanner.TypeAndAllocInfo,
     withGenDef: bool,
 ) !scanner.TypeAndAllocInfo {
-    if (!withGenDef) return .{
-        .info = info,
-        .allocState = .Recycled,
-    };
+    if (!withGenDef) return info;
 
     return .{
-        .info = try cloneAstTypeInfo(allocator, context, info, withGenDef),
+        .info = try cloneAstTypeInfo(allocator, context, info.info, withGenDef),
         .allocState = .Allocated,
     };
+}
+
+pub fn replaceGenericsOnTypeInfoAndRelease(
+    allocator: Allocator,
+    context: *Context,
+    info: scanner.TypeAndAllocInfo,
+    withGenDef: bool,
+) !scanner.TypeAndAllocInfo {
+    if (!withGenDef) return info;
+
+    const res = scanner.TypeAndAllocInfo{
+        .info = try cloneAstTypeInfo(allocator, context, info.info, withGenDef),
+        .allocState = .Allocated,
+    };
+
+    if (info.allocState == .Allocated) {
+        free.recursiveReleaseType(allocator, context, info.info.astType);
+    }
+
+    return res;
 }

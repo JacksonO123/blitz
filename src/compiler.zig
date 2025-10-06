@@ -75,6 +75,7 @@ pub fn main() !void {
 
     {
         var ast = try blitzAst.createAst(allocator, context);
+        defer ast.deinit();
 
         try writer.writeAll("--- code ---\n");
         try writer.writeAll(code);
@@ -82,8 +83,6 @@ pub fn main() !void {
         try debug.printAst(context, ast, writer);
 
         try scanner.typeScan(allocator, ast, context);
-
-        try ast.deinit();
     }
 
     try writer.writeAll("\n------------\n");
