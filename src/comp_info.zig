@@ -31,7 +31,7 @@ fn initScopeUtilWithBase(comptime T: type, allocator: Allocator, base: T) !*Scop
     return scopePtr;
 }
 
-pub const VarScope = StringHashMap(blitzAst.AstTypeInfo);
+pub const VarScope = StringHashMap(scanner.TypeAndAllocInfo);
 pub const CaptureScope = StringHashMap(blitzAst.AstTypeInfo);
 pub const TypeScope = StringHashMap(blitzAst.AstTypeInfo);
 pub const StringListScope = ArrayList([]const u8);
@@ -461,15 +461,18 @@ pub const CompInfo = struct {
     pub fn setVariableType(
         self: *Self,
         name: []const u8,
-        info: blitzAst.AstTypeInfo,
+        info: scanner.TypeAndAllocInfo,
         mutState: scanner.MutState,
     ) !void {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
-            const varInfo = utils.astTypesPtrToInfo(try self.context.pools.types.new(.{
-                .VarInfo = info,
-            }), mutState);
+            const varInfo = utils.astTypeInfoToAllocInfo(
+                utils.astTypesPtrToInfo(try self.context.pools.types.new(.{
+                    .VarInfo = info,
+                }), mutState),
+                .Allocated,
+            );
             try s.put(name, varInfo);
         }
     }
@@ -483,7 +486,11 @@ pub const CompInfo = struct {
         }
     }
 
-    pub fn getVariableType(self: *Self, name: []const u8, replaceGenerics: bool) !?blitzAst.AstTypeInfo {
+    pub fn getVariableType(
+        self: *Self,
+        name: []const u8,
+        replaceGenerics: bool,
+    ) !?scanner.TypeAndAllocInfo {
         var scope: ?*VarScope = self.variableScopes.getCurrentScope();
         defer self.variableScopes.resetLeakIndex();
         var capture = false;
@@ -497,7 +504,7 @@ pub const CompInfo = struct {
                     const clonedType = try clone.cloneAstTypeInfo(
                         self.allocator,
                         self.context,
-                        t,
+                        t.info,
                         replaceGenerics,
                     );
                     try capScope.put(name, clonedType);
@@ -538,7 +545,7 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn getVariableTypeFixed(self: *Self, name: []const u8) ?blitzAst.AstTypeInfo {
+    pub fn getVariableTypeFixed(self: *Self, name: []const u8) ?scanner.TypeAndAllocInfo {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
@@ -796,7 +803,6 @@ fn ScopeUtil(comptime T: type) type {
 }
 
 pub const ReturnInfoData = struct {
-    // TODO - retType should have a way to say if the value was allocated
     retType: ?blitzAst.AstTypeInfo,
     inFunction: bool,
     exhaustive: bool,

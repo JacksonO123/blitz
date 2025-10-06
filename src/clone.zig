@@ -70,11 +70,19 @@ pub fn cloneAstTypes(
 
         .VarInfo => |info| {
             return .{
-                .VarInfo = try cloneAstTypeInfo(allocator, context, info, withGenDef),
+                .VarInfo = utils.astTypeInfoToAllocInfo(
+                    try cloneAstTypeInfo(allocator, context, info.info, withGenDef),
+                    .Allocated,
+                ),
             };
         },
         .ArraySlice => |arr| {
-            const typeClone = try cloneAstTypeInfo(allocator, context, arr.type, withGenDef);
+            const typeClone = utils.astTypeInfoToAllocInfo(try cloneAstTypeInfo(
+                allocator,
+                context,
+                arr.type.info,
+                withGenDef,
+            ), .Allocated);
             var sizeClone: ?*blitzAst.AstNode = null;
             if (arr.size) |size| {
                 sizeClone = try cloneAstNodePtrMut(allocator, context, size, withGenDef);
@@ -94,7 +102,10 @@ pub fn cloneAstTypes(
         },
         .Pointer => |ptr| {
             return .{
-                .Pointer = try cloneAstTypeInfo(allocator, context, ptr, withGenDef),
+                .Pointer = utils.astTypeInfoToAllocInfo(
+                    try cloneAstTypeInfo(allocator, context, ptr.info, withGenDef),
+                    .Allocated,
+                ),
             };
         },
         .Nullable => |t| {
@@ -646,7 +657,6 @@ fn cloneAttrDef(
     return attributes;
 }
 
-// TODO - should return something like scan result in the future
 pub fn replaceGenericsOnTypeInfo(
     allocator: Allocator,
     context: *Context,

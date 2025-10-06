@@ -51,7 +51,7 @@ pub fn printType(
         .Bool => try writer.writeAll("bool"),
         .VarInfo => |info| {
             try writer.writeAll("var info ");
-            try printTypeInfo(context, info, writer);
+            try printTypeInfo(context, info.info, writer);
         },
         .ArraySlice => |arr| {
             try writer.writeAll("ArraySlice<");
@@ -61,12 +61,12 @@ pub fn printType(
                 try writer.writeAll("unknown");
             }
             try writer.writeAll(", ");
-            try printTypeInfo(context, arr.type, writer);
+            try printTypeInfo(context, arr.type.info, writer);
             try writer.writeAll(">");
         },
         .Pointer => |ptr| {
             try writer.writeAll("*");
-            try printTypeInfo(context, ptr, writer);
+            try printTypeInfo(context, ptr.info, writer);
         },
         .Nullable => |n| {
             try writer.writeAll("?");

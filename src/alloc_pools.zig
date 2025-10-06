@@ -4,6 +4,7 @@ const blitzAst = blitz.ast;
 const utils = blitz.utils;
 const free = blitz.free;
 const blitzContext = blitz.context;
+const debug = blitz.debug;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Context = blitzContext.Context;
@@ -11,8 +12,20 @@ const Writer = std.Io.Writer;
 
 const POOL_SIZE = 1024 * 64;
 
-const NodePool = AllocPool(blitzAst.AstNode, POOL_SIZE, "node_pool");
-const TypePool = AllocPool(blitzAst.AstTypes, POOL_SIZE, "type_pool");
+const NodePool = AllocPool(
+    blitzAst.AstNode,
+    POOL_SIZE,
+    "node_pool",
+    free.recursiveReleaseNode,
+    debug.printNode,
+);
+const TypePool = AllocPool(
+    blitzAst.AstTypes,
+    POOL_SIZE,
+    "type_pool",
+    free.recursiveReleaseType,
+    debug.printType,
+);
 
 pub const Pools = struct {
     const Self = @This();
@@ -22,9 +35,9 @@ pub const Pools = struct {
     types: *TypePool,
 
     pub fn init(allocator: Allocator, context: *Context) !Self {
-        const nodePool = try NodePool.init(allocator, context, &free.recursiveReleaseNode);
+        const nodePool = try NodePool.init(allocator, context);
         const nodePoolPtr = try utils.createMut(NodePool, allocator, nodePool);
-        const typePool = try TypePool.init(allocator, context, &free.recursiveReleaseType);
+        const typePool = try TypePool.init(allocator, context);
         const typePoolPtr = try utils.createMut(TypePool, allocator, typePool);
 
         return .{
@@ -56,10 +69,20 @@ fn AllocPoolChunk(comptime T: type) type {
 }
 
 fn FreeFn(comptime T: type) type {
-    return fn (allocator: Allocator, context: *Context, *T) void;
+    return fn (Allocator, *Context, *T) void;
 }
 
-fn AllocPool(comptime T: type, comptime size: comptime_int, comptime name: []const u8) type {
+fn PrintFn(comptime T: type) type {
+    return fn (*Context, *T, *Writer) anyerror!void;
+}
+
+fn AllocPool(
+    comptime T: type,
+    comptime size: comptime_int,
+    comptime name: []const u8,
+    comptime freeFn: FreeFn(T),
+    comptime printFn: PrintFn(T),
+) type {
     return struct {
         const Self = @This();
 
@@ -67,8 +90,8 @@ fn AllocPool(comptime T: type, comptime size: comptime_int, comptime name: []con
         context: *Context,
         root: *AllocPoolChunk(T),
         last: *AllocPoolChunk(T),
-        availableItems: *ArrayList(*T),
-        freeFn: *const FreeFn(T),
+        available: *ArrayList(*T),
+        used: *ArrayList(*T),
         numChunks: u32,
 
         fn newChunk(allocator: Allocator) !*AllocPoolChunk(T) {
@@ -83,22 +106,24 @@ fn AllocPool(comptime T: type, comptime size: comptime_int, comptime name: []con
         pub fn init(
             allocator: Allocator,
             context: *Context,
-            freeFn: *const FreeFn(T),
         ) !Self {
             const chunk = try newChunk(allocator);
-            var stack = try ArrayList(*T).initCapacity(allocator, size);
+            var availableList = try ArrayList(*T).initCapacity(allocator, size);
             for (chunk.items) |*item| {
-                try stack.append(allocator, item);
+                try availableList.append(allocator, item);
             }
-            const stackPtr = try utils.createMut(ArrayList(*T), allocator, stack);
+            const availableListPtr = try utils.createMut(ArrayList(*T), allocator, availableList);
+
+            const usedList = try ArrayList(*T).initCapacity(allocator, size);
+            const usedListPtr = try utils.createMut(ArrayList(*T), allocator, usedList);
 
             return .{
                 .allocator = allocator,
                 .context = context,
                 .root = chunk,
                 .last = chunk,
-                .availableItems = stackPtr,
-                .freeFn = freeFn,
+                .available = availableListPtr,
+                .used = usedListPtr,
                 .numChunks = 1,
             };
         }
@@ -111,27 +136,36 @@ fn AllocPool(comptime T: type, comptime size: comptime_int, comptime name: []con
                 current = chunk.next;
             }
 
-            self.availableItems.deinit(self.allocator);
-            self.allocator.destroy(self.availableItems);
+            self.available.deinit(self.allocator);
+            self.allocator.destroy(self.available);
+
+            self.used.deinit(self.allocator);
+            self.allocator.destroy(self.used);
         }
 
-        pub fn new(self: *Self, val: T) !*T {
-            const freePtr = self.availableItems.pop();
+        fn getAvailablePtr(self: *Self) !*T {
+            const freePtr = self.available.pop();
             if (freePtr) |ptr| {
-                ptr.* = val;
                 return ptr;
             }
 
             try self.appendChunk();
-            return try self.new(val);
+            return try self.getAvailablePtr();
+        }
+
+        pub fn new(self: *Self, val: T) !*T {
+            const ptr = try self.getAvailablePtr();
+            ptr.* = val;
+            try self.used.append(self.allocator, ptr);
+            return ptr;
         }
 
         pub fn release(self: *Self, ptr: *T) void {
-            self.availableItems.append(self.allocator, ptr) catch @panic("Out of memory");
+            self.available.append(self.allocator, ptr) catch @panic("Out of memory");
         }
 
         pub fn releaseRecurse(self: *Self, ptr: *T) void {
-            self.freeFn(self.allocator, self.context, ptr);
+            freeFn(self.allocator, self.context, ptr);
         }
 
         fn appendChunk(self: *Self) !void {
@@ -145,12 +179,12 @@ fn AllocPool(comptime T: type, comptime size: comptime_int, comptime name: []con
                 ptrs[i] = &chunk.items[i];
             }
 
-            try self.availableItems.appendSlice(self.allocator, &ptrs);
+            try self.available.appendSlice(self.allocator, &ptrs);
             self.numChunks += 1;
         }
 
         pub fn writeStats(self: Self, writer: *Writer) !void {
-            const availableItems = self.availableItems.items.len;
+            const availableItems = self.available.items.len;
             const totalItems = self.numChunks * size;
             const floatAvailable: f32 = @floatFromInt(totalItems - availableItems);
             const percentFree: f32 = (floatAvailable / @as(f32, @floatFromInt(totalItems))) * 100;
@@ -164,7 +198,12 @@ fn AllocPool(comptime T: type, comptime size: comptime_int, comptime name: []con
             try writer.printInt(totalItems, 10, .lower, .{});
             try writer.writeAll(" : ");
             try writer.printFloat(percentFree, .{});
-            try writer.writeAll("%\n");
+            try writer.writeAll("%\nused items:\n");
+            for (self.used.items) |item| {
+                try writer.writeAll("|-- ");
+                try printFn(self.context, item, writer);
+                try writer.writeAll("\n");
+            }
         }
     };
 }

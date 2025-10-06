@@ -208,14 +208,22 @@ pub fn recursiveReleaseType(
     context.pools.types.release(astType);
 
     switch (astType.*) {
-        .Pointer, .Nullable, .VarInfo => |info| {
+        .Nullable => |info| {
             recursiveReleaseType(allocator, context, info.astType);
+        },
+        .VarInfo, .Pointer => |info| {
+            if (info.allocState == .Allocated) {
+                recursiveReleaseType(allocator, context, info.info.astType);
+            }
         },
         .ArraySlice => |slice| {
             if (slice.size) |size| {
                 recursiveReleaseNode(allocator, context, size);
             }
-            recursiveReleaseType(allocator, context, slice.type.astType);
+
+            if (slice.type.allocState == .Allocated) {
+                recursiveReleaseType(allocator, context, slice.type.info.astType);
+            }
         },
         .Custom => |custom| {
             for (custom.generics) |generic| {

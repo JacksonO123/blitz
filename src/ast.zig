@@ -161,7 +161,7 @@ pub const AstNumber = union(AstNumberVariants) {
 };
 
 pub const AstArraySliceType = struct {
-    type: AstTypeInfo,
+    type: scanner.TypeAndAllocInfo,
     size: ?*AstNode,
 };
 
@@ -212,7 +212,7 @@ pub const AstTypes = union(Types) {
     Number: AstNumberVariants,
     RawNumber: []const u8,
     ArraySlice: AstArraySliceType,
-    Pointer: AstTypeInfo,
+    Pointer: scanner.TypeAndAllocInfo,
     Nullable: AstTypeInfo,
     Custom: CustomType,
     Generic: []const u8,
@@ -220,7 +220,7 @@ pub const AstTypes = union(Types) {
     StaticStructInstance: []const u8,
     Error: ErrorAstType,
     ErrorVariant: ErrorVariantType,
-    VarInfo: AstTypeInfo,
+    VarInfo: scanner.TypeAndAllocInfo,
 };
 
 pub const AstTypeInfo = struct {
@@ -1079,7 +1079,7 @@ fn parseStructAttributeUtil(
                 const selfInfo = utils.astTypesPtrToInfo(try context.pools.types.new(.{
                     .Custom = .{
                         .name = structName,
-                        .generics = &[_]AstTypeInfo{},
+                        .generics = &.{},
                         .allowPrivateReads = true,
                     },
                 }), .Const);
@@ -2011,8 +2011,8 @@ fn parseType(
     context: *Context,
 ) (AstError || Allocator.Error)!AstTypeInfo {
     var first = try context.tokenUtil.take();
-    const isConst = first.type != .Mut;
-    if (!isConst) {
+    const mutState: scanner.MutState = if (first.type == .Mut) .Mut else .Const;
+    if (mutState == .Mut) {
         first = try context.tokenUtil.take();
     }
 
@@ -2036,7 +2036,7 @@ fn parseType(
         .Asterisk => a: {
             const pointer = try parseType(allocator, context);
             break :a .{
-                .Pointer = pointer,
+                .Pointer = utils.astTypeInfoToAllocInfo(pointer, .Recycled),
             };
         },
         .QuestionMark => a: {
@@ -2049,7 +2049,7 @@ fn parseType(
             const str = context.getTokString(first);
             if (context.compInfo.hasStruct(str)) {
                 const next = try context.tokenUtil.peak();
-                var generics: []AstTypeInfo = &[_]AstTypeInfo{};
+                var generics: []AstTypeInfo = &.{};
 
                 if (next.type == .LAngle) {
                     _ = try context.tokenUtil.take();
@@ -2116,11 +2116,11 @@ fn parseType(
 
         const sliceType = utils.astTypesPtrToInfo(
             try context.pools.types.new(astType),
-            @enumFromInt(@intFromBool(isConst)),
+            mutState,
         );
         const newAstType = AstTypes{
             .ArraySlice = .{
-                .type = sliceType,
+                .type = utils.astTypeInfoToAllocInfo(sliceType, .Recycled),
                 .size = size,
             },
         };
@@ -2128,13 +2128,13 @@ fn parseType(
         astType = newAstType;
     }
 
-    if (astType == .Generic and !isConst) {
+    if (astType == .Generic and mutState == .Mut) {
         return AstError.UnexpectedMutSpecifierOnGeneric;
     }
 
     return utils.astTypesPtrToInfo(
         try context.pools.types.new(astType),
-        @enumFromInt(@intFromBool(isConst)),
+        mutState,
     );
 }
 

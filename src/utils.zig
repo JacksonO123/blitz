@@ -47,7 +47,7 @@ pub inline fn astTypesPtrToInfo(
     };
 }
 
-pub inline fn astTypesPtrToScanResult(
+pub inline fn astTypesPtrToAllocInfo(
     astType: *blitzAst.AstTypes,
     constState: scanner.MutState,
     allocatedState: scanner.AllocatedState,
@@ -61,7 +61,7 @@ pub inline fn astTypesPtrToScanResult(
     };
 }
 
-pub inline fn astTypeInfoToScanResult(
+pub inline fn astTypeInfoToAllocInfo(
     info: blitzAst.AstTypeInfo,
     allocatedState: scanner.AllocatedState,
 ) scanner.TypeAndAllocInfo {
