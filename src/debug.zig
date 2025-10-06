@@ -127,7 +127,7 @@ pub fn printType(
             }
 
             try writer.writeAll(" ");
-            try printTypeInfo(context, func.returnType, writer);
+            try printTypeInfo(context, func.returnType.info, writer);
 
             try writer.writeAll(")");
         },
@@ -541,7 +541,7 @@ pub fn printFuncDec(
     writer: *Writer,
 ) !void {
     try writer.writeAll("declare function [");
-    try printTypeInfo(context, func.returnType, writer);
+    try printTypeInfo(context, func.returnType.info, writer);
     try writer.writeAll("] (");
     try writer.writeAll(func.name);
     try writer.writeAll(")");

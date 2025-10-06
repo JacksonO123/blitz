@@ -393,7 +393,7 @@ pub const FuncDecNode = struct {
     params: []Parameter,
     body: *AstNode,
     bodyTokens: []tokenizer.Token,
-    returnType: AstTypeInfo,
+    returnType: scanner.TypeAndAllocInfo,
     capturedValues: ?*blitzCompInfo.CaptureScope,
     capturedTypes: ?*blitzCompInfo.TypeScope,
     capturedFuncs: ?*blitzCompInfo.StringListScope,
@@ -647,14 +647,20 @@ const OpExprTokenMap = struct {
 pub const Ast = struct {
     const Self = @This();
 
-    root: *AstNode,
     allocator: Allocator,
+    context: *Context,
+    root: *AstNode,
 
-    pub fn init(allocator: Allocator, root: *AstNode) Self {
+    pub fn init(allocator: Allocator, context: *Context, root: *AstNode) Self {
         return Self{
-            .root = root,
             .allocator = allocator,
+            .context = context,
+            .root = root,
         };
+    }
+
+    pub fn deinit(self: *Self) !void {
+        free.recursiveReleaseNodeAll(self.allocator, self.context, self.root);
     }
 };
 
@@ -663,7 +669,7 @@ pub fn createAst(allocator: Allocator, context: *Context) !Ast {
         logger.logParseError(context, e);
         return e;
     };
-    return Ast.init(allocator, seq);
+    return Ast.init(allocator, context, seq);
 }
 
 pub fn parseSequence(
@@ -1772,14 +1778,15 @@ fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncD
     try context.tokenUtil.expectToken(.LParen);
 
     const params = try parseParams(allocator, context);
-    var returnType: AstTypeInfo = undefined;
+    var returnType: scanner.TypeAndAllocInfo = undefined;
 
     const retNext = try context.tokenUtil.peak();
 
     if (retNext.type != .LBrace) {
-        returnType = try parseType(allocator, context);
+        const tempType = try parseType(allocator, context);
+        returnType = tempType.toAllocInfo(.Allocated);
     } else {
-        returnType = (try context.pools.types.new(.Void)).toTypeInfo(.Const);
+        returnType = context.constTypeInfos.voidType.toAllocInfo(.Recycled);
     }
 
     try context.tokenUtil.expectToken(.LBrace);
@@ -2161,7 +2168,8 @@ fn parseType(
         return AstError.UnexpectedMutSpecifierOnGeneric;
     }
 
-    return (try context.pools.types.new(astType)).toTypeInfo(mutState);
+    const resType = try context.pools.types.new(astType);
+    return resType.toTypeInfo(mutState);
 }
 
 pub fn findStructsAndErrors(

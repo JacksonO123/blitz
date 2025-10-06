@@ -861,7 +861,6 @@ pub fn scanNode(
             }
 
             for (call.params, 0..) |param, index| {
-                std.debug.print("HERE :: {}\n", .{param.*});
                 paramTypes[index] = try scanNode(allocator, context, param, withGenDef);
             }
 
@@ -926,7 +925,7 @@ pub fn scanNode(
             return try clone.replaceGenericsOnTypeInfo(
                 allocator,
                 context,
-                func.returnType,
+                func.returnType.info,
                 withGenDef,
             );
         },
@@ -1585,11 +1584,12 @@ fn isAnyType(astType: *const blitzAst.AstTypes) bool {
 
 fn applyVariableCaptures(
     allocator: Allocator,
+    context: *Context,
     func: *blitzAst.FuncDecNode,
     scope: *blitzCompInfo.CaptureScope,
 ) !void {
     if (func.capturedValues) |captured| {
-        free.freeVariableCaptures(allocator, captured);
+        free.freeVariableCaptures(allocator, context, captured);
         allocator.destroy(captured);
     }
 
@@ -1598,11 +1598,12 @@ fn applyVariableCaptures(
 
 fn applyGenericCaptures(
     allocator: Allocator,
+    context: *Context,
     func: *blitzAst.FuncDecNode,
     scope: *blitzCompInfo.TypeScope,
 ) !void {
     if (func.capturedTypes) |captured| {
-        free.freeGenericCaptures(allocator, captured);
+        free.freeGenericCaptures(allocator, context, captured);
         allocator.destroy(captured);
     }
 
@@ -1775,12 +1776,12 @@ fn scanFuncBodyAndReturn(
 
     const scope = context.compInfo.consumeVariableCaptures();
     if (scope) |s| {
-        try applyVariableCaptures(allocator, func, s);
+        try applyVariableCaptures(allocator, context, func, s);
     }
 
     const genScope = context.compInfo.consumeGenericCaptures();
     if (genScope) |s| {
-        try applyGenericCaptures(allocator, func, s);
+        try applyGenericCaptures(allocator, context, func, s);
     }
 
     const funcScope = context.compInfo.consumeFunctionCaptures();
@@ -1788,7 +1789,7 @@ fn scanFuncBodyAndReturn(
         try applyFunctionCaptures(allocator, func, s);
     }
 
-    if (func.returnType.astType.* != .Void) {
+    if (func.returnType.info.astType.* != .Void) {
         if (!context.compInfo.returnInfo.info.exhaustive) {
             return ScanError.FunctionReturnIsNotExhaustive;
         }
@@ -1797,7 +1798,7 @@ fn scanFuncBodyAndReturn(
             const matches = try matchTypes(
                 allocator,
                 context,
-                func.returnType,
+                func.returnType.info,
                 retType,
                 withGenDef,
             );

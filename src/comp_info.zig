@@ -15,18 +15,33 @@ const StringHashMap = std.StringHashMap;
 const ArrayList = std.ArrayList;
 const Context = blitz.context.Context;
 
-fn initScopeUtil(comptime T: type, allocator: Allocator) !*ScopeUtil(*T) {
+fn ScopeDeinitFn(comptime T: type) type {
+    return fn (Allocator, *Context, *T) void;
+}
+
+fn initScopeUtil(
+    comptime T: type,
+    comptime Fn: ScopeDeinitFn(T),
+    allocator: Allocator,
+    context: *Context,
+) !*ScopeUtil(*T, Fn) {
     const baseScope = try utils.initMutPtrT(T, allocator);
-    const scopeUtil = try ScopeUtil(*T).init(allocator);
-    const scopePtr = try utils.createMut(ScopeUtil(*T), allocator, scopeUtil);
+    const scopeUtil = try ScopeUtil(*T, Fn).init(allocator, context);
+    const scopePtr = try utils.createMut(ScopeUtil(*T, Fn), allocator, scopeUtil);
     try scopePtr.add(baseScope, false);
     return scopePtr;
 }
 
-fn initScopeUtilWithBase(comptime T: type, allocator: Allocator, base: T) !*ScopeUtil(*T) {
+fn initScopeUtilWithBase(
+    comptime T: type,
+    comptime Fn: ScopeDeinitFn(T),
+    allocator: Allocator,
+    context: *Context,
+    base: T,
+) !*ScopeUtil(*T, Fn) {
     const baseScope = try utils.createMut(T, allocator, base);
-    const scopeUtil = try ScopeUtil(*T).init(allocator);
-    const scopePtr = try utils.createMut(ScopeUtil(*T), allocator, scopeUtil);
+    const scopeUtil = try ScopeUtil(*T, Fn).init(allocator, context);
+    const scopePtr = try utils.createMut(ScopeUtil(*T, Fn), allocator, scopeUtil);
     try scopePtr.add(baseScope, false);
     return scopePtr;
 }
@@ -56,21 +71,21 @@ pub const CompInfo = struct {
     context: *Context,
     structNames: [][]const u8,
     errorNames: [][]const u8,
-    variableScopes: *ScopeUtil(*VarScope),
-    variableCaptures: *ScopeUtil(*CaptureScope),
-    genericCaptures: *ScopeUtil(*TypeScope),
-    functionCaptures: *ScopeUtil(*StringListScope),
-    parsedGenerics: *ScopeUtil(*StringListScope),
+    variableScopes: *ScopeUtil(*VarScope, free.freeVariableScope),
+    variableCaptures: *ScopeUtil(*CaptureScope, free.freeVariableCaptures),
+    genericCaptures: *ScopeUtil(*TypeScope, free.freeGenericCaptures),
+    functionCaptures: *ScopeUtil(*StringListScope, free.deinitScope),
+    parsedGenerics: *ScopeUtil(*StringListScope, free.deinitScope),
     scopeTypes: *ArrayList(ScopeType),
     // how many scopes up the current scope has access
     functions: *StringHashMap(*blitzAst.FuncDecNode),
-    functionsInScope: *ScopeUtil(*StringListScope),
+    functionsInScope: *ScopeUtil(*StringListScope, free.deinitScope),
     structDecs: *StringHashMap(*blitzAst.StructDecNode),
     errorDecs: *StringHashMap(*const blitzAst.ErrorDecNode),
     functionsToScan: *ToScanStack,
     // each number describes how far from
     // the struct method a child node is
-    genericScopes: *ScopeUtil(*TypeScope),
+    genericScopes: *ScopeUtil(*TypeScope, free.freeGenericScope),
     preAst: bool,
     returnInfo: *ReturnInfo,
     builtins: builtins.BuiltinFuncMemo,
@@ -92,13 +107,51 @@ pub const CompInfo = struct {
             allocator,
         );
 
-        const genericScopes = try initScopeUtil(TypeScope, allocator);
-        const variableScopes = try initScopeUtil(VarScope, allocator);
-        const variableCaptures = try initScopeUtil(CaptureScope, allocator);
-        const genericCaptures = try initScopeUtil(TypeScope, allocator);
-        const functionCaptures = try initScopeUtilWithBase(StringListScope, allocator, .empty);
-        const parsedGenerics = try initScopeUtilWithBase(StringListScope, allocator, .empty);
-        const functionsInScope = try initScopeUtilWithBase(StringListScope, allocator, .empty);
+        const genericScopes = try initScopeUtil(
+            TypeScope,
+            free.freeGenericScope,
+            allocator,
+            context,
+        );
+        const variableScopes = try initScopeUtil(
+            VarScope,
+            free.freeVariableScope,
+            allocator,
+            context,
+        );
+        const variableCaptures = try initScopeUtil(
+            CaptureScope,
+            free.freeVariableCaptures,
+            allocator,
+            context,
+        );
+        const genericCaptures = try initScopeUtil(
+            TypeScope,
+            free.freeGenericCaptures,
+            allocator,
+            context,
+        );
+        const functionCaptures = try initScopeUtilWithBase(
+            StringListScope,
+            free.deinitScope,
+            allocator,
+            context,
+            .empty,
+        );
+        const parsedGenerics = try initScopeUtilWithBase(
+            StringListScope,
+            free.deinitScope,
+            allocator,
+            context,
+            .empty,
+        );
+        const functionsInScope = try initScopeUtilWithBase(
+            StringListScope,
+            free.deinitScope,
+            allocator,
+            context,
+            .empty,
+        );
 
         const returnInfoUtil = try ReturnInfo.init(allocator);
         const returnInfo = try utils.createMut(ReturnInfo, allocator, returnInfoUtil);
@@ -130,12 +183,12 @@ pub const CompInfo = struct {
     pub fn deinit(self: *Self) void {
         var functionIt = self.functions.valueIterator();
         while (functionIt.next()) |f| {
-            free.freeFuncDec(self.allocator, f.*);
+            free.freeFuncDec(self.allocator, self.context, f.*);
         }
 
         var structsIt = self.structDecs.valueIterator();
         while (structsIt.next()) |dec| {
-            free.freeStructDec(self.allocator, dec.*);
+            free.freeStructDec(self.allocator, self.context, dec.*);
             self.allocator.destroy(dec.*);
         }
 
@@ -153,19 +206,19 @@ pub const CompInfo = struct {
         self.returnInfo.deinit();
         self.allocator.destroy(self.returnInfo);
 
-        self.variableScopes.deinit(free.freeVariableScope);
+        self.variableScopes.deinit();
         self.allocator.destroy(self.variableScopes);
 
-        self.variableCaptures.deinit(free.freeVariableCaptures);
+        self.variableCaptures.deinit();
         self.allocator.destroy(self.variableCaptures);
 
-        self.genericCaptures.deinit(free.freeGenericCaptures);
+        self.genericCaptures.deinit();
         self.allocator.destroy(self.genericCaptures);
 
-        self.functionCaptures.deinit(free.deinitScope);
+        self.functionCaptures.deinit();
         self.allocator.destroy(self.functionCaptures);
 
-        self.parsedGenerics.deinit(free.deinitScope);
+        self.parsedGenerics.deinit();
         self.allocator.destroy(self.parsedGenerics);
 
         self.scopeTypes.deinit(self.allocator);
@@ -183,10 +236,10 @@ pub const CompInfo = struct {
         self.functionsToScan.deinit(self.allocator);
         self.allocator.destroy(self.functionsToScan);
 
-        self.genericScopes.deinit(free.freeGenericScope);
+        self.genericScopes.deinit();
         self.allocator.destroy(self.genericScopes);
 
-        self.functionsInScope.deinit(free.deinitScope);
+        self.functionsInScope.deinit();
         self.allocator.destroy(self.functionsInScope);
     }
 
@@ -206,7 +259,7 @@ pub const CompInfo = struct {
     }
 
     pub fn popScope(self: *Self) void {
-        self.variableScopes.pop(free.freeVariableScope);
+        self.variableScopes.pop();
         self.popScopedFunctionScope();
         _ = self.scopeTypes.pop();
     }
@@ -223,8 +276,8 @@ pub const CompInfo = struct {
     }
 
     pub fn popCaptureScope(self: *Self) void {
-        self.variableCaptures.pop(free.freeVariableCaptures);
-        self.functionCaptures.pop(free.deinitScope);
+        self.variableCaptures.pop();
+        self.functionCaptures.pop();
     }
 
     pub fn addGenericCaptureScope(self: *Self) !void {
@@ -234,7 +287,7 @@ pub const CompInfo = struct {
     }
 
     pub fn popGenericCaptureScope(self: *Self) void {
-        self.genericCaptures.pop(free.freeGenericCaptures);
+        self.genericCaptures.pop();
     }
 
     pub fn consumeVariableCaptures(self: *Self) ?*CaptureScope {
@@ -255,7 +308,7 @@ pub const CompInfo = struct {
     }
 
     pub fn popScopedFunctionScope(self: *Self) void {
-        self.functionsInScope.pop(free.deinitScope);
+        self.functionsInScope.pop();
     }
 
     pub fn addScopedFunction(self: *Self, name: []const u8) !void {
@@ -271,7 +324,7 @@ pub const CompInfo = struct {
     }
 
     pub fn popParsedGenericsScope(self: *Self) void {
-        self.parsedGenerics.pop(free.deinitScope);
+        self.parsedGenerics.pop();
     }
 
     pub fn addParsedGeneric(self: *Self, gen: []const u8) !void {
@@ -392,7 +445,7 @@ pub const CompInfo = struct {
     }
 
     pub fn popGenScope(self: *Self) void {
-        self.genericScopes.pop(free.freeGenericScope);
+        self.genericScopes.pop();
     }
 
     pub fn setGeneric(self: *Self, name: []const u8, gType: blitzAst.AstTypeInfo) !void {
@@ -467,19 +520,11 @@ pub const CompInfo = struct {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
-            const varInfo = (try self.context.pools.types.new(.{
+            const varType = try self.context.pools.types.new(.{
                 .VarInfo = info,
-            })).toAllocInfo(mutState, .Allocated);
+            });
+            const varInfo = varType.toAllocInfo(mutState, .Allocated);
             try s.put(name, varInfo);
-        }
-    }
-
-    pub fn removeVariableType(self: *Self, name: []const u8) void {
-        const scope = self.variableScopes.getCurrentScope();
-        if (scope) |s| {
-            if (s.fetchRemove(name)) |pair| {
-                self.context.pools.types.release(pair.value.astType);
-            }
         }
     }
 
@@ -677,23 +722,25 @@ fn ScopeInfo(comptime T: type) type {
     };
 }
 
-fn ScopeUtil(comptime T: type) type {
+fn ScopeUtil(comptime T: type, freeFn: fn (Allocator, *Context, T) void) type {
     return struct {
         const Self = @This();
 
         allocator: Allocator,
+        context: *Context,
         scopes: *ArrayList(T),
         captureIndexes: *ArrayList(usize),
         leaks: *ArrayList(usize),
         current: usize,
 
-        pub fn init(allocator: Allocator) !Self {
+        pub fn init(allocator: Allocator, context: *Context) !Self {
             const leaks = try utils.createMut(ArrayList(usize), allocator, .empty);
             const scopes = try utils.createMut(ArrayList(T), allocator, .empty);
             const captureIndexes = try utils.createMut(ArrayList(usize), allocator, .empty);
 
             return Self{
                 .allocator = allocator,
+                .context = context,
                 .scopes = scopes,
                 .leaks = leaks,
                 .captureIndexes = captureIndexes,
@@ -701,9 +748,9 @@ fn ScopeUtil(comptime T: type) type {
             };
         }
 
-        pub fn deinit(self: *Self, freeFn: fn (Allocator, T) void) void {
+        pub fn deinit(self: *Self) void {
             for (self.scopes.items) |item| {
-                freeFn(self.allocator, item);
+                freeFn(self.allocator, self.context, item);
                 self.allocator.destroy(item);
             }
 
@@ -757,11 +804,11 @@ fn ScopeUtil(comptime T: type) type {
             return last;
         }
 
-        pub fn pop(self: *Self, freeFn: fn (Allocator, T) void) void {
+        pub fn pop(self: *Self) void {
             const last = self.release();
 
             if (last) |item| {
-                freeFn(self.allocator, item);
+                freeFn(self.allocator, self.context, item);
                 self.allocator.destroy(item);
             }
         }

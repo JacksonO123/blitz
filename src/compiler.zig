@@ -73,14 +73,18 @@ pub fn main() !void {
         _ = try scanner.scanNode(allocator, context, &node, true);
     }
 
-    const ast = try blitzAst.createAst(allocator, context);
+    {
+        var ast = try blitzAst.createAst(allocator, context);
 
-    try writer.writeAll("--- code ---\n");
-    try writer.writeAll(code);
-    try writer.writeAll("\n------------\n\n");
-    try debug.printAst(context, ast, writer);
+        try writer.writeAll("--- code ---\n");
+        try writer.writeAll(code);
+        try writer.writeAll("\n------------\n\n");
+        try debug.printAst(context, ast, writer);
 
-    try scanner.typeScan(allocator, ast, context);
+        try scanner.typeScan(allocator, ast, context);
+
+        try ast.deinit();
+    }
 
     try writer.writeAll("\n------------\n");
     try context.pools.writeStats(writer);

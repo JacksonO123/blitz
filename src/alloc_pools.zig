@@ -143,25 +143,44 @@ fn AllocPool(
             self.allocator.destroy(self.used);
         }
 
-        fn getAvailablePtr(self: *Self) !*T {
+        fn popAvailablePtr(self: *Self) !*T {
             const freePtr = self.available.pop();
             if (freePtr) |ptr| {
                 return ptr;
             }
 
             try self.appendChunk();
-            return try self.getAvailablePtr();
+            return try self.popAvailablePtr();
         }
 
         pub fn new(self: *Self, val: T) !*T {
-            const ptr = try self.getAvailablePtr();
+            const ptr = try self.popAvailablePtr();
             ptr.* = val;
             try self.used.append(self.allocator, ptr);
             return ptr;
         }
 
+        fn isAvailable(self: Self, ptr: *T) ?usize {
+            for (self.available.items, 0..) |item, index| {
+                if (item == ptr) return index;
+            }
+
+            return null;
+        }
+
         pub fn release(self: *Self, ptr: *T) void {
-            self.available.append(self.allocator, ptr) catch @panic("Out of memory");
+            if (self.available.items.len < self.available.capacity) {
+                self.available.appendAssumeCapacity(ptr);
+            } else if (self.isAvailable(ptr)) |index| {
+                self.available.items[index] = ptr;
+            }
+
+            for (self.used.items, 0..) |item, index| {
+                if (item == ptr) {
+                    _ = self.used.swapRemove(index);
+                    break;
+                }
+            }
         }
 
         pub fn releaseRecurse(self: *Self, ptr: *T) void {

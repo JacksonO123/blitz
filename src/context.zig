@@ -82,11 +82,11 @@ pub const Context = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.pools.deinit();
         self.allocator.free(self.tokens);
         self.compInfo.deinit();
         self.genInfo.deinit();
         self.deferCleanup.deinit();
+        self.pools.deinit();
 
         self.allocator.destroy(self.pools);
         self.allocator.destroy(self.tokenUtil);
@@ -124,6 +124,22 @@ pub const ConstTypeInfos = struct {
             .f32Type = (try pools.types.new(.{ .Number = .F32 })).toTypeInfo(.Mut),
             .u64Type = (try pools.types.new(.{ .Number = .U64 })).toTypeInfo(.Mut),
         };
+    }
+
+    pub fn isStatic(self: Self, ptr: *blitzAst.AstTypes) bool {
+        const staticTypes = .{
+            self.voidType,
+            self.boolType,
+            self.anyType,
+            self.f32Type,
+            self.u64Type,
+        };
+
+        inline for (staticTypes) |t| {
+            if (t.astType == ptr) return true;
+        }
+
+        return false;
     }
 };
 
