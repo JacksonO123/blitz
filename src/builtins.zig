@@ -4,7 +4,6 @@ const blitzAst = blitz.ast;
 const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
 const scanner = blitz.scanner;
-const string = blitz.string;
 const clone = blitz.clone;
 const free = blitz.free;
 const blitzContext = blitz.context;
@@ -52,7 +51,7 @@ fn getPropType(
     prop: []const u8,
 ) !blitzAst.AstTypeInfo {
     for (props) |item| {
-        if (string.compString(item.prop, prop)) {
+        if (utils.compString(item.prop, prop)) {
             return .{
                 .astType = try context.pools.types.new(.{
                     .VarInfo = item.type.toAllocInfo(

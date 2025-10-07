@@ -46,6 +46,19 @@ pub inline fn unimplemented() void {
     unreachable;
 }
 
+pub inline fn compString(str1: []const u8, str2: []const u8) bool {
+    return std.mem.eql(u8, str1, str2);
+}
+
+pub fn inStringArr(arr: []const []const u8, str: []const u8) bool {
+    for (arr) |item| {
+        if (compString(item, str)) return true;
+    }
+
+    return false;
+}
+
+// TODO - remove
 pub inline fn dbgWriter() *std.Io.Writer {
     var stdout = std.fs.File.stdout().writer(&[_]u8{});
     const writer = &stdout.interface;

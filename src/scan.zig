@@ -6,7 +6,6 @@ const free = blitz.free;
 const builtins = blitz.builtins;
 const clone = blitz.clone;
 const number = blitz.number;
-const string = blitz.string;
 const blitzCompInfo = blitz.compInfo;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -538,7 +537,7 @@ pub fn scanNode(
                     );
 
                     if (propType) |t| {
-                        if (!string.compString(name, "self")) {
+                        if (!utils.compString(name, "self")) {
                             const dec = context.compInfo.getStructDec(name).?;
 
                             if (t.astType.* == .Function) {
@@ -565,7 +564,7 @@ pub fn scanNode(
                 .Error => |err| {
                     const errDec = context.compInfo.getErrorDec(err.name).?;
                     if (errDec.variants.len > 0) {
-                        if (!string.inStringArr(errDec.variants, access.property)) {
+                        if (!utils.inStringArr(errDec.variants, access.property)) {
                             return ScanError.ErrorVariantDoesNotExist;
                         }
                     } else {
@@ -1019,7 +1018,7 @@ pub fn scanNode(
 
                 var found = false;
                 for (init.attributes) |initAttr| {
-                    if (string.compString(initAttr.name, attr.name)) {
+                    if (utils.compString(initAttr.name, attr.name)) {
                         found = true;
                         const attrType = try scanNode(
                             allocator,
@@ -1252,7 +1251,7 @@ pub fn scanNode(
 
 fn genInGenInfoRels(rels: []blitzAst.StrToTypeInfoRel, name: []const u8) bool {
     for (rels) |rel| {
-        if (string.compString(name, rel.gen)) {
+        if (utils.compString(name, rel.gen)) {
             return true;
         }
     }
@@ -1291,7 +1290,7 @@ fn checkUndefVars(context: *Context, node: *const blitzAst.AstNode, allowSelf: b
 
     return switch (node.*) {
         .Variable => |name| {
-            if (allowSelf and string.compString("self", name)) return false;
+            if (allowSelf and utils.compString("self", name)) return false;
             return !context.compInfo.isVariableInScope(name);
         },
         .Cast => |cast| checkUndefVars(context, cast.node, allowSelf),
@@ -1702,7 +1701,7 @@ fn matchParamGenericTypes(
 ) !bool {
     switch (paramType.*) {
         .Custom => |paramCustom| {
-            if (!string.compString(custom.name, paramCustom.name)) {
+            if (!utils.compString(custom.name, paramCustom.name)) {
                 return ScanError.FunctionCallParamTypeMismatch;
             }
 
@@ -1828,7 +1827,7 @@ fn validateSelfProps(
 
     if (structDec) |dec| {
         for (dec.attributes) |attr| {
-            const nameMatches = string.compString(attr.name, prop);
+            const nameMatches = utils.compString(attr.name, prop);
             if (nameMatches) {
                 if (attr.visibility == .Public or attr.visibility == .Protected or inOwnedMethod) {
                     return try clone.cloneStructAttributeUnion(
@@ -1866,7 +1865,7 @@ fn validateStaticStructProps(
     const dec = context.compInfo.getStructDec(name).?;
 
     for (dec.attributes) |attr| {
-        if (!string.compString(attr.name, prop)) continue;
+        if (!utils.compString(attr.name, prop)) continue;
         if (!attr.static) return ScanError.NonStaticAccessFromStaticStructReference;
         if (attr.visibility != .Public) return ScanError.RestrictedPropertyAccess;
 
@@ -1888,7 +1887,7 @@ fn validateCustomProps(
         for (structDec.attributes) |attr| {
             if (attr.static) continue;
 
-            if (string.compString(attr.name, prop)) {
+            if (utils.compString(attr.name, prop)) {
                 if (!custom.allowPrivateReads and attr.visibility != .Public) {
                     return ScanError.NonPublicStructFieldAccessFromOutsideDefinition;
                 }
@@ -2009,7 +2008,7 @@ pub fn matchTypesUtil(
             var genType1 = try context.compInfo.getGeneric(type1.Generic);
             if (genType1) |*gType| {
                 if (gType.info.astType.* == .Generic and
-                    string.compString(type1.Generic, gType.info.astType.Generic))
+                    utils.compString(type1.Generic, gType.info.astType.Generic))
                 {
                     return ScanError.UnexpectedRecursiveGeneric;
                 }
@@ -2020,7 +2019,7 @@ pub fn matchTypesUtil(
             var genType2 = try context.compInfo.getGeneric(type2.Generic);
             if (genType2) |*gType| {
                 if (gType.info.astType.* == .Generic and
-                    string.compString(type2.Generic, gType.info.astType.Generic))
+                    utils.compString(type2.Generic, gType.info.astType.Generic))
                 {
                     return ScanError.UnexpectedRecursiveGeneric;
                 }
@@ -2047,7 +2046,7 @@ pub fn matchTypesUtil(
         var genType = try context.compInfo.getGeneric(type1.Generic);
         if (genType) |*gType| {
             if (gType.info.astType.* == .Generic and
-                string.compString(gType.info.astType.Generic, type1.Generic))
+                utils.compString(gType.info.astType.Generic, type1.Generic))
             {
                 return ScanError.UnexpectedRecursiveGeneric;
             }
@@ -2073,7 +2072,7 @@ pub fn matchTypesUtil(
         var genType = try context.compInfo.getGeneric(type2.Generic);
         if (genType) |*gType| {
             if (gType.info.astType.* == .Generic and
-                string.compString(gType.info.astType.Generic, type2.Generic))
+                utils.compString(gType.info.astType.Generic, type2.Generic))
             {
                 return ScanError.UnexpectedRecursiveGeneric;
             }
@@ -2170,13 +2169,13 @@ pub fn matchTypesUtil(
         },
         .Custom => |custom| {
             if (type2 == .StaticStructInstance and
-                string.compString(custom.name, type2.StaticStructInstance))
+                utils.compString(custom.name, type2.StaticStructInstance))
             {
                 return try matchMutState(toType, fromType, true, mutMatchBehavior);
             }
 
             if (type2 != .Custom) return false;
-            if (!string.compString(type1.Custom.name, type2.Custom.name)) return false;
+            if (!utils.compString(type1.Custom.name, type2.Custom.name)) return false;
             if (custom.generics.len != type2.Custom.generics.len) return false;
 
             for (custom.generics, type2.Custom.generics) |gen1, gen2| {
@@ -2195,16 +2194,16 @@ pub fn matchTypesUtil(
         },
         .Error => |err| switch (type2) {
             .Error => |err2| a: {
-                break :a string.compString(err.name, err2.name);
+                break :a utils.compString(err.name, err2.name);
             },
             .ErrorVariant => |err2| {
                 if (err2.from) |from| {
-                    return string.compString(err.name, from);
+                    return utils.compString(err.name, from);
                 }
 
                 const errDec = context.compInfo.getErrorDec(err.name);
                 if (errDec) |dec| {
-                    return string.inStringArr(dec.variants, err2.variant);
+                    return utils.inStringArr(dec.variants, err2.variant);
                 }
 
                 return false;
@@ -2228,21 +2227,21 @@ pub fn matchTypesUtil(
         .ErrorVariant => |err| switch (type2) {
             .Error => |err2| {
                 if (err.from) |from| {
-                    return string.compString(err2.name, from);
+                    return utils.compString(err2.name, from);
                 }
 
                 const errDec = context.compInfo.getErrorDec(err2.name);
                 if (errDec) |dec| {
-                    return string.inStringArr(dec.variants, err.variant);
+                    return utils.inStringArr(dec.variants, err.variant);
                 }
 
                 return false;
             },
             .ErrorVariant => |err2| {
-                const variantsMatch = string.compString(err.variant, err2.variant);
+                const variantsMatch = utils.compString(err.variant, err2.variant);
 
                 if (err.from != null and err2.from != null) {
-                    return string.compString(err.from.?, err2.from.?) and variantsMatch;
+                    return utils.compString(err.from.?, err2.from.?) and variantsMatch;
                 }
 
                 return variantsMatch;
@@ -2250,7 +2249,7 @@ pub fn matchTypesUtil(
             else => false,
         },
         .StaticStructInstance => |inst| {
-            if (type2 == .Custom and string.compString(inst, type2.Custom.name)) {
+            if (type2 == .Custom and utils.compString(inst, type2.Custom.name)) {
                 return try matchMutState(toType, fromType, true, mutMatchBehavior);
             }
 
@@ -2333,7 +2332,7 @@ fn getCustomPropType(
     const dec = context.compInfo.getStructDec(custom.name);
     if (dec) |structDec| {
         for (structDec.attributes) |attr| {
-            if (!string.compString(attr.name, prop)) continue;
+            if (!utils.compString(attr.name, prop)) continue;
             if (attr.static) return ScanError.StaticAccessFromStructInstance;
 
             if (attr.visibility != .Public) return ScanError.RestrictedPropertyAccess;
@@ -2363,7 +2362,7 @@ fn getStructPropType(
 
     for (dec.?.attributes) |attr| {
         if (!attr.static and allowNonStatic) continue;
-        if (!string.compString(attr.name, prop)) continue;
+        if (!utils.compString(attr.name, prop)) continue;
 
         switch (attr.visibility) {
             .Public => {},

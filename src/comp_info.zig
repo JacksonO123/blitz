@@ -6,7 +6,6 @@ const free = blitz.free;
 const tokenizer = blitz.tokenizer;
 const logger = blitz.logger;
 const builtins = blitz.builtins;
-const string = blitz.string;
 const clone = blitz.clone;
 const scanner = blitz.scanner;
 const vmInfo = blitz.vmInfo;
@@ -350,7 +349,7 @@ pub const CompInfo = struct {
         defer self.parsedGenerics.resetLeakIndex();
 
         while (scope) |s| {
-            if (string.inStringArr(s.items, gen)) {
+            if (utils.inStringArr(s.items, gen)) {
                 return true;
             }
 
@@ -436,7 +435,7 @@ pub const CompInfo = struct {
 
     pub fn hasStruct(self: Self, name: []const u8) bool {
         for (self.structNames) |structName| {
-            if (string.compString(structName, name)) return true;
+            if (utils.compString(structName, name)) return true;
         }
 
         return false;
@@ -444,7 +443,7 @@ pub const CompInfo = struct {
 
     pub fn hasError(self: Self, name: []const u8) bool {
         for (self.errorNames) |errorName| {
-            if (string.compString(errorName, name)) return true;
+            if (utils.compString(errorName, name)) return true;
         }
 
         return false;
@@ -647,7 +646,7 @@ pub const CompInfo = struct {
             if (!funcDec.globallyDefined) break :a;
 
             if (captureScope) |capScope| {
-                if (!string.inStringArr(capScope.items, name)) {
+                if (!utils.inStringArr(capScope.items, name)) {
                     try capScope.append(self.allocator, name);
                 }
             }
@@ -661,7 +660,7 @@ pub const CompInfo = struct {
 
         while (scope) |s| {
             for (s.items) |item| {
-                if (!string.compString(item, name)) {
+                if (!utils.compString(item, name)) {
                     continue;
                 }
 
@@ -671,7 +670,7 @@ pub const CompInfo = struct {
                     }
 
                     if (captureScope) |capScope| {
-                        if (!string.inStringArr(capScope.items, name)) {
+                        if (!utils.inStringArr(capScope.items, name)) {
                             try capScope.append(self.allocator, name);
                         }
                     }

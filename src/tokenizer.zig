@@ -1,7 +1,6 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
 const blitzAst = blitz.ast;
-const string = blitz.string;
 const utils = blitz.utils;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
@@ -662,7 +661,7 @@ fn parseNextToken(chars: *CharUtil) !?Token {
             if (isIdent) {
                 chars.returnChar();
 
-                if (string.compString(chars.chars[startIndex..endIndex], "null")) {
+                if (utils.compString(chars.chars[startIndex..endIndex], "null")) {
                     return Token.init(.Null, startIndex);
                 }
 
@@ -734,7 +733,7 @@ fn parseNumber(chars: *CharUtil) !ParsedNumberInfo {
             if (chars.index + str.len >= chars.chars.len) continue;
             const charSlice = chars.chars[chars.index .. chars.index + str.len];
 
-            if (string.compString(str, charSlice)) {
+            if (utils.compString(str, charSlice)) {
                 try chars.advance(str.len + 1);
                 const variant = blitzAst.AstNumberVariants.fromStr(str).?;
                 return .{
@@ -842,7 +841,7 @@ fn isKeyword(chars: []const u8) ?TokenType {
 
 fn getTypeFromTuple(chars: []const u8, tuple: anytype) ?TokenType {
     inline for (tuple) |item| {
-        if (string.compString(chars, @as(TokenType, item).toString())) {
+        if (utils.compString(chars, @as(TokenType, item).toString())) {
             return item;
         }
     }

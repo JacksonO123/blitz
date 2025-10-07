@@ -3,7 +3,6 @@ const blitz = @import("blitz.zig");
 const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
 const free = blitz.free;
-const string = blitz.string;
 const scanner = blitz.scanner;
 const clone = blitz.clone;
 const blitzCompInfo = blitz.compInfo;
@@ -77,7 +76,7 @@ pub const AstNumberVariants = enum {
         };
 
         for (rels) |rel| {
-            if (string.compString(rel.str, str)) return rel.val;
+            if (utils.compString(rel.str, str)) return rel.val;
         }
 
         return null;
