@@ -82,9 +82,9 @@ pub const Context = struct {
     }
 
     pub fn clear(self: *Self) void {
-        self.compInfo.clear();
+        self.compInfo.clearPoolMem();
         // self.genInfo.cleanup();
-        self.deferCleanup.clear();
+        // self.deferCleanup.clear();
     }
 
     pub fn deinit(self: *Self) void {
@@ -219,7 +219,7 @@ fn DeferedSlice(comptime T: type) type {
             for (self.slices.items) |slice| {
                 self.allocator.free(slice);
             }
-            self.slices.clearRetainingCapacity(self.allocator);
+            self.slices.clearRetainingCapacity();
         }
 
         pub fn append(self: *Self, slice: T) !void {

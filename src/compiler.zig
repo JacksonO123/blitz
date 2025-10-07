@@ -23,8 +23,9 @@ const Context = blitzContext.Context;
 const RuntimeError = error{NoInputFile};
 
 pub fn main() !void {
-    const dbg = builtin.mode == .Debug;
-    var gp = std.heap.GeneralPurposeAllocator(.{ .safety = dbg }){};
+    // const dbg = builtin.mode == .Debug;
+    // var gp = std.heap.GeneralPurposeAllocator(.{ .safety = dbg }){};
+    var gp = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};
     defer _ = gp.deinit();
     const allocator = gp.allocator();
 
@@ -61,21 +62,30 @@ pub fn main() !void {
     try context.compInfo.setStructDecs(structsAndErrors.structs);
     try context.compInfo.setErrorDecs(structsAndErrors.errors);
 
-    try context.compInfo.prepareForAst(context);
-
     try debug.printRegisteredStructs(context, structsAndErrors.structs, writer);
     try debug.printRegisteredErrors(structsAndErrors.errors, writer);
 
+    try context.compInfo.prepareForAst(context);
+
     for (structsAndErrors.structs) |s| {
-        var node: blitzAst.AstNode = .{
-            .StructDec = s,
-        };
-        _ = try scanner.scanNode(allocator, context, &node, true);
+        const res = try scanner.scanNode(allocator, context, s, true);
+        scanner.releaseIfAllocated(context, res);
     }
 
     {
         var ast = try blitzAst.createAst(allocator, context);
         defer ast.deinit();
+        defer context.clear();
+        defer {
+            // bit of a bad patch, move this somewhere better
+            for (structsAndErrors.structs) |s| {
+                context.pools.nodes.release(s);
+            }
+
+            for (structsAndErrors.errors) |e| {
+                context.pools.nodes.release(e);
+            }
+        }
 
         try writer.writeAll("--- code ---\n");
         try writer.writeAll(code);

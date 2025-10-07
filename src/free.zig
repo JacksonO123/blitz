@@ -9,11 +9,21 @@ const blitzContext = blitz.context;
 const Allocator = std.mem.Allocator;
 const Context = blitzContext.Context;
 
+pub const ReleaseType = enum {
+    All,
+    Allocated,
+};
+
 pub fn freeFuncDec(
     allocator: Allocator,
     context: *Context,
     func: *const blitzAst.FuncDecNode,
 ) void {
+    recursiveReleaseNodeAll(allocator, context, func.body);
+
+    for (func.params) |param| {
+        recursiveReleaseTypeAll(allocator, context, param.type.astType);
+    }
     allocator.free(func.params);
 
     if (func.generics) |generics| {
@@ -21,12 +31,12 @@ pub fn freeFuncDec(
     }
 
     if (func.capturedValues) |captured| {
-        freeVariableCaptures(allocator, context, captured);
+        freeVariableCaptures(allocator, context, captured, .All);
         allocator.destroy(captured);
     }
 
     if (func.capturedTypes) |captured| {
-        freeGenericCaptures(allocator, context, captured);
+        freeGenericCaptures(allocator, context, captured, .All);
         allocator.destroy(captured);
     }
 
@@ -52,7 +62,7 @@ pub fn freeAttrs(allocator: Allocator, context: *Context, attrs: []blitzAst.Stru
     for (attrs) |attr| {
         switch (attr.attr) {
             .Function => |func| freeFuncDec(allocator, context, func),
-            else => {},
+            .Member => |member| recursiveReleaseTypeAll(allocator, context, member.astType),
         }
     }
 }
@@ -60,7 +70,7 @@ pub fn freeAttrs(allocator: Allocator, context: *Context, attrs: []blitzAst.Stru
 pub fn freeStructDec(
     allocator: Allocator,
     context: *Context,
-    dec: *const blitzAst.StructDecNode,
+    dec: *blitzAst.StructDecNode,
 ) void {
     freeAttrs(allocator, context, dec.attributes);
 
@@ -81,32 +91,57 @@ pub fn freeBuiltins(allocator: Allocator, memos: builtins.BuiltinFuncMemo) void 
     _ = memos;
 }
 
-pub fn freeVariableScope(allocator: Allocator, context: *Context, scope: *compInfo.VarScope) void {
+pub fn freeVariableScope(
+    allocator: Allocator,
+    context: *Context,
+    scope: *compInfo.VarScope,
+    releaseType: ReleaseType,
+) void {
     var scopeIt = scope.valueIterator();
     while (scopeIt.next()) |val| {
         if (val.allocState == .Allocated) {
             recursiveReleaseType(allocator, context, val.info.astType);
+        } else if (releaseType == .All) {
+            recursiveReleaseTypeAll(allocator, context, val.info.astType);
         }
     }
     scope.deinit();
 }
 
-pub fn freeVariableCaptures(allocator: Allocator, context: *Context, scope: *compInfo.CaptureScope) void {
+pub fn freeVariableCaptures(
+    allocator: Allocator,
+    context: *Context,
+    scope: *compInfo.CaptureScope,
+    releaseType: ReleaseType,
+) void {
     _ = allocator;
     _ = context;
+    _ = releaseType;
     scope.deinit();
 }
 
 pub const freeGenericCaptures = freeGenericScope;
 
-pub fn freeGenericScope(allocator: Allocator, context: *Context, scope: *compInfo.TypeScope) void {
+pub fn freeGenericScope(
+    allocator: Allocator,
+    context: *Context,
+    scope: *compInfo.TypeScope,
+    releaseType: ReleaseType,
+) void {
     _ = allocator;
     _ = context;
+    _ = releaseType;
     scope.deinit();
 }
 
-pub fn deinitScope(allocator: Allocator, context: *Context, scope: *compInfo.StringListScope) void {
+pub fn deinitScope(
+    allocator: Allocator,
+    context: *Context,
+    scope: *compInfo.StringListScope,
+    releaseType: ReleaseType,
+) void {
     _ = context;
+    _ = releaseType;
     scope.deinit(allocator);
 }
 
@@ -121,11 +156,6 @@ pub fn recursiveReleaseNodeAll(
 ) void {
     recursiveReleaseNodeUtil(allocator, context, ptr, .All);
 }
-
-const ReleaseType = enum {
-    All,
-    Allocated,
-};
 
 pub fn recursiveReleaseNodeUtil(
     allocator: Allocator,
@@ -158,6 +188,7 @@ pub fn recursiveReleaseNodeUtil(
         },
         .VarDec => |dec| {
             recursiveReleaseNodeUtil(allocator, context, dec.setNode, releaseType);
+
             if (dec.annotation) |annotation| {
                 recursiveReleaseTypeUtil(allocator, context, annotation.astType, releaseType);
             }
@@ -243,6 +274,14 @@ pub fn recursiveReleaseType(
     recursiveReleaseTypeUtil(allocator, context, astType, .Allocated);
 }
 
+pub fn recursiveReleaseTypeAll(
+    allocator: Allocator,
+    context: *Context,
+    astType: *blitzAst.AstTypes,
+) void {
+    recursiveReleaseTypeUtil(allocator, context, astType, .All);
+}
+
 pub fn recursiveReleaseTypeUtil(
     allocator: Allocator,
     context: *Context,
@@ -258,7 +297,7 @@ pub fn recursiveReleaseTypeUtil(
             recursiveReleaseType(allocator, context, info.astType);
         },
         .VarInfo, .Pointer => |info| {
-            if (info.allocState == .Allocated) {
+            if (info.allocState == .Allocated or releaseType == .All) {
                 recursiveReleaseType(allocator, context, info.info.astType);
             }
         },
@@ -267,7 +306,7 @@ pub fn recursiveReleaseTypeUtil(
                 recursiveReleaseNodeUtil(allocator, context, size, releaseType);
             }
 
-            if (slice.type.allocState == .Allocated) {
+            if (slice.type.allocState == .Allocated or releaseType == .All) {
                 recursiveReleaseType(allocator, context, slice.type.info.astType);
             }
         },

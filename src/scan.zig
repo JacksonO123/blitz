@@ -304,7 +304,9 @@ pub fn scanNode(
                         return ScanError.InvalidBitOperation;
                     }
 
-                    if (left.info.astType.Number.getSize() != right.info.astType.Number.getSize()) {
+                    const leftSize = left.info.astType.Number.getSize();
+                    const rightSize = right.info.astType.Number.getSize();
+                    if (leftSize != rightSize) {
                         return ScanError.BitMaskWithMismatchingSize;
                     }
 
@@ -328,7 +330,14 @@ pub fn scanNode(
                             return ScanError.MathOpOnNonNumberType;
                         }
 
-                        if (try matchTypes(allocator, context, left.info, right.info, withGenDef)) {
+                        const matches = try matchTypes(
+                            allocator,
+                            context,
+                            left.info,
+                            right.info,
+                            withGenDef,
+                        );
+                        if (matches) {
                             var res = try clone.replaceGenericsOnTypeInfo(
                                 allocator,
                                 context,
@@ -345,7 +354,14 @@ pub fn scanNode(
                             return ScanError.MathOpOnNonNumberType;
                         }
 
-                        if (try matchTypes(allocator, context, left.info, right.info, withGenDef)) {
+                        const matches = try matchTypes(
+                            allocator,
+                            context,
+                            left.info,
+                            right.info,
+                            withGenDef,
+                        );
+                        if (matches) {
                             return try clone.replaceGenericsOnTypeInfo(
                                 allocator,
                                 context,
@@ -1135,7 +1151,9 @@ pub fn scanNode(
         .Dereference => |target| {
             const ptrTypeResult = try scanNode(allocator, context, target, withGenDef);
             const ptrType = try escapeVarInfo(ptrTypeResult);
-            if (ptrType.info.astType.* != .Pointer) return ScanError.CannotDereferenceNonPointerValue;
+            if (ptrType.info.astType.* != .Pointer) {
+                return ScanError.CannotDereferenceNonPointerValue;
+            }
 
             if (ptrTypeResult.allocState == .Allocated) {
                 const nestedType = ptrType.info.astType.Pointer;
@@ -1582,7 +1600,7 @@ fn applyVariableCaptures(
     scope: *blitzCompInfo.CaptureScope,
 ) !void {
     if (func.capturedValues) |captured| {
-        free.freeVariableCaptures(allocator, context, captured);
+        free.freeVariableCaptures(allocator, context, captured, .Allocated);
         allocator.destroy(captured);
     }
 
@@ -1596,7 +1614,7 @@ fn applyGenericCaptures(
     scope: *blitzCompInfo.TypeScope,
 ) !void {
     if (func.capturedTypes) |captured| {
-        free.freeGenericCaptures(allocator, context, captured);
+        free.freeGenericCaptures(allocator, context, captured, .Allocated);
         allocator.destroy(captured);
     }
 
@@ -2445,7 +2463,7 @@ fn verifyRawNumberMagnitude(node: blitzAst.RawNumberNode) bool {
     return true;
 }
 
-fn releaseIfAllocated(context: *Context, result: TypeAndAllocInfo) void {
+pub fn releaseIfAllocated(context: *Context, result: TypeAndAllocInfo) void {
     if (result.allocState == .Allocated) {
         context.pools.types.releaseRecurse(result.info.astType);
     }

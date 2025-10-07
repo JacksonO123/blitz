@@ -629,8 +629,8 @@ pub const AstError = error{
 pub const ParseError = AstError || Allocator.Error;
 
 const RegisterStructsAndErrorsResult = struct {
-    structs: []*StructDecNode,
-    errors: []*const ErrorDecNode,
+    structs: []*AstNode,
+    errors: []*AstNode,
 };
 
 pub const HoistedNames = struct {
@@ -2226,9 +2226,9 @@ pub fn registerStructsAndErrors(
     allocator: Allocator,
     context: *Context,
 ) !RegisterStructsAndErrorsResult {
-    var structDecs: ArrayList(*StructDecNode) = .empty;
+    var structDecs: ArrayList(*AstNode) = .empty;
     defer structDecs.deinit(allocator);
-    var errorDecs: ArrayList(*const ErrorDecNode) = .empty;
+    var errorDecs: ArrayList(*AstNode) = .empty;
     defer errorDecs.deinit(allocator);
 
     while (context.tokenUtil.hasNext()) {
@@ -2241,11 +2241,11 @@ pub fn registerStructsAndErrors(
         const node = try parseStatement(allocator, context) orelse continue;
 
         switch (node.*) {
-            .StructDec => |dec| {
-                try structDecs.append(allocator, dec);
+            .StructDec => {
+                try structDecs.append(allocator, node);
             },
-            .ErrorDec => |dec| {
-                try errorDecs.append(allocator, dec);
+            .ErrorDec => {
+                try errorDecs.append(allocator, node);
             },
             else => unreachable,
         }

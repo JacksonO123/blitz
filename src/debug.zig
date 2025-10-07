@@ -658,36 +658,39 @@ pub fn printRegisteredError(err: *const blitzAst.ErrorDecNode, writer: *Writer) 
     }
 }
 
-pub fn printRegisteredErrors(errors: []*const blitzAst.ErrorDecNode, writer: *Writer) !void {
+pub fn printRegisteredErrors(errors: []*blitzAst.AstNode, writer: *Writer) !void {
     try writer.writeAll("--- errors ---\n");
     for (errors) |err| {
-        try printRegisteredError(err, writer);
+        try printRegisteredError(err.ErrorDec, writer);
         try writer.writeAll(" ]\n");
     }
 }
 
 pub fn printRegisteredStructs(
     context: *Context,
-    structs: []*blitzAst.StructDecNode,
+    structs: []*blitzAst.AstNode,
     writer: *Writer,
 ) !void {
     try writer.writeAll("--- structs ---\n");
-    for (structs, 0..) |s, index| {
-        try writer.writeAll("declaring {s}");
+    for (structs, 0..) |node, index| {
+        const dec = node.StructDec;
 
-        if (s.deriveType) |derived| {
+        try writer.writeAll("declaring ");
+        try writer.writeAll(dec.name);
+
+        if (dec.deriveType) |derived| {
             try writer.writeAll(" extending ");
             try printTypeInfo(context, derived, writer);
         }
 
-        if (s.generics.len > 0) {
+        if (dec.generics.len > 0) {
             try writer.writeAll(" with generics [");
-            try printGenerics(context, s.generics, writer);
+            try printGenerics(context, dec.generics, writer);
             try writer.writeAll("]");
         }
 
         try writer.writeAll(" with attributes [");
-        try printAttributes(context, s.attributes, writer);
+        try printAttributes(context, dec.attributes, writer);
         try writer.writeAll("]");
 
         try writer.writeAll("\n");

@@ -15,12 +15,12 @@ const ArrayList = std.ArrayList;
 const Context = blitz.context.Context;
 
 fn ScopeDeinitFn(comptime T: type) type {
-    return fn (Allocator, *Context, *T) void;
+    return fn (Allocator, *Context, T, free.ReleaseType) void;
 }
 
 fn initScopeUtil(
     comptime T: type,
-    comptime Fn: ScopeDeinitFn(T),
+    comptime Fn: ScopeDeinitFn(*T),
     allocator: Allocator,
     context: *Context,
 ) !*ScopeUtil(*T, Fn) {
@@ -33,7 +33,7 @@ fn initScopeUtil(
 
 fn initScopeUtilWithBase(
     comptime T: type,
-    comptime Fn: ScopeDeinitFn(T),
+    comptime Fn: ScopeDeinitFn(*T),
     allocator: Allocator,
     context: *Context,
     base: T,
@@ -243,6 +243,27 @@ pub const CompInfo = struct {
     }
 
     pub fn clearPoolMem(self: *Self) void {
+        var functionIt = self.functions.valueIterator();
+        while (functionIt.next()) |f| {
+            free.freeFuncDec(self.allocator, self.context, f.*);
+        }
+
+        var structsIt = self.structDecs.valueIterator();
+        while (structsIt.next()) |dec| {
+            free.freeStructDec(self.allocator, self.context, dec.*);
+            self.allocator.destroy(dec.*);
+        }
+
+        var errorsIt = self.errorDecs.valueIterator();
+        while (errorsIt.next()) |err| {
+            self.allocator.free(err.*.variants);
+            self.allocator.destroy(err.*);
+        }
+
+        self.functions.clearRetainingCapacity();
+        self.structDecs.clearRetainingCapacity();
+        self.errorDecs.clearRetainingCapacity();
+
         self.variableScopes.clear();
         self.variableCaptures.clear();
         self.functionCaptures.clear();
@@ -539,7 +560,6 @@ pub const CompInfo = struct {
                 .VarInfo = info,
             });
             const varInfo = varType.toAllocInfo(mutState, .Allocated);
-            std.debug.print("SETTING {s}\n", .{name});
             try s.put(name, varInfo);
         }
     }
@@ -549,7 +569,6 @@ pub const CompInfo = struct {
         name: []const u8,
         replaceGenerics: bool,
     ) !?scanner.TypeAndAllocInfo {
-        std.debug.print("GETTING {s}\n", .{name});
         var scope: ?*VarScope = self.variableScopes.getCurrentScope();
         defer self.variableScopes.resetLeakIndex();
         var capture = false;
@@ -582,7 +601,6 @@ pub const CompInfo = struct {
                 scope = next.scope;
                 capture = next.capture;
             } else {
-                std.debug.print("NO MORE SCOPE\n", .{});
                 scope = null;
             }
         }
@@ -701,15 +719,15 @@ pub const CompInfo = struct {
         try self.structDecs.put(name, node);
     }
 
-    pub fn setStructDecs(self: *Self, nodes: []*blitzAst.StructDecNode) !void {
+    pub fn setStructDecs(self: *Self, nodes: []*blitzAst.AstNode) !void {
         for (nodes) |node| {
-            try self.setStructDec(node.name, node);
+            try self.setStructDec(node.StructDec.name, node.StructDec);
         }
     }
 
-    pub fn setErrorDecs(self: *Self, decs: []*const blitzAst.ErrorDecNode) !void {
+    pub fn setErrorDecs(self: *Self, decs: []*blitzAst.AstNode) !void {
         for (decs) |dec| {
-            try self.errorDecs.put(dec.name, dec);
+            try self.errorDecs.put(dec.ErrorDec.name, dec.ErrorDec);
         }
     }
 
@@ -745,7 +763,7 @@ fn ScopeInfo(comptime T: type) type {
     };
 }
 
-fn ScopeUtil(comptime T: type, freeFn: fn (Allocator, *Context, T) void) type {
+fn ScopeUtil(comptime T: type, freeFn: ScopeDeinitFn(T)) type {
     return struct {
         const Self = @This();
 
@@ -773,7 +791,7 @@ fn ScopeUtil(comptime T: type, freeFn: fn (Allocator, *Context, T) void) type {
 
         pub fn deinit(self: *Self) void {
             for (self.scopes.items) |item| {
-                freeFn(self.allocator, self.context, item);
+                freeFn(self.allocator, self.context, item, .All);
                 self.allocator.destroy(item);
             }
 
@@ -789,7 +807,7 @@ fn ScopeUtil(comptime T: type, freeFn: fn (Allocator, *Context, T) void) type {
 
         pub fn clear(self: *Self) void {
             for (self.scopes.items) |item| {
-                freeFn(self.allocator, self.context, item);
+                freeFn(self.allocator, self.context, item, .Allocated);
                 self.allocator.destroy(item);
             }
 
@@ -842,7 +860,7 @@ fn ScopeUtil(comptime T: type, freeFn: fn (Allocator, *Context, T) void) type {
             const last = self.release();
 
             if (last) |item| {
-                freeFn(self.allocator, self.context, item);
+                freeFn(self.allocator, self.context, item, .Allocated);
                 self.allocator.destroy(item);
             }
         }
