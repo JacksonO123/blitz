@@ -70,20 +70,18 @@ pub const CompInfo = struct {
     context: *Context,
     structNames: [][]const u8,
     errorNames: [][]const u8,
+    // variableScopes store VarInfo as allocated, but return as recycled to preserve source
     variableScopes: *ScopeUtil(*VarScope, free.freeVariableScope),
     variableCaptures: *ScopeUtil(*CaptureScope, free.freeVariableCaptures),
     genericCaptures: *ScopeUtil(*TypeScope, free.freeGenericCaptures),
     functionCaptures: *ScopeUtil(*StringListScope, free.deinitScope),
     parsedGenerics: *ScopeUtil(*StringListScope, free.deinitScope),
     scopeTypes: *ArrayList(ScopeType),
-    // how many scopes up the current scope has access
     functions: *StringHashMap(*blitzAst.FuncDecNode),
     functionsInScope: *ScopeUtil(*StringListScope, free.deinitScope),
     structDecs: *StringHashMap(*blitzAst.StructDecNode),
     errorDecs: *StringHashMap(*const blitzAst.ErrorDecNode),
     functionsToScan: *ToScanStack,
-    // each number describes how far from
-    // the struct method a child node is
     genericScopes: *ScopeUtil(*TypeScope, free.freeGenericScope),
     preAst: bool,
     returnInfo: *ReturnInfo,
@@ -553,6 +551,10 @@ pub const CompInfo = struct {
         info: scanner.TypeAndAllocInfo,
         mutState: scanner.MutState,
     ) !void {
+        if (info.info.astType.* == .VarInfo) {
+            return scanner.ScanError.NestedVarInfoDetected;
+        }
+
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {

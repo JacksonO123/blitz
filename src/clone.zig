@@ -2,7 +2,6 @@ const std = @import("std");
 const blitz = @import("blitz.zig");
 const blitzAst = blitz.ast;
 const utils = blitz.utils;
-const string = blitz.string;
 const blitzCompInfo = blitz.compInfo;
 const debug = blitz.debug;
 const scanner = blitz.scanner;
@@ -642,9 +641,12 @@ pub fn cloneStructAttributeUnionType(
     withGenDef: bool,
 ) !blitzAst.AstTypeInfo {
     return switch (structAttrUnion) {
-        .Function => |func| (try context.pools.types.new(.{
-            .Function = func,
-        })).toTypeInfo(.Const),
+        .Function => |func| {
+            const res = try context.pools.types.new(.{
+                .Function = func,
+            });
+            return res.toTypeInfo(.Const);
+        },
         .Member => |member| try cloneAstTypeInfo(allocator, context, member, withGenDef),
     };
 }

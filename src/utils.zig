@@ -2,7 +2,6 @@ const std = @import("std");
 const blitz = @import("blitz.zig");
 const tokenizer = blitz.tokenizer;
 const blitzAst = blitz.ast;
-const string = blitz.string;
 const free = blitz.free;
 const scanner = blitz.scanner;
 const clone = blitz.clone;
@@ -14,7 +13,8 @@ const AstError = blitzAst.AstError;
 const ScanError = scanner.ScanError;
 const ArrayList = std.ArrayList;
 
-pub const BUFFERED_WRITER_SIZE = 1024 * 32;
+// pub const BUFFERED_WRITER_SIZE = 1024 * 32;
+pub const BUFFERED_WRITER_SIZE = 0;
 
 pub inline fn create(comptime T: type, allocator: Allocator, obj: T) Allocator.Error!*const T {
     return createMut(T, allocator, obj);

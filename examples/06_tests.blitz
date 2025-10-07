@@ -1,8 +1,8 @@
-fn myFunc(mut count: u32, position: u16) {
-  count = 2;
-}
+let val1 = 2;
+let ptr1: *u32 = &val1;
 
-let a = 1;
-let b: u16 = cast(u16) 2;
-//let b = 2;
-//myFunc(a, b);
+// mutable variable to const pointer
+let val2 = 2;
+let val3 = 4;
+let mut ptr2: *u32 = &val2;
+ptr2 = &val3;

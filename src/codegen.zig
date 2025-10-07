@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const blitz = @import("blitz.zig");
 const blitzAst = blitz.ast;
 const utils = blitz.utils;
-const string = blitz.string;
 const vmInfo = blitz.vmInfo;
 const version = blitz.version;
 const Allocator = std.mem.Allocator;

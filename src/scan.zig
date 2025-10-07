@@ -174,7 +174,7 @@ pub fn scanNodes(
     context: *Context,
     nodes: []*blitzAst.AstNode,
     withGenDef: bool,
-) (ScanError || Allocator.Error || clone.CloneError)!void {
+) ScanNodeError!void {
     for (nodes) |node| {
         const res = try scanNode(allocator, context, node, withGenDef);
         releaseIfAllocated(context, res);
@@ -497,14 +497,20 @@ pub fn scanNode(
                     anyType.mutState = valueInfo.info.mutState;
                     return anyType.toAllocInfo(.Recycled);
                 },
-                .ArraySlice => return (try builtins.getArraySlicePropType(
-                    context,
-                    access.property,
-                )).toAllocInfo(.Recycled),
-                .String => return (try builtins.getStringPropType(
-                    context,
-                    access.property,
-                )).toAllocInfo(.Recycled),
+                .ArraySlice => {
+                    const propType = try builtins.getArraySlicePropType(
+                        context,
+                        access.property,
+                    );
+                    return propType.toAllocInfo(.Recycled);
+                },
+                .String => {
+                    const propType = try builtins.getStringPropType(
+                        context,
+                        access.property,
+                    );
+                    return propType.toAllocInfo(.Recycled);
+                },
                 .Custom => |custom| a: {
                     const def = context.compInfo.getStructDec(custom.name) orelse break :a false;
 
@@ -532,9 +538,10 @@ pub fn scanNode(
 
                     if (propType) |*t| {
                         t.*.mutState = valueInfo.info.mutState;
-                        return try typeInfoToVarInfo(
-                            context,
-                            t.*,
+                        const varInfo = try context.pools.types.new(.{
+                            .VarInfo = t.toAllocInfo(.Allocated),
+                        });
+                        return varInfo.toAllocInfo(
                             origValueInfo.info.mutState.orConst(valueInfo.info.mutState),
                             .Allocated,
                         );
@@ -613,7 +620,7 @@ pub fn scanNode(
             }
 
             const origSetType = try scanNode(allocator, context, dec.setNode, withGenDef);
-            var setType = try escapeVarInfo(origSetType);
+            var setType = try escapeVarInfoAndRelease(context, origSetType);
 
             if (setType.info.astType.* == .Void) {
                 return ScanError.VoidVariableDec;
@@ -631,6 +638,7 @@ pub fn scanNode(
                     return ScanError.VariableAnnotationMismatch;
                 }
 
+                releaseIfAllocated(context, setType);
                 setType = try clone.replaceGenericsOnTypeInfo(
                     allocator,
                     context,
@@ -1086,13 +1094,14 @@ pub fn scanNode(
                 );
             }
 
-            return (try context.pools.types.new(.{
+            const customType = try context.pools.types.new(.{
                 .Custom = .{
                     .generics = generics,
                     .name = init.name,
                     .allowPrivateReads = false,
                 },
-            })).toAllocInfo(.Mut, .Allocated);
+            });
+            return customType.toAllocInfo(.Mut, .Allocated);
         },
         .Bang => |bang| {
             const origBangType = try scanNode(allocator, context, bang, withGenDef);
@@ -1142,11 +1151,12 @@ pub fn scanNode(
                 else => {},
             }
 
-            const ptrTypeInfo = try escapeVarInfo(ptrType);
+            const ptrTypeInfo = try escapeVarInfoAndRelease(context, ptrType);
 
-            return (try context.pools.types.new(.{
+            const res = try context.pools.types.new(.{
                 .Pointer = ptrTypeInfo,
-            })).toAllocInfo(ptr.mutState, .Allocated);
+            });
+            return res.toAllocInfo(ptr.mutState, .Allocated);
         },
         .Dereference => |target| {
             const ptrTypeResult = try scanNode(allocator, context, target, withGenDef);
@@ -1277,22 +1287,33 @@ fn genInGenInfoRels(rels: []blitzAst.StrToTypeInfoRel, name: []const u8) bool {
     return false;
 }
 
-fn typeInfoToVarInfo(
-    context: *Context,
-    info: blitzAst.AstTypeInfo,
-    mutState: MutState,
-    allocState: AllocatedState,
-) !TypeAndAllocInfo {
-    return (try context.pools.types.new(.{
-        .VarInfo = info.toAllocInfo(allocState),
-    })).toAllocInfo(mutState, allocState);
-}
-
 fn escapeVarInfo(node: TypeAndAllocInfo) !TypeAndAllocInfo {
     var res = node;
 
     if (res.info.astType.* == .VarInfo) {
         res = res.info.astType.VarInfo;
+    }
+
+    if (res.info.astType.* == .VarInfo) {
+        return ScanError.NestedVarInfoDetected;
+    }
+
+    return res;
+}
+
+// for var infos that were cloned. only to be used after scan node
+fn escapeVarInfoAndRelease(context: *Context, result: TypeAndAllocInfo) !TypeAndAllocInfo {
+    const allocated = result.allocState;
+    var res = result;
+
+    if (res.info.astType.* == .VarInfo) {
+        const temp = res.info.astType.VarInfo;
+
+        if (allocated == .Allocated) {
+            context.pools.types.release(res.info.astType);
+        }
+
+        res = temp;
     }
 
     if (res.info.astType.* == .VarInfo) {

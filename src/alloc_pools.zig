@@ -222,6 +222,8 @@ fn AllocPool(
             for (self.used.items) |item| {
                 try writer.writeAll("|-- ");
                 try printFn(self.context, item, writer);
+                try writer.writeAll(" ");
+                try writer.printInt(@intFromPtr(item), 10, .lower, .{});
                 try writer.writeAll("\n");
             }
         }

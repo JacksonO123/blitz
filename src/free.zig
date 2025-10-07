@@ -97,12 +97,12 @@ pub fn freeVariableScope(
     scope: *compInfo.VarScope,
     releaseType: ReleaseType,
 ) void {
-    var scopeIt = scope.valueIterator();
+    var scopeIt = scope.iterator();
     while (scopeIt.next()) |val| {
-        if (val.allocState == .Allocated) {
-            recursiveReleaseType(allocator, context, val.info.astType);
+        if (val.value_ptr.allocState == .Allocated) {
+            recursiveReleaseType(allocator, context, val.value_ptr.info.astType);
         } else if (releaseType == .All) {
-            recursiveReleaseTypeAll(allocator, context, val.info.astType);
+            recursiveReleaseTypeAll(allocator, context, val.value_ptr.info.astType);
         }
     }
     scope.deinit();
@@ -128,9 +128,14 @@ pub fn freeGenericScope(
     scope: *compInfo.TypeScope,
     releaseType: ReleaseType,
 ) void {
-    _ = allocator;
-    _ = context;
-    _ = releaseType;
+    var scopeIt = scope.iterator();
+    while (scopeIt.next()) |val| {
+        if (val.value_ptr.allocState == .Allocated) {
+            recursiveReleaseType(allocator, context, val.value_ptr.info.astType);
+        } else if (releaseType == .All) {
+            recursiveReleaseTypeAll(allocator, context, val.value_ptr.info.astType);
+        }
+    }
     scope.deinit();
 }
 
