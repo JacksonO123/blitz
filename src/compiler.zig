@@ -76,16 +76,7 @@ pub fn main() !void {
         var ast = try blitzAst.createAst(allocator, context);
         defer ast.deinit();
         defer context.clear();
-        defer {
-            // bit of a bad patch, move this somewhere better
-            for (structsAndErrors.structs) |s| {
-                context.pools.nodes.release(s);
-            }
-
-            for (structsAndErrors.errors) |e| {
-                context.pools.nodes.release(e);
-            }
-        }
+        defer free.freeStructsAndErrors(context, structsAndErrors);
 
         try writer.writeAll("--- code ---\n");
         try writer.writeAll(code);

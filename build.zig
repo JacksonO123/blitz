@@ -20,6 +20,7 @@ pub fn build(b: *std.Build) void {
     const interpreterName = if (optimize == .Debug) "blitz-debug" else "blitz";
 
     const compilerExe = b.addExecutable(.{
+        .use_llvm = true, // for debugger variables
         .name = compilerName,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/compiler.zig"),
@@ -29,6 +30,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const objdumpExe = b.addExecutable(.{
+        .use_llvm = true, // for debugger variables
         .name = objdumpName,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/bzc_objdump.zig"),
@@ -38,6 +40,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const interpreterExe = b.addExecutable(.{
+        .use_llvm = true, // for debugger variables
         .name = interpreterName,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/interpreter.zig"),

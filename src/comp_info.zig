@@ -951,7 +951,13 @@ pub const ReturnInfo = struct {
         return oldRetInfo;
     }
 
-    pub fn swapFree(self: *Self, oldRetInfo: *ReturnInfoData) void {
+    pub fn swapFree(self: *Self, context: *Context, oldRetInfo: *ReturnInfoData) void {
+        if (self.info.retType) |retType| {
+            if (retType.allocState == .Allocated) {
+                free.recursiveReleaseType(self.allocator, context, retType.info.astType);
+            }
+        }
+
         self.allocator.destroy(self.info);
         self.info = oldRetInfo;
     }

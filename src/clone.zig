@@ -78,13 +78,14 @@ pub fn cloneAstTypes(
         .String, .Bool, .Char, .Void, .Number, .Null, .RawNumber, .Any => return types,
 
         .VarInfo => |info| {
+            const varInfo = try cloneAstTypeInfo(
+                allocator,
+                context,
+                info.info,
+                withGenDef,
+            );
             return .{
-                .VarInfo = (try cloneAstTypeInfo(
-                    allocator,
-                    context,
-                    info.info,
-                    withGenDef,
-                )).toAllocInfo(.Allocated),
+                .VarInfo = varInfo.toAllocInfo(.Allocated),
             };
         },
         .ArraySlice => |arr| {

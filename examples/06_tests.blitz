@@ -1,8 +1,17 @@
-let val1 = 2;
-let ptr1: *u32 = &val1;
+struct Car {
+  size: u32;
+}
 
-// mutable variable to const pointer
-let val2 = 2;
-let val3 = 4;
-let mut ptr2: *u32 = &val2;
-ptr2 = &val3;
+struct [T: Car] name {
+  value1: bool;
+  value2: T;
+  pub static fn create(value1: bool, value2: T) name<T> {
+    return name<T> {
+      value1 = !value1,
+      value2
+    };
+  }
+}
+
+let a = Car { size = 10 };
+let n: name<Car> = name.create(true, a);

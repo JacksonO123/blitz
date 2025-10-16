@@ -27,6 +27,11 @@ pub fn freeFuncDec(
     allocator.free(func.params);
 
     if (func.generics) |generics| {
+        for (generics) |generic| {
+            if (generic.restriction) |restriction| {
+                recursiveReleaseTypeAll(allocator, context, restriction.astType);
+            }
+        }
         allocator.free(generics);
     }
 
@@ -48,6 +53,8 @@ pub fn freeFuncDec(
     for (func.toScanTypes.items) |rels| {
         freeGenInfoRels(allocator, rels);
     }
+
+    recursiveReleaseTypeAll(allocator, context, func.returnType.astType);
 
     func.toScanTypes.deinit(allocator);
     allocator.destroy(func.toScanTypes);
@@ -326,5 +333,18 @@ pub fn recursiveReleaseTypeUtil(
             }
         },
         else => {},
+    }
+}
+
+pub fn freeStructsAndErrors(
+    context: *Context,
+    structsAndErrors: blitzAst.RegisterStructsAndErrorsResult,
+) void {
+    for (structsAndErrors.structs) |s| {
+        context.pools.nodes.release(s);
+    }
+
+    for (structsAndErrors.errors) |e| {
+        context.pools.nodes.release(e);
     }
 }

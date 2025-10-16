@@ -628,7 +628,7 @@ pub const AstError = error{
 
 pub const ParseError = AstError || Allocator.Error;
 
-const RegisterStructsAndErrorsResult = struct {
+pub const RegisterStructsAndErrorsResult = struct {
     structs: []*AstNode,
     errors: []*AstNode,
 };

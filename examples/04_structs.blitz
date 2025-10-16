@@ -1,18 +1,18 @@
 struct Box { }
 
-struct [T] M {
-  value: T;
-}
-
-fn thing(p1: M<Box>) M<Box> {
-  return p1;
-}
-
-let val = M<Box>{
-  value = Box {},
-};
-
-thing(val);
+//struct [T] M {
+//  value: T;
+//}
+//
+//fn thing(p1: M<Box>) M<Box> {
+//  return p1;
+//}
+//
+//let val = M<Box>{
+//  value = Box {},
+//};
+//
+//thing(val);
 
 let mHeap: *Box = new Box {};
-delete mHeap;
+//delete mHeap;
