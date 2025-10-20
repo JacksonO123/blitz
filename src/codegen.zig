@@ -5,12 +5,14 @@ const blitzAst = blitz.ast;
 const utils = blitz.utils;
 const vmInfo = blitz.vmInfo;
 const version = blitz.version;
+const blitzContext = blitz.context;
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const AutoHashMap = std.AutoHashMap;
 const ArrayList = std.ArrayList;
 const PointerType = vmInfo.PointerType;
 const Writer = std.Io.Writer;
+const Context = blitzContext.Context;
 
 const CodeGenError = error{
     RawNumberIsTooBig,
@@ -607,11 +609,11 @@ pub const GenInfo = struct {
         self.registers.items[reg] = .{};
     }
 
-    pub fn getVariableRegister(self: Self, name: []u8) u32 {
+    pub fn getVariableRegister(self: Self, name: []const u8) u32 {
         return self.varNameRegRel.get(name).?.Register;
     }
 
-    pub fn setVariableRegister(self: *Self, name: []u8, reg: u32) !void {
+    pub fn setVariableRegister(self: *Self, name: []const u8, reg: u32) !void {
         try self.varNameRegRel.put(name, .{ .Register = reg });
         self.registers.items[reg].isVar = true;
         try self.regScopes.addRegister(reg);
@@ -627,11 +629,6 @@ pub const GenInfo = struct {
 
     pub fn popScope(self: *Self) ![]u32 {
         return self.regScopes.popScope();
-    }
-
-    pub fn popScopeAndRelease(self: *Self) !void {
-        const old = try self.popScope();
-        self.releaseRegisters(old);
     }
 
     pub fn pushLoopInfo(self: *Self) !void {
@@ -687,20 +684,20 @@ fn writeLoopJump(info: InstrInfo, endByte: u64) void {
     setJumpAmount(info.chunk, diff);
 }
 
-pub fn codegenAst(allocator: Allocator, genInfo: *GenInfo, ast: blitzAst.Ast) !void {
-    writeStartVMInfo(genInfo);
-    _ = try genBytecode(allocator, genInfo, ast.root);
+pub fn codegenAst(allocator: Allocator, context: *Context, ast: blitzAst.Ast) !void {
+    writeStartVMInfo(context);
+    _ = try genBytecode(allocator, context, ast.root);
 }
 
-fn writeStartVMInfo(genInfo: *GenInfo) void {
-    genInfo.vmInfo.version = version.VERSION;
+fn writeStartVMInfo(context: *Context) void {
+    context.genInfo.vmInfo.version = version.VERSION;
 }
 
 fn writeIntSliceToInstr(
     comptime T: type,
-    buf: []u8,
+    buf: []const u8,
     offset: usize,
-    num: []u8,
+    num: []const u8,
 ) !void {
     const size = @sizeOf(T);
     std.mem.writeInt(
@@ -713,34 +710,34 @@ fn writeIntSliceToInstr(
 
 pub fn genBytecode(
     allocator: Allocator,
-    genInfo: *GenInfo,
+    context: *Context,
     node: *const blitzAst.AstNode,
 ) GenBytecodeError!?u32 {
     switch (node.*) {
         .Seq => |seq| {
-            for (seq.nodes) |seqNode| {
-                _ = try genBytecode(allocator, genInfo, seqNode);
+            for (seq) |seqNode| {
+                _ = try genBytecode(allocator, context, seqNode);
             }
         },
         .VarDec => |dec| {
-            const reg = try genBytecode(allocator, genInfo, dec.setNode) orelse
+            const reg = try genBytecode(allocator, context, dec.setNode) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
-            if (genInfo.isRegVariable(reg)) {
-                const newReg = try genInfo.getAvailableReg();
-                genInfo.reserveRegister(reg);
+            if (context.genInfo.isRegVariable(reg)) {
+                const newReg = try context.genInfo.getAvailableReg();
+                context.genInfo.reserveRegister(reg);
 
                 var instr = Instr{ .Mov = .{} };
                 instr.Mov.dest = newReg;
                 instr.Mov.src = reg;
-                _ = try genInfo.appendChunk(instr);
+                _ = try context.genInfo.appendChunk(instr);
             }
-            try genInfo.setVariableRegister(dec.name, reg);
+            try context.genInfo.setVariableRegister(dec.name, reg);
         },
         .Value => |value| {
             switch (value) {
                 .RawNumber => |num| {
-                    const reg = try genInfo.getAvailableReg();
-                    genInfo.reserveRegister(reg);
+                    const reg = try context.genInfo.getAvailableReg();
+                    context.genInfo.reserveRegister(reg);
 
                     const instr = switch (num.numType) {
                         .U64 => Instr{
@@ -770,12 +767,12 @@ pub fn genBytecode(
                         else => utils.unimplemented(),
                     };
 
-                    _ = try genInfo.appendChunk(instr);
+                    _ = try context.genInfo.appendChunk(instr);
                     return reg;
                 },
                 .Bool => |b| {
-                    const reg = try genInfo.getAvailableReg();
-                    genInfo.reserveRegister(reg);
+                    const reg = try context.genInfo.getAvailableReg();
+                    context.genInfo.reserveRegister(reg);
 
                     const instr = Instr{
                         .SetReg8 = .{
@@ -784,23 +781,23 @@ pub fn genBytecode(
                         },
                     };
 
-                    _ = try genInfo.appendChunk(instr);
+                    _ = try context.genInfo.appendChunk(instr);
                     return reg;
                 },
                 .Char => |ch| {
-                    const reg = try genInfo.getAvailableReg();
-                    genInfo.reserveRegister(reg);
+                    const reg = try context.genInfo.getAvailableReg();
+                    context.genInfo.reserveRegister(reg);
 
                     var instr = Instr{ .SetReg8 = .{} };
                     instr.SetReg8.reg = reg;
                     instr.SetReg8.data = ch;
 
-                    _ = try genInfo.appendChunk(instr);
+                    _ = try context.genInfo.appendChunk(instr);
                     return reg;
                 },
                 .Number => |num| {
-                    const reg = try genInfo.getAvailableReg();
-                    genInfo.reserveRegister(reg);
+                    const reg = try context.genInfo.getAvailableReg();
+                    context.genInfo.reserveRegister(reg);
 
                     const instr = switch (num) {
                         .Char, .U8 => |byte| Instr{
@@ -830,17 +827,17 @@ pub fn genBytecode(
                         else => utils.unimplemented(),
                     };
 
-                    _ = try genInfo.appendChunk(instr);
+                    _ = try context.genInfo.appendChunk(instr);
                     return reg;
                 },
                 .ArraySlice => |items| {
                     for (items) |item| {
-                        try genInfo.pushScope();
+                        try context.genInfo.pushScope();
 
-                        const reg = try genBytecode(allocator, genInfo, item);
+                        const reg = try genBytecode(allocator, context, item);
                         _ = reg;
 
-                        try genInfo.popScopeAndRelease();
+                        try context.genInfo.releaseScope();
                     }
                 },
                 else => {},
@@ -853,13 +850,13 @@ pub fn genBytecode(
             const rightDepth = blitzAst.getExprDepth(expr.right);
             const leftExprDeeper = leftDepth > rightDepth;
             if (leftExprDeeper) {
-                leftReg = try genBytecode(allocator, genInfo, expr.left) orelse
+                leftReg = try genBytecode(allocator, context, expr.left) orelse
                     return CodeGenError.ReturnedRegisterNotFound;
             }
-            const rightReg = try genBytecode(allocator, genInfo, expr.right) orelse
+            const rightReg = try genBytecode(allocator, context, expr.right) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
             if (!leftExprDeeper) {
-                leftReg = try genBytecode(allocator, genInfo, expr.left) orelse
+                leftReg = try genBytecode(allocator, context, expr.left) orelse
                     return CodeGenError.ReturnedRegisterNotFound;
             }
 
@@ -867,7 +864,7 @@ pub fn genBytecode(
 
             const buf: Instr = switch (expr.type) {
                 .Add, .Sub, .Mult => a: {
-                    outReg = try genInfo.availableRegReplaceRelease(leftReg, rightReg);
+                    outReg = try context.genInfo.availableRegReplaceRelease(leftReg, rightReg);
                     const mathInstr = MathInstr{
                         .dest = outReg.?,
                         .reg1 = leftReg,
@@ -886,13 +883,13 @@ pub fn genBytecode(
                 .LessThanEq,
                 .Equal,
                 => a: {
-                    var instr = if (genInfo.settings.outputCmpAsRegister)
+                    var instr = if (context.genInfo.settings.outputCmpAsRegister)
                         exprTypeToCmpSetReg(expr.type)
                     else
                         Instr{ .Cmp = .{} };
 
-                    if (genInfo.settings.outputCmpAsRegister) {
-                        outReg = try genInfo.availableRegReplaceRelease(leftReg, rightReg);
+                    if (context.genInfo.settings.outputCmpAsRegister) {
+                        outReg = try context.genInfo.availableRegReplaceRelease(leftReg, rightReg);
                         switch (instr) {
                             .CmpSetRegEQ,
                             .CmpSetRegNE,
@@ -906,8 +903,8 @@ pub fn genBytecode(
                             else => unreachable,
                         }
                     } else {
-                        genInfo.releaseIfPossible(leftReg);
-                        genInfo.releaseIfPossible(rightReg);
+                        context.genInfo.releaseIfPossible(leftReg);
+                        context.genInfo.releaseIfPossible(rightReg);
                     }
 
                     switch (instr) {
@@ -933,64 +930,67 @@ pub fn genBytecode(
                 else => utils.unimplemented(),
             };
 
-            _ = try genInfo.appendChunk(buf);
+            _ = try context.genInfo.appendChunk(buf);
 
             return outReg;
         },
         .Variable => |name| {
-            const storedReg = genInfo.getVariableRegister(name);
+            const storedReg = context.genInfo.getVariableRegister(name);
             return storedReg;
         },
         .IfStatement => |statement| {
-            const condReg = try genBytecode(allocator, genInfo, statement.condition) orelse
+            const condReg = try genBytecode(allocator, context, statement.condition) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
 
             var buf = Instr{ .CmpConstByte = .{} };
             buf.CmpConstByte.reg = condReg;
             buf.CmpConstByte.data = 1;
-            _ = try genInfo.appendChunk(buf);
+            _ = try context.genInfo.appendChunk(buf);
 
-            genInfo.releaseIfPossible(condReg);
+            context.genInfo.releaseIfPossible(condReg);
 
-            var jumpBuf = Instr{ .JumpNE = .{} };
-            _ = try genInfo.appendChunk(jumpBuf);
+            const jumpBuf = Instr{ .JumpNE = .{} };
+            const jumpChunk = try context.genInfo.appendChunk(jumpBuf);
 
-            const byteCount = genInfo.byteCounter;
+            const byteCount = context.genInfo.byteCounter;
 
-            _ = try genBytecode(allocator, genInfo, statement.body);
+            try context.genInfo.pushScope();
+            _ = try genBytecode(allocator, context, statement.body);
+            try context.genInfo.releaseScope();
 
             if (statement.fallback) |fallback| {
                 const jumpEndInstr = Instr{ .Jump = .{} };
-                const jumpEndChunk = try genInfo.appendChunk(jumpEndInstr);
+                const jumpEndChunk = try context.genInfo.appendChunk(jumpEndInstr);
 
-                const preFallbackByteCount = genInfo.byteCounter;
+                const preFallbackByteCount = context.genInfo.byteCounter;
 
-                const diff = @as(u16, @intCast(genInfo.byteCounter - byteCount));
-                jumpBuf.JumpNE.amount = diff;
+                const diff = @as(u16, @intCast(context.genInfo.byteCounter - byteCount));
+                jumpChunk.data.JumpNE.amount = diff;
 
-                try generateFallback(allocator, genInfo, fallback);
-                const jumpEndDiff = @as(u16, @intCast(genInfo.byteCounter - preFallbackByteCount));
+                try generateFallback(allocator, context, fallback);
+                const byteDiff = context.genInfo.byteCounter - preFallbackByteCount;
+                const jumpEndDiff = @as(u16, @intCast(byteDiff));
                 jumpEndChunk.data.Jump.amount = jumpEndDiff;
             } else {
-                const diff = @as(u16, @intCast(genInfo.byteCounter - byteCount));
-                jumpBuf.JumpNE.amount = diff;
+                const diff = @as(u16, @intCast(context.genInfo.byteCounter - byteCount));
+                jumpChunk.data.JumpNE.amount = diff;
             }
         },
         .ForLoop => |loop| {
             if (loop.initNode) |initNode| {
-                _ = try genBytecode(allocator, genInfo, initNode);
+                _ = try genBytecode(allocator, context, initNode);
             }
 
-            const condInfo = prepForLoopCondition(genInfo, loop.condition);
+            const condInfo = prepForLoopCondition(context, loop.condition);
 
-            try genInfo.pushLoopInfo();
-            defer genInfo.popLoopInfo();
+            try context.genInfo.pushLoopInfo();
+            defer context.genInfo.popLoopInfo();
 
-            const preConditionByteCount = genInfo.byteCounter;
-            const condReg = try genBytecode(allocator, genInfo, loop.condition);
-            genInfo.settings.outputCmpAsRegister = condInfo.prevCmpAsReg;
+            const preConditionByteCount = context.genInfo.byteCounter;
+            const condReg = try genBytecode(allocator, context, loop.condition);
+            context.genInfo.settings.outputCmpAsRegister = condInfo.prevCmpAsReg;
 
-            const preBodyByteCount = genInfo.byteCounter;
+            const preBodyByteCount = context.genInfo.byteCounter;
             var jumpEndInstr = Instr{ .JumpNE = .{} };
 
             if (condInfo.isCompExpr) {
@@ -1002,39 +1002,36 @@ pub fn genBytecode(
                 cmpInstr.CmpConstByte.reg = condReg orelse
                     return CodeGenError.ReturnedRegisterNotFound;
                 cmpInstr.CmpConstByte.data = 1;
-                _ = try genInfo.appendChunk(cmpInstr);
+                _ = try context.genInfo.appendChunk(cmpInstr);
             }
 
-            const jumpEndChunk = try genInfo.appendChunk(jumpEndInstr);
+            const jumpEndChunk = try context.genInfo.appendChunk(jumpEndInstr);
 
-            try genInfo.pushScope();
-            _ = try genBytecode(allocator, genInfo, loop.body);
-            const oldContents = try genInfo.popScope();
-            for (oldContents) |oldReg| {
-                genInfo.releaseRegister(oldReg);
-            }
-            allocator.free(oldContents);
-            genInfo.setContinueByte();
-            _ = try genBytecode(allocator, genInfo, loop.incNode);
+            try context.genInfo.pushScope();
+            _ = try genBytecode(allocator, context, loop.body);
+            try context.genInfo.releaseScope();
+            context.genInfo.setContinueByte();
+            _ = try genBytecode(allocator, context, loop.incNode);
 
-            const jumpEndDiff = @as(u16, @intCast(genInfo.byteCounter - preBodyByteCount));
+            const jumpEndDiff = @as(u16, @intCast(context.genInfo.byteCounter - preBodyByteCount));
             setJumpAmount(jumpEndChunk, jumpEndDiff);
 
             var jumpStartInstr = Instr{ .JumpBack = .{} };
-            const jumpStartDiff = @as(u16, @intCast(genInfo.byteCounter - preConditionByteCount));
+            const byteDiff = context.genInfo.byteCounter - preConditionByteCount;
+            const jumpStartDiff = @as(u16, @intCast(byteDiff));
             jumpStartInstr.JumpBack.amount = jumpStartDiff;
-            _ = try genInfo.appendChunk(jumpStartInstr);
+            _ = try context.genInfo.appendChunk(jumpStartInstr);
         },
         .WhileLoop => |loop| {
-            try genInfo.pushLoopInfo();
-            defer genInfo.popLoopInfo();
+            try context.genInfo.pushLoopInfo();
+            defer context.genInfo.popLoopInfo();
 
-            const condInfo = prepForLoopCondition(genInfo, loop.condition);
+            const condInfo = prepForLoopCondition(context, loop.condition);
 
-            const preConditionByteCount = genInfo.byteCounter;
-            const condReg = try genBytecode(allocator, genInfo, loop.condition);
+            const preConditionByteCount = context.genInfo.byteCounter;
+            const condReg = try genBytecode(allocator, context, loop.condition);
 
-            const preBodyByteCount = genInfo.byteCounter;
+            const preBodyByteCount = context.genInfo.byteCounter;
             var jumpEndInstr = Instr{ .JumpNE = .{} };
 
             if (condInfo.isCompExpr) {
@@ -1046,94 +1043,91 @@ pub fn genBytecode(
                 cmpInstr.CmpConstByte.reg = condReg orelse
                     return CodeGenError.ReturnedRegisterNotFound;
                 cmpInstr.CmpConstByte.data = 1;
-                _ = try genInfo.appendChunk(cmpInstr);
+                _ = try context.genInfo.appendChunk(cmpInstr);
             }
 
-            const jumpEndChunk = try genInfo.appendChunk(jumpEndInstr);
+            const jumpEndChunk = try context.genInfo.appendChunk(jumpEndInstr);
 
-            try genInfo.pushScope();
-            _ = try genBytecode(allocator, genInfo, loop.body);
-            const oldContents = try genInfo.popScope();
-            for (oldContents) |oldReg| {
-                genInfo.releaseRegister(oldReg);
-            }
-            allocator.free(oldContents);
-            genInfo.setContinueByte();
+            try context.genInfo.pushScope();
+            _ = try genBytecode(allocator, context, loop.body);
+            try context.genInfo.releaseScope();
+            context.genInfo.setContinueByte();
 
-            const jumpEndDiff = @as(u16, @intCast(genInfo.byteCounter - preBodyByteCount));
+            const jumpEndDiff = @as(u16, @intCast(context.genInfo.byteCounter - preBodyByteCount));
             setJumpAmount(jumpEndChunk, jumpEndDiff);
 
             var jumpStartInstr = Instr{ .JumpBack = .{} };
-            const jumpStartDiff = @as(u16, @intCast(genInfo.byteCounter - preConditionByteCount));
+            const byteDiff = context.genInfo.byteCounter - preConditionByteCount;
+            const jumpStartDiff = @as(u16, @intCast(byteDiff));
             jumpStartInstr.JumpBack.amount = jumpStartDiff;
-            _ = try genInfo.appendChunk(jumpStartInstr);
+            _ = try context.genInfo.appendChunk(jumpStartInstr);
         },
         .IncOne => |inc| {
-            const reg = try genBytecode(allocator, genInfo, inc) orelse
+            const reg = try genBytecode(allocator, context, inc) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
             var instr = Instr{ .IncConstByte = .{} };
             instr.IncConstByte.reg = reg;
             instr.IncConstByte.data = 1;
 
-            _ = try genInfo.appendChunk(instr);
+            _ = try context.genInfo.appendChunk(instr);
         },
         .DecOne => |dec| {
-            const reg = try genBytecode(allocator, genInfo, dec) orelse
+            const reg = try genBytecode(allocator, context, dec) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
             var instr = Instr{ .DecConstByte = .{} };
             instr.DecConstByte.reg = reg;
             instr.DecConstByte.data = 1;
 
-            _ = try genInfo.appendChunk(instr);
+            _ = try context.genInfo.appendChunk(instr);
         },
         .Group => |group| {
-            return genBytecode(allocator, genInfo, group);
+            return genBytecode(allocator, context, group);
         },
         .ValueSet => |set| {
-            const srcReg = try genBytecode(allocator, genInfo, set.setNode) orelse
+            const srcReg = try genBytecode(allocator, context, set.setNode) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
-            const destReg = try genBytecode(allocator, genInfo, set.value) orelse
+            const destReg = try genBytecode(allocator, context, set.value) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
 
             var instr = Instr{ .Mov = .{} };
             instr.Mov.dest = destReg;
             instr.Mov.src = srcReg;
-            _ = try genInfo.appendChunk(instr);
+            _ = try context.genInfo.appendChunk(instr);
         },
         .Bang => |expr| {
-            const reg = try genBytecode(allocator, genInfo, expr) orelse
+            const reg = try genBytecode(allocator, context, expr) orelse
                 return CodeGenError.NoAvailableRegisters;
-            const setReg = try genInfo.availableRegReplace(reg);
+            const setReg = try context.genInfo.availableRegReplace(reg);
 
             var instr = Instr{ .XorConstByte = .{} };
             instr.XorConstByte.dest = setReg;
             instr.XorConstByte.reg = reg;
             instr.XorConstByte.byte = 1;
-            _ = try genInfo.appendChunk(instr);
+            _ = try context.genInfo.appendChunk(instr);
 
             return setReg;
         },
         .Scope => |scope| {
-            try genInfo.pushScope();
-            _ = try genBytecode(allocator, genInfo, scope);
-            try genInfo.releaseScope();
+            try context.genInfo.pushScope();
+            _ = try genBytecode(allocator, context, scope);
+            try context.genInfo.releaseScope();
         },
         .Break => {
-            const loopInfo = genInfo.currentLoopInfo() orelse
+            const loopInfo = context.genInfo.currentLoopInfo() orelse
                 return CodeGenError.ExpectedLoopInfo;
 
             const buf = Instr{ .Jump = .{} };
-            const chunk = try genInfo.appendChunk(buf);
-            const byteCount = genInfo.byteCounter;
+            const chunk = try context.genInfo.appendChunk(buf);
+            const byteCount = context.genInfo.byteCounter;
             try loopInfo.appendBreak(chunk, byteCount);
         },
         .Continue => {
-            const loopInfo = genInfo.currentLoopInfo() orelse
+            const loopInfo = context.genInfo.currentLoopInfo() orelse
                 return CodeGenError.ExpectedLoopInfo;
 
             const instr = Instr{ .Jump = .{} };
-            const chunk = try genInfo.appendChunk(instr);
-            const byteCount = genInfo.byteCounter;
+            const chunk = try context.genInfo.appendChunk(instr);
+            const byteCount = context.genInfo.byteCounter;
             try loopInfo.appendContinue(chunk, byteCount);
         },
         else => {},
@@ -1142,8 +1136,8 @@ pub fn genBytecode(
     return null;
 }
 
-fn prepForLoopCondition(genInfo: *GenInfo, condition: *blitzAst.AstNode) LoopCondInfo {
-    const prevCmpAsReg = genInfo.settings.outputCmpAsRegister;
+fn prepForLoopCondition(context: *Context, condition: *blitzAst.AstNode) LoopCondInfo {
+    const prevCmpAsReg = context.genInfo.settings.outputCmpAsRegister;
     const isCompExprType = if (condition.* == .OpExpr)
         switch (condition.OpExpr.type) {
             .LessThan,
@@ -1158,7 +1152,7 @@ fn prepForLoopCondition(genInfo: *GenInfo, condition: *blitzAst.AstNode) LoopCon
         false;
 
     if (isCompExprType) {
-        genInfo.settings.outputCmpAsRegister = false;
+        context.genInfo.settings.outputCmpAsRegister = false;
     }
 
     return .{
@@ -1224,43 +1218,45 @@ fn compOpToJump(opType: blitzAst.OpExprTypes, back: bool) !Instr {
 
 fn generateFallback(
     allocator: Allocator,
-    genInfo: *GenInfo,
-    fallback: *const blitzAst.IfFallback,
+    context: *Context,
+    fallback: blitzAst.FallbackInfo,
 ) !void {
     var jumpChunk: ?*InstrChunk = null;
 
-    if (fallback.condition) |condition| {
-        const condReg = try genBytecode(allocator, genInfo, condition) orelse
+    const statement = fallback.node.IfStatement;
+
+    if (fallback.hasCondition) {
+        const condReg = try genBytecode(allocator, context, statement.condition) orelse
             return CodeGenError.ReturnedRegisterNotFound;
 
         var instr = Instr{ .CmpConstByte = .{} };
         instr.CmpConstByte.reg = condReg;
         instr.CmpConstByte.data = 1;
-        _ = try genInfo.appendChunk(instr);
+        _ = try context.genInfo.appendChunk(instr);
 
-        genInfo.releaseIfPossible(condReg);
+        context.genInfo.releaseIfPossible(condReg);
 
         const jumpInstr = Instr{ .JumpNE = .{} };
-        jumpChunk = try genInfo.appendChunk(jumpInstr);
+        jumpChunk = try context.genInfo.appendChunk(jumpInstr);
     }
 
-    const preBodyByteCount = genInfo.byteCounter;
+    const preBodyByteCount = context.genInfo.byteCounter;
 
-    _ = try genBytecode(allocator, genInfo, fallback.body);
+    _ = try genBytecode(allocator, context, statement.body);
 
-    if (fallback.fallback) |newFallback| {
+    if (statement.fallback) |newFallback| {
         const jumpEndInstr = Instr{ .Jump = .{} };
-        const jumpEndChunk = try genInfo.appendChunk(jumpEndInstr);
+        const jumpEndChunk = try context.genInfo.appendChunk(jumpEndInstr);
 
-        const preFallbackByteCount = genInfo.byteCounter;
+        const preFallbackByteCount = context.genInfo.byteCounter;
 
         if (jumpChunk) |chunk| {
-            const diff = @as(u16, @intCast(genInfo.byteCounter - preBodyByteCount));
+            const diff = @as(u16, @intCast(context.genInfo.byteCounter - preBodyByteCount));
             chunk.data.JumpNE.amount = diff;
         }
 
-        try generateFallback(allocator, genInfo, newFallback);
-        const diff = @as(u16, @intCast(genInfo.byteCounter - preFallbackByteCount));
+        try generateFallback(allocator, context, newFallback);
+        const diff = @as(u16, @intCast(context.genInfo.byteCounter - preFallbackByteCount));
         jumpEndChunk.data.Jump.amount = diff;
     }
 }

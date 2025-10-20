@@ -720,12 +720,12 @@ pub fn printTokens(tokens: []const tokenizer.Token, code: []u8, writer: *Writer)
     }
 }
 
-pub fn printBytecodeChunks(genInfo: *const GenInfo, writer: *Writer) !void {
-    const rootChunk = genInfo.instructionList;
+pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
+    const rootChunk = context.genInfo.instructionList;
 
     if (rootChunk) |chunk| {
         try writer.writeAll("MakeStack ");
-        try writeHexDecNumber(vmInfo.StartStackType, genInfo.vmInfo.stackStartSize, writer);
+        try writeHexDecNumber(vmInfo.StartStackType, context.genInfo.vmInfo.stackStartSize, writer);
         try writer.writeAll("\n");
 
         var byteCounter: usize = 0;
@@ -743,7 +743,7 @@ pub fn printBytecodeChunks(genInfo: *const GenInfo, writer: *Writer) !void {
             next = nextChunk.next;
         }
 
-        try writer.print("total bytes: {d}\n", .{genInfo.byteCounter});
+        try writer.print("total bytes: {d}\n", .{context.genInfo.byteCounter});
     }
 }
 

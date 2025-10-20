@@ -72,33 +72,35 @@ pub fn main() !void {
         scanner.releaseIfAllocated(context, res);
     }
 
-    {
-        var ast = try blitzAst.createAst(allocator, context);
-        defer ast.deinit();
-        defer context.clear();
-        defer free.freeStructsAndErrors(allocator, context, structsAndErrors);
+    var ast = try blitzAst.createAst(allocator, context);
 
-        try writer.writeAll("--- code ---\n");
-        try writer.writeAll(code);
-        try writer.writeAll("\n------------\n\n");
-        try debug.printAst(context, ast, writer);
+    try writer.writeAll("--- code ---\n");
+    try writer.writeAll(code);
+    try writer.writeAll("\n------------\n\n");
+    try debug.printAst(context, ast, writer);
 
-        try scanner.typeScan(allocator, ast, context);
+    try scanner.typeScan(allocator, ast, context);
+
+    defer {
+        ast.deinit();
+        context.clear();
+        free.freeStructsAndErrors(allocator, context, structsAndErrors);
     }
 
     try writer.writeAll("\n------------\n");
     try context.pools.writeStats(writer);
+    try writer.writeAll("\n");
 
-    // try codegen.codegenAst(allocator, &genInfo, ast);
-    // try writer.writeAll("--- bytecode out ---\n");
-    // try debug.printBytecodeChunks(&genInfo, writer);
-    // try writer.writeAll("\n------------\n");
+    try codegen.codegenAst(allocator, context, ast);
+    try writer.writeAll("--- bytecode out ---\n");
+    try debug.printBytecodeChunks(context, writer);
+    try writer.writeAll("\n------------\n");
 
-    // const outFile = try std.fs.cwd().createFile("out.bzc", .{});
-    // defer outFile.close();
-    // var fileBuffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
-    // var fileBufferedWriter = outFile.writer(&fileBuffer);
-    // defer fileBufferedWriter.end() catch {};
-    // const fileWriter = &fileBufferedWriter.interface;
-    // try genInfo.writeChunks(fileWriter);
+    const outFile = try std.fs.cwd().createFile("out.bzc", .{});
+    defer outFile.close();
+    var fileBuffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
+    var fileBufferedWriter = outFile.writer(&fileBuffer);
+    defer fileBufferedWriter.end() catch {};
+    const fileWriter = &fileBufferedWriter.interface;
+    try context.genInfo.writeChunks(fileWriter);
 }
