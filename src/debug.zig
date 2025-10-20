@@ -486,7 +486,7 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
             try writer.writeAll("}}");
         },
         .Bang => |bang| {
-            try writer.writeAll("[bang]!");
+            try writer.writeAll("(bang)!");
             try printNode(context, bang, writer);
         },
         .ErrorDec => |def| try printRegisteredError(def, writer),

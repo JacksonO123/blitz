@@ -1,22 +1,5 @@
 struct outerThing {
-  outer: bool;
-}
-
-struct otherThing {
-  pub b: bool;
 }
 
 struct thing : outerThing {
-  pub value: u32;
-  pub other: otherThing;
 }
-
-let inst = thing{
-  outer = true,
-  value = 2,
-  other = otherThing{
-    b = true,
-  }
-};
-
-let val = inst.other.b;

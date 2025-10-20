@@ -219,13 +219,24 @@ fn AllocPool(
             try writer.writeAll(" : ");
             try writer.printFloat(percentFree, .{});
             try writer.writeAll("%\nused items:\n");
+            var numLeaked: u32 = 0;
             for (self.used.items) |item| {
+                if (@TypeOf(item) == *blitzAst.AstTypes and
+                    !self.context.constTypeInfos.isStatic(item))
+                {
+                    numLeaked += 1;
+                }
+
                 try writer.writeAll("|-- ");
                 try printFn(self.context, item, writer);
                 try writer.writeAll(" ");
                 try writer.printInt(@intFromPtr(item), 10, .lower, .{});
                 try writer.writeAll("\n");
             }
+
+            try writer.writeAll("LEAKED: ");
+            try writer.printInt(numLeaked, 10, .lower, .{});
+            try writer.writeAll("\n");
         }
     };
 }

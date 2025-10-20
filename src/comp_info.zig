@@ -438,6 +438,7 @@ pub const CompInfo = struct {
                         tokenizer.TokenUtil.init(f.bodyTokens),
                     );
                     context.tokenUtil = tempTokens;
+                    free.recursiveReleaseNodeAll(self.allocator, context, f.body);
                     f.body = blitzAst.parseSequence(self.allocator, context, true) catch |e| {
                         logger.logParseError(context, e);
                         return e;

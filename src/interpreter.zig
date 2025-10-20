@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-pub const blitz = @import("blitz.zig");
+const blitz = @import("blitz.zig");
 const utils = blitz.utils;
 const vmInfo = blitz.vmInfo;
 const codegen = blitz.codegen;

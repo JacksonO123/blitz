@@ -1,5 +1,5 @@
 const std = @import("std");
-pub const blitz = @import("blitz.zig");
+const blitz = @import("blitz.zig");
 const utils = blitz.utils;
 const tokenizer = blitz.tokenizer;
 const debug = blitz.debug;

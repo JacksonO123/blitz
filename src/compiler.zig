@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-pub const blitz = @import("blitz.zig");
+const blitz = @import("blitz.zig");
 const tokenizer = blitz.tokenizer;
 const blitzAst = blitz.ast;
 const scanner = blitz.scanner;
@@ -76,7 +76,7 @@ pub fn main() !void {
         var ast = try blitzAst.createAst(allocator, context);
         defer ast.deinit();
         defer context.clear();
-        defer free.freeStructsAndErrors(context, structsAndErrors);
+        defer free.freeStructsAndErrors(allocator, context, structsAndErrors);
 
         try writer.writeAll("--- code ---\n");
         try writer.writeAll(code);

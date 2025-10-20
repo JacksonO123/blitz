@@ -5,12 +5,9 @@ const utils = blitz.utils;
 const free = blitz.free;
 const builtins = blitz.builtins;
 const clone = blitz.clone;
-const number = blitz.number;
 const blitzCompInfo = blitz.compInfo;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const create = utils.create;
-const createMut = utils.createMut;
 const Context = blitz.context.Context;
 
 pub const ScanInfo = struct {
@@ -1989,23 +1986,6 @@ fn scanAttributes(context: *Context, dec: *blitzAst.StructDecNode) !void {
             },
         }
     }
-}
-
-fn isNumber(astType: blitzAst.AstTypes) bool {
-    return switch (astType) {
-        .Number => true,
-        else => false,
-    };
-}
-
-fn isUnsignedInt(astType: blitzAst.AstTypes) bool {
-    return switch (astType) {
-        .Number => |num| switch (num) {
-            .U8, .U16, .U32, .U64, .U128 => true,
-            else => false,
-        },
-        else => false,
-    };
 }
 
 fn isInt(astType: *const blitzAst.AstTypes) bool {

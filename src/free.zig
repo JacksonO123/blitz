@@ -82,8 +82,14 @@ pub fn freeStructDec(
     freeAttrs(allocator, context, dec.attributes);
 
     allocator.free(dec.attributes);
-    allocator.free(dec.generics);
     allocator.free(dec.totalMemberList);
+
+    for (dec.generics) |generic| {
+        if (generic.restriction) |restriction| {
+            recursiveReleaseTypeAll(allocator, context, restriction.astType);
+        }
+    }
+    allocator.free(dec.generics);
 
     for (dec.toScanTypes.items) |rels| {
         freeGenInfoRels(allocator, rels);
@@ -274,6 +280,13 @@ pub fn recursiveReleaseNodeUtil(
         .HeapAlloc => |alloc| {
             recursiveReleaseNodeUtil(allocator, context, alloc.node, releaseType);
         },
+        .StructDec => |dec| {
+            if (releaseType == .All) {
+                if (dec.deriveType) |derive| {
+                    recursiveReleaseTypeAll(allocator, context, derive.astType);
+                }
+            }
+        },
         else => {},
     }
 }
@@ -337,14 +350,15 @@ pub fn recursiveReleaseTypeUtil(
 }
 
 pub fn freeStructsAndErrors(
+    allocator: Allocator,
     context: *Context,
     structsAndErrors: blitzAst.RegisterStructsAndErrorsResult,
 ) void {
-    for (structsAndErrors.structs) |s| {
-        context.pools.nodes.release(s);
+    for (structsAndErrors.structs) |def| {
+        recursiveReleaseNodeAll(allocator, context, def);
     }
 
-    for (structsAndErrors.errors) |e| {
-        context.pools.nodes.release(e);
+    for (structsAndErrors.errors) |err| {
+        recursiveReleaseNodeAll(allocator, context, err);
     }
 }
