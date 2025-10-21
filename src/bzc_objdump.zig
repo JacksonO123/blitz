@@ -169,15 +169,9 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeAll(" ");
             try writeHexDecNumberSlice(bytecode[3..4], writer);
         },
-        .AddSp8 => {
+        .AddSp8, .SubSp8 => {
             try writer.writeAll(" ");
             try writer.printInt(bytecode[1], 10, .lower, .{});
-        },
-        .AddSp,
-        .SubSp,
-        => {
-            try writer.writeAll(" ");
-            try writeHexDecNumberSlice(bytecode[1..4], writer);
         },
         .AddSpReg,
         .SubSpReg,

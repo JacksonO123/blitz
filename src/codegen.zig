@@ -472,7 +472,7 @@ pub const GenInfo = struct {
     last: ?*InstrChunk,
     registers: *ArrayList(RegInfo),
     regScopes: *RegScopes,
-    varNameRegRel: *StringHashMap(VariableRegLocationInfo),
+    varNameReg: *StringHashMap(u32),
     byteCounter: u64,
     settings: GenInfoSettings,
     loopInfo: *ArrayList(*LoopInfo),
@@ -480,8 +480,8 @@ pub const GenInfo = struct {
     pub fn init(
         allocator: Allocator,
     ) !Self {
-        const varNameRegRel = try utils.initMutPtrT(
-            StringHashMap(VariableRegLocationInfo),
+        const varNameReg = try utils.initMutPtrT(
+            StringHashMap(TempRegister),
             allocator,
         );
         const regScopes = try RegScopes.init(allocator);
@@ -499,7 +499,7 @@ pub const GenInfo = struct {
             },
             .instructionList = null,
             .last = null,
-            .varNameRegRel = varNameRegRel,
+            .varNameReg = varNameReg,
             .regScopes = regScopesPtr,
             .byteCounter = 0,
             .settings = CODEGEN_DEFAULT_SETTINGS,
@@ -517,8 +517,8 @@ pub const GenInfo = struct {
         self.registers.deinit(self.allocator);
         self.allocator.destroy(self.registers);
 
-        self.varNameRegRel.deinit();
-        self.allocator.destroy(self.varNameRegRel);
+        self.varNameReg.deinit();
+        self.allocator.destroy(self.varNameReg);
 
         self.regScopes.deinit();
         self.allocator.destroy(self.regScopes);
@@ -616,11 +616,11 @@ pub const GenInfo = struct {
     }
 
     pub fn getVariableRegister(self: Self, name: []const u8) TempRegister {
-        return self.varNameRegRel.get(name).?.Register;
+        return self.varNameReg.get(name).?;
     }
 
     pub fn setVariableRegister(self: *Self, name: []const u8, reg: TempRegister) !void {
-        try self.varNameRegRel.put(name, .{ .Register = reg });
+        try self.varNameReg.put(name, reg);
         self.registers.items[reg].isVar = true;
         try self.regScopes.addRegister(reg);
     }
@@ -720,6 +720,8 @@ pub fn genBytecode(
     node: *const blitzAst.AstNode,
 ) GenBytecodeError!?TempRegister {
     switch (node.*) {
+        .StructPlaceholder => {},
+        .NoOp => {},
         .Seq => |seq| {
             for (seq) |seqNode| {
                 _ = try genBytecode(allocator, context, seqNode);
