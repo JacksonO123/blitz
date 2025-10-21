@@ -157,6 +157,10 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[2], 10, .lower, .{});
         },
+        .MovSp => {
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[1], 10, .lower, .{});
+        },
         .XorConstByte => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
@@ -164,6 +168,10 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.printInt(bytecode[2], 10, .lower, .{});
             try writer.writeAll(" ");
             try writeHexDecNumberSlice(bytecode[3..4], writer);
+        },
+        .AddSp8 => {
+            try writer.writeAll(" ");
+            try writer.printInt(bytecode[1], 10, .lower, .{});
         },
         .AddSp,
         .SubSp,

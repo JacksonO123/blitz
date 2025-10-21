@@ -845,6 +845,10 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(inst.src, 10, .lower, .{});
         },
+        .MovSp => |inst| {
+            try writer.writeAll(" r");
+            try writer.printInt(inst, 10, .lower, .{});
+        },
         .XorConstByte => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.dest, 10, .lower, .{});
@@ -853,11 +857,9 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeAll(" ");
             try writeHexDecNumber(u8, inst.byte, writer);
         },
-        .AddSp,
-        .SubSp,
-        => |inst| {
+        .AddSp8, .SubSp8 => |inst| {
             try writer.writeAll(" ");
-            try writeHexDecNumber(u32, inst.amount, writer);
+            try writeHexDecNumber(u8, inst, writer);
         },
         .AddSpReg,
         .SubSpReg,

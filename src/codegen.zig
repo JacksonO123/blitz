@@ -11,6 +11,7 @@ const StringHashMap = std.StringHashMap;
 const AutoHashMap = std.AutoHashMap;
 const ArrayList = std.ArrayList;
 const PointerType = vmInfo.PointerType;
+const TempRegister = vmInfo.TempRegister;
 const Writer = std.Io.Writer;
 const Context = blitzContext.Context;
 
@@ -64,10 +65,11 @@ pub const InstructionVariants = enum(u8) {
     IncConstByte, // inst, in/out reg, 1B data
     DecConstByte, // inst, in/out reg, 1B data
     Mov, // inst, reg1, reg2
+    MovSp, // inst, dest
     Xor, // inst, out reg, reg1, reg2
     XorConstByte, // inst, out reg, reg1, 1B data
-    AddSp, // inst, 4B data
-    SubSp, // inst, 4B data
+    AddSp8, // inst, 1B data
+    SubSp8, // inst, 4B data
     AddSpReg, // inst, reg
     SubSpReg, // inst, reg
     StoreOffsetByte, // inst, reg, to reg (ptr), offset 1B
@@ -109,8 +111,9 @@ pub const InstructionVariants = enum(u8) {
             .CmpConstByte => 3,
             .IncConstByte, .DecConstByte => 3,
             .Mov => 3,
+            .MovSp => 2,
             .Xor, .XorConstByte => 4,
-            .AddSp, .SubSp => 5,
+            .AddSp8, .SubSp8 => 2,
             .AddSpReg, .SubSpReg => 2,
             .StoreOffsetByte => 4,
         };
@@ -150,10 +153,11 @@ pub const InstructionVariants = enum(u8) {
             .IncConstByte => "inc_const_byte",
             .DecConstByte => "dec_const_byte",
             .Mov => "mov",
+            .MovSp => "mov_sp",
             .Xor => "xor",
             .XorConstByte => "xor_const_byte",
-            .AddSp => "add_sp",
-            .SubSp => "sub_sp",
+            .AddSp8 => "add_sp_8",
+            .SubSp8 => "sub_sp_8",
             .AddSpReg => "add_sp_reg",
             .SubSpReg => "sub_sp_reg",
             .StoreOffsetByte => "store_offset_byte",
@@ -162,13 +166,13 @@ pub const InstructionVariants = enum(u8) {
 };
 
 const TwoOpResultInstr = struct {
-    dest: u32 = 0,
-    reg1: u32 = 0,
-    reg2: u32 = 0,
+    dest: TempRegister = 0,
+    reg1: TempRegister = 0,
+    reg2: TempRegister = 0,
 };
 
 const RegBytePayloadInstr = struct {
-    reg: u32 = 0,
+    reg: TempRegister = 0,
     data: u8 = 0,
 };
 
@@ -179,23 +183,23 @@ const JumpInstr = struct {
 };
 
 const SpInstr = struct {
-    amount: u32 = 0,
+    amount: TempRegister = 0,
 };
 
 const SpRegInstr = struct {
-    amount: u32 = 0,
+    amount: TempRegister = 0,
 };
 
 fn SetRegInstr(comptime T: type) type {
     return struct {
-        reg: u32 = 0,
+        reg: TempRegister = 0,
         data: T = 0,
     };
 }
 
 const CmpInstr = struct {
-    reg1: u32 = 0,
-    reg2: u32 = 0,
+    reg1: TempRegister = 0,
+    reg2: TempRegister = 0,
 };
 
 const CmpSetRegInstr = TwoOpResultInstr;
@@ -235,22 +239,23 @@ pub const Instr = union(InstructionVariants) {
     IncConstByte: RegBytePayloadInstr,
     DecConstByte: RegBytePayloadInstr,
     Mov: struct {
-        dest: u32 = 0,
-        src: u32 = 0,
+        dest: TempRegister = 0,
+        src: TempRegister = 0,
     },
+    MovSp: TempRegister,
     Xor: TwoOpResultInstr,
     XorConstByte: struct {
-        dest: u32 = 0,
-        reg: u32 = 0,
+        dest: TempRegister = 0,
+        reg: TempRegister = 0,
         byte: u8 = 0,
     },
-    AddSp: SpInstr,
-    SubSp: SpInstr,
+    AddSp8: u8,
+    SubSp8: u8,
     AddSpReg: SpRegInstr,
     SubSpReg: SpRegInstr,
     StoreOffsetByte: struct {
-        fromReg: u32 = 0,
-        toReg: u32 = 0,
+        fromReg: TempRegister = 0,
+        toReg: TempRegister = 0,
         offset: u8 = 0,
     },
 
@@ -292,7 +297,7 @@ const VarRegLocInfoVariants = enum {
 };
 
 const VariableRegLocationInfo = union(VarRegLocInfoVariants) {
-    Register: u32,
+    Register: TempRegister,
     StackLocation: PointerType,
 };
 
@@ -300,10 +305,10 @@ const RegScope = struct {
     const Self = @This();
 
     allocator: Allocator,
-    registers: *ArrayList(u32),
+    registers: *ArrayList(TempRegister),
 
     pub fn init(allocator: Allocator) !Self {
-        const registers = try utils.createMut(ArrayList(u32), allocator, .empty);
+        const registers = try utils.createMut(ArrayList(TempRegister), allocator, .empty);
 
         return .{
             .allocator = allocator,
@@ -316,11 +321,11 @@ const RegScope = struct {
         self.allocator.destroy(self.registers);
     }
 
-    pub fn empty(self: *Self) ![]u32 {
+    pub fn empty(self: *Self) ![]TempRegister {
         return try self.registers.toOwnedSlice(self.allocator);
     }
 
-    pub fn addRegister(self: *Self, reg: u32) !void {
+    pub fn addRegister(self: *Self, reg: TempRegister) !void {
         try self.registers.append(self.allocator, reg);
     }
 };
@@ -363,7 +368,7 @@ const RegScopes = struct {
         try self.scopes.append(self.allocator, newScopePtr);
     }
 
-    pub fn popScope(self: *Self) ![]u32 {
+    pub fn popScope(self: *Self) ![]TempRegister {
         if (self.scopes.items.len == 1) {
             const oldContents = try self.scopes.items[0].empty();
             return oldContents;
@@ -375,7 +380,7 @@ const RegScopes = struct {
         return oldContents;
     }
 
-    pub fn getCurrentScopeContents(self: *Self) []u32 {
+    pub fn getCurrentScopeContents(self: *Self) []TempRegister {
         return self.scopes.getLast().registers.items;
     }
 
@@ -383,7 +388,7 @@ const RegScopes = struct {
         return self.scopes.getLast();
     }
 
-    pub fn addRegister(self: *Self, reg: u32) !void {
+    pub fn addRegister(self: *Self, reg: TempRegister) !void {
         const scope = self.getCurrentScope();
         try scope.addRegister(reg);
     }
@@ -559,7 +564,7 @@ pub const GenInfo = struct {
         return newChunk;
     }
 
-    pub fn getAvailableReg(self: Self) !u32 {
+    pub fn getAvailableReg(self: Self) !TempRegister {
         for (self.registers.items, 0..) |reg, index| {
             if (!reg.active) {
                 return @intCast(index);
@@ -570,7 +575,7 @@ pub const GenInfo = struct {
         return @intCast(self.registers.items.len - 1);
     }
 
-    pub fn availableRegReplace(self: *Self, reg: u32) !u32 {
+    pub fn availableRegReplace(self: *Self, reg: TempRegister) !TempRegister {
         if (self.isRegVariable(reg)) {
             return try self.getAvailableReg();
         }
@@ -580,9 +585,9 @@ pub const GenInfo = struct {
 
     pub fn availableRegReplaceRelease(
         self: *Self,
-        reg1: u32,
-        reg2: u32,
-    ) !u32 {
+        reg1: TempRegister,
+        reg2: TempRegister,
+    ) !TempRegister {
         if (!self.registers.items[reg1].isVar) {
             self.releaseIfPossible(reg2);
             return reg1;
@@ -592,34 +597,35 @@ pub const GenInfo = struct {
         }
 
         const reg = try self.getAvailableReg();
-        self.reserveRegister(reg);
+        try self.reserveRegister(reg);
         return reg;
     }
 
-    pub fn releaseIfPossible(self: *Self, reg: u32) void {
+    pub fn releaseIfPossible(self: *Self, reg: TempRegister) void {
         if (self.registers.items[reg].isVar) return;
         self.releaseRegister(reg);
     }
 
-    pub fn reserveRegister(self: *Self, reg: u32) void {
+    pub fn reserveRegister(self: *Self, reg: TempRegister) !void {
         self.registers.items[reg].active = true;
+        try self.regScopes.addRegister(reg);
     }
 
-    pub fn releaseRegister(self: *Self, reg: u32) void {
+    pub fn releaseRegister(self: *Self, reg: TempRegister) void {
         self.registers.items[reg] = .{};
     }
 
-    pub fn getVariableRegister(self: Self, name: []const u8) u32 {
+    pub fn getVariableRegister(self: Self, name: []const u8) TempRegister {
         return self.varNameRegRel.get(name).?.Register;
     }
 
-    pub fn setVariableRegister(self: *Self, name: []const u8, reg: u32) !void {
+    pub fn setVariableRegister(self: *Self, name: []const u8, reg: TempRegister) !void {
         try self.varNameRegRel.put(name, .{ .Register = reg });
         self.registers.items[reg].isVar = true;
         try self.regScopes.addRegister(reg);
     }
 
-    pub fn isRegVariable(self: Self, reg: u32) bool {
+    pub fn isRegVariable(self: Self, reg: TempRegister) bool {
         return self.registers.items[reg].isVar;
     }
 
@@ -627,7 +633,7 @@ pub const GenInfo = struct {
         try self.regScopes.pushScope();
     }
 
-    pub fn popScope(self: *Self) ![]u32 {
+    pub fn popScope(self: *Self) ![]TempRegister {
         return self.regScopes.popScope();
     }
 
@@ -665,7 +671,7 @@ pub const GenInfo = struct {
         self.allocator.free(old);
     }
 
-    fn releaseRegisters(self: *Self, regs: []u32) void {
+    fn releaseRegisters(self: *Self, regs: []TempRegister) void {
         for (regs) |reg| {
             self.releaseRegister(reg);
         }
@@ -712,7 +718,7 @@ pub fn genBytecode(
     allocator: Allocator,
     context: *Context,
     node: *const blitzAst.AstNode,
-) GenBytecodeError!?u32 {
+) GenBytecodeError!?TempRegister {
     switch (node.*) {
         .Seq => |seq| {
             for (seq) |seqNode| {
@@ -724,7 +730,7 @@ pub fn genBytecode(
                 return CodeGenError.ReturnedRegisterNotFound;
             if (context.genInfo.isRegVariable(reg)) {
                 const newReg = try context.genInfo.getAvailableReg();
-                context.genInfo.reserveRegister(reg);
+                try context.genInfo.reserveRegister(reg);
 
                 var instr = Instr{ .Mov = .{} };
                 instr.Mov.dest = newReg;
@@ -737,7 +743,7 @@ pub fn genBytecode(
             switch (value) {
                 .RawNumber => |num| {
                     const reg = try context.genInfo.getAvailableReg();
-                    context.genInfo.reserveRegister(reg);
+                    try context.genInfo.reserveRegister(reg);
 
                     const instr = switch (num.numType) {
                         .U64 => Instr{
@@ -772,7 +778,7 @@ pub fn genBytecode(
                 },
                 .Bool => |b| {
                     const reg = try context.genInfo.getAvailableReg();
-                    context.genInfo.reserveRegister(reg);
+                    try context.genInfo.reserveRegister(reg);
 
                     const instr = Instr{
                         .SetReg8 = .{
@@ -786,7 +792,7 @@ pub fn genBytecode(
                 },
                 .Char => |ch| {
                     const reg = try context.genInfo.getAvailableReg();
-                    context.genInfo.reserveRegister(reg);
+                    try context.genInfo.reserveRegister(reg);
 
                     var instr = Instr{ .SetReg8 = .{} };
                     instr.SetReg8.reg = reg;
@@ -797,7 +803,7 @@ pub fn genBytecode(
                 },
                 .Number => |num| {
                     const reg = try context.genInfo.getAvailableReg();
-                    context.genInfo.reserveRegister(reg);
+                    try context.genInfo.reserveRegister(reg);
 
                     const instr = switch (num) {
                         .Char, .U8 => |byte| Instr{
@@ -831,6 +837,14 @@ pub fn genBytecode(
                     return reg;
                 },
                 .ArraySlice => |items| {
+                    const spReg = try context.genInfo.getAvailableReg();
+                    try context.genInfo.reserveRegister(spReg);
+                    const moveSpInstr = Instr{ .MovSp = spReg };
+                    _ = try context.genInfo.appendChunk(moveSpInstr);
+
+                    const addSp = Instr{ .AddSp8 = vmInfo.POINTER_SIZE * 2 };
+                    _ = try context.genInfo.appendChunk(addSp);
+
                     for (items) |item| {
                         try context.genInfo.pushScope();
 
@@ -839,12 +853,14 @@ pub fn genBytecode(
 
                         try context.genInfo.releaseScope();
                     }
+
+                    return spReg;
                 },
                 else => {},
             }
         },
         .OpExpr => |expr| {
-            var leftReg: u32 = undefined;
+            var leftReg: TempRegister = undefined;
 
             const leftDepth = blitzAst.getExprDepth(expr.left);
             const rightDepth = blitzAst.getExprDepth(expr.right);
@@ -860,7 +876,7 @@ pub fn genBytecode(
                     return CodeGenError.ReturnedRegisterNotFound;
             }
 
-            var outReg: ?u32 = null;
+            var outReg: ?TempRegister = null;
 
             const buf: Instr = switch (expr.type) {
                 .Add, .Sub, .Mult => a: {
@@ -1275,7 +1291,7 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
         },
         .SetReg16 => |inst| {
             try writer.writeByte(@intCast(inst.reg));
-            try writeNumber(u32, inst.data, writer);
+            try writeNumber(u16, inst.data, writer);
         },
         .SetReg8 => |inst| {
             try writer.writeByte(@intCast(inst.reg));
@@ -1330,16 +1346,19 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
             try writer.writeByte(@intCast(inst.dest));
             try writer.writeByte(@intCast(inst.src));
         },
+        .MovSp => |inst| {
+            try writer.writeByte(@intCast(inst));
+        },
         .XorConstByte => |inst| {
             try writer.writeByte(@intCast(inst.dest));
             try writer.writeByte(@intCast(inst.reg));
             try writer.writeByte(inst.byte);
         },
-        .AddSp, .SubSp => |inst| {
-            try writeNumber(u32, inst.amount, writer);
+        .AddSp8, .SubSp8 => |inst| {
+            try writer.writeByte(inst);
         },
         .AddSpReg, .SubSpReg => |inst| {
-            try writeNumber(u32, inst.amount, writer);
+            try writeNumber(TempRegister, inst.amount, writer);
         },
         .StoreOffsetByte => |inst| {
             try writer.writeByte(@intCast(inst.fromReg));

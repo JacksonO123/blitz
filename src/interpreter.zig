@@ -43,12 +43,19 @@ pub fn main() !void {
     var runtimeInfo = try RuntimeInfo.init(allocator, stackSize);
     defer runtimeInfo.deinit();
 
-    interpretBytecode(&runtimeInfo, bytecode);
-
     var buffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
     var stdout = std.fs.File.stdout().writer(&buffer);
     defer stdout.end() catch {};
     const writer = &stdout.interface;
+
+    interpretBytecode(allocator, &runtimeInfo, bytecode) catch |e| {
+        switch (e) {
+            error.OutOfMemory => {
+                try writer.writeAll("Out of memory, cannot resize stack\n");
+            },
+        }
+    };
+
     try runtimeInfo.dumpRegisters(12, writer);
 }
 
@@ -61,25 +68,35 @@ const Flags = struct {
     LTE: bool = false,
 };
 
+const RuntimePtrs = struct {
+    sp: u64,
+};
+
 const RuntimeInfo = struct {
     const Self = @This();
 
     allocator: Allocator,
     registers: [vmInfo.NUM_REGISTERS]RegisterType = [_]RegisterType{0} ** vmInfo.NUM_REGISTERS,
     flags: Flags,
-    stack: []u8,
+    stack: *std.ArrayList(u8),
+    ptrs: RuntimePtrs,
 
     pub fn init(allocator: Allocator, stackSize: u32) !Self {
-        const stack = try allocator.alloc(u8, stackSize);
+        const tempStack = try std.ArrayList(u8).initCapacity(allocator, stackSize);
+        const stack = try utils.createMut(std.ArrayList(u8), allocator, tempStack);
+
         return .{
             .allocator = allocator,
             .flags = Flags{},
             .stack = stack,
+            .ptrs = .{
+                .sp = 0,
+            },
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.allocator.free(self.stack);
+        self.stack.deinit(self.allocator);
     }
 
     pub fn dumpRegisters(self: Self, until: usize, writer: *Writer) !void {
@@ -96,7 +113,7 @@ const RuntimeInfo = struct {
     }
 };
 
-fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
+fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: []u8) !void {
     var current: usize = vmInfo.VM_INFO_BYTECODE_LEN;
     while (current < bytecode.len) {
         const inst = @as(codegen.InstructionVariants, @enumFromInt(bytecode[current]));
@@ -231,6 +248,10 @@ fn interpretBytecode(runtimeInfo: *RuntimeInfo, bytecode: []u8) void {
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
                 const byte = bytecode[current + 3];
                 runtimeInfo.registers[bytecode[current + 1]] = reg1Val ^ byte;
+            },
+            .AddSp8 => {
+                runtimeInfo.ptrs.sp += bytecode[current + 1];
+                try runtimeInfo.stack.ensureTotalCapacity(allocator, runtimeInfo.ptrs.sp);
             },
             else => {},
         }
