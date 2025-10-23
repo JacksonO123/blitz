@@ -724,13 +724,13 @@ pub const CompInfo = struct {
 
     pub fn setStructDecs(self: *Self, nodes: []*blitzAst.AstNode) !void {
         for (nodes) |node| {
-            try self.setStructDec(node.StructDec.name, node.StructDec);
+            try self.setStructDec(node.variant.StructDec.name, node.variant.StructDec);
         }
     }
 
     pub fn setErrorDecs(self: *Self, decs: []*blitzAst.AstNode) !void {
         for (decs) |dec| {
-            try self.errorDecs.put(dec.ErrorDec.name, dec.ErrorDec);
+            try self.errorDecs.put(dec.variant.ErrorDec.name, dec.variant.ErrorDec);
         }
     }
 

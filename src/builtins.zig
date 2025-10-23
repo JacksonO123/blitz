@@ -25,7 +25,7 @@ pub fn getStringPropType(context: *Context, prop: []const u8) !blitzAst.AstTypeI
     const props = &[_]PropTypeMap{
         .{
             .prop = "len",
-            .type = context.constTypeInfos.u64Type.astType,
+            .type = context.staticPtrs.types.u64Type.astType,
             .mutState = .Const,
         },
     };
@@ -37,7 +37,7 @@ pub fn getArraySlicePropType(context: *Context, prop: []const u8) !blitzAst.AstT
     const props = &[_]PropTypeMap{
         .{
             .prop = "len",
-            .type = context.constTypeInfos.u64Type.astType,
+            .type = context.staticPtrs.types.u64Type.astType,
             .mutState = .Const,
         },
     };

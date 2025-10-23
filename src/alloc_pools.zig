@@ -222,7 +222,7 @@ fn AllocPool(
             var numLeaked: u32 = 0;
             for (self.used.items) |item| {
                 if (@TypeOf(item) == *blitzAst.AstTypes and
-                    !self.context.constTypeInfos.isStatic(item))
+                    !self.context.staticPtrs.isStaticType(item))
                 {
                     numLeaked += 1;
                 }

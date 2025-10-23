@@ -183,7 +183,7 @@ pub fn recursiveReleaseNodeUtil(
 ) void {
     context.pools.nodes.release(ptr);
 
-    switch (ptr.*) {
+    switch (ptr.variant) {
         .ReturnNode,
         .Bang,
         .Group,
@@ -313,7 +313,7 @@ pub fn recursiveReleaseTypeUtil(
     astType: *blitzAst.AstTypes,
     releaseType: ReleaseType,
 ) void {
-    if (!context.constTypeInfos.isStatic(astType)) {
+    if (!context.staticPtrs.isStaticType(astType)) {
         context.pools.types.release(astType);
     }
 

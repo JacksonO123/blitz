@@ -178,12 +178,12 @@ fn cloneAstNodePtrMut(
     return try context.pools.nodes.new(clonedNode);
 }
 
-pub fn cloneAstNode(
+pub fn cloneAstNodeUnion(
     allocator: Allocator,
     context: *Context,
-    node: blitzAst.AstNode,
+    node: blitzAst.AstNodeUnion,
     withGenDef: bool,
-) !blitzAst.AstNode {
+) !blitzAst.AstNodeUnion {
     switch (node) {
         .NoOp, .StructPlaceholder, .Break, .Continue => return node,
         .IndexValue => |index| return .{
@@ -527,6 +527,19 @@ pub fn cloneAstNode(
         .StructDec => return CloneError.CannotCloneStructDec,
         .ErrorDec => return CloneError.CannotCloneErrorDec,
     }
+}
+
+pub fn cloneAstNode(
+    allocator: Allocator,
+    context: *Context,
+    node: blitzAst.AstNode,
+    withGenDef: bool,
+) !blitzAst.AstNode {
+    const clonedUnion = try cloneAstNodeUnion(allocator, context, node.variant, withGenDef);
+    return .{
+        .variant = clonedUnion,
+        .typeMemo = node.typeMemo,
+    };
 }
 
 pub fn cloneCustomGenerics(

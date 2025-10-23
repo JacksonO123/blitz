@@ -25,7 +25,7 @@ pub const Context = struct {
     scanInfo: *scanner.ScanInfo,
     genInfo: *codegen.GenInfo,
     deferCleanup: *DeferCleanup,
-    constTypeInfos: *ConstTypeInfos,
+    staticPtrs: *StaticPtrs,
     code: []const u8,
 
     pub fn init(allocator: Allocator, code: []const u8, writer: *Writer) !*Self {
@@ -61,8 +61,8 @@ pub const Context = struct {
         const deferCleanup = try DeferCleanup.init(allocator);
         const deferCleanupPtr = try utils.createMut(DeferCleanup, allocator, deferCleanup);
 
-        const constTypeInfos = try ConstTypeInfos.init(poolsPtr);
-        const constTypeInfosPtr = try utils.createMut(ConstTypeInfos, allocator, constTypeInfos);
+        const constTypeInfos = try StaticPtrs.init(poolsPtr);
+        const constTypeInfosPtr = try utils.createMut(StaticPtrs, allocator, constTypeInfos);
 
         context.* = .{
             .allocator = allocator,
@@ -74,7 +74,7 @@ pub const Context = struct {
             .scanInfo = scanInfoPtr,
             .genInfo = genInfoPtr,
             .deferCleanup = deferCleanupPtr,
-            .constTypeInfos = constTypeInfosPtr,
+            .staticPtrs = constTypeInfosPtr,
             .code = code,
         };
 
@@ -101,7 +101,7 @@ pub const Context = struct {
         self.allocator.destroy(self.scanInfo);
         self.allocator.destroy(self.genInfo);
         self.allocator.destroy(self.deferCleanup);
-        self.allocator.destroy(self.constTypeInfos);
+        self.allocator.destroy(self.staticPtrs);
     }
 
     pub fn getTokString(self: Self, tok: tokenizer.Token) []const u8 {
@@ -113,36 +113,73 @@ pub const Context = struct {
     }
 };
 
-pub const ConstTypeInfos = struct {
+pub const StaticPtrs = struct {
     const Self = @This();
 
-    voidType: blitzAst.AstTypeInfo,
-    boolType: blitzAst.AstTypeInfo,
-    anyType: blitzAst.AstTypeInfo,
-    f32Type: blitzAst.AstTypeInfo,
-    u64Type: blitzAst.AstTypeInfo,
+    types: struct {
+        voidType: blitzAst.AstTypeInfo,
+        boolType: blitzAst.AstTypeInfo,
+        anyType: blitzAst.AstTypeInfo,
+        f32Type: blitzAst.AstTypeInfo,
+        u64Type: blitzAst.AstTypeInfo,
+    },
+    nodes: struct {
+        noOp: *blitzAst.AstNode,
+        structPlaceholder: *blitzAst.AstNode,
+        breakNode: *blitzAst.AstNode,
+        continueNode: *blitzAst.AstNode,
+    },
 
     pub fn init(pools: *allocPools.Pools) !Self {
         return .{
-            .voidType = (try pools.types.new(.Void)).toTypeInfo(.Const),
-            .boolType = (try pools.types.new(.Bool)).toTypeInfo(.Mut),
-            .anyType = (try pools.types.new(.Any)).toTypeInfo(.Mut),
-            .f32Type = (try pools.types.new(.{ .Number = .F32 })).toTypeInfo(.Mut),
-            .u64Type = (try pools.types.new(.{ .Number = .U64 })).toTypeInfo(.Mut),
+            .types = .{
+                .voidType = (try pools.types.new(.Void)).toTypeInfo(.Const),
+                .boolType = (try pools.types.new(.Bool)).toTypeInfo(.Mut),
+                .anyType = (try pools.types.new(.Any)).toTypeInfo(.Mut),
+                .f32Type = (try pools.types.new(.{ .Number = .F32 })).toTypeInfo(.Mut),
+                .u64Type = (try pools.types.new(.{ .Number = .U64 })).toTypeInfo(.Mut),
+            },
+            .nodes = .{
+                .noOp = try pools.nodes.new((blitzAst.AstNodeUnion{ .NoOp = {} }).toAstNode()),
+                .structPlaceholder = try pools.nodes.new((blitzAst.AstNodeUnion{
+                    .StructPlaceholder = {},
+                }).toAstNode()),
+                .breakNode = try pools.nodes.new((blitzAst.AstNodeUnion{
+                    .Break = {},
+                }).toAstNode()),
+                .continueNode = try pools.nodes.new((blitzAst.AstNodeUnion{
+                    .Continue = {},
+                }).toAstNode()),
+            },
         };
     }
 
-    pub fn isStatic(self: Self, ptr: *blitzAst.AstTypes) bool {
+    pub fn isStaticType(self: Self, ptr: *blitzAst.AstTypes) bool {
         const staticTypes = .{
-            self.voidType,
-            self.boolType,
-            self.anyType,
-            self.f32Type,
-            self.u64Type,
+            self.types.voidType,
+            self.types.boolType,
+            self.types.anyType,
+            self.types.f32Type,
+            self.types.u64Type,
         };
 
         inline for (staticTypes) |t| {
             if (t.astType == ptr) return true;
+        }
+
+        return false;
+    }
+
+    pub fn isStaticNode(self: Self, node: *blitzAst.AstNode) bool {
+        const staticNodes = .{
+            self.nodes.noOp,
+            self.nodes.structPlaceholder,
+            self.nodes.breakNode,
+            self.nodes.continueNode,
+        };
+
+        inline for (staticNodes) |n| {
+            if (n == node) return true;
         }
 
         return false;

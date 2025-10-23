@@ -719,7 +719,7 @@ pub fn genBytecode(
     context: *Context,
     node: *const blitzAst.AstNode,
 ) GenBytecodeError!?TempRegister {
-    switch (node.*) {
+    switch (node.variant) {
         .StructPlaceholder => {},
         .NoOp => {},
         .Seq => |seq| {
@@ -1012,7 +1012,7 @@ pub fn genBytecode(
             var jumpEndInstr = Instr{ .JumpNE = .{} };
 
             if (condInfo.isCompExpr) {
-                const oppositeComp = loop.condition.OpExpr.type.getOppositeCompOp();
+                const oppositeComp = loop.condition.variant.OpExpr.type.getOppositeCompOp();
                 const jumpInstruction = try compOpToJump(oppositeComp, false);
                 jumpEndInstr = jumpInstruction;
             } else {
@@ -1053,7 +1053,7 @@ pub fn genBytecode(
             var jumpEndInstr = Instr{ .JumpNE = .{} };
 
             if (condInfo.isCompExpr) {
-                const oppositeComp = loop.condition.OpExpr.type.getOppositeCompOp();
+                const oppositeComp = loop.condition.variant.OpExpr.type.getOppositeCompOp();
                 const jumpInstruction = try compOpToJump(oppositeComp, false);
                 jumpEndInstr = jumpInstruction;
             } else {
@@ -1156,8 +1156,8 @@ pub fn genBytecode(
 
 fn prepForLoopCondition(context: *Context, condition: *blitzAst.AstNode) LoopCondInfo {
     const prevCmpAsReg = context.genInfo.settings.outputCmpAsRegister;
-    const isCompExprType = if (condition.* == .OpExpr)
-        switch (condition.OpExpr.type) {
+    const isCompExprType = if (condition.variant == .OpExpr)
+        switch (condition.variant.OpExpr.type) {
             .LessThan,
             .GreaterThan,
             .LessThanEq,
@@ -1241,7 +1241,7 @@ fn generateFallback(
 ) !void {
     var jumpChunk: ?*InstrChunk = null;
 
-    const statement = fallback.node.IfStatement;
+    const statement = fallback.node.variant.IfStatement;
 
     if (fallback.hasCondition) {
         const condReg = try genBytecode(allocator, context, statement.condition) orelse

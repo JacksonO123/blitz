@@ -231,7 +231,7 @@ fn printAstNumber(num: blitzAst.AstNumber, writer: *Writer) !void {
 }
 
 pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) anyerror!void {
-    switch (node.*) {
+    switch (node.variant) {
         .IndexValue => |index| {
             try writer.writeAll("indexing ");
             try printNode(context, index.value, writer);
@@ -661,7 +661,7 @@ pub fn printRegisteredError(err: *const blitzAst.ErrorDecNode, writer: *Writer) 
 pub fn printRegisteredErrors(errors: []*blitzAst.AstNode, writer: *Writer) !void {
     try writer.writeAll("--- errors ---\n");
     for (errors) |err| {
-        try printRegisteredError(err.ErrorDec, writer);
+        try printRegisteredError(err.variant.ErrorDec, writer);
         try writer.writeAll(" ]\n");
     }
 }
@@ -673,7 +673,7 @@ pub fn printRegisteredStructs(
 ) !void {
     try writer.writeAll("--- structs ---\n");
     for (structs, 0..) |node, index| {
-        const dec = node.StructDec;
+        const dec = node.variant.StructDec;
 
         try writer.writeAll("declaring ");
         try writer.writeAll(dec.name);
