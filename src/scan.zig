@@ -246,6 +246,7 @@ pub fn scanNode(
                         arr,
                         withGenDef,
                     );
+                    node.typeSize = inferredType.info.astType.getSize();
                     const valueVariant: blitzAst.AstNodeUnion = .{
                         .Value = .{
                             .Number = .{ .U64 = arr.len },
@@ -263,6 +264,7 @@ pub fn scanNode(
             };
 
             const valueType = try context.pools.types.new(valueRes);
+            node.typeSize = valueType.getSize();
             return valueType.toAllocInfo(.Mut, .Allocated);
         },
         .IndexValue => |indexInfo| {

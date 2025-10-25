@@ -813,6 +813,14 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(inst.reg2, 10, .lower, .{});
         },
+        .Add8, .Sub8 => |inst| {
+            try writer.writeAll(" r");
+            try writer.printInt(inst.dest, 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(inst.reg, 10, .lower, .{});
+            try writer.writeAll(" ");
+            try writeHexDecNumber(u8, inst.data, writer);
+        },
         .Jump,
         .JumpEQ,
         .JumpNE,
@@ -867,13 +875,33 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(inst.amount, 10, .lower, .{});
         },
-        .StoreOffsetByte => |inst| {
+        .Store64Offset8 => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.fromReg, 10, .lower, .{});
             try writer.writeAll(" r");
             try writer.printInt(inst.fromReg, 10, .lower, .{});
             try writer.writeAll(" ");
             try writeHexDecNumber(u8, inst.offset, writer);
+        },
+        .Store64PostIncReg8 => |inst| {
+            try writer.writeAll(" r");
+            try writer.printInt(inst.fromReg, 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(inst.toRegPtr, 10, .lower, .{});
+            try writer.writeAll(" ");
+            try writeHexDecNumber(u8, inst.inc, writer);
+        },
+        .Store64PostIncSp8 => |inst| {
+            try writer.writeAll(" r");
+            try writer.printInt(inst.reg, 10, .lower, .{});
+            try writer.writeAll(" ");
+            try writeHexDecNumber(u8, inst.inc, writer);
+        },
+        .StoreAtSpPostInc8 => |inst| {
+            try writer.writeAll(" r");
+            try writer.printInt(inst.reg, 10, .lower, .{});
+            try writer.writeAll(" ");
+            try writeHexDecNumber(u8, inst.inc, writer);
         },
     }
 

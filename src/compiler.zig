@@ -91,16 +91,16 @@ pub fn main() !void {
     try context.pools.writeStats(writer);
     try writer.writeAll("\n");
 
-    // try codegen.codegenAst(allocator, context, ast);
-    // try writer.writeAll("--- bytecode out ---\n");
-    // try debug.printBytecodeChunks(context, writer);
-    // try writer.writeAll("\n------------\n");
+    try codegen.codegenAst(allocator, context, ast);
+    try writer.writeAll("--- bytecode out ---\n");
+    try debug.printBytecodeChunks(context, writer);
+    try writer.writeAll("\n------------\n");
 
-    // const outFile = try std.fs.cwd().createFile("out.bzc", .{});
-    // defer outFile.close();
-    // var fileBuffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
-    // var fileBufferedWriter = outFile.writer(&fileBuffer);
-    // defer fileBufferedWriter.end() catch {};
-    // const fileWriter = &fileBufferedWriter.interface;
-    // try context.genInfo.writeChunks(fileWriter);
+    const outFile = try std.fs.cwd().createFile("out.bzc", .{});
+    defer outFile.close();
+    var fileBuffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
+    var fileBufferedWriter = outFile.writer(&fileBuffer);
+    defer fileBufferedWriter.end() catch {};
+    const fileWriter = &fileBufferedWriter.interface;
+    try context.genInfo.writeChunks(fileWriter);
 }

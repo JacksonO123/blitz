@@ -243,6 +243,20 @@ pub const AstTypes = union(Types) {
             .allocState = allocState,
         };
     }
+
+    pub fn getSize(self: Self) u64 {
+        return switch (self) {
+            .String, .Null, .RawNumber => utils.unimplemented(),
+            .Bool, .Char, .ErrorVariant => 1,
+            .Void, .Any, .Generic, .Function, .Error => 0,
+            .Number => |num| return num.getSize(),
+            .ArraySlice => 16,
+            .Pointer, .StaticStructInstance => 8,
+            .Nullable => |inner| return 1 + inner.astType.getSize(),
+            .Custom => unreachable,
+            .VarInfo => |inner| return inner.info.astType.getSize(),
+        };
+    }
 };
 
 pub const AstTypeInfo = struct {
@@ -601,7 +615,7 @@ pub const AstNodeUnion = union(AstNodeVariants) {
 
 pub const AstNode = struct {
     variant: AstNodeUnion,
-    typeMemo: ?*AstTypes = null,
+    typeSize: u64 = 0,
 };
 
 pub const AstError = error{

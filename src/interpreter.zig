@@ -56,7 +56,7 @@ pub fn main() !void {
         }
     };
 
-    try runtimeInfo.dumpRegisters(12, writer);
+    try runtimeInfo.writeMemDebug(12, 32, writer);
 }
 
 const Flags = struct {
@@ -84,6 +84,7 @@ const RuntimeInfo = struct {
     pub fn init(allocator: Allocator, stackSize: u32) !Self {
         const tempStack = try std.ArrayList(u8).initCapacity(allocator, stackSize);
         const stack = try utils.createMut(std.ArrayList(u8), allocator, tempStack);
+        stack.items.len = stackSize;
 
         return .{
             .allocator = allocator,
@@ -97,16 +98,28 @@ const RuntimeInfo = struct {
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit(self.allocator);
+        self.allocator.destroy(self.stack);
     }
 
-    pub fn dumpRegisters(self: Self, until: usize, writer: *Writer) !void {
-        try writer.writeAll("##STACK_START##\n");
+    pub fn writeMemDebug(self: Self, untilReg: usize, untilStack: usize, writer: *Writer) !void {
+        try writer.writeAll("##REG_START##\n");
         var i: usize = 0;
         while (i < vmInfo.NUM_REGISTERS) : (i += 1) {
-            if (i == until) break;
+            if (i == untilReg) break;
             try writer.printInt(i, 10, .lower, .{});
             try writer.writeAll(") ");
             try writer.printInt(self.registers[i], 10, .lower, .{});
+            try writer.writeAll("\n");
+        }
+        try writer.writeAll("##REG_END##\n");
+
+        try writer.writeAll("##STACK_START##\n");
+        i = 0;
+        while (i < untilStack) : (i += 1) {
+            if (i == untilStack) break;
+            try writer.printInt(i, 10, .lower, .{});
+            try writer.writeAll(") ");
+            try writer.printInt(self.stack.items[i], 10, .lower, .{});
             try writer.writeAll("\n");
         }
         try writer.writeAll("##STACK_END##\n");
@@ -142,10 +155,18 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
                 runtimeInfo.registers[bytecode[current + 1]] = reg1Val + reg2Val;
             },
+            .Add8 => {
+                const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
+                runtimeInfo.registers[bytecode[current + 1]] = reg1Val + bytecode[current + 3];
+            },
             .Sub => {
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
                 const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
                 runtimeInfo.registers[bytecode[current + 1]] = reg1Val - reg2Val;
+            },
+            .Sub8 => {
+                const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
+                runtimeInfo.registers[bytecode[current + 1]] = reg1Val - bytecode[current + 3];
             },
             .Mult => {
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
@@ -253,7 +274,48 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 runtimeInfo.ptrs.sp += bytecode[current + 1];
                 try runtimeInfo.stack.ensureTotalCapacity(allocator, runtimeInfo.ptrs.sp);
             },
-            else => {},
+            .SubSp8 => {
+                runtimeInfo.ptrs.sp -= bytecode[current + 1];
+            },
+            .AddSpReg => {
+                const value = runtimeInfo.registers[bytecode[current + 1]];
+                runtimeInfo.ptrs.sp += value;
+            },
+            .SubSpReg => {
+                const value = runtimeInfo.registers[bytecode[current + 1]];
+                runtimeInfo.ptrs.sp -= value;
+            },
+            .MovSp => {
+                runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.ptrs.sp;
+            },
+            .Store64Offset8 => {
+                const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[current + 1]]);
+                const dest = runtimeInfo.registers[bytecode[current + 2]];
+                const offset = bytecode[current + 3];
+                @memcpy(runtimeInfo.stack.items[dest + offset .. dest + offset + 8], &byteData);
+            },
+            .Store64PostIncReg8 => {
+                const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[current + 1]]);
+                const ptrReg = bytecode[current + 2];
+                const dest = runtimeInfo.registers[ptrReg];
+                const inc = bytecode[current + 3];
+                @memcpy(runtimeInfo.stack.items[dest .. dest + 8], &byteData);
+                runtimeInfo.registers[ptrReg] += inc;
+            },
+            .Store64PostIncSp8 => {
+                const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[current + 1]]);
+                const dest = runtimeInfo.ptrs.sp;
+                const inc = bytecode[current + 2];
+                @memcpy(runtimeInfo.stack.items[dest .. dest + 8], &byteData);
+                runtimeInfo.ptrs.sp += inc;
+            },
+            .StoreAtSpPostInc8 => {
+                const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[current + 1]]);
+                const dest = runtimeInfo.ptrs.sp;
+                const inc = bytecode[current + 2];
+                @memcpy(runtimeInfo.stack.items[dest .. dest + 8], &byteData);
+                runtimeInfo.ptrs.sp += inc;
+            },
         }
 
         current += instLen;

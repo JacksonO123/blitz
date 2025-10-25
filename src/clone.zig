@@ -538,7 +538,7 @@ pub fn cloneAstNode(
     const clonedUnion = try cloneAstNodeUnion(allocator, context, node.variant, withGenDef);
     return .{
         .variant = clonedUnion,
-        .typeMemo = node.typeMemo,
+        .typeSize = node.typeSize,
     };
 }
 

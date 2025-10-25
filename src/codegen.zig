@@ -38,7 +38,9 @@ pub const InstructionVariants = enum(u8) {
     SetReg16, // inst, reg, 2B data
     SetReg8, // inst, reg, 1B data
     Add, // inst, out reg, reg1, reg2
+    Add8, // inst, out reg, reg1, 1B data
     Sub, // inst, out reg, reg1, reg2
+    Sub8, // inst, out reg, reg1, 1B data
     Mult, // inst, out reg, reg1, reg2
     Jump, // inst, 2B data
     JumpEQ, // inst, 2B data
@@ -72,7 +74,10 @@ pub const InstructionVariants = enum(u8) {
     SubSp8, // inst, 4B data
     AddSpReg, // inst, reg
     SubSpReg, // inst, reg
-    StoreOffsetByte, // inst, reg, to reg (ptr), offset 1B
+    Store64Offset8, // inst, reg, to reg (ptr), offset 1B
+    Store64PostIncReg8, // inst, reg, to reg (ptr), inc 1B
+    Store64PostIncSp8, // inst, reg, inc 1B
+    StoreAtSpPostInc8, // inst, to reg (ptr), inc 1B
 
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
@@ -84,7 +89,7 @@ pub const InstructionVariants = enum(u8) {
             .SetReg32 => 6,
             .SetReg16 => 4,
             .SetReg8 => 3,
-            .Add, .Sub, .Mult => 4,
+            .Add, .Sub, .Mult, .Add8, .Sub8 => 4,
             .Jump,
             .JumpEQ,
             .JumpNE,
@@ -115,7 +120,9 @@ pub const InstructionVariants = enum(u8) {
             .Xor, .XorConstByte => 4,
             .AddSp8, .SubSp8 => 2,
             .AddSpReg, .SubSpReg => 2,
-            .StoreOffsetByte => 4,
+            .Store64Offset8, .Store64PostIncReg8 => 4,
+            .Store64PostIncSp8 => 3,
+            .StoreAtSpPostInc8 => 3,
         };
     }
 
@@ -128,6 +135,8 @@ pub const InstructionVariants = enum(u8) {
             .Add => "add",
             .Sub => "sub",
             .Mult => "mult",
+            .Add8 => "add_8",
+            .Sub8 => "sub_8",
             .CmpConstByte => "cmp_const_byte",
             .Jump => "jump",
             .JumpEQ => "jump_eq",
@@ -160,7 +169,10 @@ pub const InstructionVariants = enum(u8) {
             .SubSp8 => "sub_sp_8",
             .AddSpReg => "add_sp_reg",
             .SubSpReg => "sub_sp_reg",
-            .StoreOffsetByte => "store_offset_byte",
+            .Store64Offset8 => "store_64_offset_8",
+            .Store64PostIncReg8 => "store_64_post_inc_reg_8",
+            .Store64PostIncSp8 => "store_64_post_inc_sp_8",
+            .StoreAtSpPostInc8 => "store_sp_post_inc_8",
         };
     }
 };
@@ -170,6 +182,14 @@ const TwoOpResultInstr = struct {
     reg1: TempRegister = 0,
     reg2: TempRegister = 0,
 };
+
+fn OneOpResultInstr(comptime T: type) type {
+    return struct {
+        dest: TempRegister = 0,
+        reg: TempRegister = 0,
+        data: T,
+    };
+}
 
 const RegBytePayloadInstr = struct {
     reg: TempRegister = 0,
@@ -204,6 +224,29 @@ const CmpInstr = struct {
 
 const CmpSetRegInstr = TwoOpResultInstr;
 
+fn StoreOffsetInstr(comptime T: type) type {
+    return struct {
+        fromReg: TempRegister = 0,
+        toRegPtr: TempRegister = 0,
+        offset: T = 0,
+    };
+}
+
+fn StoreIncInstr(comptime T: type) type {
+    return struct {
+        fromReg: TempRegister = 0,
+        toRegPtr: TempRegister = 0,
+        inc: T = 0,
+    };
+}
+
+fn StoreIncSpInstr(comptime T: type) type {
+    return struct {
+        reg: TempRegister = 0,
+        inc: T = 0,
+    };
+}
+
 pub const Instr = union(InstructionVariants) {
     const Self = @This();
 
@@ -212,7 +255,9 @@ pub const Instr = union(InstructionVariants) {
     SetReg16: SetRegInstr(u16),
     SetReg8: SetRegInstr(u8),
     Add: MathInstr,
+    Add8: OneOpResultInstr(u8),
     Sub: MathInstr,
+    Sub8: OneOpResultInstr(u8),
     Mult: MathInstr,
     Jump: JumpInstr,
     JumpEQ: JumpInstr,
@@ -253,11 +298,10 @@ pub const Instr = union(InstructionVariants) {
     SubSp8: u8,
     AddSpReg: SpRegInstr,
     SubSpReg: SpRegInstr,
-    StoreOffsetByte: struct {
-        fromReg: TempRegister = 0,
-        toReg: TempRegister = 0,
-        offset: u8 = 0,
-    },
+    Store64Offset8: StoreOffsetInstr(u8),
+    Store64PostIncReg8: StoreIncInstr(u8),
+    Store64PostIncSp8: StoreIncSpInstr(u8),
+    StoreAtSpPostInc8: StoreIncSpInstr(u8),
 
     pub fn getInstrLen(self: Self) u8 {
         const active = std.meta.activeTag(self);
@@ -844,16 +888,56 @@ pub fn genBytecode(
                     const moveSpInstr = Instr{ .MovSp = spReg };
                     _ = try context.genInfo.appendChunk(moveSpInstr);
 
-                    const addSp = Instr{ .AddSp8 = vmInfo.POINTER_SIZE * 2 };
-                    _ = try context.genInfo.appendChunk(addSp);
+                    const addReg = Instr{
+                        .Add8 = .{
+                            .dest = spReg,
+                            .reg = spReg,
+                            .data = vmInfo.POINTER_SIZE * 2,
+                        },
+                    };
+                    _ = try context.genInfo.appendChunk(addReg);
+
+                    const writeSp = Instr{
+                        .StoreAtSpPostInc8 = .{
+                            .reg = spReg,
+                            .inc = vmInfo.POINTER_SIZE,
+                        },
+                    };
+                    _ = try context.genInfo.appendChunk(writeSp);
+
+                    const setLen = Instr{
+                        .SetReg64 = .{
+                            .reg = spReg,
+                            .data = items.len,
+                        },
+                    };
+                    _ = try context.genInfo.appendChunk(setLen);
+
+                    const writeLen = Instr{
+                        .Store64PostIncSp8 = .{
+                            .reg = spReg,
+                            .inc = vmInfo.POINTER_SIZE,
+                        },
+                    };
+                    _ = try context.genInfo.appendChunk(writeLen);
+
+                    const offset: u8 = @intCast(node.typeSize);
 
                     for (items) |item| {
                         try context.genInfo.pushScope();
 
-                        const reg = try genBytecode(allocator, context, item);
-                        _ = reg;
+                        const reg = try genBytecode(allocator, context, item) orelse
+                            return CodeGenError.ReturnedRegisterNotFound;
 
                         try context.genInfo.releaseScope();
+
+                        const store8 = Instr{
+                            .Store64PostIncSp8 = .{
+                                .reg = reg,
+                                .inc = offset,
+                            },
+                        };
+                        _ = try context.genInfo.appendChunk(store8);
                     }
 
                     return spReg;
@@ -1314,6 +1398,11 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
             try writer.writeByte(@intCast(inst.reg1));
             try writer.writeByte(@intCast(inst.reg2));
         },
+        .Add8, .Sub8 => |inst| {
+            try writer.writeByte(@intCast(inst.dest));
+            try writer.writeByte(@intCast(inst.reg));
+            try writer.writeByte(@intCast(inst.data));
+        },
         .Jump,
         .JumpEQ,
         .JumpNE,
@@ -1362,10 +1451,23 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
         .AddSpReg, .SubSpReg => |inst| {
             try writeNumber(TempRegister, inst.amount, writer);
         },
-        .StoreOffsetByte => |inst| {
+        .Store64Offset8 => |inst| {
             try writer.writeByte(@intCast(inst.fromReg));
-            try writer.writeByte(@intCast(inst.toReg));
+            try writer.writeByte(@intCast(inst.toRegPtr));
             try writer.writeByte(inst.offset);
+        },
+        .Store64PostIncReg8 => |inst| {
+            try writer.writeByte(@intCast(inst.fromReg));
+            try writer.writeByte(@intCast(inst.toRegPtr));
+            try writer.writeByte(inst.inc);
+        },
+        .Store64PostIncSp8 => |inst| {
+            try writer.writeByte(@intCast(inst.reg));
+            try writer.writeByte(inst.inc);
+        },
+        .StoreAtSpPostInc8 => |inst| {
+            try writer.writeByte(@intCast(inst.reg));
+            try writer.writeByte(inst.inc);
         },
     }
 }
