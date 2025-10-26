@@ -144,7 +144,7 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 runtimeInfo.registers[bytecode[current + 1]] = value;
             },
             .SetReg16 => {
-                const value = std.mem.readInt(u16, @ptrCast(bytecode[current + 2 .. current + 6]), .little);
+                const value = std.mem.readInt(u16, @ptrCast(bytecode[current + 2 .. current + 4]), .little);
                 runtimeInfo.registers[bytecode[current + 1]] = value;
             },
             .SetReg8 => {
@@ -272,7 +272,11 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
             },
             .AddSp8 => {
                 runtimeInfo.ptrs.sp += bytecode[current + 1];
-                try runtimeInfo.stack.ensureTotalCapacity(allocator, runtimeInfo.ptrs.sp);
+                try ensureStackCapacityAndLength(
+                    allocator,
+                    runtimeInfo.stack,
+                    runtimeInfo.ptrs.sp,
+                );
             },
             .SubSp8 => {
                 runtimeInfo.ptrs.sp -= bytecode[current + 1];
@@ -280,6 +284,11 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
             .AddSpReg => {
                 const value = runtimeInfo.registers[bytecode[current + 1]];
                 runtimeInfo.ptrs.sp += value;
+                try ensureStackCapacityAndLength(
+                    allocator,
+                    runtimeInfo.stack,
+                    runtimeInfo.ptrs.sp,
+                );
             },
             .SubSpReg => {
                 const value = runtimeInfo.registers[bytecode[current + 1]];
@@ -292,28 +301,72 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[current + 1]]);
                 const dest = runtimeInfo.registers[bytecode[current + 2]];
                 const offset = bytecode[current + 3];
-                @memcpy(runtimeInfo.stack.items[dest + offset .. dest + offset + 8], &byteData);
+                const end = dest + offset + 8;
+                try ensureStackCapacityAndLength(
+                    allocator,
+                    runtimeInfo.stack,
+                    end,
+                );
+                @memcpy(runtimeInfo.stack.items[dest + offset .. end], &byteData);
             },
-            .Store64PostIncReg8 => {
+            .Store64AtRegPostInc8 => {
                 const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[current + 1]]);
                 const ptrReg = bytecode[current + 2];
                 const dest = runtimeInfo.registers[ptrReg];
                 const inc = bytecode[current + 3];
-                @memcpy(runtimeInfo.stack.items[dest .. dest + 8], &byteData);
+                const end = dest + 8;
+                try ensureStackCapacityAndLength(
+                    allocator,
+                    runtimeInfo.stack,
+                    end,
+                );
+                @memcpy(runtimeInfo.stack.items[dest..end], &byteData);
                 runtimeInfo.registers[ptrReg] += inc;
             },
-            .Store64PostIncSp8 => {
+            .Store64AtRegPostInc64 => {
+                const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[current + 1]]);
+                const ptrReg = bytecode[current + 2];
+                const dest = runtimeInfo.registers[ptrReg];
+                const inc = std.mem.readInt(
+                    u64,
+                    @ptrCast(bytecode[current + 3 .. current + 11]),
+                    .little,
+                );
+                const end = dest + 8;
+                try ensureStackCapacityAndLength(
+                    allocator,
+                    runtimeInfo.stack,
+                    end,
+                );
+                @memcpy(runtimeInfo.stack.items[dest..end], &byteData);
+                runtimeInfo.registers[ptrReg] += inc;
+            },
+            .Store64AtSpPostInc8 => {
                 const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[current + 1]]);
                 const dest = runtimeInfo.ptrs.sp;
                 const inc = bytecode[current + 2];
-                @memcpy(runtimeInfo.stack.items[dest .. dest + 8], &byteData);
+                const end = dest + 8;
+                const maxSize = @max(runtimeInfo.ptrs.sp + inc, end);
+                try ensureStackCapacityAndLength(
+                    allocator,
+                    runtimeInfo.stack,
+                    maxSize,
+                );
+                @memcpy(runtimeInfo.stack.items[dest..end], &byteData);
                 runtimeInfo.ptrs.sp += inc;
             },
             .StoreAtSpPostInc8 => {
                 const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[current + 1]]);
                 const dest = runtimeInfo.ptrs.sp;
                 const inc = bytecode[current + 2];
-                @memcpy(runtimeInfo.stack.items[dest .. dest + 8], &byteData);
+                const end = dest + 8;
+                const maxSize = @max(runtimeInfo.ptrs.sp + inc, end);
+                try ensureStackCapacityAndLength(
+                    allocator,
+                    runtimeInfo.stack,
+                    maxSize,
+                );
+                @memcpy(runtimeInfo.stack.items[dest..end], &byteData);
                 runtimeInfo.ptrs.sp += inc;
             },
         }
@@ -362,4 +415,13 @@ inline fn compareOrder(value1: u64, value2: u64) Flags {
             .LTE = false,
         },
     };
+}
+
+fn ensureStackCapacityAndLength(
+    allocator: Allocator,
+    stack: *std.ArrayList(u8),
+    minCapacity: u64,
+) !void {
+    try stack.ensureTotalCapacity(allocator, minCapacity);
+    stack.items.len = stack.capacity;
 }

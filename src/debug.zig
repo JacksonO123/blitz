@@ -743,7 +743,9 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
             next = nextChunk.next;
         }
 
-        try writer.print("total bytes: {d}\n", .{context.genInfo.byteCounter});
+        try writer.print("total bytes: {d} (+ {d} vm info)\n", .{
+            context.genInfo.byteCounter, vmInfo.VM_INFO_BYTECODE_LEN,
+        });
     }
 }
 
@@ -873,7 +875,7 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
         .SubSpReg,
         => |inst| {
             try writer.writeAll(" r");
-            try writer.printInt(inst.amount, 10, .lower, .{});
+            try writer.printInt(inst.reg, 10, .lower, .{});
         },
         .Store64Offset8 => |inst| {
             try writer.writeAll(" r");
@@ -883,7 +885,7 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeAll(" ");
             try writeHexDecNumber(u8, inst.offset, writer);
         },
-        .Store64PostIncReg8 => |inst| {
+        .Store64AtRegPostInc8 => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.fromReg, 10, .lower, .{});
             try writer.writeAll(" r");
@@ -891,7 +893,15 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeAll(" ");
             try writeHexDecNumber(u8, inst.inc, writer);
         },
-        .Store64PostIncSp8 => |inst| {
+        .Store64AtRegPostInc64 => |inst| {
+            try writer.writeAll(" r");
+            try writer.printInt(inst.fromReg, 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(inst.toRegPtr, 10, .lower, .{});
+            try writer.writeAll(" ");
+            try writeHexDecNumber(u64, inst.inc, writer);
+        },
+        .Store64AtSpPostInc8 => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
             try writer.writeAll(" ");
@@ -913,7 +923,7 @@ fn printInstName(inst: u8, writer: *Writer) !void {
     try writer.writeAll(name);
 }
 
-fn writeHexDecNumber(comptime T: type, num: T, writer: *Writer) !void {
+pub fn writeHexDecNumber(comptime T: type, num: T, writer: *Writer) !void {
     try writer.writeAll("0x");
     try writer.printInt(num, 16, .lower, .{
         .width = @sizeOf(T) * 2,

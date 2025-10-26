@@ -1,2 +1,2 @@
-let a = [1, 2, 3, 4];
-//let dataArr = [350u64]u32 with 1;
+//let a = [1, 2, 3, 4];
+let dataArr = [350u64]u32 with 1;
