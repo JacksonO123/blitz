@@ -56,9 +56,9 @@ pub const Pools = struct {
         self.allocator.destroy(self.types);
     }
 
-    pub fn writeStats(self: Self, writer: *Writer) !void {
-        try self.nodes.writeStats(writer);
-        try self.types.writeStats(writer);
+    pub fn writeStats(self: Self, verbose: bool, writer: *Writer) !void {
+        try self.nodes.writeStats(verbose, writer);
+        try self.types.writeStats(verbose, writer);
     }
 };
 
@@ -203,22 +203,25 @@ fn AllocPool(
             self.numChunks += 1;
         }
 
-        pub fn writeStats(self: Self, writer: *Writer) !void {
+        pub fn writeStats(self: Self, verbose: bool, writer: *Writer) !void {
             const availableItems = self.available.items.len;
             const totalItems = self.numChunks * size;
             const floatAvailable: f32 = @floatFromInt(totalItems - availableItems);
             const percentFree: f32 = (floatAvailable / @as(f32, @floatFromInt(totalItems))) * 100;
 
-            try writer.writeAll(name);
-            try writer.writeAll(" stats:\n(");
-            try writer.printInt(self.numChunks, 10, .lower, .{});
-            try writer.writeAll(" chunks) ");
-            try writer.printInt(totalItems - availableItems, 10, .lower, .{});
-            try writer.writeAll("/");
-            try writer.printInt(totalItems, 10, .lower, .{});
-            try writer.writeAll(" : ");
-            try writer.printFloat(percentFree, .{});
-            try writer.writeAll("%\nused items:\n");
+            if (verbose) {
+                try writer.writeAll(name);
+                try writer.writeAll(" stats:\n(");
+                try writer.printInt(self.numChunks, 10, .lower, .{});
+                try writer.writeAll(" chunks) ");
+                try writer.printInt(totalItems - availableItems, 10, .lower, .{});
+                try writer.writeAll("/");
+                try writer.printInt(totalItems, 10, .lower, .{});
+                try writer.writeAll(" : ");
+                try writer.printFloat(percentFree, .{});
+                try writer.writeAll("%\nused items:\n");
+            }
+
             var numLeaked: u32 = 0;
             for (self.used.items) |item| {
                 if (@TypeOf(item) == *blitzAst.AstTypes and
@@ -227,9 +230,12 @@ fn AllocPool(
                     numLeaked += 1;
                 }
 
-                try writer.writeAll("|-- ");
-                try printFn(self.context, item, writer);
-                try writer.writeAll("\n");
+                if (verbose) {
+                    try writer.writeAll("|-- ");
+                    try printFn(self.context, item, writer);
+                    try writer.print(" {d}", .{@intFromPtr(item)});
+                    try writer.writeAll("\n");
+                }
             }
 
             try writer.writeAll("LEAKED: ");

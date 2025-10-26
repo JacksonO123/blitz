@@ -159,6 +159,9 @@ pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, context: *Context) !voi
         return ScanError.ScanStartedInLowerScope;
     }
 
+    try context.compInfo.pushScope(false);
+    defer context.compInfo.popScope();
+
     try scanNodeForFunctions(allocator, context, ast.root);
     const res = try scanNode(allocator, context, ast.root, true);
     defer releaseIfAllocated(context, res);

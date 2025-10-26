@@ -37,7 +37,7 @@ let m4 = m2;
 // tightening the restriction is fine, loostening it is not
 
 // strings
-let str = "some string";
+//let str = "some string";
 
 // booleans
 let mut boolValue = false;
@@ -75,8 +75,8 @@ struct Data { size: u32; }
 let dataArr = [350u64]Data with Data { size = 10 };
 
 // nullable
-let mut numOrNull: ?u32 = null;
-numOrNull = 4;
+//let mut numOrNull: ?u32 = null;
+//numOrNull = 4;
 
 // pointers
 let val1 = 2;
