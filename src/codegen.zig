@@ -76,7 +76,7 @@ pub const InstructionVariants = enum(u8) {
     SubSpReg, // inst, reg
     Store64Offset8, // inst, reg, to reg (ptr), offset 1B
     Store64AtRegPostInc8, // inst, reg, to reg (ptr), inc 1B
-    Store64AtRegPostInc64, // inst, reg, to reg (ptr), inc 1B
+    Store64AtRegPostInc64, // inst, reg, to reg (ptr), inc 8B
     Store64AtSpPostInc8, // inst, reg, inc 1B
     StoreAtSpPostInc8, // inst, to reg (ptr), inc 1B
 
@@ -896,8 +896,6 @@ pub fn genBytecode(
                 .ArraySlice => |items| {
                     const sliceInfo = try initSliceBytecode(context, items.len);
 
-                    const offset: u8 = @intCast(node.typeSize);
-
                     for (items) |item| {
                         try context.genInfo.pushScope();
 
@@ -907,10 +905,10 @@ pub fn genBytecode(
                         try context.genInfo.releaseScope();
 
                         const store8 = Instr{
-                            .Store64AtRegPostInc8 = .{
+                            .Store64AtRegPostInc64 = .{
                                 .fromReg = reg,
                                 .toRegPtr = sliceInfo.spReg,
-                                .inc = offset,
+                                .inc = node.typeSize,
                             },
                         };
                         _ = try context.genInfo.appendChunk(store8);
