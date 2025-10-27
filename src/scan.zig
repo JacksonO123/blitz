@@ -96,6 +96,7 @@ pub const ScanError = error{
     PointerTypeConstMismatch,
     StrictMutTypeMismatch,
     InvalidSetValueTarget,
+    UndefVariableRequiresAnnotation,
 
     // functions
     ExpectedFunctionReturn,
@@ -188,8 +189,10 @@ pub fn scanNode(
     withGenDef: bool,
 ) ScanNodeError!TypeAndAllocInfo {
     switch (node.variant) {
-        .NoOp, .ErrorDec => return context.staticPtrs.types.voidType.toAllocInfo(.Recycled),
-
+        .NoOp, .ErrorDec => {
+            return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
+        },
+        .UndefValue => return context.staticPtrs.types.undefType.toAllocInfo(.Recycled),
         .StaticStructInstance => |inst| {
             if (!context.scanInfo.allowStaticStructInstance) {
                 return ScanError.StaticStructInstanceCannotBeUsedAsVariable;
@@ -249,7 +252,7 @@ pub fn scanNode(
                         arr,
                         withGenDef,
                     );
-                    node.typeSize = inferredType.info.astType.getSize();
+                    node.typeInfo = inferredType.info.astType.getNodeTypeInfo();
                     const valueVariant: blitzAst.AstNodeUnion = .{
                         .Value = .{
                             .Number = .{ .U64 = arr.len },
@@ -267,7 +270,7 @@ pub fn scanNode(
             };
 
             const valueType = try context.pools.types.new(valueRes);
-            node.typeSize = valueType.getSize();
+            node.typeInfo = valueType.getNodeTypeInfo();
             return valueType.toAllocInfo(.Mut, .Allocated);
         },
         .IndexValue => |indexInfo| {
@@ -641,7 +644,11 @@ pub fn scanNode(
             const origSetType = try scanNode(allocator, context, dec.setNode, withGenDef);
             var setType = try escapeVarInfoAndRelease(context, origSetType);
 
-            if (setType.info.astType.* == .Void) {
+            if (dec.setNode.variant == .UndefValue) {
+                if (dec.annotation == null) {
+                    return ScanError.UndefVariableRequiresAnnotation;
+                }
+            } else if (setType.info.astType.* == .Void) {
                 return ScanError.VoidVariableDec;
             }
 
@@ -759,6 +766,7 @@ pub fn scanNode(
             const varInfo = try context.compInfo.getVariableType(name, withGenDef);
 
             if (varInfo) |info| {
+                std.debug.print("@@ here ({s}) :: {}\n", .{ name, info.info.astType.VarInfo.info.astType.* });
                 const res = try clone.replaceGenericsOnTypeInfo(
                     allocator,
                     context,
@@ -1236,11 +1244,12 @@ pub fn scanNode(
             }
 
             if (init.ptrIdent) |ident| {
-                var info = context.staticPtrs.types.u64Type;
-                info.mutState = .Const;
+                const initType = init.initType.toAllocInfo(.Recycled);
+                const typePtr = try context.pools.types.new(.{ .Pointer = initType });
+                const info = typePtr.toAllocInfo(.Const, .Allocated);
                 try context.compInfo.setVariableType(
                     ident,
-                    info.toAllocInfo(.Recycled),
+                    info,
                     .Const,
                 );
             }
@@ -2039,6 +2048,7 @@ pub fn matchTypesUtil(
     const type2 = fromType.astType.*;
 
     if (type1 == .Any or type2 == .Any) return true;
+    if (type1 == .Undef or type2 == .Undef) return true;
 
     if (type1 == .Generic and type2 == .Generic) {
         if (withGenDef) {

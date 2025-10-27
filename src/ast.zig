@@ -57,6 +57,24 @@ pub const AstNumberVariants = enum {
         };
     }
 
+    pub fn isTrivial(self: Self) bool {
+        return switch (self) {
+            .Char,
+            .U8,
+            .U16,
+            .U32,
+            .U64,
+            .I8,
+            .I16,
+            .I32,
+            .I64,
+            .F32,
+            .F64,
+            => true,
+            .U128, .I128, .F128 => false,
+        };
+    }
+
     pub fn fromStr(str: []const u8) ?Self {
         const rels = &[_]AstNumberVariantsStrRel{
             .{ .str = "char", .val = .Char },
@@ -187,6 +205,7 @@ const Types = enum {
     Void,
     Null,
     Any,
+    Undef,
     Number,
     RawNumber,
     ArraySlice,
@@ -210,6 +229,7 @@ pub const AstTypes = union(Types) {
     Void,
     Null,
     Any,
+    Undef,
     Number: AstNumberVariants,
     RawNumber: []const u8,
     ArraySlice: AstArraySliceType,
@@ -246,15 +266,48 @@ pub const AstTypes = union(Types) {
 
     pub fn getSize(self: Self) u64 {
         return switch (self) {
-            .String, .Null, .RawNumber => utils.unimplemented(),
+            .Null, .RawNumber, .Undef => unreachable,
+            .String => utils.unimplemented(),
             .Bool, .Char, .ErrorVariant => 1,
             .Void, .Any, .Generic, .Function, .Error => 0,
             .Number => |num| return num.getSize(),
             .ArraySlice => 16,
             .Pointer, .StaticStructInstance => 8,
             .Nullable => |inner| return 1 + inner.astType.getSize(),
-            .Custom => unreachable,
+            .Custom => utils.unimplemented(),
             .VarInfo => |inner| return inner.info.astType.getSize(),
+        };
+    }
+
+    // whether the type can fit into a 64 bit register (<= 64 bits)
+    pub fn isTrivial(self: Self) bool {
+        return switch (self) {
+            .Null, .RawNumber => unreachable,
+            .String => utils.unimplemented(),
+            .Bool,
+            .Char,
+            .ErrorVariant,
+            .Void,
+            .Any,
+            .Generic,
+            .Function,
+            .Error,
+            .Pointer,
+            .StaticStructInstance,
+            .Undef,
+            => true,
+            .Number => |num| return num.isTrivial(),
+            .ArraySlice => false,
+            .Nullable => |inner| return inner.astType.getSize() <= 7,
+            .Custom => utils.unimplemented(),
+            .VarInfo => |inner| return inner.info.astType.isTrivial(),
+        };
+    }
+
+    pub fn getNodeTypeInfo(self: Self) AstNodeTypeInfo {
+        return .{
+            .size = self.getSize(),
+            .isTrivial = self.isTrivial(),
         };
     }
 };
@@ -563,6 +616,7 @@ const AstNodeVariants = enum {
     HeapAlloc,
     HeapFree,
     ArrayInit,
+    UndefValue,
 };
 
 pub const AstNodeUnion = union(AstNodeVariants) {
@@ -605,6 +659,7 @@ pub const AstNodeUnion = union(AstNodeVariants) {
     HeapAlloc: HeapAllocNode,
     HeapFree: *AstNode,
     ArrayInit: ArrayInitNode,
+    UndefValue,
 
     pub fn toAstNode(self: Self) AstNode {
         return .{
@@ -613,9 +668,14 @@ pub const AstNodeUnion = union(AstNodeVariants) {
     }
 };
 
+const AstNodeTypeInfo = struct {
+    size: u64 = 0,
+    isTrivial: bool = true,
+};
+
 pub const AstNode = struct {
     variant: AstNodeUnion,
-    typeSize: u64 = 0,
+    typeInfo: AstNodeTypeInfo = .{},
 };
 
 pub const AstError = error{
@@ -1318,6 +1378,10 @@ fn parseExpressionUtil(
 ) (Allocator.Error || AstError)!?*AstNode {
     const first = try context.tokenUtil.take();
     switch (first.type) {
+        .Undef => {
+            const undefVariant: AstNodeUnion = .{ .UndefValue = {} };
+            return try context.pools.nodes.new(undefVariant.toAstNode());
+        },
         .Null => {
             const valueVariant: AstNodeUnion = .{
                 .Value = .Null,

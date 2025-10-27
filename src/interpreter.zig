@@ -178,7 +178,7 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 const reg2Value = runtimeInfo.registers[bytecode[current + 2]];
                 runtimeInfo.flags = compareOrder(reg1Value, reg2Value);
             },
-            .CmpConstByte => {
+            .CmpConst8 => {
                 const reg1Value = runtimeInfo.registers[bytecode[current + 1]];
                 const reg2Value: u64 = @intCast(bytecode[current + 2]);
                 runtimeInfo.flags = compareOrder(reg1Value, reg2Value);
@@ -254,10 +254,10 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                     continue;
                 }
             },
-            .IncConstByte => {
+            .IncConst8 => {
                 runtimeInfo.registers[bytecode[current + 1]] += bytecode[current + 2];
             },
-            .DecConstByte => {
+            .DecConst8 => {
                 runtimeInfo.registers[bytecode[current + 1]] -= bytecode[current + 2];
             },
             .Xor => {
@@ -265,7 +265,7 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
                 runtimeInfo.registers[bytecode[current + 1]] = reg1Val ^ reg2Val;
             },
-            .XorConstByte => {
+            .XorConst8 => {
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
                 const byte = bytecode[current + 3];
                 runtimeInfo.registers[bytecode[current + 1]] = reg1Val ^ byte;
@@ -369,6 +369,7 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 @memcpy(runtimeInfo.stack.items[dest..end], &byteData);
                 runtimeInfo.ptrs.sp += inc;
             },
+            .Load64AtReg, .Load32AtReg, .Load16AtReg, .Load8AtReg => utils.unimplemented(),
         }
 
         current += instLen;

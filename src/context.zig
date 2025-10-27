@@ -122,6 +122,7 @@ pub const StaticPtrs = struct {
         anyType: blitzAst.AstTypeInfo,
         f32Type: blitzAst.AstTypeInfo,
         u64Type: blitzAst.AstTypeInfo,
+        undefType: blitzAst.AstTypeInfo,
     },
     nodes: struct {
         noOp: *blitzAst.AstNode,
@@ -138,6 +139,7 @@ pub const StaticPtrs = struct {
                 .anyType = (try pools.types.new(.Any)).toTypeInfo(.Mut),
                 .f32Type = (try pools.types.new(.{ .Number = .F32 })).toTypeInfo(.Mut),
                 .u64Type = (try pools.types.new(.{ .Number = .U64 })).toTypeInfo(.Mut),
+                .undefType = (try pools.types.new(.{ .Undef = {} })).toTypeInfo(.Mut),
             },
             .nodes = .{
                 .noOp = try pools.nodes.new((blitzAst.AstNodeUnion{ .NoOp = {} }).toAstNode()),
@@ -161,6 +163,7 @@ pub const StaticPtrs = struct {
             self.types.anyType,
             self.types.f32Type,
             self.types.u64Type,
+            self.types.undefType,
         };
 
         inline for (staticTypes) |t| {

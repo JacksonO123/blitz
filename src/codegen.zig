@@ -63,13 +63,13 @@ pub const InstructionVariants = enum(u8) {
     CmpSetRegLT, // inst, out reg, reg1, reg2  ;  sets to flags
     CmpSetRegGTE, // inst, out reg, reg1, reg2  ;  sets to flags
     CmpSetRegLTE, // inst, out reg, reg1, reg2  ;  sets to flags
-    CmpConstByte, // inst, reg1, 1B data
-    IncConstByte, // inst, in/out reg, 1B data
-    DecConstByte, // inst, in/out reg, 1B data
+    CmpConst8, // inst, reg1, 1B data
+    IncConst8, // inst, in/out reg, 1B data
+    DecConst8, // inst, in/out reg, 1B data
     Mov, // inst, reg1, reg2
     MovSp, // inst, dest
     Xor, // inst, out reg, reg1, reg2
-    XorConstByte, // inst, out reg, reg1, 1B data
+    XorConst8, // inst, out reg, reg1, 1B data
     AddSp8, // inst, 1B data
     SubSp8, // inst, 1B data
     AddSpReg, // inst, reg
@@ -79,6 +79,10 @@ pub const InstructionVariants = enum(u8) {
     Store64AtRegPostInc64, // inst, reg, to reg (ptr), inc 8B
     Store64AtSpPostInc8, // inst, reg, inc 1B
     StoreAtSpPostInc8, // inst, to reg (ptr), inc 1B
+    Load64AtReg, // inst, dest, from reg (ptr)
+    Load32AtReg, // inst, dest, from reg (ptr)
+    Load16AtReg, // inst, dest, from reg (ptr)
+    Load8AtReg, // inst, dest, from reg (ptr)
 
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
@@ -114,11 +118,11 @@ pub const InstructionVariants = enum(u8) {
             .CmpSetRegGTE,
             .CmpSetRegLTE,
             => 4,
-            .CmpConstByte => 3,
-            .IncConstByte, .DecConstByte => 3,
+            .CmpConst8 => 3,
+            .IncConst8, .DecConst8 => 3,
             .Mov => 3,
             .MovSp => 2,
-            .Xor, .XorConstByte => 4,
+            .Xor, .XorConst8 => 4,
             .AddSp8, .SubSp8 => 2,
             .AddSpReg, .SubSpReg => 2,
             .Store64Offset8 => 4,
@@ -126,6 +130,10 @@ pub const InstructionVariants = enum(u8) {
             .Store64AtRegPostInc64 => 11,
             .Store64AtSpPostInc8 => 3,
             .StoreAtSpPostInc8 => 3,
+            .Load64AtReg => 3,
+            .Load32AtReg => 3,
+            .Load16AtReg => 3,
+            .Load8AtReg => 3,
         };
     }
 
@@ -140,7 +148,7 @@ pub const InstructionVariants = enum(u8) {
             .Mult => "mult",
             .Add8 => "add_8",
             .Sub8 => "sub_8",
-            .CmpConstByte => "cmp_const_byte",
+            .CmpConst8 => "cmp_const_byte",
             .Jump => "jump",
             .JumpEQ => "jump_eq",
             .JumpNE => "jump_ne",
@@ -162,12 +170,12 @@ pub const InstructionVariants = enum(u8) {
             .CmpSetRegLT => "cmp_set_reg_lt",
             .CmpSetRegGTE => "cmp_set_reg_gte",
             .CmpSetRegLTE => "cmp_set_reg_lte",
-            .IncConstByte => "inc_const_byte",
-            .DecConstByte => "dec_const_byte",
+            .IncConst8 => "inc_const_byte",
+            .DecConst8 => "dec_const_byte",
             .Mov => "mov",
             .MovSp => "mov_sp",
             .Xor => "xor",
-            .XorConstByte => "xor_const_byte",
+            .XorConst8 => "xor_const_byte",
             .AddSp8 => "add_sp_8",
             .SubSp8 => "sub_sp_8",
             .AddSpReg => "add_sp_reg",
@@ -177,6 +185,10 @@ pub const InstructionVariants = enum(u8) {
             .Store64AtRegPostInc64 => "store_64_at_reg_post_inc_64",
             .Store64AtSpPostInc8 => "store_64_at_sp_post_inc_8",
             .StoreAtSpPostInc8 => "store_at_sp_post_inc_8",
+            .Load64AtReg => "load_64_at_reg",
+            .Load32AtReg => "load_32_at_reg",
+            .Load16AtReg => "load_16_at_reg",
+            .Load8AtReg => "load_8_at_reg",
         };
     }
 };
@@ -251,6 +263,11 @@ fn StoreIncSpInstr(comptime T: type) type {
     };
 }
 
+const LoadAtReg = struct {
+    dest: TempRegister,
+    fromRegPtr: TempRegister,
+};
+
 pub const Instr = union(InstructionVariants) {
     const Self = @This();
 
@@ -284,16 +301,16 @@ pub const Instr = union(InstructionVariants) {
     CmpSetRegLT: CmpSetRegInstr,
     CmpSetRegGTE: CmpSetRegInstr,
     CmpSetRegLTE: CmpSetRegInstr,
-    CmpConstByte: RegBytePayloadInstr,
-    IncConstByte: RegBytePayloadInstr,
-    DecConstByte: RegBytePayloadInstr,
+    CmpConst8: RegBytePayloadInstr,
+    IncConst8: RegBytePayloadInstr,
+    DecConst8: RegBytePayloadInstr,
     Mov: struct {
         dest: TempRegister = 0,
         src: TempRegister = 0,
     },
     MovSp: TempRegister,
     Xor: TwoOpResultInstr,
-    XorConstByte: struct {
+    XorConst8: struct {
         dest: TempRegister = 0,
         reg: TempRegister = 0,
         byte: u8 = 0,
@@ -307,6 +324,10 @@ pub const Instr = union(InstructionVariants) {
     Store64AtRegPostInc64: StoreIncInstr(u64),
     Store64AtSpPostInc8: StoreIncSpInstr(u8),
     StoreAtSpPostInc8: StoreIncSpInstr(u8),
+    Load64AtReg: LoadAtReg,
+    Load32AtReg: LoadAtReg,
+    Load16AtReg: LoadAtReg,
+    Load8AtReg: LoadAtReg,
 
     pub fn getInstrLen(self: Self) u8 {
         const active = std.meta.activeTag(self);
@@ -501,8 +522,11 @@ const LoopInfo = struct {
 };
 
 const RegInfo = struct {
+    stackLocation: ?u64 = null,
     active: bool = false,
     isVar: bool = false,
+    isTrivial: bool = true,
+    storedSize: u8 = 0,
 };
 
 const GenInfoSettings = struct {
@@ -619,6 +643,7 @@ pub const GenInfo = struct {
     }
 
     pub fn getAvailableReg(self: Self) !TempRegister {
+        // TODO - refactor to use available stack
         for (self.registers.items, 0..) |reg, index| {
             if (!reg.active) {
                 return @intCast(index);
@@ -642,10 +667,10 @@ pub const GenInfo = struct {
         reg1: TempRegister,
         reg2: TempRegister,
     ) !TempRegister {
-        if (!self.registers.items[reg1].isVar) {
+        if (!self.isRegVariable(reg1)) {
             self.releaseIfPossible(reg2);
             return reg1;
-        } else if (!self.registers.items[reg2].isVar) {
+        } else if (!self.isRegVariable(reg2)) {
             self.releaseIfPossible(reg1);
             return reg2;
         }
@@ -656,7 +681,7 @@ pub const GenInfo = struct {
     }
 
     pub fn releaseIfPossible(self: *Self, reg: TempRegister) void {
-        if (self.registers.items[reg].isVar) return;
+        if (self.isRegVariable(reg)) return;
         self.releaseRegister(reg);
     }
 
@@ -681,6 +706,10 @@ pub const GenInfo = struct {
 
     pub fn isRegVariable(self: Self, reg: TempRegister) bool {
         return self.registers.items[reg].isVar;
+    }
+
+    pub fn getRegStackLocation(self: Self, reg: TempRegister) ?u64 {
+        return self.registers.items[reg].stackLocation;
     }
 
     pub fn pushScope(self: *Self) !void {
@@ -908,7 +937,7 @@ pub fn genBytecode(
                             .Store64AtRegPostInc64 = .{
                                 .fromReg = reg,
                                 .toRegPtr = sliceInfo.spReg,
-                                .inc = node.typeSize,
+                                .inc = node.typeInfo.size,
                             },
                         };
                         _ = try context.genInfo.appendChunk(store8);
@@ -1019,9 +1048,9 @@ pub fn genBytecode(
             const condReg = try genBytecode(allocator, context, statement.condition) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
 
-            var buf = Instr{ .CmpConstByte = .{} };
-            buf.CmpConstByte.reg = condReg;
-            buf.CmpConstByte.data = 1;
+            var buf = Instr{ .CmpConst8 = .{} };
+            buf.CmpConst8.reg = condReg;
+            buf.CmpConst8.data = 1;
             _ = try context.genInfo.appendChunk(buf);
 
             context.genInfo.releaseIfPossible(condReg);
@@ -1075,10 +1104,10 @@ pub fn genBytecode(
                 const jumpInstruction = try compOpToJump(oppositeComp, false);
                 jumpEndInstr = jumpInstruction;
             } else {
-                var cmpInstr = Instr{ .CmpConstByte = .{} };
-                cmpInstr.CmpConstByte.reg = condReg orelse
+                var cmpInstr = Instr{ .CmpConst8 = .{} };
+                cmpInstr.CmpConst8.reg = condReg orelse
                     return CodeGenError.ReturnedRegisterNotFound;
-                cmpInstr.CmpConstByte.data = 1;
+                cmpInstr.CmpConst8.data = 1;
                 _ = try context.genInfo.appendChunk(cmpInstr);
             }
 
@@ -1116,10 +1145,10 @@ pub fn genBytecode(
                 const jumpInstruction = try compOpToJump(oppositeComp, false);
                 jumpEndInstr = jumpInstruction;
             } else {
-                var cmpInstr = Instr{ .CmpConstByte = .{} };
-                cmpInstr.CmpConstByte.reg = condReg orelse
+                var cmpInstr = Instr{ .CmpConst8 = .{} };
+                cmpInstr.CmpConst8.reg = condReg orelse
                     return CodeGenError.ReturnedRegisterNotFound;
-                cmpInstr.CmpConstByte.data = 1;
+                cmpInstr.CmpConst8.data = 1;
                 _ = try context.genInfo.appendChunk(cmpInstr);
             }
 
@@ -1142,18 +1171,18 @@ pub fn genBytecode(
         .IncOne => |inc| {
             const reg = try genBytecode(allocator, context, inc) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
-            var instr = Instr{ .IncConstByte = .{} };
-            instr.IncConstByte.reg = reg;
-            instr.IncConstByte.data = 1;
+            var instr = Instr{ .IncConst8 = .{} };
+            instr.IncConst8.reg = reg;
+            instr.IncConst8.data = 1;
 
             _ = try context.genInfo.appendChunk(instr);
         },
         .DecOne => |dec| {
             const reg = try genBytecode(allocator, context, dec) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
-            var instr = Instr{ .DecConstByte = .{} };
-            instr.DecConstByte.reg = reg;
-            instr.DecConstByte.data = 1;
+            var instr = Instr{ .DecConst8 = .{} };
+            instr.DecConst8.reg = reg;
+            instr.DecConst8.data = 1;
 
             _ = try context.genInfo.appendChunk(instr);
         },
@@ -1176,10 +1205,10 @@ pub fn genBytecode(
                 return CodeGenError.NoAvailableRegisters;
             const setReg = try context.genInfo.availableRegReplace(reg);
 
-            var instr = Instr{ .XorConstByte = .{} };
-            instr.XorConstByte.dest = setReg;
-            instr.XorConstByte.reg = reg;
-            instr.XorConstByte.byte = 1;
+            var instr = Instr{ .XorConst8 = .{} };
+            instr.XorConst8.dest = setReg;
+            instr.XorConst8.reg = reg;
+            instr.XorConst8.byte = 1;
             _ = try context.genInfo.appendChunk(instr);
 
             return setReg;
@@ -1225,7 +1254,7 @@ pub fn genBytecode(
             const preBodyByteCount = context.genInfo.byteCounter;
 
             const cmpLen = Instr{
-                .CmpConstByte = .{
+                .CmpConst8 = .{
                     .reg = lenReg,
                     .data = 0,
                 },
@@ -1248,7 +1277,7 @@ pub fn genBytecode(
             _ = try context.genInfo.appendChunk(writeInstr);
 
             const subLen = Instr{
-                .Sub8 = .{
+                .Add8 = .{
                     .dest = lenReg,
                     .reg = lenReg,
                     .data = 1,
@@ -1268,6 +1297,43 @@ pub fn genBytecode(
 
             return sliceInfo.sliceReg;
         },
+        .Dereference => |inner| {
+            const resReg = try genBytecode(allocator, context, inner) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
+
+            const destReg = if (!context.genInfo.isRegVariable(resReg)) resReg else a: {
+                const newReg = try context.genInfo.getAvailableReg();
+                try context.genInfo.reserveRegister(newReg);
+                break :a newReg;
+            };
+
+            const loadAtReg: LoadAtReg = .{
+                .dest = destReg,
+                .fromRegPtr = 2,
+            };
+
+            const loadInstr = switch (inner.typeInfo.size) {
+                8 => Instr{ .Load64AtReg = loadAtReg },
+                4 => Instr{ .Load32AtReg = loadAtReg },
+                2 => Instr{ .Load16AtReg = loadAtReg },
+                1 => Instr{ .Load8AtReg = loadAtReg },
+                else => utils.unimplemented(),
+            };
+            _ = try context.genInfo.appendChunk(loadInstr);
+        },
+        .Pointer => |inner| {
+            const resReg = try genBytecode(allocator, context, inner.node) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
+
+            const stackLocation = context.genInfo.getRegStackLocation(resReg) orelse a: {
+                const writeReg = Instr{
+                    .Store64AtSpPostInc8 = .{
+                        .reg = resReg,
+                        .inc = context.genInfo.getRegStoredDataSize(resReg),
+                    },
+                };
+            };
+        },
         else => {},
     }
 
@@ -1277,6 +1343,8 @@ pub fn genBytecode(
 fn initSliceBytecode(context: *Context, len: u64) !SliceBytecodeInfo {
     const sliceReg = try context.genInfo.getAvailableReg();
     try context.genInfo.reserveRegister(sliceReg);
+    context.genInfo.registers.items[sliceReg].isTrivial = false;
+
     const moveSpInstr = Instr{ .MovSp = sliceReg };
     _ = try context.genInfo.appendChunk(moveSpInstr);
 
@@ -1431,9 +1499,9 @@ fn generateFallback(
         const condReg = try genBytecode(allocator, context, statement.condition) orelse
             return CodeGenError.ReturnedRegisterNotFound;
 
-        var instr = Instr{ .CmpConstByte = .{} };
-        instr.CmpConstByte.reg = condReg;
-        instr.CmpConstByte.data = 1;
+        var instr = Instr{ .CmpConst8 = .{} };
+        instr.CmpConst8.reg = condReg;
+        instr.CmpConst8.data = 1;
         _ = try context.genInfo.appendChunk(instr);
 
         context.genInfo.releaseIfPossible(condReg);
@@ -1524,10 +1592,7 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
             try writer.writeByte(@intCast(inst.reg1));
             try writer.writeByte(@intCast(inst.reg2));
         },
-        .CmpConstByte,
-        .IncConstByte,
-        .DecConstByte,
-        => |inst| {
+        .CmpConst8, .IncConst8, .DecConst8 => |inst| {
             try writer.writeByte(@intCast(inst.reg));
             try writer.writeByte(inst.data);
         },
@@ -1538,7 +1603,7 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
         .MovSp => |inst| {
             try writer.writeByte(@intCast(inst));
         },
-        .XorConstByte => |inst| {
+        .XorConst8 => |inst| {
             try writer.writeByte(@intCast(inst.dest));
             try writer.writeByte(@intCast(inst.reg));
             try writer.writeByte(inst.byte);
@@ -1571,6 +1636,10 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
         .StoreAtSpPostInc8 => |inst| {
             try writer.writeByte(@intCast(inst.reg));
             try writer.writeByte(inst.inc);
+        },
+        .Load64AtReg, .Load32AtReg, .Load16AtReg, .Load8AtReg => |inst| {
+            try writer.writeByte(@intCast(inst.dest));
+            try writer.writeByte(@intCast(inst.fromRegPtr));
         },
     }
 }

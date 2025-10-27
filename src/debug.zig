@@ -153,6 +153,9 @@ pub fn printType(
             try writer.writeAll(if (err.from) |from| from else "unknown");
             try writer.writeByte(')');
         },
+        .Undef => {
+            try writer.writeAll("undef");
+        },
     };
 }
 
@@ -523,6 +526,9 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
         .Break => {
             try writer.writeAll("break");
         },
+        .UndefValue => {
+            try writer.writeAll("undef");
+        },
     }
 }
 
@@ -777,7 +783,7 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst.data, writer);
         },
-        .CmpConstByte => |inst| {
+        .CmpConst8 => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
             try writer.writeByte(' ');
@@ -841,8 +847,8 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumber(u16, inst.amount, writer);
         },
-        .IncConstByte,
-        .DecConstByte,
+        .IncConst8,
+        .DecConst8,
         => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
@@ -859,7 +865,7 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(inst, 10, .lower, .{});
         },
-        .XorConstByte => |inst| {
+        .XorConst8 => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.dest, 10, .lower, .{});
             try writer.writeAll(" r");
@@ -912,6 +918,13 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.printInt(inst.reg, 10, .lower, .{});
             try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst.inc, writer);
+        },
+        .Load64AtReg, .Load32AtReg, .Load16AtReg, .Load8AtReg => |inst| {
+            try writer.writeAll(" r");
+            try writer.printInt(inst.dest, 10, .lower, .{});
+            try writer.writeAll(" [");
+            try writer.printInt(inst.fromRegPtr, 10, .lower, .{});
+            try writer.writeByte(']');
         },
     }
 

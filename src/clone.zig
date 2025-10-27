@@ -73,7 +73,7 @@ pub fn cloneAstTypes(
     withGenDef: bool,
 ) (Allocator.Error || CloneError)!blitzAst.AstTypes {
     switch (types) {
-        .String, .Bool, .Char, .Void, .Number, .Null, .RawNumber, .Any => return types,
+        .String, .Bool, .Char, .Void, .Number, .Null, .RawNumber, .Any, .Undef => return types,
 
         .VarInfo => |info| {
             const varInfo = try cloneAstTypeInfo(
@@ -185,7 +185,7 @@ pub fn cloneAstNodeUnion(
     withGenDef: bool,
 ) !blitzAst.AstNodeUnion {
     switch (node) {
-        .NoOp, .StructPlaceholder, .Break, .Continue => return node,
+        .NoOp, .StructPlaceholder, .Break, .Continue, .UndefValue => return node,
         .IndexValue => |index| return .{
             .IndexValue = .{
                 .index = try cloneAstNodePtrMut(allocator, context, index.index, withGenDef),
@@ -538,7 +538,7 @@ pub fn cloneAstNode(
     const clonedUnion = try cloneAstNodeUnion(allocator, context, node.variant, withGenDef);
     return .{
         .variant = clonedUnion,
-        .typeSize = node.typeSize,
+        .typeInfo = node.typeInfo,
     };
 }
 

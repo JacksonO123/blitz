@@ -62,6 +62,7 @@ myFunc4(myStruct);
 // function, transfering the generic type to the inner function
 // all of the generics are then restricted to the input u32 "4"
 
+
 fn [T] testCapture(value: T) T {
   fn [G] temp(newValue: G) G {
     return newValue + value;
@@ -70,10 +71,10 @@ fn [T] testCapture(value: T) T {
   return temp(value);
 }
 
-//{
-//  testCapture(4);
-//}
-//
+{
+  testCapture(4);
+}
+
 //// recursive functions
 //
 //fn fibonacci1(num: u32) u32 {

@@ -46,6 +46,7 @@ const TokenVariants = enum {
     With,
     Delete,
     Cast,
+    Undef,
 
     // symbols
     Colon,
@@ -137,6 +138,7 @@ const TokenVariants = enum {
             .New => "new",
             .With => "with",
             .Delete => "delete",
+            .Undef => "undef",
             .CharType => "char",
             .U8 => "u8",
             .U16 => "u16",
@@ -228,6 +230,7 @@ pub const TokenType = union(TokenVariants) {
     With,
     Delete,
     Cast,
+    Undef,
 
     // symbols
     Colon,
@@ -834,6 +837,7 @@ fn isKeyword(chars: []const u8) ?TokenType {
         .With,
         .Delete,
         .Cast,
+        .Undef,
     };
 
     return getTypeFromTuple(chars, keywords);
