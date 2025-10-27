@@ -19,13 +19,13 @@ pub fn printStructAndErrorNames(names: blitzAst.HoistedNames, writer: *Writer) !
     try writer.writeAll("------------\nstructs:\n");
     for (names.structNames) |name| {
         try writer.writeAll(name);
-        try writer.writeAll("\n");
+        try writer.writeByte('\n');
     }
 
     try writer.writeAll("errors:\n");
     for (names.errorNames) |name| {
         try writer.writeAll(name);
-        try writer.writeAll("\n");
+        try writer.writeByte('\n');
     }
     try writer.writeAll("------------\n");
 }
@@ -62,14 +62,14 @@ pub fn printType(
             }
             try writer.writeAll(", ");
             try printTypeInfo(context, arr.type.info, writer);
-            try writer.writeAll(">");
+            try writer.writeByte('>');
         },
         .Pointer => |ptr| {
-            try writer.writeAll("*");
+            try writer.writeByte('*');
             try printTypeInfo(context, ptr.info, writer);
         },
         .Nullable => |n| {
-            try writer.writeAll("?");
+            try writer.writeByte('?');
             try printTypeInfo(context, n, writer);
         },
         .Number => |num| {
@@ -78,12 +78,12 @@ pub fn printType(
         .RawNumber => |digits| {
             try writer.writeAll("[RawNumber ");
             try writer.writeAll(digits);
-            try writer.writeAll("]");
+            try writer.writeByte(']');
         },
         .Custom => |*custom| {
             try writer.writeAll(custom.name);
             if (custom.generics.len > 0) {
-                try writer.writeAll("<");
+                try writer.writeByte('<');
             }
 
             for (custom.generics, 0..) |generic, index| {
@@ -95,18 +95,18 @@ pub fn printType(
             }
 
             if (custom.generics.len > 0) {
-                try writer.writeAll(">");
+                try writer.writeByte('>');
             }
         },
         .Generic => |gen| {
             try writer.writeAll("[generic](");
             try writer.writeAll(gen);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         },
         .Function => |func| {
             try writer.writeAll("[function](\"");
             try writer.writeAll("func.name");
-            try writer.writeAll("\"");
+            try writer.writeByte('\"');
 
             if (func.generics) |generics| {
                 try printGenerics(context, generics, writer);
@@ -115,35 +115,35 @@ pub fn printType(
             try writer.writeAll(" (");
 
             for (func.params, 0..) |param, index| {
-                try writer.writeAll("(");
+                try writer.writeByte('(');
                 try writer.writeAll(param.name);
                 try writer.writeAll(")[");
                 try printTypeInfo(context, param.type, writer);
-                try writer.writeAll("]");
+                try writer.writeByte(']');
 
                 if (index < func.params.len - 1) {
                     try writer.writeAll(", ");
                 }
             }
 
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try printTypeInfo(context, func.returnType, writer);
 
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         },
         .StaticStructInstance => |inst| {
             try writer.writeAll("[static struct instance](");
             try writer.writeAll(inst);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         },
         .Error => |err| {
             try writer.writeAll("error (");
             try writer.writeAll(err.name);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
             if (err.payload) |payload| {
-                try writer.writeAll("[");
+                try writer.writeByte('[');
                 try printTypeInfo(context, payload, writer);
-                try writer.writeAll("]");
+                try writer.writeByte(']');
             }
         },
         .ErrorVariant => |err| {
@@ -151,7 +151,7 @@ pub fn printType(
             try writer.writeAll(err.variant);
             try writer.writeAll("] from (");
             try writer.writeAll(if (err.from) |from| from else "unknown");
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         },
     };
 }
@@ -184,32 +184,32 @@ fn printValue(
             try writer.writeAll(num.numType.toString());
             try writer.writeAll("](");
             try writer.writeAll(num.digits);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         },
         .String => |str| {
             try writer.writeAll("[string](");
             try writer.writeAll(str);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         },
         .Char => |ch| {
             try writer.writeAll("[char](");
-            try writer.writeAll(&[_]u8{ch});
-            try writer.writeAll(")");
+            try writer.writeByte(ch);
+            try writer.writeByte(')');
         },
         .Bool => |b| {
             try writer.writeAll("[bool](");
             try writer.writeAll(if (b) "true" else "false");
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         },
     }
 }
 
 fn printAstNumberUtil(val: anytype, num: blitzAst.AstNumber, writer: *Writer) !void {
-    try writer.writeAll("[");
+    try writer.writeByte('[');
     try writer.print("{d}", .{val});
     try writer.writeAll("](");
     try writer.writeAll(num.toString());
-    try writer.writeAll(")");
+    try writer.writeByte(')');
 }
 
 fn printAstNumber(num: blitzAst.AstNumber, writer: *Writer) !void {
@@ -239,7 +239,7 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
             try printNode(context, index.index, writer);
         },
         .OpExpr => |op| {
-            try writer.writeAll("(");
+            try writer.writeByte('(');
             try printNode(context, op.left, writer);
             try writer.writeAll(") (");
 
@@ -260,19 +260,19 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
                 .NotEqual => "!=EQUAL!=",
             };
             try writer.writeAll(opString);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
 
             try writer.writeAll(" (");
             try printNode(context, op.right, writer);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         },
         .IncOne => |val| {
-            try writer.writeAll("(");
+            try writer.writeByte('(');
             try printNode(context, val, writer);
             try writer.writeAll("++)");
         },
         .DecOne => |val| {
-            try writer.writeAll("(");
+            try writer.writeByte('(');
             try printNode(context, val, writer);
             try writer.writeAll("--)");
         },
@@ -281,7 +281,7 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
             try writer.writeAll(op.variable);
             try writer.writeAll(" to result of (");
             try writer.writeAll(op.variable);
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             const opString = switch (op.opType) {
                 .BitOrEq => "|BitOr|",
                 .BitAndEq => "&BitAnd&",
@@ -293,19 +293,19 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
                 .OrEq => "/DIV/",
             };
             try writer.writeAll(opString);
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try printNode(context, op.value, writer);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         },
         .FuncReference => |ref| {
             try writer.writeAll("function (");
             try writer.writeAll(ref);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         },
         .StaticStructInstance => |inst| {
             try writer.writeAll("static struct (");
             try writer.writeAll(inst);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         },
         .PropertyAccess => |access| {
             try writer.writeAll("accessing ");
@@ -379,18 +379,18 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
         .StructDec => |dec| {
             try writer.writeAll("declare struct (");
             try writer.writeAll(dec.name);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
 
             if (dec.generics.len > 0) {
                 try writer.writeAll(" with generics [");
                 try printGenerics(context, dec.generics, writer);
-                try writer.writeAll("]");
+                try writer.writeByte(']');
             }
 
             if (dec.attributes.len > 0) {
                 try writer.writeAll(" with attributes [");
                 try printAttributes(context, dec.attributes, writer);
-                try writer.writeAll("]");
+                try writer.writeByte(']');
             }
         },
         .IfStatement => |statement| {
@@ -448,7 +448,7 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
                 }
             }
 
-            try writer.writeAll("]");
+            try writer.writeByte(']');
         },
         .ReturnNode => |ret| {
             try writer.writeAll("return ");
@@ -457,7 +457,7 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
         .StructInit => |init| {
             try writer.writeAll("initializing (");
             try writer.writeAll(init.name);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
 
             if (init.generics.len > 0) {
                 try writer.writeAll("[generics: ");
@@ -470,7 +470,7 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
                     }
                 }
 
-                try writer.writeAll("]");
+                try writer.writeByte(']');
             }
 
             try writer.writeAll(" with {{");
@@ -493,12 +493,12 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
         .Error => |err| {
             try writer.writeAll("error type (");
             try writer.writeAll(err);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         },
         .Group => |group| {
             try writer.writeAll("[group](");
             try printNode(context, group, writer);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         },
         .Scope => |scope| {
             try writer.writeAll("\n--- entering scope ---\n");
@@ -508,7 +508,7 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
         .ArrayInit => |init| {
             try writer.writeAll("init array [");
             try writer.writeAll(init.size);
-            try writer.writeAll("]");
+            try writer.writeByte(']');
             try printTypeInfo(context, init.initType, writer);
             try writer.writeAll(" with initializer ");
             try printNode(context, init.initNode, writer);
@@ -544,11 +544,11 @@ pub fn printFuncDec(
     try printTypeInfo(context, func.returnType, writer);
     try writer.writeAll("] (");
     try writer.writeAll(func.name);
-    try writer.writeAll(")");
+    try writer.writeByte(')');
     if (func.generics) |generics| {
         try writer.writeAll(" with generics [");
         try printGenerics(context, generics, writer);
-        try writer.writeAll("]");
+        try writer.writeByte(']');
     }
 
     try writer.writeAll(" with params [");
@@ -558,11 +558,11 @@ pub fn printFuncDec(
         try writer.writeAll("] capturing [");
         var captureIt = captured.iterator();
         while (captureIt.next()) |item| {
-            try writer.writeAll("(");
+            try writer.writeByte('(');
             try writer.writeAll(item.key_ptr.*);
             try writer.writeAll(": ");
             try printTypeInfo(context, item.value_ptr.info, writer);
-            try writer.writeAll(")");
+            try writer.writeByte(')');
         }
     }
 
@@ -604,11 +604,11 @@ fn printParams(context: *Context, params: []blitzAst.Parameter, writer: *Writer)
     }
 
     for (params, 0..) |param, index| {
-        try writer.writeAll("[");
+        try writer.writeByte('[');
         try printTypeInfo(context, param.type, writer);
         try writer.writeAll("](");
         try writer.writeAll(param.name);
-        try writer.writeAll(")");
+        try writer.writeByte(')');
 
         if (index < params.len - 1) {
             try writer.writeAll(", ");
@@ -622,7 +622,7 @@ pub fn printGenerics(
     writer: *Writer,
 ) !void {
     for (generics, 0..) |generic, index| {
-        try writer.writeAll("[");
+        try writer.writeByte('[');
 
         if (generic.restriction) |restriction| {
             try printTypeInfo(context, restriction, writer);
@@ -632,7 +632,7 @@ pub fn printGenerics(
 
         try writer.writeAll("](");
         try writer.writeAll(generic.name);
-        try writer.writeAll(")");
+        try writer.writeByte(')');
 
         if (index < generics.len - 1) {
             try writer.writeAll(", ");
@@ -643,7 +643,7 @@ pub fn printGenerics(
 fn printNodes(context: *Context, nodes: []*blitzAst.AstNode, writer: *Writer) anyerror!void {
     for (nodes) |node| {
         try printNode(context, node, writer);
-        try writer.writeAll("\n");
+        try writer.writeByte('\n');
     }
 }
 
@@ -686,17 +686,17 @@ pub fn printRegisteredStructs(
         if (dec.generics.len > 0) {
             try writer.writeAll(" with generics [");
             try printGenerics(context, dec.generics, writer);
-            try writer.writeAll("]");
+            try writer.writeByte(']');
         }
 
         try writer.writeAll(" with attributes [");
         try printAttributes(context, dec.attributes, writer);
-        try writer.writeAll("]");
+        try writer.writeByte(']');
 
-        try writer.writeAll("\n");
+        try writer.writeByte('\n');
 
         if (index < structs.len - 1) {
-            try writer.writeAll("\n");
+            try writer.writeByte('\n');
         }
     }
 }
@@ -708,9 +708,9 @@ pub fn printToken(token: tokenizer.Token, code: []u8, writer: *Writer) !void {
     if (token.start != token.end) {
         try writer.writeAll(" : ");
         try writer.writeAll(token.strFromCode(code));
-        try writer.writeAll("\n");
+        try writer.writeByte('\n');
     } else {
-        try writer.writeAll("\n");
+        try writer.writeByte('\n');
     }
 }
 
@@ -726,13 +726,13 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     if (rootChunk) |chunk| {
         try writer.writeAll("MakeStack ");
         try writeHexDecNumber(vmInfo.StartStackType, context.genInfo.vmInfo.stackStartSize, writer);
-        try writer.writeAll("\n");
+        try writer.writeByte('\n');
 
         var byteCounter: usize = 0;
         var next: ?*codegen.InstrChunk = chunk;
         while (next) |nextChunk| {
             const chunkLen = nextChunk.data.getInstrLen();
-            try writer.writeAll("[");
+            try writer.writeByte('[');
             try writer.printInt(byteCounter, 10, .lower, .{});
             try writer.writeAll("] (");
             try writer.printInt(chunkLen, 10, .lower, .{});
@@ -756,31 +756,31 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
         .SetReg64 => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u64, inst.data, writer);
         },
         .SetReg32 => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u32, inst.data, writer);
         },
         .SetReg16 => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u16, inst.data, writer);
         },
         .SetReg8 => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst.data, writer);
         },
         .CmpConstByte => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst.data, writer);
         },
         .Cmp => |inst| {
@@ -820,7 +820,7 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.printInt(inst.dest, 10, .lower, .{});
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst.data, writer);
         },
         .Jump,
@@ -838,7 +838,7 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
         .JumpBackGTE,
         .JumpBackLTE,
         => |inst| {
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u16, inst.amount, writer);
         },
         .IncConstByte,
@@ -846,7 +846,7 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
         => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst.data, writer);
         },
         .Mov => |inst| {
@@ -864,11 +864,11 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.printInt(inst.dest, 10, .lower, .{});
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst.byte, writer);
         },
         .AddSp8, .SubSp8 => |inst| {
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst, writer);
         },
         .AddSpReg,
@@ -882,7 +882,7 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.printInt(inst.fromReg, 10, .lower, .{});
             try writer.writeAll(" r");
             try writer.printInt(inst.fromReg, 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst.offset, writer);
         },
         .Store64AtRegPostInc8 => |inst| {
@@ -890,7 +890,7 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.printInt(inst.fromReg, 10, .lower, .{});
             try writer.writeAll(" r");
             try writer.printInt(inst.toRegPtr, 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst.inc, writer);
         },
         .Store64AtRegPostInc64 => |inst| {
@@ -898,24 +898,24 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.printInt(inst.fromReg, 10, .lower, .{});
             try writer.writeAll(" r");
             try writer.printInt(inst.toRegPtr, 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u64, inst.inc, writer);
         },
         .Store64AtSpPostInc8 => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst.inc, writer);
         },
         .StoreAtSpPostInc8 => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst.inc, writer);
         },
     }
 
-    try writer.writeAll("\n");
+    try writer.writeByte('\n');
 }
 
 fn printInstName(inst: u8, writer: *Writer) !void {
@@ -929,7 +929,7 @@ pub fn writeHexDecNumber(comptime T: type, num: T, writer: *Writer) !void {
         .width = @sizeOf(T) * 2,
         .fill = '0',
     });
-    try writer.writeAll("(");
+    try writer.writeByte('(');
     try writer.printInt(num, 10, .lower, .{});
-    try writer.writeAll(")");
+    try writer.writeByte(')');
 }
