@@ -1209,7 +1209,6 @@ pub fn genBytecode(
         },
         .ArrayInit => |init| {
             const initLen = try std.fmt.parseInt(u64, init.size, 10);
-            std.debug.print("@@ {s} -> {d}\n", .{ init.size, initLen });
             const sliceInfo = try initSliceBytecode(context, initLen);
 
             const lenReg = try context.genInfo.getAvailableReg();
