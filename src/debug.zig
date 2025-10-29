@@ -727,7 +727,7 @@ pub fn printTokens(tokens: []const tokenizer.Token, code: []u8, writer: *Writer)
 }
 
 pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
-    const rootChunk = context.genInfo.instructionList;
+    const rootChunk = context.genInfo.instrListStart;
 
     if (rootChunk) |chunk| {
         try writer.writeAll("MakeStack ");
@@ -891,21 +891,27 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst.offset, writer);
         },
-        .Store64AtRegPostInc8 => |inst| {
+        .Store64AtRegPostInc16,
+        .Store32AtRegPostInc16,
+        .Store16AtRegPostInc16,
+        .Store8AtRegPostInc16,
+        => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.fromReg, 10, .lower, .{});
             try writer.writeAll(" r");
             try writer.printInt(inst.toRegPtr, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u8, inst.inc, writer);
+            try writeHexDecNumber(u16, inst.inc, writer);
         },
-        .Store64AtRegPostInc64 => |inst| {
-            try writer.writeAll(" r");
-            try writer.printInt(inst.fromReg, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inst.toRegPtr, 10, .lower, .{});
+        .StoreSpAtSpNegOffset16 => |inst| {
             try writer.writeByte(' ');
-            try writeHexDecNumber(u64, inst.inc, writer);
+            try writeHexDecNumber(u16, inst.offset, writer);
+        },
+        .StoreSpSub16AtSpNegOffset16 => |inst| {
+            try writer.writeByte(' ');
+            try writeHexDecNumber(u16, inst.sub, writer);
+            try writer.writeByte(' ');
+            try writeHexDecNumber(u16, inst.offset, writer);
         },
         .Store64AtSpNegOffset16,
         .Store32AtSpNegOffset16,

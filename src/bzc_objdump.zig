@@ -202,21 +202,27 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[3..4], writer);
         },
-        .Store64AtRegPostInc8 => {
+        .Store64AtRegPostInc16,
+        .Store32AtRegPostInc16,
+        .Store16AtRegPostInc16,
+        .Store8AtRegPostInc16,
+        => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" r");
             try writer.printInt(bytecode[2], 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumberSlice(bytecode[3..4], writer);
+            try writeHexDecNumberSlice(bytecode[3..5], writer);
         },
-        .Store64AtRegPostInc64 => {
-            try writer.writeAll(" r");
-            try writer.printInt(bytecode[1], 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(bytecode[2], 10, .lower, .{});
+        .StoreSpAtSpNegOffset16 => {
             try writer.writeByte(' ');
-            try writeHexDecNumberSlice(bytecode[3..11], writer);
+            try writeHexDecNumberSlice(bytecode[2..4], writer);
+        },
+        .StoreSpSub16AtSpNegOffset16 => {
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[1..3], writer);
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[3..5], writer);
         },
         .Store64AtSpNegOffset16,
         .Store32AtSpNegOffset16,
