@@ -71,9 +71,9 @@ fn [T] testCapture(value: T) T {
   return temp(value);
 }
 
-{
-  testCapture(4);
-}
+//{
+//  testCapture(4);
+//}
 
 //// recursive functions
 //

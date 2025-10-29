@@ -227,11 +227,11 @@ pub fn scanNode(
                 .Null => .Null,
                 .String => .String,
                 .Bool => a: {
-                    node.typeInfo.size = (blitzAst.AstTypes{ .Bool = {} }).getSize();
+                    node.typeInfo.size = try (blitzAst.AstTypes{ .Bool = {} }).getSize(context);
                     break :a .Bool;
                 },
                 .Char => a: {
-                    node.typeInfo.size = (blitzAst.AstTypes{ .Char = {} }).getSize();
+                    node.typeInfo.size = try (blitzAst.AstTypes{ .Char = {} }).getSize(context);
                     break :a .Char;
                 },
                 .Number => |num| a: {
@@ -253,7 +253,7 @@ pub fn scanNode(
                         arr,
                         withGenDef,
                     );
-                    node.typeInfo = inferredType.info.astType.getNodeTypeInfo();
+                    node.typeInfo = try inferredType.info.astType.getNodeTypeInfo(context);
                     const valueVariant: blitzAst.AstNodeUnion = .{
                         .Value = .{
                             .Number = .{ .U64 = arr.len },
@@ -267,14 +267,15 @@ pub fn scanNode(
                     });
 
                     const sliceSize = vmInfo.POINTER_SIZE * 2;
-                    node.typeInfo.size = inferredType.info.astType.getSize() * arr.len + sliceSize;
+                    const inferredTypeSize = try inferredType.info.astType.getSize(context);
+                    node.typeInfo.size = inferredTypeSize * arr.len + sliceSize;
 
                     return arraySliceType.toAllocInfo(inferredType.info.mutState, .Allocated);
                 },
             };
 
             const valueType = try context.pools.types.new(valueRes);
-            node.typeInfo = valueType.getNodeTypeInfo();
+            node.typeInfo = try valueType.getNodeTypeInfo(context);
             return valueType.toAllocInfo(.Mut, .Allocated);
         },
         .IndexValue => |indexInfo| {
@@ -297,7 +298,7 @@ pub fn scanNode(
                     arr.type,
                     withGenDef,
                 );
-                node.typeInfo.size = resType.info.astType.getSize();
+                node.typeInfo.size = try resType.info.astType.getSize(context);
                 return resType;
             }
 
@@ -328,7 +329,7 @@ pub fn scanNode(
                         left,
                         withGenDef,
                     );
-                    node.typeInfo.size = resType.info.astType.getSize();
+                    node.typeInfo.size = try resType.info.astType.getSize(context);
                     return resType;
                 },
                 .And, .Or => {
@@ -336,7 +337,7 @@ pub fn scanNode(
                         return ScanError.ExpectedBoolInBoolOp;
                     }
 
-                    node.typeInfo.size = (blitzAst.AstTypes{ .Bool = {} }).getSize();
+                    node.typeInfo.size = try (blitzAst.AstTypes{ .Bool = {} }).getSize(context);
 
                     releaseIfAllocated(context, left);
                     releaseIfAllocated(context, right);
@@ -365,7 +366,7 @@ pub fn scanNode(
                                 withGenDef,
                             );
                             res.info.mutState = .Mut;
-                            node.typeInfo.size = res.info.astType.getSize();
+                            node.typeInfo.size = try res.info.astType.getSize(context);
                             return res;
                         } else {
                             return ScanError.MathOpTypeMismatch;
@@ -390,7 +391,7 @@ pub fn scanNode(
                                 left,
                                 withGenDef,
                             );
-                            node.typeInfo.size = resType.info.astType.getSize();
+                            node.typeInfo.size = try resType.info.astType.getSize(context);
                             return resType;
                         } else {
                             return ScanError.MathOpTypeMismatch;
@@ -445,7 +446,7 @@ pub fn scanNode(
                         }
                     }
 
-                    node.typeInfo.size = (blitzAst.AstTypes{ .Bool = {} }).getSize();
+                    node.typeInfo.size = try (blitzAst.AstTypes{ .Bool = {} }).getSize(context);
 
                     releaseIfAllocated(context, left);
                     releaseIfAllocated(context, right);
@@ -463,7 +464,7 @@ pub fn scanNode(
         .Group,
         => |val| {
             const resType = try scanNode(allocator, context, val, withGenDef);
-            node.typeInfo.size = resType.info.astType.getSize();
+            node.typeInfo.size = try resType.info.astType.getSize(context);
             return resType;
         },
         .ReturnNode => |ret| {
@@ -795,7 +796,7 @@ pub fn scanNode(
                     info,
                     withGenDef,
                 );
-                node.typeInfo.size = info.info.astType.getSize();
+                node.typeInfo.size = try info.info.astType.getSize(context);
                 return res;
             }
 
@@ -1015,7 +1016,7 @@ pub fn scanNode(
                 func.returnType.toAllocInfo(.Recycled),
                 withGenDef,
             );
-            node.typeInfo.size = resType.info.astType.getSize();
+            node.typeInfo.size = try resType.info.astType.getSize(context);
             return resType;
         },
         .StructInit => |init| {
@@ -1165,7 +1166,7 @@ pub fn scanNode(
             const bangType = try escapeVarInfo(origBangType);
             if (bangType.info.astType.* != .Bool) return ScanError.ExpectedBooleanBang;
 
-            node.typeInfo.size = (blitzAst.AstTypes{ .Bool = {} }).getSize();
+            node.typeInfo.size = try (blitzAst.AstTypes{ .Bool = {} }).getSize(context);
             return context.staticPtrs.types.boolType.toAllocInfo(.Recycled);
         },
         .Error => |err| {
@@ -1225,7 +1226,7 @@ pub fn scanNode(
                 return ScanError.CannotDereferenceNonPointerValue;
             }
 
-            node.typeInfo.size = ptrType.info.astType.Pointer.info.astType.getSize();
+            node.typeInfo.size = try ptrType.info.astType.Pointer.info.astType.getSize(context);
 
             if (ptrType.allocState == .Allocated) {
                 const res = ptrType.info.astType.Pointer;
@@ -1326,7 +1327,7 @@ pub fn scanNode(
             const arrSize = std.fmt.parseInt(u64, init.size, 10) catch
                 return ScanError.InvalidNumber;
             const sliceSize = vmInfo.POINTER_SIZE * 2;
-            node.typeInfo.size = initTypeClone.info.astType.getSize() * arrSize + sliceSize;
+            node.typeInfo.size = try initTypeClone.info.astType.getSize(context) * arrSize + sliceSize;
 
             return arraySliceType.toAllocInfo(.Mut, .Allocated);
         },

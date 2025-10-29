@@ -1428,7 +1428,7 @@ pub fn genBytecode(
                 .Store64AtRegPostInc16 = .{
                     .fromReg = resReg,
                     .toRegPtr = sliceInfo.reg,
-                    .inc = @intCast(init.initType.astType.getSize()),
+                    .inc = @intCast(try init.initType.astType.getSize(context)),
                 },
             };
             _ = try context.genInfo.appendChunk(writeInstr);

@@ -1,18 +1,29 @@
-struct Box { }
+// declare a basic struct with some properties and methods
+struct Box {
+    size: u32;
 
-struct [T] M {
-  value: T;
+    pub fn getSizePlusOne() u32 {
+        return self.size + 1;
+    }
 }
 
-fn thing(p1: M<Box>) M<Box> {
-  return p1;
+// init the struct on the stack
+let myBox = Box { size = 10 };
+let sizePlusOne = myBox.getSizePlusOne();
+
+// init the struct on the heap
+let heapBox: *Box = new Box { size = 2 };
+delete heapBox;
+
+// declare generic struct
+struct [T] GenBox {
+    data: T;
+
+    pub fn getData() T {
+        return self.data;
+    }
 }
 
-let val = M<Box>{
-  value = Box {},
-};
-
-thing(val);
-
-let mHeap: *Box = new Box {};
-delete mHeap;
+// init generic struct
+let myGenBox = GenBox<u32> { data = 4 };
+//let myGenBoxData = myGenBox.getData();

@@ -264,7 +264,7 @@ pub const AstTypes = union(Types) {
         };
     }
 
-    pub fn getSize(self: Self) u64 {
+    pub fn getSize(self: Self, context: *Context) !u64 {
         return switch (self) {
             .Null, .RawNumber, .Undef => unreachable,
             .String => utils.unimplemented(),
@@ -273,14 +273,32 @@ pub const AstTypes = union(Types) {
             .Number => |num| return num.getSize(),
             .ArraySlice => 16,
             .Pointer, .StaticStructInstance => 8,
-            .Nullable => |inner| return 1 + inner.astType.getSize(),
-            .Custom => utils.unimplemented(),
-            .VarInfo => |inner| return inner.info.astType.getSize(),
+            .Nullable => |inner| return 1 + try inner.astType.getSize(context),
+            .Custom => |custom| {
+                const dec = context.compInfo.getStructDec(custom.name).?;
+
+                // try context.compInfo.pushGenScope(false);
+                // defer context.compInfo.popGenScope();
+
+                // for (custom.generics, dec.generics) |fromInit, fromDec| {
+                //     context.compInfo.setGeneric(fromDec.name, fromInit.toAllocInfo(.Recycled));
+                // }
+
+                var size: u64 = 0;
+                for (dec.totalMemberList) |member| {
+                    if (member.attr != .Member) continue;
+
+                    size += try member.attr.Member.astType.getSize(context);
+                }
+
+                return size;
+            },
+            .VarInfo => |inner| return try inner.info.astType.getSize(context),
         };
     }
 
     // whether the type can fit into a 64 bit register (<= 64 bits)
-    pub fn isTrivial(self: Self) bool {
+    pub fn isTrivial(self: Self, context: *Context) !bool {
         return switch (self) {
             .Null, .RawNumber => unreachable,
             .String => utils.unimplemented(),
@@ -298,16 +316,16 @@ pub const AstTypes = union(Types) {
             => true,
             .Number => |num| return num.isTrivial(),
             .ArraySlice => false,
-            .Nullable => |inner| return inner.astType.getSize() <= 7,
+            .Nullable => |inner| return (try inner.astType.getSize(context)) <= 7,
             .Custom => utils.unimplemented(),
-            .VarInfo => |inner| return inner.info.astType.isTrivial(),
+            .VarInfo => |inner| return try inner.info.astType.isTrivial(context),
         };
     }
 
-    pub fn getNodeTypeInfo(self: Self) AstNodeTypeInfo {
+    pub fn getNodeTypeInfo(self: Self, context: *Context) !AstNodeTypeInfo {
         return .{
-            .size = self.getSize(),
-            .isTrivial = self.isTrivial(),
+            .size = try self.getSize(context),
+            .isTrivial = try self.isTrivial(context),
         };
     }
 };
@@ -1195,6 +1213,13 @@ fn parseStructAttributeUtil(
     if (first.type == .Static) {
         static = true;
         first = try context.tokenUtil.take();
+        try context.compInfo.pushParsedGenericsScope(false);
+    }
+
+    defer {
+        if (static) {
+            context.compInfo.popParsedGenericsScope();
+        }
     }
 
     switch (first.type) {
