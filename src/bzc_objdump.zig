@@ -47,7 +47,7 @@ pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
         const instr = @as(codegen.InstructionVariants, @enumFromInt(bytecode[current]));
         const size = instr.getInstrLen();
 
-        try writer.writeAll("[");
+        try writer.writeByte('[');
         try writer.printInt(current, 10, .lower, .{});
         try writer.writeAll("] (");
         try writer.printInt(size, 10, .lower, .{});
@@ -64,7 +64,7 @@ pub fn printVMStartInfo(info: []u8, writer: *Writer) !void {
     try writer.writeAll("\nstarting stack size: ");
     const startStackSize = std.mem.readInt(u32, @ptrCast(info[1..5]), .little);
     try writer.printInt(startStackSize, 10, .lower, .{});
-    try writer.writeAll("\n");
+    try writer.writeByte('\n');
 }
 
 fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
@@ -76,28 +76,28 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
         .SetReg64 => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             const num = bytecode[2..10];
             try writeHexDecNumberSlice(num, writer);
         },
         .SetReg32 => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             const num = bytecode[2..6];
             try writeHexDecNumberSlice(num, writer);
         },
         .SetReg16 => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             const num = bytecode[2..4];
             try writeHexDecNumberSlice(num, writer);
         },
         .SetReg8, .CmpConst8 => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[2..3], writer);
         },
         .Cmp => {
@@ -137,7 +137,7 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" r");
             try writer.printInt(bytecode[2], 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[3..4], writer);
         },
         .Jump,
@@ -155,7 +155,7 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
         .JumpBackGTE,
         .JumpBackLTE,
         => {
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[1..], writer);
         },
         .IncConst8,
@@ -163,7 +163,7 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
         => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[2..3], writer);
         },
         .Mov => {
@@ -176,30 +176,30 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
         },
+        .MovSpNegOffset16 => {
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[1], 10, .lower, .{});
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[2..4], writer);
+        },
         .XorConst8 => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" r");
             try writer.printInt(bytecode[2], 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[3..4], writer);
         },
-        .AddSp8, .SubSp8 => {
-            try writer.writeAll(" ");
-            try writer.printInt(bytecode[1], 10, .lower, .{});
-        },
-        .AddSpReg,
-        .SubSpReg,
-        => {
-            try writer.writeAll(" r");
-            try writer.printInt(bytecode[1], 10, .lower, .{});
+        .AddSp16, .SubSp16 => {
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[1..3], writer);
         },
         .Store64Offset8 => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" r");
             try writer.printInt(bytecode[2], 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[3..4], writer);
         },
         .Store64AtRegPostInc8 => {
@@ -207,7 +207,7 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" r");
             try writer.printInt(bytecode[2], 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[3..4], writer);
         },
         .Store64AtRegPostInc64 => {
@@ -215,20 +215,18 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeAll(" r");
             try writer.printInt(bytecode[2], 10, .lower, .{});
-            try writer.writeAll(" ");
+            try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[3..11], writer);
         },
-        .Store64AtSpPostInc8 => {
+        .Store64AtSpNegOffset16,
+        .Store32AtSpNegOffset16,
+        .Store16AtSpNegOffset16,
+        .Store8AtSpNegOffset16,
+        => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
-            try writer.writeAll(" ");
-            try writeHexDecNumberSlice(bytecode[2..3], writer);
-        },
-        .StoreAtSpPostInc8 => {
-            try writer.writeAll(" r");
-            try writer.printInt(bytecode[1], 10, .lower, .{});
-            try writer.writeAll(" ");
-            try writeHexDecNumberSlice(bytecode[2..3], writer);
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[2..4], writer);
         },
         .Load64AtReg,
         .Load32AtReg,
@@ -243,7 +241,7 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
         },
     }
 
-    try writer.writeAll("\n");
+    try writer.writeByte('\n');
 }
 
 fn writeHexDecNumberSlice(constStr: []const u8, writer: *Writer) !void {

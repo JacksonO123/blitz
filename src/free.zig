@@ -258,7 +258,7 @@ pub fn recursiveReleaseNodeUtil(
             recursiveReleaseNodeUtil(allocator, context, expr.right, releaseType);
         },
         .IndexValue => |index| {
-            recursiveReleaseNodeUtil(allocator, context, index.value, releaseType);
+            recursiveReleaseNodeUtil(allocator, context, index.target, releaseType);
             recursiveReleaseNodeUtil(allocator, context, index.index, releaseType);
         },
         .ForLoop => |loop| {

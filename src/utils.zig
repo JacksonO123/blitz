@@ -64,3 +64,5 @@ pub inline fn dbgWriter() *std.Io.Writer {
     const writer = &stdout.interface;
     return writer;
 }
+
+pub fn noOpFn() void {}

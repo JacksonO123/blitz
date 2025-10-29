@@ -6,6 +6,7 @@ const free = blitz.free;
 const builtins = blitz.builtins;
 const clone = blitz.clone;
 const blitzCompInfo = blitz.compInfo;
+const vmInfo = blitz.vmInfo;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Context = blitz.context.Context;
@@ -136,6 +137,7 @@ pub const ScanError = error{
     BitMaskWithMismatchingSize,
     NumberTypeMismatch,
     ComparisonOnNonNumberType,
+    CannotIncDecNonNumberType,
 
     // generics
     EmptyGenericType,
@@ -168,18 +170,6 @@ pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, context: *Context) !voi
     defer releaseIfAllocated(context, res);
 
     try scanFunctionCalls(allocator, context);
-}
-
-pub fn scanNodes(
-    allocator: Allocator,
-    context: *Context,
-    nodes: []*blitzAst.AstNode,
-    withGenDef: bool,
-) ScanNodeError!void {
-    for (nodes) |node| {
-        const res = try scanNode(allocator, context, node, withGenDef);
-        releaseIfAllocated(context, res);
-    }
 }
 
 pub fn scanNode(
@@ -236,13 +226,24 @@ pub fn scanNode(
             const valueRes: blitzAst.AstTypes = switch (val) {
                 .Null => .Null,
                 .String => .String,
-                .Bool => .Bool,
-                .Char => .Char,
-                .Number => |num| .{ .Number = num.toAstNumberVariant() },
+                .Bool => a: {
+                    node.typeInfo.size = (blitzAst.AstTypes{ .Bool = {} }).getSize();
+                    break :a .Bool;
+                },
+                .Char => a: {
+                    node.typeInfo.size = (blitzAst.AstTypes{ .Char = {} }).getSize();
+                    break :a .Char;
+                },
+                .Number => |num| a: {
+                    const numVariant = num.toAstNumberVariant();
+                    node.typeInfo.size = numVariant.getSize();
+                    break :a .{ .Number = numVariant };
+                },
                 .RawNumber => |num| a: {
                     if (!verifyRawNumberMagnitude(num)) {
                         return ScanError.RawNumberTooBigForType;
                     }
+                    node.typeInfo.size = num.numType.getSize();
                     break :a .{ .Number = num.numType };
                 },
                 .ArraySlice => |arr| {
@@ -265,6 +266,9 @@ pub fn scanNode(
                         },
                     });
 
+                    const sliceSize = vmInfo.POINTER_SIZE * 2;
+                    node.typeInfo.size = inferredType.info.astType.getSize() * arr.len + sliceSize;
+
                     return arraySliceType.toAllocInfo(inferredType.info.mutState, .Allocated);
                 },
             };
@@ -277,22 +281,24 @@ pub fn scanNode(
             const origIndexType = try scanNode(allocator, context, indexInfo.index, withGenDef);
             defer releaseIfAllocated(context, origIndexType);
             const indexType = try escapeVarInfo(origIndexType);
-            const origValueType = try scanNode(allocator, context, indexInfo.value, withGenDef);
-            defer releaseIfAllocated(context, origValueType);
-            const valueType = try escapeVarInfo(origValueType);
+            const origTargetType = try scanNode(allocator, context, indexInfo.target, withGenDef);
+            defer releaseIfAllocated(context, origTargetType);
+            const targetType = try escapeVarInfo(origTargetType);
 
             if (indexType.info.astType.* == .Number and indexType.info.astType.Number != .U64) {
                 return ScanError.ExpectedU64ForIndex;
             }
 
-            if (valueType.info.astType.* == .ArraySlice) {
-                const arr = valueType.info.astType.*.ArraySlice;
-                return try clone.replaceGenericsOnTypeInfo(
+            if (targetType.info.astType.* == .ArraySlice) {
+                const arr = targetType.info.astType.*.ArraySlice;
+                const resType = try clone.replaceGenericsOnTypeInfo(
                     allocator,
                     context,
                     arr.type,
                     withGenDef,
                 );
+                node.typeInfo.size = resType.info.astType.getSize();
+                return resType;
             }
 
             return ScanError.ExpectedArrayForIndexTarget;
@@ -316,18 +322,21 @@ pub fn scanNode(
                     }
 
                     releaseIfAllocated(context, right);
-
-                    return try clone.replaceGenericsOnTypeInfoAndRelease(
+                    const resType = try clone.replaceGenericsOnTypeInfoAndRelease(
                         allocator,
                         context,
                         left,
                         withGenDef,
                     );
+                    node.typeInfo.size = resType.info.astType.getSize();
+                    return resType;
                 },
                 .And, .Or => {
                     if (left.info.astType.* != .Bool or right.info.astType.* != .Bool) {
                         return ScanError.ExpectedBoolInBoolOp;
                     }
+
+                    node.typeInfo.size = (blitzAst.AstTypes{ .Bool = {} }).getSize();
 
                     releaseIfAllocated(context, left);
                     releaseIfAllocated(context, right);
@@ -356,6 +365,7 @@ pub fn scanNode(
                                 withGenDef,
                             );
                             res.info.mutState = .Mut;
+                            node.typeInfo.size = res.info.astType.getSize();
                             return res;
                         } else {
                             return ScanError.MathOpTypeMismatch;
@@ -374,16 +384,30 @@ pub fn scanNode(
                         );
                         if (matches) {
                             releaseIfAllocated(context, right);
-                            return try clone.replaceGenericsOnTypeInfoAndRelease(
+                            const resType = try clone.replaceGenericsOnTypeInfoAndRelease(
                                 allocator,
                                 context,
                                 left,
                                 withGenDef,
                             );
+                            node.typeInfo.size = resType.info.astType.getSize();
+                            return resType;
                         } else {
                             return ScanError.MathOpTypeMismatch;
                         }
                     }
+
+                    if (left.info.astType.* != .Number or right.info.astType.* != .Number) {
+                        return ScanError.MathOpOnNonNumberType;
+                    }
+
+                    const leftEnum = @intFromEnum(left.info.astType.Number);
+                    const rightEnum = @intFromEnum(right.info.astType.Number);
+                    if (leftEnum != rightEnum) {
+                        return ScanError.NumberTypeMismatch;
+                    }
+
+                    node.typeInfo.size = left.info.astType.Number.getSize();
 
                     if (op.type == .Div) {
                         const isFloat = switch (left.info.astType.Number) {
@@ -393,24 +417,14 @@ pub fn scanNode(
 
                         if (isFloat) {
                             releaseIfAllocated(context, right);
-                            return try clone.replaceGenericsOnTypeInfoAndRelease(
-                                allocator,
-                                context,
-                                left,
-                                withGenDef,
-                            );
+                            return left;
                         }
 
                         return context.staticPtrs.types.f32Type.toAllocInfo(.Recycled);
                     }
 
                     releaseIfAllocated(context, right);
-                    return try clone.replaceGenericsOnTypeInfoAndRelease(
-                        allocator,
-                        context,
-                        left,
-                        withGenDef,
-                    );
+                    return left;
                 },
                 .LessThan,
                 .GreaterThan,
@@ -431,6 +445,8 @@ pub fn scanNode(
                         }
                     }
 
+                    node.typeInfo.size = (blitzAst.AstTypes{ .Bool = {} }).getSize();
+
                     releaseIfAllocated(context, left);
                     releaseIfAllocated(context, right);
                     return context.staticPtrs.types.boolType.toAllocInfo(.Recycled);
@@ -439,13 +455,16 @@ pub fn scanNode(
         },
         .IncOne, .DecOne => |val| {
             const valType = try scanNode(allocator, context, val, withGenDef);
+            if (valType.info.astType.* != .Number) return ScanError.CannotIncDecNonNumberType;
             if (valType.info.astType.* != .VarInfo) return ScanError.InvalidSetValueTarget;
             if (valType.info.mutState == .Const) return ScanError.AssigningToConstVariable;
             return valType;
         },
         .Group,
         => |val| {
-            return try scanNode(allocator, context, val, withGenDef);
+            const resType = try scanNode(allocator, context, val, withGenDef);
+            node.typeInfo.size = resType.info.astType.getSize();
+            return resType;
         },
         .ReturnNode => |ret| {
             if (!context.compInfo.returnInfo.info.inFunction) {
@@ -497,6 +516,7 @@ pub fn scanNode(
             return ScanError.IdentifierNotAFunction;
         },
         .PropertyAccess => |access| {
+            // TODO - node size for this
             if (access.value.variant == .Error) {
                 context.scanInfo.allowErrorWithoutVariants = true;
             }
@@ -633,7 +653,10 @@ pub fn scanNode(
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
         .Seq => |seq| {
-            try scanNodes(allocator, context, seq, withGenDef);
+            for (seq) |seqNode| {
+                const res = try scanNode(allocator, context, seqNode, withGenDef);
+                releaseIfAllocated(context, res);
+            }
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
         .VarDec => |dec| {
@@ -766,13 +789,13 @@ pub fn scanNode(
             const varInfo = try context.compInfo.getVariableType(name, withGenDef);
 
             if (varInfo) |info| {
-                std.debug.print("@@ here ({s}) :: {}\n", .{ name, info.info.astType.VarInfo.info.astType.* });
                 const res = try clone.replaceGenericsOnTypeInfo(
                     allocator,
                     context,
                     info,
                     withGenDef,
                 );
+                node.typeInfo.size = info.info.astType.getSize();
                 return res;
             }
 
@@ -986,14 +1009,17 @@ pub fn scanNode(
                 }
             }
 
-            return try clone.replaceGenericsOnTypeInfo(
+            const resType = try clone.replaceGenericsOnTypeInfo(
                 allocator,
                 context,
                 func.returnType.toAllocInfo(.Recycled),
                 withGenDef,
             );
+            node.typeInfo.size = resType.info.astType.getSize();
+            return resType;
         },
         .StructInit => |init| {
+            // TODO - node size for this
             try context.compInfo.pushGenScope(true);
             defer context.compInfo.popGenScope();
 
@@ -1139,6 +1165,7 @@ pub fn scanNode(
             const bangType = try escapeVarInfo(origBangType);
             if (bangType.info.astType.* != .Bool) return ScanError.ExpectedBooleanBang;
 
+            node.typeInfo.size = (blitzAst.AstTypes{ .Bool = {} }).getSize();
             return context.staticPtrs.types.boolType.toAllocInfo(.Recycled);
         },
         .Error => |err| {
@@ -1184,6 +1211,8 @@ pub fn scanNode(
 
             const ptrTypeInfo = try escapeVarInfoAndRelease(context, ptrType);
 
+            node.typeInfo.size = vmInfo.POINTER_SIZE;
+
             const res = try context.pools.types.new(.{
                 .Pointer = ptrTypeInfo,
             });
@@ -1196,13 +1225,16 @@ pub fn scanNode(
                 return ScanError.CannotDereferenceNonPointerValue;
             }
 
+            node.typeInfo.size = ptrType.info.astType.Pointer.info.astType.getSize();
+
             if (ptrType.allocState == .Allocated) {
                 const res = ptrType.info.astType.Pointer;
                 context.pools.types.release(ptrType.info.astType);
                 return res;
             }
 
-            return ptrType.info.astType.Pointer;
+            const resType = ptrType.info.astType.Pointer;
+            return resType;
         },
         .HeapAlloc => |*alloc| {
             const exprTypeResult = try scanNode(allocator, context, alloc.*.node, withGenDef);
@@ -1291,15 +1323,21 @@ pub fn scanNode(
                 },
             });
 
+            const arrSize = std.fmt.parseInt(u64, init.size, 10) catch
+                return ScanError.InvalidNumber;
+            const sliceSize = vmInfo.POINTER_SIZE * 2;
+            node.typeInfo.size = initTypeClone.info.astType.getSize() * arrSize + sliceSize;
+
             return arraySliceType.toAllocInfo(.Mut, .Allocated);
         },
         .InferErrorVariant => |variant| {
-            return (try context.pools.types.new(.{
+            const errorVariant = try context.pools.types.new(.{
                 .ErrorVariant = .{
                     .from = null,
                     .variant = variant,
                 },
-            })).toAllocInfo(.Const, .Allocated);
+            });
+            return errorVariant.toAllocInfo(.Const, .Allocated);
         },
         .Break, .Continue => {
             if (!context.compInfo.inLoopScope()) {
@@ -1399,7 +1437,7 @@ fn checkUndefVars(context: *Context, node: *const blitzAst.AstNode, allowSelf: b
             return undef;
         },
         .IndexValue => |index| {
-            undef = undef or checkUndefVars(context, index.value, allowSelf);
+            undef = undef or checkUndefVars(context, index.target, allowSelf);
             undef = undef or checkUndefVars(context, index.index, allowSelf);
             return undef;
         },

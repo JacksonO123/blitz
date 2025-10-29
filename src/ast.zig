@@ -519,7 +519,7 @@ const OpExpr = struct {
 
 const IndexValueNode = struct {
     index: *AstNode,
-    value: *AstNode,
+    target: *AstNode,
 };
 
 pub const ErrorDecNode = struct {
@@ -1544,6 +1544,11 @@ fn parseExpressionUtil(
                     }
                 },
                 .LBracket => {
+                    const targetNode = try getIdentNode(
+                        context,
+                        context.getTokString(first),
+                    );
+
                     _ = try context.tokenUtil.take();
                     const index = try parseExpression(allocator, context) orelse
                         return AstError.ExpectedExpression;
@@ -1552,10 +1557,7 @@ fn parseExpressionUtil(
                     const indexValueVariant: AstNodeUnion = .{
                         .IndexValue = .{
                             .index = index,
-                            .value = try getIdentNode(
-                                context,
-                                context.getTokString(first),
-                            ),
+                            .target = targetNode,
                         },
                     };
                     return try context.pools.nodes.new(indexValueVariant.toAstNode());
@@ -1848,7 +1850,7 @@ fn parsePropertyAccess(allocator: Allocator, context: *Context, node: *AstNode) 
         const indexValueVariant: AstNodeUnion = .{
             .IndexValue = .{
                 .index = expr,
-                .value = access,
+                .target = access,
             },
         };
         access = try context.pools.nodes.new(indexValueVariant.toAstNode());

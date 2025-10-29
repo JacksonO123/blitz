@@ -237,7 +237,7 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
     switch (node.variant) {
         .IndexValue => |index| {
             try writer.writeAll("indexing ");
-            try printNode(context, index.value, writer);
+            try printNode(context, index.target, writer);
             try writer.writeAll(" with ");
             try printNode(context, index.index, writer);
         },
@@ -865,6 +865,12 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(inst, 10, .lower, .{});
         },
+        .MovSpNegOffset16 => |inst| {
+            try writer.writeAll(" r");
+            try writer.printInt(inst.reg, 10, .lower, .{});
+            try writer.writeByte(' ');
+            try writeHexDecNumber(u16, inst.offset, writer);
+        },
         .XorConst8 => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.dest, 10, .lower, .{});
@@ -873,15 +879,9 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumber(u8, inst.byte, writer);
         },
-        .AddSp8, .SubSp8 => |inst| {
+        .AddSp16, .SubSp16 => |inst| {
             try writer.writeByte(' ');
-            try writeHexDecNumber(u8, inst, writer);
-        },
-        .AddSpReg,
-        .SubSpReg,
-        => |inst| {
-            try writer.writeAll(" r");
-            try writer.printInt(inst.reg, 10, .lower, .{});
+            try writeHexDecNumber(u16, inst, writer);
         },
         .Store64Offset8 => |inst| {
             try writer.writeAll(" r");
@@ -907,22 +907,20 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumber(u64, inst.inc, writer);
         },
-        .Store64AtSpPostInc8 => |inst| {
+        .Store64AtSpNegOffset16,
+        .Store32AtSpNegOffset16,
+        .Store16AtSpNegOffset16,
+        .Store8AtSpNegOffset16,
+        => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u8, inst.inc, writer);
-        },
-        .StoreAtSpPostInc8 => |inst| {
-            try writer.writeAll(" r");
-            try writer.printInt(inst.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u8, inst.inc, writer);
+            try writeHexDecNumber(u16, inst.offset, writer);
         },
         .Load64AtReg, .Load32AtReg, .Load16AtReg, .Load8AtReg => |inst| {
             try writer.writeAll(" r");
             try writer.printInt(inst.dest, 10, .lower, .{});
-            try writer.writeAll(" [");
+            try writer.writeAll(" [r");
             try writer.printInt(inst.fromRegPtr, 10, .lower, .{});
             try writer.writeByte(']');
         },

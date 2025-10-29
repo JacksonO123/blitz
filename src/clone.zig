@@ -189,7 +189,7 @@ pub fn cloneAstNodeUnion(
         .IndexValue => |index| return .{
             .IndexValue = .{
                 .index = try cloneAstNodePtrMut(allocator, context, index.index, withGenDef),
-                .value = try cloneAstNodePtrMut(allocator, context, index.value, withGenDef),
+                .target = try cloneAstNodePtrMut(allocator, context, index.target, withGenDef),
             },
         },
         .OpExpr => |op| {

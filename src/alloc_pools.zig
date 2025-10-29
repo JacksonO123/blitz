@@ -77,7 +77,7 @@ fn PrintFn(comptime T: type) type {
     return fn (*Context, *T, *Writer) anyerror!void;
 }
 
-fn AllocPool(
+pub fn AllocPool(
     comptime T: type,
     comptime size: comptime_int,
     comptime name: []const u8,

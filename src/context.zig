@@ -54,7 +54,7 @@ pub const Context = struct {
 
         const scanInfoPtr = try utils.createMut(scanner.ScanInfo, allocator, .{});
 
-        const genInfo = try codegen.GenInfo.init(allocator);
+        const genInfo = try codegen.GenInfo.init(allocator, context);
         const genInfoPtr = try utils.createMut(codegen.GenInfo, allocator, genInfo);
         genInfoPtr.vmInfo.stackStartSize = compInfoPtr.stackSizeEstimate;
 
