@@ -43,14 +43,18 @@ pub fn main() !void {
 pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
     try printVMStartInfo(bytecode[0..vmInfo.VM_INFO_BYTECODE_LEN], writer);
     var current: u64 = vmInfo.VM_INFO_BYTECODE_LEN;
+
+    const byteCountFloat: f64 = @floatFromInt(bytecode.len);
+    const numDigits: u64 = @intFromFloat(@floor(@log10(byteCountFloat)) + 1);
+
     while (current < bytecode.len) {
         const instr = @as(codegen.InstructionVariants, @enumFromInt(bytecode[current]));
         const size = instr.getInstrLen();
 
         try writer.writeByte('[');
-        try writer.printInt(current, 10, .lower, .{});
+        try writer.printInt(current, 10, .lower, .{ .width = numDigits, .fill = '.' });
         try writer.writeAll("] (");
-        try writer.printInt(size, 10, .lower, .{});
+        try writer.printInt(size, 10, .lower, .{ .width = numDigits, .fill = '.' });
         try writer.writeAll(") ");
 
         try printBytecodeSlice(bytecode[current .. current + size], writer);
@@ -241,7 +245,7 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
         => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
-            try writer.writeAll(" [");
+            try writer.writeAll(" [r");
             try writer.printInt(bytecode[2], 10, .lower, .{});
             try writer.writeByte(']');
         },

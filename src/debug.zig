@@ -727,32 +727,33 @@ pub fn printTokens(tokens: []const tokenizer.Token, code: []u8, writer: *Writer)
 }
 
 pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
-    const rootChunk = context.genInfo.instrListStart;
+    const chunk = context.genInfo.instrListStart orelse return;
 
-    if (rootChunk) |chunk| {
-        try writer.writeAll("MakeStack ");
-        try writeHexDecNumber(vmInfo.StartStackType, context.genInfo.vmInfo.stackStartSize, writer);
-        try writer.writeByte('\n');
+    try writer.writeAll("MakeStack ");
+    try writeHexDecNumber(vmInfo.StartStackType, context.genInfo.vmInfo.stackStartSize, writer);
+    try writer.writeByte('\n');
 
-        var byteCounter: usize = 0;
-        var next: ?*codegen.InstrChunk = chunk;
-        while (next) |nextChunk| {
-            const chunkLen = nextChunk.data.getInstrLen();
-            try writer.writeByte('[');
-            try writer.printInt(byteCounter, 10, .lower, .{});
-            try writer.writeAll("] (");
-            try writer.printInt(chunkLen, 10, .lower, .{});
-            try writer.writeAll(") ");
+    const byteCountFloat: f64 = @floatFromInt(context.genInfo.byteCounter);
+    const numDigits: u64 = @intFromFloat(@floor(@log10(byteCountFloat)) + 1);
 
-            try printChunk(nextChunk, writer);
-            byteCounter += chunkLen;
-            next = nextChunk.next;
-        }
+    var byteCounter: usize = 0;
+    var next: ?*codegen.InstrChunk = chunk;
+    while (next) |nextChunk| {
+        const chunkLen = nextChunk.data.getInstrLen();
+        try writer.writeByte('[');
+        try writer.printInt(byteCounter, 10, .lower, .{ .width = numDigits, .fill = '.' });
+        try writer.writeAll("] (");
+        try writer.printInt(chunkLen, 10, .lower, .{ .width = numDigits, .fill = '.' });
+        try writer.writeAll(") ");
 
-        try writer.print("total bytes: {d} (+ {d} vm info)\n", .{
-            context.genInfo.byteCounter, vmInfo.VM_INFO_BYTECODE_LEN,
-        });
+        try printChunk(nextChunk, writer);
+        byteCounter += chunkLen;
+        next = nextChunk.next;
     }
+
+    try writer.print("total bytes: {d} (+ {d} vm info)\n", .{
+        context.genInfo.byteCounter, vmInfo.VM_INFO_BYTECODE_LEN,
+    });
 }
 
 fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
