@@ -1042,7 +1042,7 @@ pub fn genBytecode(
                     const sliceInfo = try initSliceBytecode(
                         context,
                         items.len,
-                        node.typeInfo.size,
+                        sfSize,
                     );
 
                     const setSliceAddrInstr = Instr{
@@ -1382,8 +1382,18 @@ pub fn genBytecode(
             try loopInfo.appendContinue(chunk, byteCount);
         },
         .ArrayInit => |init| {
+            context.genInfo.procInfo.stackFrameSize += node.typeInfo.size;
+            const sfSize = context.genInfo.procInfo.stackFrameSize;
+
             const initLen = try std.fmt.parseInt(u64, init.size, 10);
-            const sliceInfo = try initSliceBytecode(context, initLen, 0);
+            const sliceInfo = try initSliceBytecode(context, initLen, sfSize);
+
+            const setSliceAddrInstr = Instr{
+                .MovSpNegOffset16 = .{
+                    .reg = sliceInfo.reg,
+                    .offset = @intCast(sfSize),
+                },
+            };
 
             const lenReg = try context.genInfo.getAvailableReg();
             try context.genInfo.reserveRegister(lenReg);
@@ -1396,7 +1406,7 @@ pub fn genBytecode(
             };
             _ = try context.genInfo.appendChunk(movLen);
 
-            const preBodyByteCount = context.genInfo.byteCounter;
+            const preCmpByteCount = context.genInfo.byteCounter;
 
             const cmpLen = Instr{
                 .CmpConst8 = .{
@@ -1405,6 +1415,8 @@ pub fn genBytecode(
                 },
             };
             _ = try context.genInfo.appendChunk(cmpLen);
+
+            const postCmpByteCount = context.genInfo.byteCounter;
 
             const jumpInstr = Instr{ .JumpEQ = .{} };
             const jumpChunk = try context.genInfo.appendChunk(jumpInstr);
@@ -1422,7 +1434,7 @@ pub fn genBytecode(
             _ = try context.genInfo.appendChunk(writeInstr);
 
             const subLen = Instr{
-                .Add8 = .{
+                .Sub8 = .{
                     .dest = lenReg,
                     .reg = lenReg,
                     .data = 1,
@@ -1430,15 +1442,17 @@ pub fn genBytecode(
             };
             _ = try context.genInfo.appendChunk(subLen);
 
-            const diff: u16 = @intCast(context.genInfo.byteCounter - preBodyByteCount);
+            const diff: u16 = @intCast(context.genInfo.byteCounter - postCmpByteCount);
             jumpChunk.data.JumpEQ.amount = diff;
 
             const jumpStart = Instr{
                 .JumpBack = .{
-                    .amount = @intCast(context.genInfo.byteCounter - preBodyByteCount),
+                    .amount = @intCast(context.genInfo.byteCounter - preCmpByteCount),
                 },
             };
             _ = try context.genInfo.appendChunk(jumpStart);
+
+            _ = try context.genInfo.appendChunk(setSliceAddrInstr);
 
             return sliceInfo.reg;
         },

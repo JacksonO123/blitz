@@ -1,5 +1,5 @@
 let a = [1u8, 2u8, 3u8, 4u8];
-//let dataArr = [350u64]u32 with (_, ptr) *ptr;
+let dataArr = [12u64]u32 with (_, ptr) 1;
 
 //let a = 2;
 //let b = &a;
