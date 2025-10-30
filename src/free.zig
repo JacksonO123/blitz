@@ -110,15 +110,19 @@ pub fn freeVariableScope(
     scope: *compInfo.VarScope,
     releaseType: ReleaseType,
 ) void {
-    var scopeIt = scope.iterator();
-    while (scopeIt.next()) |val| {
-        if (val.value_ptr.allocState == .Allocated) {
-            recursiveReleaseType(allocator, context, val.value_ptr.info.astType);
-        } else if (releaseType == .All) {
-            recursiveReleaseTypeAll(allocator, context, val.value_ptr.info.astType);
-        }
-    }
-    scope.deinit();
+    _ = allocator;
+    _ = context;
+    _ = scope;
+    _ = releaseType;
+    // var scopeIt = scope.iterator();
+    // while (scopeIt.next()) |val| {
+    //     if (val.value_ptr.allocState == .Allocated) {
+    //         recursiveReleaseType(allocator, context, val.value_ptr.info.astType);
+    //     } else if (releaseType == .All) {
+    //         recursiveReleaseTypeAll(allocator, context, val.value_ptr.info.astType);
+    //     }
+    // }
+    // scope.deinit();
 }
 
 pub fn freeVariableCaptures(
@@ -141,15 +145,19 @@ pub fn freeGenericScope(
     scope: *compInfo.TypeScope,
     releaseType: ReleaseType,
 ) void {
-    var scopeIt = scope.iterator();
-    while (scopeIt.next()) |val| {
-        if (val.value_ptr.allocState == .Allocated) {
-            recursiveReleaseType(allocator, context, val.value_ptr.info.astType);
-        } else if (releaseType == .All) {
-            recursiveReleaseTypeAll(allocator, context, val.value_ptr.info.astType);
-        }
-    }
-    scope.deinit();
+    _ = allocator;
+    _ = context;
+    _ = scope;
+    _ = releaseType;
+    // var scopeIt = scope.valueIterator();
+    // while (scopeIt.next()) |val| {
+    //     if (val.allocState == .Allocated) {
+    //         recursiveReleaseType(allocator, context, val.info.astType);
+    //     } else if (releaseType == .All) {
+    //         recursiveReleaseTypeAll(allocator, context, val.info.astType);
+    //     }
+    // }
+    // scope.deinit();
 }
 
 pub fn deinitScope(

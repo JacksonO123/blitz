@@ -1387,6 +1387,7 @@ pub fn genBytecode(
 
             const initLen = try std.fmt.parseInt(u64, init.size, 10);
             const sliceInfo = try initSliceBytecode(context, initLen, sfSize);
+            defer context.genInfo.releaseRegister(sliceInfo.reg);
 
             const setSliceAddrInstr = Instr{
                 .MovSpNegOffset16 = .{
@@ -1397,6 +1398,7 @@ pub fn genBytecode(
 
             const lenReg = try context.genInfo.getAvailableReg();
             try context.genInfo.reserveRegister(lenReg);
+            defer context.genInfo.releaseRegister(lenReg);
 
             const movLen = Instr{
                 .SetReg64 = .{
@@ -1421,8 +1423,10 @@ pub fn genBytecode(
             const jumpInstr = Instr{ .JumpEQ = .{} };
             const jumpChunk = try context.genInfo.appendChunk(jumpInstr);
 
+            try context.genInfo.pushScope();
             const resReg = try genBytecode(allocator, context, init.initNode) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
+            try context.genInfo.releaseScope();
 
             const writeInstr = Instr{
                 .Store64AtRegPostInc16 = .{

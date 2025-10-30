@@ -1,6 +1,19 @@
-let arr = [1u8, 2u8, 3u8, 4u8];
-let dataArr = [12u64]u32 with (_, ptr) 1;
+//let arr = [1u8, 2u8, 3u8, 4u8];
+//let dataArr = [12u64]u32 with 1;
+//
+//let a = 2;
+//let b = &a;
+//let c: u32 = *b;
 
-let a = 2;
-let b = &a;
-let c: u32 = *b;
+
+fn [T] testCapture(value: T) T {
+  fn [G] temp(newValue: G) G {
+    return newValue + value;
+  }
+
+  return temp(value);
+}
+
+{
+  testCapture(4);
+}

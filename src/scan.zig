@@ -1496,6 +1496,15 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
         const lastRetInfo = try context.compInfo.returnInfo.newInfo(true);
         defer context.compInfo.returnInfo.swapFree(context, lastRetInfo);
 
+        defer {
+            if (func.capturedValues) |captured| {
+                var it = captured.valueIterator();
+                while (it.next()) |val| {
+                    free.recursiveReleaseTypeAll(allocator, context, val.info.astType);
+                }
+            }
+        }
+
         if (func.capturedTypes) |captured| {
             var captureIt = captured.iterator();
             while (captureIt.next()) |item| {

@@ -502,13 +502,13 @@ pub const CompInfo = struct {
 
                 const captureScope = self.genericCaptures.getCurrentScope();
                 if (captureScope) |capScope| {
-                    const clonedType = try clone.replaceGenericsOnTypeInfo(
+                    const clonedType = try clone.cloneAstTypeInfo(
                         self.allocator,
                         self.context,
-                        copy,
+                        copy.info,
                         true,
                     );
-                    try capScope.put(name, clonedType);
+                    try capScope.put(name, clonedType.toAllocInfo(.Recycled));
                 }
 
                 return copy;
@@ -587,13 +587,13 @@ pub const CompInfo = struct {
 
                 const captureScope = self.variableCaptures.getCurrentScope();
                 if (captureScope) |capScope| {
-                    const clonedType = try clone.replaceGenericsOnTypeInfo(
+                    var clonedType = try clone.cloneAstTypeInfo(
                         self.allocator,
                         self.context,
-                        copy,
+                        copy.info,
                         replaceGenerics,
                     );
-                    try capScope.put(name, clonedType);
+                    try capScope.put(name, clonedType.toAllocInfo(.Allocated));
                 }
 
                 return copy;
