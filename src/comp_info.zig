@@ -83,10 +83,10 @@ pub const CompInfo = struct {
     errorDecs: *StringHashMap(*const blitzAst.ErrorDecNode),
     functionsToScan: *ToScanStack,
     genericScopes: *ScopeUtil(*TypeScope, free.freeGenericScope),
-    preAst: bool,
     returnInfo: *ReturnInfo,
     builtins: builtins.BuiltinFuncMemo,
     stackSizeEstimate: vmInfo.StartStackType,
+    preAst: bool,
 
     pub fn init(
         allocator: Allocator,
@@ -587,7 +587,7 @@ pub const CompInfo = struct {
 
                 const captureScope = self.variableCaptures.getCurrentScope();
                 if (captureScope) |capScope| {
-                    var clonedType = try clone.cloneAstTypeInfo(
+                    const clonedType = try clone.cloneAstTypeInfo(
                         self.allocator,
                         self.context,
                         copy.info,

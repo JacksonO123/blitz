@@ -110,33 +110,18 @@ pub fn freeVariableScope(
     scope: *compInfo.VarScope,
     releaseType: ReleaseType,
 ) void {
-    _ = allocator;
-    _ = context;
-    _ = scope;
-    _ = releaseType;
-    // var scopeIt = scope.iterator();
-    // while (scopeIt.next()) |val| {
-    //     if (val.value_ptr.allocState == .Allocated) {
-    //         recursiveReleaseType(allocator, context, val.value_ptr.info.astType);
-    //     } else if (releaseType == .All) {
-    //         recursiveReleaseTypeAll(allocator, context, val.value_ptr.info.astType);
-    //     }
-    // }
-    // scope.deinit();
-}
-
-pub fn freeVariableCaptures(
-    allocator: Allocator,
-    context: *Context,
-    scope: *compInfo.CaptureScope,
-    releaseType: ReleaseType,
-) void {
-    _ = allocator;
-    _ = context;
-    _ = releaseType;
+    var scopeIt = scope.iterator();
+    while (scopeIt.next()) |val| {
+        if (val.value_ptr.allocState == .Allocated) {
+            recursiveReleaseType(allocator, context, val.value_ptr.info.astType);
+        } else if (releaseType == .All) {
+            recursiveReleaseTypeAll(allocator, context, val.value_ptr.info.astType);
+        }
+    }
     scope.deinit();
 }
 
+pub const freeVariableCaptures = freeVariableScope;
 pub const freeGenericCaptures = freeGenericScope;
 
 pub fn freeGenericScope(
@@ -145,19 +130,15 @@ pub fn freeGenericScope(
     scope: *compInfo.TypeScope,
     releaseType: ReleaseType,
 ) void {
-    _ = allocator;
-    _ = context;
-    _ = scope;
-    _ = releaseType;
-    // var scopeIt = scope.valueIterator();
-    // while (scopeIt.next()) |val| {
-    //     if (val.allocState == .Allocated) {
-    //         recursiveReleaseType(allocator, context, val.info.astType);
-    //     } else if (releaseType == .All) {
-    //         recursiveReleaseTypeAll(allocator, context, val.info.astType);
-    //     }
-    // }
-    // scope.deinit();
+    var scopeIt = scope.valueIterator();
+    while (scopeIt.next()) |val| {
+        if (val.allocState == .Allocated) {
+            recursiveReleaseType(allocator, context, val.info.astType);
+        } else if (releaseType == .All) {
+            recursiveReleaseTypeAll(allocator, context, val.info.astType);
+        }
+    }
+    scope.deinit();
 }
 
 pub fn deinitScope(
@@ -321,7 +302,7 @@ pub fn recursiveReleaseTypeUtil(
     astType: *blitzAst.AstTypes,
     releaseType: ReleaseType,
 ) void {
-    if (!context.staticPtrs.isStaticType(astType)) {
+    if (!context.staticPtrs.isStaticPtr(astType)) {
         context.pools.types.release(astType);
     }
 

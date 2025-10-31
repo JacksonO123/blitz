@@ -1,12 +1,10 @@
-//let arr = [1u8, 2u8, 3u8, 4u8];
-//let dataArr = [12u64]u32 with 1;
-//
-//let a = 2;
-//let b = &a;
-//let c: u32 = *b;
+fn [T] myFunc3(value: T) T {
+  return value + 1;
+}
 
+myFunc3(3);
 
-fn [T] testCapture(value: T) T {
+fn testCapture(value: u32) u32 {
   fn [G] temp(newValue: G) G {
     return newValue + value;
   }
@@ -14,6 +12,3 @@ fn [T] testCapture(value: T) T {
   return temp(value);
 }
 
-{
-  testCapture(4);
-}

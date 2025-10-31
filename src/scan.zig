@@ -169,7 +169,7 @@ pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, context: *Context) !voi
     const res = try scanNode(allocator, context, ast.root, true);
     defer releaseIfAllocated(context, res);
 
-    try scanFunctionCalls(allocator, context);
+    // try scanFunctionCalls(allocator, context);
 }
 
 pub fn scanNode(
@@ -1496,15 +1496,6 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
         const lastRetInfo = try context.compInfo.returnInfo.newInfo(true);
         defer context.compInfo.returnInfo.swapFree(context, lastRetInfo);
 
-        defer {
-            if (func.capturedValues) |captured| {
-                var it = captured.valueIterator();
-                while (it.next()) |val| {
-                    free.recursiveReleaseTypeAll(allocator, context, val.info.astType);
-                }
-            }
-        }
-
         if (func.capturedTypes) |captured| {
             var captureIt = captured.iterator();
             while (captureIt.next()) |item| {
@@ -1885,13 +1876,29 @@ fn scanFuncBodyAndReturn(
     defer context.compInfo.popScope();
 
     for (func.params) |param| {
-        const typeClone = try clone.replaceGenericsOnTypeInfo(
+        const typeClone = try clone.cloneAstTypeInfo(
             allocator,
             context,
-            param.type.toAllocInfo(.Recycled),
+            param.type,
             withGenDef,
         );
-        try context.compInfo.setVariableType(param.name, typeClone, param.mutState);
+
+        try context.compInfo.setVariableType(
+            param.name,
+            typeClone.toAllocInfo(.Recycled),
+            param.mutState,
+        );
+    }
+
+    defer {
+        for (func.params) |param| {
+            const varType = context.compInfo.getVariableTypeFixed(param.name);
+            if (varType) |t| {
+                const innerType = t.info.astType.VarInfo.info.astType;
+                free.recursiveReleaseTypeAll(allocator, context, innerType);
+                t.info.astType.VarInfo = context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
+            }
+        }
     }
 
     try scanNodeForFunctions(allocator, context, func.body);

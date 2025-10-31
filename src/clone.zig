@@ -26,7 +26,7 @@ pub fn cloneAstTypeInfo(
     withGenDef: bool,
 ) (Allocator.Error || CloneError)!blitzAst.AstTypeInfo {
     if (info.astType.* == .Generic) {
-        const generic = info.astType.*.Generic;
+        const generic = info.astType.Generic;
         if (withGenDef) {
             const genType = try context.compInfo.getGeneric(generic);
             if (genType) |gType| {

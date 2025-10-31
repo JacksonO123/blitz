@@ -92,6 +92,7 @@ pub const Context = struct {
         self.compInfo.deinit();
         self.genInfo.deinit();
         self.deferCleanup.deinit();
+        self.staticPtrs.deinit(self.pools);
         self.pools.deinit();
 
         self.allocator.destroy(self.pools);
@@ -156,8 +157,8 @@ pub const StaticPtrs = struct {
         };
     }
 
-    pub fn isStaticType(self: Self, ptr: *blitzAst.AstTypes) bool {
-        const staticTypes = .{
+    pub fn deinit(self: *Self, pools: *allocPools.Pools) void {
+        const allPtrs1 = .{
             self.types.voidType,
             self.types.boolType,
             self.types.anyType,
@@ -166,8 +167,49 @@ pub const StaticPtrs = struct {
             self.types.undefType,
         };
 
-        inline for (staticTypes) |t| {
-            if (t.astType == ptr) return true;
+        const allPtrs2 = .{
+            self.nodes.noOp,
+            self.nodes.structPlaceholder,
+            self.nodes.breakNode,
+            self.nodes.continueNode,
+        };
+
+        inline for (allPtrs1) |ptr| {
+            pools.types.release(ptr.astType);
+        }
+
+        inline for (allPtrs2) |ptr| {
+            pools.nodes.release(ptr);
+        }
+    }
+
+    pub fn isStaticPtr(self: Self, ptr: anytype) bool {
+        if (@TypeOf(ptr) == *blitzAst.AstTypes) {
+            const staticTypes = .{
+                self.types.voidType,
+                self.types.boolType,
+                self.types.anyType,
+                self.types.f32Type,
+                self.types.u64Type,
+                self.types.undefType,
+            };
+
+            inline for (staticTypes) |t| {
+                if (t.astType == ptr) return true;
+            }
+        } else if (@TypeOf(ptr) == *blitzAst.AstNode) {
+            const staticNodes = .{
+                self.nodes.noOp,
+                self.nodes.structPlaceholder,
+                self.nodes.breakNode,
+                self.nodes.continueNode,
+            };
+
+            inline for (staticNodes) |t| {
+                if (t == ptr) return true;
+            }
+        } else {
+            @compileError("Expected *AstTypes or *AstNode in 'isStaticPtr'");
         }
 
         return false;

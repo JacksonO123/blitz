@@ -155,6 +155,10 @@ pub fn AllocPool(
         }
 
         pub fn new(self: *Self, val: T) !*T {
+            // const ptr = try self.allocator.create(T);
+            // ptr.* = val;
+            // return ptr;
+
             const ptr = try self.popAvailablePtr();
             ptr.* = val;
             try self.used.append(self.allocator, ptr);
@@ -170,6 +174,8 @@ pub fn AllocPool(
         }
 
         pub fn release(self: *Self, ptr: *T) void {
+            // self.allocator.destroy(ptr);
+
             if (self.available.items.len < self.available.capacity) {
                 self.available.appendAssumeCapacity(ptr);
             } else if (self.isAvailable(ptr)) |index| {
@@ -224,9 +230,7 @@ pub fn AllocPool(
 
             var numLeaked: u32 = 0;
             for (self.used.items) |item| {
-                if (@TypeOf(item) == *blitzAst.AstTypes and
-                    !self.context.staticPtrs.isStaticType(item))
-                {
+                if (!self.context.staticPtrs.isStaticPtr(item)) {
                     numLeaked += 1;
                 }
 
