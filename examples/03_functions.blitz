@@ -89,12 +89,12 @@ fibonacci1(5);
 
 // recursive functions can also be generic (implied but just saying, you never know)
 
-//fn [T] fibonacci2(num: T) T {
-//  if (num <= 1) {
-//    return num;
-//  }
-//
-//  return fibonacci2(num - 1) + fibonacci2(num - 2);
-//}
-//
-//fibonacci2(6);
+fn [T] fibonacci2(num: T) T {
+  if (num <= 1) {
+    return num;
+  }
+
+  return fibonacci2(num - 1) + fibonacci2(num - 2);
+}
+
+fibonacci2(6);

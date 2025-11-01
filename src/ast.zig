@@ -7,6 +7,7 @@ const scanner = blitz.scanner;
 const clone = blitz.clone;
 const blitzCompInfo = blitz.compInfo;
 const logger = blitz.logger;
+const blitzAst = blitz.ast;
 const create = utils.create;
 const createMut = utils.createMut;
 const Allocator = std.mem.Allocator;
@@ -416,7 +417,7 @@ pub const StructAttribute = struct {
 
 pub const StrToTypeInfoRel = struct {
     str: []const u8,
-    info: scanner.TypeAndAllocInfo,
+    info: blitzAst.AstTypeInfo,
 };
 
 pub const ToScanTypesList = ArrayList([]StrToTypeInfoRel);

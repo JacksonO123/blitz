@@ -1,10 +1,4 @@
-fn [T] myFunc3(value: T) T {
-  return value + 1;
-}
-
-myFunc3(3);
-
-fn testCapture(value: u32) u32 {
+fn [T] testCapture(value: T) T {
   fn [G] temp(newValue: G) G {
     return newValue + value;
   }
@@ -12,3 +6,6 @@ fn testCapture(value: u32) u32 {
   return temp(value);
 }
 
+{
+  testCapture(4);
+}

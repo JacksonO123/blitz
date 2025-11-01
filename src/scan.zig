@@ -69,6 +69,7 @@ pub const ScanError = error{
     ElseBranchOutOfOrder,
     NestedVarInfoDetected,
     RawNumberTooBigForType,
+    CannotSetGenericToVarInfo,
 
     // pointers
     PointerTypeMismatch,
@@ -169,7 +170,7 @@ pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, context: *Context) !voi
     const res = try scanNode(allocator, context, ast.root, true);
     defer releaseIfAllocated(context, res);
 
-    // try scanFunctionCalls(allocator, context);
+    try scanFunctionCalls(allocator, context);
 }
 
 pub fn scanNode(
@@ -385,7 +386,7 @@ pub fn scanNode(
                         );
                         if (matches) {
                             releaseIfAllocated(context, right);
-                            const resType = try clone.replaceGenericsOnTypeInfoAndRelease(
+                            var resType = try clone.replaceGenericsOnTypeInfoAndRelease(
                                 allocator,
                                 context,
                                 left,
@@ -474,12 +475,15 @@ pub fn scanNode(
 
             const origValType = try scanNode(allocator, context, ret, withGenDef);
             const valType = try escapeVarInfoAndRelease(context, origValType);
-            var retType = try clone.replaceGenericsOnTypeInfoAndRelease(
+            const retTypeInfo = try clone.cloneAstTypeInfo(
                 allocator,
                 context,
-                valType,
+                valType.info,
                 withGenDef,
             );
+            const retType = retTypeInfo.toAllocInfo(.Allocated);
+
+            releaseIfAllocated(context, valType);
 
             if (context.compInfo.returnInfo.info.retType) |prevRetType| {
                 const matches = try matchTypes(
@@ -492,6 +496,8 @@ pub fn scanNode(
                 if (!matches) {
                     return ScanError.FunctionReturnsHaveDifferentTypes;
                 }
+
+                releaseIfAllocated(context, retType);
             } else {
                 context.compInfo.returnInfo.info.retType = retType;
             }
@@ -499,10 +505,7 @@ pub fn scanNode(
             context.compInfo.returnInfo.info.exhaustive = true;
             context.compInfo.returnInfo.info.lockExhaustive = true;
 
-            // so that functions receiving this type don't free it while
-            // it is registered in ret info util
-            retType.allocState = .Recycled;
-            return retType;
+            return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
         .FuncReference => |ref| {
             const dec = try context.compInfo.getFunction(ref);
@@ -800,6 +803,7 @@ pub fn scanNode(
                 return res;
             }
 
+            std.debug.print("undefined :: {s}\n", .{name});
             return ScanError.VariableIsUndefined;
         },
         .StructPlaceholder => return context.staticPtrs.types.voidType.toAllocInfo(.Recycled),
@@ -1078,7 +1082,7 @@ pub fn scanNode(
                             };
 
                             if (!typeCaptures.contains(rel.str)) {
-                                try typeCaptures.put(rel.str, rel.info);
+                                try typeCaptures.put(rel.str, rel.info.toAllocInfo(.Allocated));
                             }
                         }
                     }
@@ -1521,6 +1525,7 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
                 const value = item.value_ptr.*;
                 const paramType = try escapeVarInfo(value);
 
+                std.debug.print("setting :: {s}\n", .{item.key_ptr.*});
                 const clonedType = try clone.replaceGenericsOnTypeInfo(
                     allocator,
                     context,
@@ -1536,13 +1541,13 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
         }
 
         for (toScanItem.genTypes) |rel| {
-            const typeClone = try clone.replaceGenericsOnTypeInfo(
+            const typeClone = try clone.cloneAstTypeInfo(
                 allocator,
                 context,
                 rel.info,
                 false,
             );
-            try context.compInfo.setGeneric(rel.str, typeClone);
+            try context.compInfo.setGeneric(rel.str, typeClone.toAllocInfo(.Allocated));
         }
 
         try scanFuncBodyAndReturn(allocator, context, func, toScanItem.withGenDef);
@@ -1564,10 +1569,10 @@ fn setGenTypesFromParams(
 
         switch (decParam.type.astType.*) {
             .Generic => |generic| {
-                const typePtr = try clone.replaceGenericsOnTypeInfo(
+                const typePtr = try clone.cloneAstTypeInfo(
                     allocator,
                     context,
-                    callParamType,
+                    callParamType.info,
                     withGenDef,
                 );
 
@@ -1587,7 +1592,7 @@ fn setGenTypesFromParams(
                     }
                 }
 
-                try context.compInfo.setGeneric(generic, typePtr);
+                try context.compInfo.setGeneric(generic, typePtr.toAllocInfo(.Allocated));
                 isGeneric = true;
             },
             .Custom => |custom| {
@@ -1636,10 +1641,10 @@ fn genScopeToRels(
     var i: usize = 0;
     var scopeIt = genScope.iterator();
     while (scopeIt.next()) |entry| {
-        const infoClone = try clone.replaceGenericsOnTypeInfo(
+        const infoClone = try clone.cloneAstTypeInfo(
             allocator,
             context,
-            entry.value_ptr.*,
+            entry.value_ptr.info,
             withGenDef,
         );
         slice[i] = .{
@@ -1668,7 +1673,7 @@ fn fnHasScannedWithSameGenTypes(
                 allocator,
                 context,
                 genType.?.info,
-                rel.info.info,
+                rel.info,
                 withGenDef,
                 .Strict,
             );
@@ -1895,7 +1900,7 @@ fn scanFuncBodyAndReturn(
             const varType = context.compInfo.getVariableTypeFixed(param.name);
             if (varType) |t| {
                 const innerType = t.info.astType.VarInfo.info.astType;
-                free.recursiveReleaseTypeAll(allocator, context, innerType);
+                free.recursiveReleaseType(allocator, context, innerType);
                 t.info.astType.VarInfo = context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
             }
         }

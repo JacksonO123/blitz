@@ -479,6 +479,10 @@ pub const CompInfo = struct {
     }
 
     pub fn setGeneric(self: *Self, name: []const u8, gType: scanner.TypeAndAllocInfo) !void {
+        if (gType.info.astType.* == .VarInfo) {
+            return scanner.ScanError.CannotSetGenericToVarInfo;
+        }
+
         const genScope = self.genericScopes.getCurrentScope();
 
         if (genScope) |scope| {

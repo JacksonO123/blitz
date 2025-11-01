@@ -51,7 +51,10 @@ pub fn freeFuncDec(
     }
 
     for (func.toScanTypes.items) |rels| {
-        freeGenInfoRels(allocator, rels);
+        for (rels) |rel| {
+            recursiveReleaseTypeAll(allocator, context, rel.info.astType);
+        }
+        allocator.free(rels);
     }
 
     recursiveReleaseTypeAll(allocator, context, func.returnType.astType);

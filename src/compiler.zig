@@ -100,6 +100,6 @@ pub fn main() !void {
     }
 
     try writer.writeAll("\n------------\n\n");
-    try context.pools.writeStats(false, writer);
+    try context.pools.writeStats(true, writer);
     try writer.writeByte('\n');
 }
