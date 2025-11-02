@@ -489,8 +489,9 @@ pub const FuncDecNode = struct {
 };
 
 const FuncCallNode = struct {
-    func: *AstNode,
+    callGenerics: ?[]AstTypeInfo = null,
     params: []*AstNode,
+    func: *AstNode,
 };
 
 const PropertyAccess = struct {
@@ -956,6 +957,17 @@ fn parseStatement(
                         context.getTokString(first),
                     );
                     return parsePropertyAccess(allocator, context, identNode);
+                },
+                .LAngle => {
+                    const generics = try parseInitGenerics(allocator, context);
+                    try context.tokenUtil.expectToken(.LParen);
+                    var funcCall = try parseFuncCall(
+                        allocator,
+                        context,
+                        context.getTokString(first),
+                    );
+                    funcCall.variant.FuncCall.callGenerics = generics;
+                    return funcCall;
                 },
                 else => {
                     const variableVariant: AstNodeUnion = .{
@@ -1560,12 +1572,27 @@ fn parseExpressionUtil(
                     );
                     return try parsePropertyAccess(allocator, context, identNode);
                 },
-                .LBrace, .LAngle => {
-                    if (context.compInfo.hasStruct(context.getTokString(first))) {
+                .LAngle => {
+                    _ = try context.tokenUtil.take();
+                    const tokString = context.getTokString(first);
+                    const generics = try parseInitGenerics(allocator, context);
+                    const openToken = try context.tokenUtil.take();
+                    if (openToken.type == .LParen) {
+                        var funcCall = try parseFuncCall(allocator, context, tokString);
+                        funcCall.variant.FuncCall.callGenerics = generics;
+                        return funcCall;
+                    } else if (openToken.type == .LBrace) {
+                        return try parseStructInit(allocator, context, tokString, generics);
+                    }
+                },
+                .LBrace => {
+                    const structName = context.getTokString(first);
+                    if (context.compInfo.hasStruct(structName)) {
                         return try parseStructInit(
                             allocator,
                             context,
                             context.getTokString(first),
+                            &[_]AstTypeInfo{},
                         );
                     }
                 },
@@ -1739,17 +1766,12 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
     return try context.pools.nodes.new(valueVariant.toAstNode());
 }
 
-fn parseStructInit(allocator: Allocator, context: *Context, name: []const u8) !*AstNode {
-    const next = try context.tokenUtil.take();
-    var generics: []AstTypeInfo = &[_]AstTypeInfo{};
-
-    if (next.type == .LAngle) {
-        generics = try parseStructInitGenerics(allocator, context);
-        _ = try context.tokenUtil.take();
-    } else if (next.type != .LBrace) {
-        return TokenError.UnexpectedToken;
-    }
-
+fn parseStructInit(
+    allocator: Allocator,
+    context: *Context,
+    name: []const u8,
+    generics: []AstTypeInfo,
+) !*AstNode {
     const attributes = try parseStructInitAttributes(allocator, context);
 
     const structInitVariant: AstNodeUnion = .{
@@ -1817,7 +1839,7 @@ fn parseStructInitAttribute(allocator: Allocator, context: *Context) !AttributeD
     };
 }
 
-fn parseStructInitGenerics(allocator: Allocator, context: *Context) ![]AstTypeInfo {
+fn parseInitGenerics(allocator: Allocator, context: *Context) ![]AstTypeInfo {
     var generics: ArrayList(AstTypeInfo) = .empty;
     defer generics.deinit(allocator);
 
@@ -1908,7 +1930,6 @@ fn parsePropertyAccess(allocator: Allocator, context: *Context, node: *AstNode) 
     return access;
 }
 
-/// name expected to be cloned
 fn parseFuncCall(allocator: Allocator, context: *Context, name: []const u8) !*AstNode {
     const funcRefVariant: AstNodeUnion = .{
         .FuncReference = name,
@@ -2263,7 +2284,7 @@ fn parseType(
 
                 if (next.type == .LAngle) {
                     _ = try context.tokenUtil.take();
-                    generics = try parseStructInitGenerics(allocator, context);
+                    generics = try parseInitGenerics(allocator, context);
                 }
 
                 break :a .{

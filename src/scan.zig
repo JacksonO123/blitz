@@ -114,6 +114,8 @@ pub const ScanError = error{
     FunctionMissingReturn,
     UnexpectedReturnStatement,
     ExpectedMutableParameter,
+    CallGenericsAndFuncDecGenericCountMismatch,
+    UnexpectedCallGenerics,
 
     // structs
     StructInitGenericCountMismatch,
@@ -943,6 +945,20 @@ pub fn scanNode(
             try context.compInfo.pushGenScope(true);
             defer context.compInfo.popGenScope();
 
+            if (call.callGenerics) |callGenerics| {
+                if (func.generics) |defGenerics| {
+                    if (callGenerics.len != defGenerics.len) {
+                        return ScanError.CallGenericsAndFuncDecGenericCountMismatch;
+                    }
+                } else {
+                    return ScanError.UnexpectedCallGenerics;
+                }
+            }
+
+            if (func.params.len != call.params.len) {
+                return ScanError.FunctionCallParamCountMismatch;
+            }
+
             const paramTypes = try allocator.alloc(TypeAndAllocInfo, call.params.len);
             defer {
                 for (paramTypes) |paramType| {
@@ -955,21 +971,45 @@ pub fn scanNode(
                 paramTypes[index] = try scanNode(allocator, context, param, withGenDef);
             }
 
-            if (func.params.len != call.params.len) {
-                return ScanError.FunctionCallParamCountMismatch;
-            }
-
             {
                 try context.compInfo.pushScopeWithType(true, .Function);
                 defer context.compInfo.popScope();
 
-                _ = try setGenTypesFromParams(
-                    allocator,
-                    context,
-                    func,
-                    paramTypes,
-                    withGenDef,
-                );
+                if (call.callGenerics) |callGenerics| {
+                    for (callGenerics, func.generics.?) |callGenericType, decGeneric| {
+                        if (decGeneric.restriction) |restriction| {
+                            const matches = try matchTypes(
+                                allocator,
+                                context,
+                                callGenericType,
+                                restriction,
+                                false,
+                            );
+                            if (!matches) {
+                                return ScanError.GenericRestrictionConflict;
+                            }
+                        }
+
+                        const typeClone = try clone.cloneAstTypeInfo(
+                            allocator,
+                            context,
+                            callGenericType,
+                            withGenDef,
+                        );
+                        try context.compInfo.setGeneric(
+                            decGeneric.name,
+                            typeClone.toAllocInfo(.Allocated),
+                        );
+                    }
+                } else {
+                    _ = try setGenTypesFromParams(
+                        allocator,
+                        context,
+                        func,
+                        paramTypes,
+                        withGenDef,
+                    );
+                }
 
                 for (func.params) |param| {
                     const typeClone = try clone.replaceGenericsOnTypeInfo(

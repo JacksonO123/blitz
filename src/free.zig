@@ -229,8 +229,15 @@ pub fn recursiveReleaseNodeUtil(
         },
         .FuncCall => |call| {
             recursiveReleaseNodeUtil(allocator, context, call.func, releaseType);
+
             for (call.params) |param| {
                 recursiveReleaseNodeUtil(allocator, context, param, releaseType);
+            }
+
+            if (call.callGenerics) |generics| {
+                for (generics) |gen| {
+                    recursiveReleaseTypeUtil(allocator, context, gen.astType, releaseType);
+                }
             }
         },
         .StructInit => |init| {
