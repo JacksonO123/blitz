@@ -733,8 +733,8 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     try writeHexDecNumber(vmInfo.StartStackType, context.genInfo.vmInfo.stackStartSize, writer);
     try writer.writeByte('\n');
 
-    const byteCountFloat: f64 = @floatFromInt(context.genInfo.byteCounter);
-    const numDigits: u64 = @intFromFloat(@floor(@log10(byteCountFloat)) + 1);
+    const numDigits = utils.getNumberDigitCount(u64, context.genInfo.byteCounter);
+    const numInstrLenDigits = utils.getNumberDigitCount(u8, codegen.Instr.maxInstrSize());
 
     var byteCounter: usize = 0;
     var next: ?*codegen.InstrChunk = chunk;
@@ -743,7 +743,7 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
         try writer.writeByte('[');
         try writer.printInt(byteCounter, 10, .lower, .{ .width = numDigits, .fill = '.' });
         try writer.writeAll("] (");
-        try writer.printInt(chunkLen, 10, .lower, .{ .width = numDigits, .fill = '.' });
+        try writer.printInt(chunkLen, 10, .lower, .{ .width = numInstrLenDigits, .fill = '.' });
         try writer.writeAll(") ");
 
         try printChunk(nextChunk, writer);

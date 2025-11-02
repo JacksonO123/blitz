@@ -459,8 +459,11 @@ pub fn scanNode(
         },
         .IncOne, .DecOne => |val| {
             const valType = try scanNode(allocator, context, val, withGenDef);
-            if (valType.info.astType.* != .Number) return ScanError.CannotIncDecNonNumberType;
+
             if (valType.info.astType.* != .VarInfo) return ScanError.InvalidSetValueTarget;
+            if (valType.info.astType.VarInfo.info.astType.* != .Number) {
+                return ScanError.CannotIncDecNonNumberType;
+            }
             if (valType.info.mutState == .Const) return ScanError.AssigningToConstVariable;
             return valType;
         },

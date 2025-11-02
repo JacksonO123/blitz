@@ -1572,10 +1572,14 @@ fn parseExpressionUtil(
                     );
                     return try parsePropertyAccess(allocator, context, identNode);
                 },
-                .LAngle => {
+                .LAngle => a: {
+                    const tokPos = context.tokenUtil.pos;
                     _ = try context.tokenUtil.take();
                     const tokString = context.getTokString(first);
-                    const generics = try parseInitGenerics(allocator, context);
+                    const generics = parseInitGenerics(allocator, context) catch {
+                        context.tokenUtil.pos = tokPos;
+                        break :a;
+                    };
                     const openToken = try context.tokenUtil.take();
                     if (openToken.type == .LParen) {
                         var funcCall = try parseFuncCall(allocator, context, tokString);
@@ -1586,6 +1590,7 @@ fn parseExpressionUtil(
                     }
                 },
                 .LBrace => {
+                    _ = try context.tokenUtil.take();
                     const structName = context.getTokString(first);
                     if (context.compInfo.hasStruct(structName)) {
                         return try parseStructInit(

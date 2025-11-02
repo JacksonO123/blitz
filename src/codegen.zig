@@ -149,6 +149,15 @@ pub const InstructionVariants = enum(u8) {
         };
     }
 
+    pub fn maxInstrSize() u8 {
+        var max: u8 = 0;
+        inline for (@typeInfo(Self).@"enum".fields) |field| {
+            const val: Self = @enumFromInt(field.value);
+            max = @max(val.getInstrLen(), max);
+        }
+        return max;
+    }
+
     pub fn toString(self: Self) []const u8 {
         return switch (self) {
             .SetReg64 => "set_reg_64",
@@ -379,6 +388,10 @@ pub const Instr = union(InstructionVariants) {
     pub fn getInstrByte(self: Self) u8 {
         const active = std.meta.activeTag(self);
         return active.getInstrByte();
+    }
+
+    pub fn maxInstrSize() u8 {
+        return InstructionVariants.maxInstrSize();
     }
 };
 

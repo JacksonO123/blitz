@@ -41,7 +41,7 @@ myFunc3<u32>(4);
 // errors because bool does not match type u32, will also error for 1
 // not being able to be added to bool but the first error will be ran
 // into first
-myFunc3<bool>(4);
+// myFunc3<bool>(4);
 
 // generic function with polymorphic restriction
 // sometimes you only want inputs that branch from a similar

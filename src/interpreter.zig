@@ -56,7 +56,7 @@ pub fn main() !void {
         }
     };
 
-    try runtimeInfo.writeMemDebug(12, 64, writer);
+    // try runtimeInfo.writeMemDebug(12, 64, writer);
 }
 
 const Flags = struct {

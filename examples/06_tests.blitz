@@ -1,5 +1,5 @@
-fn [T: u32] a(p: T) T {
+fn [T] a(p: T) T {
     return p + 1;
 }
 let b = 3;
-let lt = a<u16>(b);
+let lt = a<u32>(b);
