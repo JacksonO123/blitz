@@ -42,7 +42,6 @@ pub const Context = struct {
         const tokens = try tokenizer.tokenize(allocator, code, writer);
 
         const names = try blitzAst.findStructsAndErrors(allocator, tokens, code);
-        try debug.printStructAndErrorNames(names, writer);
 
         const tokenUtil = tokenizer.TokenUtil.init(tokens);
         const tokenUtilPtr = try utils.createMut(tokenizer.TokenUtil, allocator, tokenUtil);

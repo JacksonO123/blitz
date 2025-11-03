@@ -40,7 +40,7 @@ pub fn main() !void {
     var buffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
     var stdout = std.fs.File.stdout().writer(&buffer);
     defer stdout.end() catch {};
-    var writer = &stdout.interface;
+    const writer = &stdout.interface;
 
     try writer.writeAll("opening ");
     try writer.writeAll(path);
@@ -86,17 +86,18 @@ pub fn main() !void {
 
         try scanner.typeScan(allocator, ast, context);
 
-        // try codegen.codegenAst(allocator, context, ast);
-        // try writer.writeAll("--- bytecode out ---\n");
-        // try debug.printBytecodeChunks(context, writer);
+        try codegen.codegenAst(allocator, context, ast);
 
-        // const outFile = try std.fs.cwd().createFile("out.bzc", .{});
-        // defer outFile.close();
-        // var fileBuffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
-        // var fileBufferedWriter = outFile.writer(&fileBuffer);
-        // defer fileBufferedWriter.end() catch {};
-        // const fileWriter = &fileBufferedWriter.interface;
-        // try context.genInfo.writeChunks(fileWriter);
+        try writer.writeAll("--- bytecode out ---\n");
+        try debug.printBytecodeChunks(context, writer);
+
+        const outFile = try std.fs.cwd().createFile("out.bzc", .{});
+        defer outFile.close();
+        var fileBuffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
+        var fileBufferedWriter = outFile.writer(&fileBuffer);
+        defer fileBufferedWriter.end() catch {};
+        const fileWriter = &fileBufferedWriter.interface;
+        try context.genInfo.writeChunks(fileWriter);
     }
 
     try writer.writeAll("\n------------\n\n");

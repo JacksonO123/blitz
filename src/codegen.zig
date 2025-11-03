@@ -627,7 +627,7 @@ pub const GenInfo = struct {
         const regScopesPtr = try utils.createMut(RegScopes, allocator, regScopes);
         const loopInfoPtr = try utils.createMut(ArrayList(*LoopInfo), allocator, .empty);
 
-        const registers = try ArrayList(RegInfo).initCapacity(allocator, vmInfo.NUM_REGISTERS);
+        const registers = try ArrayList(RegInfo).initCapacity(allocator, vmInfo.NUM_REGISTERS * 8);
         const registersPtr = try utils.createMut(ArrayList(RegInfo), allocator, registers);
 
         const tempPool = try VarGenInfoPool.init(allocator, context);
@@ -657,8 +657,10 @@ pub const GenInfo = struct {
 
     pub fn deinit(self: Self) void {
         var current = self.instrListStart;
-        while (current != null) : (current = current.?.next) {
+        while (current != null) {
+            const next = current.?.next;
             self.allocator.destroy(current.?);
+            current = next;
         }
 
         self.registers.deinit(self.allocator);
