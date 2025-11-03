@@ -214,21 +214,6 @@ pub const StaticPtrs = struct {
 
         return false;
     }
-
-    pub fn isStaticNode(self: Self, node: *blitzAst.AstNode) bool {
-        const staticNodes = .{
-            self.nodes.noOp,
-            self.nodes.structPlaceholder,
-            self.nodes.breakNode,
-            self.nodes.continueNode,
-        };
-
-        inline for (staticNodes) |n| {
-            if (n == node) return true;
-        }
-
-        return false;
-    }
 };
 
 pub const DeferCleanup = struct {

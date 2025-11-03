@@ -1,5 +1,9 @@
-fn [T] a(p: T) T {
-    return p + 1;
+fn [T] testCapture(value: T) T {
+  fn [G] temp(newValue: G) G {
+    return newValue + value;
+  }
+
+  return temp(value);
 }
-let b = 3;
-let lt = a<u32>(b);
+
+testCapture(4);

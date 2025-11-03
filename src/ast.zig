@@ -1953,7 +1953,7 @@ fn parseFuncCall(allocator: Allocator, context: *Context, name: []const u8) !*As
 }
 
 fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncDecNode {
-    try context.compInfo.pushParsedGenericsScope(structFn);
+    try context.compInfo.pushParsedGenericsScope(true);
     defer context.compInfo.popParsedGenericsScope();
 
     var next = try context.tokenUtil.take();

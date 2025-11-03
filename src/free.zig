@@ -173,7 +173,9 @@ pub fn recursiveReleaseNodeUtil(
     ptr: *blitzAst.AstNode,
     releaseType: ReleaseType,
 ) void {
-    context.pools.nodes.release(ptr);
+    if (!context.staticPtrs.isStaticPtr(ptr)) {
+        context.pools.nodes.release(ptr);
+    }
 
     switch (ptr.variant) {
         .ReturnNode,

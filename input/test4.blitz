@@ -1,18 +1,5 @@
 let i = 2;
 
-fn [G] test(b: G) {
-  let h: G = b;
+fn test() {
   let l = i;
 }
-
-// thing('b');
-
-{
-  fn [T] thing(a: T) char {
-    let h: T = 'g';
-    // test(a);
-    return a;
-  }
-}
-
-// thing('h');
