@@ -173,10 +173,6 @@ pub fn recursiveReleaseNodeUtil(
     ptr: *blitzAst.AstNode,
     releaseType: ReleaseType,
 ) void {
-    if (!context.staticPtrs.isStaticPtr(ptr)) {
-        context.pools.nodes.release(ptr);
-    }
-
     switch (ptr.variant) {
         .ReturnNode,
         .Bang,
@@ -213,9 +209,10 @@ pub fn recursiveReleaseNodeUtil(
             recursiveReleaseNodeUtil(allocator, context, eqOp.value, releaseType);
         },
         .Value => |val| {
-            if (val != .ArraySlice) return;
-            for (val.ArraySlice) |item| {
-                recursiveReleaseNodeUtil(allocator, context, item, releaseType);
+            if (val == .ArraySlice) {
+                for (val.ArraySlice) |item| {
+                    recursiveReleaseNodeUtil(allocator, context, item, releaseType);
+                }
             }
         },
         .Cast => |cast| {
@@ -290,6 +287,10 @@ pub fn recursiveReleaseNodeUtil(
         },
         else => {},
     }
+
+    if (!context.staticPtrs.isStaticPtr(ptr)) {
+        context.pools.releaseNode(ptr);
+    }
 }
 
 pub fn recursiveReleaseType(
@@ -314,10 +315,6 @@ pub fn recursiveReleaseTypeUtil(
     astType: *blitzAst.AstTypes,
     releaseType: ReleaseType,
 ) void {
-    if (!context.staticPtrs.isStaticPtr(astType)) {
-        context.pools.types.release(astType);
-    }
-
     switch (astType.*) {
         .Nullable => |info| {
             recursiveReleaseType(allocator, context, info.astType);
@@ -347,6 +344,10 @@ pub fn recursiveReleaseTypeUtil(
             }
         },
         else => {},
+    }
+
+    if (!context.staticPtrs.isStaticPtr(astType)) {
+        context.pools.releaseType(astType);
     }
 }
 

@@ -43,7 +43,7 @@ pub fn cloneAstTypeInfo(
         }
 
         return .{
-            .astType = try context.pools.types.new(.{
+            .astType = try context.pools.newType(.{
                 .Generic = generic,
             }),
             .mutState = info.mutState,
@@ -63,7 +63,7 @@ pub fn cloneAstTypesPtrMut(
     withGenDef: bool,
 ) !*blitzAst.AstTypes {
     const clonedType = try cloneAstTypes(allocator, context, astType.*, withGenDef);
-    return try context.pools.types.new(clonedType);
+    return try context.pools.newType(clonedType);
 }
 
 pub fn cloneAstTypes(
@@ -175,7 +175,7 @@ fn cloneAstNodePtrMut(
     withGenDef: bool,
 ) (Allocator.Error || CloneError)!*blitzAst.AstNode {
     const clonedNode = try cloneAstNode(allocator, context, node.*, withGenDef);
-    return try context.pools.nodes.new(clonedNode);
+    return try context.pools.newNode(clonedNode);
 }
 
 pub fn cloneAstNodeUnion(
@@ -654,7 +654,7 @@ pub fn cloneStructAttributeUnionType(
 ) !blitzAst.AstTypeInfo {
     return switch (structAttrUnion) {
         .Function => |func| {
-            const res = try context.pools.types.new(.{
+            const res = try context.pools.newType(.{
                 .Function = func,
             });
             return res.toTypeInfo(.Const);

@@ -812,7 +812,7 @@ pub fn parseSequence(
     const seqVariant: AstNodeUnion = .{
         .Seq = ownedSlice,
     };
-    return try context.pools.nodes.new(seqVariant.toAstNode());
+    return try context.pools.newNode(seqVariant.toAstNode());
 }
 
 fn parseStatement(
@@ -851,7 +851,7 @@ fn parseStatement(
                     .fallback = fallback,
                 },
             };
-            return try context.pools.nodes.new(ifVariant.toAstNode());
+            return try context.pools.newNode(ifVariant.toAstNode());
         },
         .Fn => {
             const func = try parseFuncDef(allocator, context, false);
@@ -860,7 +860,7 @@ fn parseStatement(
             const funcDecVariant: AstNodeUnion = .{
                 .FuncDec = func.name,
             };
-            return try context.pools.nodes.new(funcDecVariant.toAstNode());
+            return try context.pools.newNode(funcDecVariant.toAstNode());
         },
         .For => {
             try context.tokenUtil.expectToken(.LParen);
@@ -895,7 +895,7 @@ fn parseStatement(
                     .body = body,
                 },
             };
-            return try context.pools.nodes.new(forLoopVariant.toAstNode());
+            return try context.pools.newNode(forLoopVariant.toAstNode());
         },
         .While => {
             try context.tokenUtil.expectToken(.LParen);
@@ -914,7 +914,7 @@ fn parseStatement(
                     .body = body,
                 },
             };
-            return try context.pools.nodes.new(whileLoopVariant.toAstNode());
+            return try context.pools.newNode(whileLoopVariant.toAstNode());
         },
         .Identifier => {
             const next = try context.tokenUtil.take();
@@ -929,10 +929,10 @@ fn parseStatement(
                     const valueSetVariant: AstNodeUnion = .{
                         .ValueSet = .{
                             .setNode = setNode,
-                            .value = try context.pools.nodes.new(variableVariant.toAstNode()),
+                            .value = try context.pools.newNode(variableVariant.toAstNode()),
                         },
                     };
-                    return try context.pools.nodes.new(valueSetVariant.toAstNode());
+                    return try context.pools.newNode(valueSetVariant.toAstNode());
                 },
                 .AddEq => {
                     const incNode = try parseExpression(allocator, context) orelse
@@ -945,7 +945,7 @@ fn parseStatement(
                             .variable = context.getTokString(first),
                         },
                     };
-                    return try context.pools.nodes.new(varEqOpVariant.toAstNode());
+                    return try context.pools.newNode(varEqOpVariant.toAstNode());
                 },
                 .LParen => {
                     return try parseFuncCall(allocator, context, context.getTokString(first));
@@ -973,7 +973,7 @@ fn parseStatement(
                     const variableVariant: AstNodeUnion = .{
                         .Variable = context.getTokString(first),
                     };
-                    return try context.pools.nodes.new(variableVariant.toAstNode());
+                    return try context.pools.newNode(variableVariant.toAstNode());
                 },
             }
         },
@@ -985,7 +985,7 @@ fn parseStatement(
             const returnVariant: AstNodeUnion = .{
                 .ReturnNode = value,
             };
-            return try context.pools.nodes.new(returnVariant.toAstNode());
+            return try context.pools.newNode(returnVariant.toAstNode());
         },
         .Error => {
             if (!context.compInfo.preAst) {
@@ -1007,7 +1007,7 @@ fn parseStatement(
             const errDecVariant: AstNodeUnion = .{
                 .ErrorDec = errNode,
             };
-            return try context.pools.nodes.new(errDecVariant.toAstNode());
+            return try context.pools.newNode(errDecVariant.toAstNode());
         },
         .Struct => {
             if (!context.compInfo.preAst) {
@@ -1035,7 +1035,7 @@ fn parseStatement(
             const scopeVariant: AstNodeUnion = .{
                 .Scope = seq,
             };
-            return try context.pools.nodes.new(scopeVariant.toAstNode());
+            return try context.pools.newNode(scopeVariant.toAstNode());
         },
         .Asterisk => {
             context.tokenUtil.returnToken();
@@ -1051,7 +1051,7 @@ fn parseStatement(
                     .setNode = fromExpr,
                 },
             };
-            return try context.pools.nodes.new(valueSetVariant.toAstNode());
+            return try context.pools.newNode(valueSetVariant.toAstNode());
         },
         .Break => {
             return context.staticPtrs.nodes.breakNode;
@@ -1065,7 +1065,7 @@ fn parseStatement(
             const heapVariant: AstNodeUnion = .{
                 .HeapFree = expr,
             };
-            return try context.pools.nodes.new(heapVariant.toAstNode());
+            return try context.pools.newNode(heapVariant.toAstNode());
         },
         else => {
             return TokenError.UnexpectedToken;
@@ -1105,7 +1105,7 @@ fn parseIfChain(allocator: Allocator, context: *Context) !?FallbackInfo {
             .fallback = fallback,
         },
     };
-    const node = try context.pools.nodes.new(ifVariant.toAstNode());
+    const node = try context.pools.newNode(ifVariant.toAstNode());
 
     return .{
         .node = node,
@@ -1166,7 +1166,7 @@ fn parseStruct(allocator: Allocator, context: *Context) !?*AstNode {
             .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
         }),
     };
-    return try context.pools.nodes.new(structDecVariant.toAstNode());
+    return try context.pools.newNode(structDecVariant.toAstNode());
 }
 
 fn parseStructAttributes(
@@ -1258,7 +1258,7 @@ fn parseStructAttributeUtil(
                     allocator,
                 );
                 def.capturedValues = valueCaptures;
-                const customType = try context.pools.types.new(.{
+                const customType = try context.pools.newType(.{
                     .Custom = .{
                         .name = structName,
                         .generics = &.{},
@@ -1366,21 +1366,21 @@ fn parseExpression(allocator: Allocator, context: *Context) !?*AstNode {
                     .depth = depth,
                 },
             };
-            break :a try context.pools.nodes.new(opExprVariant.toAstNode());
+            break :a try context.pools.newNode(opExprVariant.toAstNode());
         },
         .Inc => a: {
             _ = try context.tokenUtil.take();
             const incVariant: AstNodeUnion = .{
                 .IncOne = expr.?,
             };
-            break :a try context.pools.nodes.new(incVariant.toAstNode());
+            break :a try context.pools.newNode(incVariant.toAstNode());
         },
         .Dec => a: {
             _ = try context.tokenUtil.take();
             const decVariant: AstNodeUnion = .{
                 .DecOne = expr.?,
             };
-            break :a try context.pools.nodes.new(decVariant.toAstNode());
+            break :a try context.pools.newNode(decVariant.toAstNode());
         },
         else => expr,
     };
@@ -1418,13 +1418,13 @@ fn parseExpressionUtil(
     switch (first.type) {
         .Undef => {
             const undefVariant: AstNodeUnion = .{ .UndefValue = {} };
-            return try context.pools.nodes.new(undefVariant.toAstNode());
+            return try context.pools.newNode(undefVariant.toAstNode());
         },
         .Null => {
             const valueVariant: AstNodeUnion = .{
                 .Value = .Null,
             };
-            return try context.pools.nodes.new(valueVariant.toAstNode());
+            return try context.pools.newNode(valueVariant.toAstNode());
         },
         .New => {
             const expr = try parseExpression(allocator, context) orelse
@@ -1434,7 +1434,7 @@ fn parseExpressionUtil(
                     .node = expr,
                 },
             };
-            return try context.pools.nodes.new(heapVariant.toAstNode());
+            return try context.pools.newNode(heapVariant.toAstNode());
         },
         .Number => |numType| {
             const valueVariant: AstNodeUnion = .{
@@ -1445,7 +1445,7 @@ fn parseExpressionUtil(
                     },
                 },
             };
-            return try context.pools.nodes.new(valueVariant.toAstNode());
+            return try context.pools.newNode(valueVariant.toAstNode());
         },
         .NegNumber => |numType| {
             switch (numType) {
@@ -1463,7 +1463,7 @@ fn parseExpressionUtil(
                     },
                 },
             };
-            return try context.pools.nodes.new(valueVariant.toAstNode());
+            return try context.pools.newNode(valueVariant.toAstNode());
         },
         .Period => {
             const next = try context.tokenUtil.take();
@@ -1474,7 +1474,7 @@ fn parseExpressionUtil(
             const errVariant: AstNodeUnion = .{
                 .InferErrorVariant = context.getTokString(next),
             };
-            return try context.pools.nodes.new(errVariant.toAstNode());
+            return try context.pools.newNode(errVariant.toAstNode());
         },
         .StringToken => {
             const str = context.getTokString(first);
@@ -1485,7 +1485,7 @@ fn parseExpressionUtil(
                     .String = str,
                 },
             };
-            const strNode = try context.pools.nodes.new(strVariant.toAstNode());
+            const strNode = try context.pools.newNode(strVariant.toAstNode());
 
             if (next.type == .Period) {
                 const propAccess = try parsePropertyAccess(allocator, context, strNode);
@@ -1500,7 +1500,7 @@ fn parseExpressionUtil(
                     .Char = context.getTokString(first)[0],
                 },
             };
-            return try context.pools.nodes.new(valueVariant.toAstNode());
+            return try context.pools.newNode(valueVariant.toAstNode());
         },
         .Mut => {
             const next = try context.tokenUtil.peak();
@@ -1518,7 +1518,7 @@ fn parseExpressionUtil(
             const bangVariant: AstNodeUnion = .{
                 .Bang = expr,
             };
-            return try context.pools.nodes.new(bangVariant.toAstNode());
+            return try context.pools.newNode(bangVariant.toAstNode());
         },
         .Ampersand => {
             const expr = try parseExpression(allocator, context) orelse
@@ -1529,7 +1529,7 @@ fn parseExpressionUtil(
                     .mutState = .Const,
                 },
             };
-            return try context.pools.nodes.new(ptrVariant.toAstNode());
+            return try context.pools.newNode(ptrVariant.toAstNode());
         },
         .Asterisk => {
             const expr = try parseExpression(allocator, context) orelse
@@ -1537,7 +1537,7 @@ fn parseExpressionUtil(
             const derefVariant: AstNodeUnion = .{
                 .Dereference = expr,
             };
-            return try context.pools.nodes.new(derefVariant.toAstNode());
+            return try context.pools.newNode(derefVariant.toAstNode());
         },
         .LParen => {
             const expr = try parseExpression(allocator, context) orelse
@@ -1548,7 +1548,7 @@ fn parseExpressionUtil(
             const groupVariant: AstNodeUnion = .{
                 .Group = expr,
             };
-            const groupNode = try context.pools.nodes.new(groupVariant.toAstNode());
+            const groupNode = try context.pools.newNode(groupVariant.toAstNode());
 
             const next = try context.tokenUtil.peak();
             if (next.type == .Period) {
@@ -1618,7 +1618,7 @@ fn parseExpressionUtil(
                             .target = targetNode,
                         },
                     };
-                    return try context.pools.nodes.new(indexValueVariant.toAstNode());
+                    return try context.pools.newNode(indexValueVariant.toAstNode());
                 },
                 else => {},
             }
@@ -1641,7 +1641,7 @@ fn parseExpressionUtil(
                     .toType = toType,
                 },
             };
-            return try context.pools.nodes.new(castVariant.toAstNode());
+            return try context.pools.newNode(castVariant.toAstNode());
         },
         else => return TokenError.UnexpectedToken,
     }
@@ -1658,7 +1658,7 @@ fn getIdentNode(context: *Context, str: []const u8) !*AstNode {
         node = .{ .Variable = str };
     }
 
-    return try context.pools.nodes.new(node.toAstNode());
+    return try context.pools.newNode(node.toAstNode());
 }
 
 fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
@@ -1672,7 +1672,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
                     .ArraySlice = &[_]*AstNode{},
                 },
             };
-            return try context.pools.nodes.new(valueVariant.toAstNode());
+            return try context.pools.newNode(valueVariant.toAstNode());
         },
         .Number => |numType| a: {
             _ = try context.tokenUtil.take();
@@ -1738,7 +1738,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
                     .ptrIdent = ptrIdent,
                 },
             };
-            return context.pools.nodes.new(arrayInitVariant.toAstNode());
+            return context.pools.newNode(arrayInitVariant.toAstNode());
         },
         else => {},
     }
@@ -1768,7 +1768,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
             .ArraySlice = slice,
         },
     };
-    return try context.pools.nodes.new(valueVariant.toAstNode());
+    return try context.pools.newNode(valueVariant.toAstNode());
 }
 
 fn parseStructInit(
@@ -1786,7 +1786,7 @@ fn parseStructInit(
             .generics = generics,
         },
     };
-    return try context.pools.nodes.new(structInitVariant.toAstNode());
+    return try context.pools.newNode(structInitVariant.toAstNode());
 }
 
 fn parseStructInitAttributes(allocator: Allocator, context: *Context) ![]AttributeDefinition {
@@ -1826,7 +1826,7 @@ fn parseStructInitAttribute(allocator: Allocator, context: *Context) !AttributeD
         };
         const res = AttributeDefinition{
             .name = context.getTokString(first),
-            .value = try context.pools.nodes.new(variableVariant.toAstNode()),
+            .value = try context.pools.newNode(variableVariant.toAstNode()),
         };
 
         context.tokenUtil.returnToken();
@@ -1881,7 +1881,7 @@ fn parsePropertyAccess(allocator: Allocator, context: *Context, node: *AstNode) 
             .property = context.getTokString(ident),
         },
     };
-    var access = try context.pools.nodes.new(propertyAccessVariant.toAstNode());
+    var access = try context.pools.newNode(propertyAccessVariant.toAstNode());
 
     var next = try context.tokenUtil.take();
     while (next.type == .LParen) {
@@ -1892,7 +1892,7 @@ fn parsePropertyAccess(allocator: Allocator, context: *Context, node: *AstNode) 
                 .params = params,
             },
         };
-        access = try context.pools.nodes.new(funcCallVariant.toAstNode());
+        access = try context.pools.newNode(funcCallVariant.toAstNode());
         next = try context.tokenUtil.take();
     }
 
@@ -1906,7 +1906,7 @@ fn parsePropertyAccess(allocator: Allocator, context: *Context, node: *AstNode) 
                 .target = access,
             },
         };
-        access = try context.pools.nodes.new(indexValueVariant.toAstNode());
+        access = try context.pools.newNode(indexValueVariant.toAstNode());
 
         try context.tokenUtil.expectToken(.RBracket);
         next = try context.tokenUtil.take();
@@ -1922,7 +1922,7 @@ fn parsePropertyAccess(allocator: Allocator, context: *Context, node: *AstNode) 
                 .setNode = expr,
             },
         };
-        return try context.pools.nodes.new(valueSetVariant.toAstNode());
+        return try context.pools.newNode(valueSetVariant.toAstNode());
     }
 
     context.tokenUtil.returnToken();
@@ -1939,7 +1939,7 @@ fn parseFuncCall(allocator: Allocator, context: *Context, name: []const u8) !*As
     const funcRefVariant: AstNodeUnion = .{
         .FuncReference = name,
     };
-    const func = try context.pools.nodes.new(funcRefVariant.toAstNode());
+    const func = try context.pools.newNode(funcRefVariant.toAstNode());
 
     const params = try parseFuncCallParams(allocator, context);
 
@@ -1949,7 +1949,7 @@ fn parseFuncCall(allocator: Allocator, context: *Context, name: []const u8) !*As
             .params = params,
         },
     };
-    return try context.pools.nodes.new(funcCallVariant.toAstNode());
+    return try context.pools.newNode(funcCallVariant.toAstNode());
 }
 
 fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncDecNode {
@@ -2205,7 +2205,7 @@ fn createBoolNode(context: *Context, value: bool) !*AstNode {
             .Bool = value,
         },
     };
-    const node = try context.pools.nodes.new(valueVariant.toAstNode());
+    const node = try context.pools.newNode(valueVariant.toAstNode());
     return node;
 }
 
@@ -2239,7 +2239,7 @@ fn createVarDecNode(
             .annotation = annotation,
         },
     };
-    return try context.pools.nodes.new(varDecVariant.toAstNode());
+    return try context.pools.newNode(varDecVariant.toAstNode());
 }
 
 fn parseType(
@@ -2350,7 +2350,7 @@ fn parseType(
 
         try context.tokenUtil.expectToken(.RBracket);
 
-        const sliceType = (try context.pools.types.new(astType)).toTypeInfo(mutState);
+        const sliceType = (try context.pools.newType(astType)).toTypeInfo(mutState);
         const newAstType = AstTypes{
             .ArraySlice = .{
                 .type = sliceType.toAllocInfo(.Recycled),
@@ -2365,7 +2365,7 @@ fn parseType(
         return AstError.UnexpectedMutSpecifierOnGeneric;
     }
 
-    const resType = try context.pools.types.new(astType);
+    const resType = try context.pools.newType(astType);
     return resType.toTypeInfo(mutState);
 }
 

@@ -22,6 +22,7 @@ const CodeGenError = error{
     ReturnedRegisterNotFound,
     NoJumpInstructionMatchingComp,
     ExpectedLoopInfo,
+    StackFrameSizeTooLarge,
 };
 const GenBytecodeError = CodeGenError || Allocator.Error || std.fmt.ParseIntError;
 
@@ -591,13 +592,7 @@ fn blankFreeVarGenInfo(_: Allocator, _: *Context, _: *VarGenInfo) void {}
 fn blankPrintVarGenInfo(_: *Context, _: *VarGenInfo, _: *Writer) !void {}
 
 const VAR_GEN_INFO_POOL_SIZE = 1024;
-const VarGenInfoPool = allocPools.AllocPool(
-    VarGenInfo,
-    VAR_GEN_INFO_POOL_SIZE,
-    "var_gen_info_pool",
-    blankFreeVarGenInfo,
-    blankPrintVarGenInfo,
-);
+const VarGenInfoPool = std.heap.MemoryPool(VarGenInfo);
 
 pub const GenInfo = struct {
     const Self = @This();
@@ -620,7 +615,6 @@ pub const GenInfo = struct {
 
     pub fn init(
         allocator: Allocator,
-        context: *Context,
     ) !Self {
         const varNameReg = try utils.initMutPtrT(StringHashMap(*VarGenInfo), allocator);
         const regScopes = try RegScopes.init(allocator);
@@ -630,7 +624,7 @@ pub const GenInfo = struct {
         const registers = try ArrayList(RegInfo).initCapacity(allocator, vmInfo.NUM_REGISTERS * 8);
         const registersPtr = try utils.createMut(ArrayList(RegInfo), allocator, registers);
 
-        const tempPool = try VarGenInfoPool.init(allocator, context);
+        const tempPool = try VarGenInfoPool.initPreheated(allocator, VAR_GEN_INFO_POOL_SIZE);
         const varGenInfoPool = try utils.createMut(VarGenInfoPool, allocator, tempPool);
 
         return .{
@@ -777,11 +771,12 @@ pub const GenInfo = struct {
     }
 
     pub fn setVariableRegister(self: *Self, name: []const u8, reg: TempRegister, size: u64) !void {
-        const varGenInfo = try self.varGenInfoPool.new(.{
+        const varGenInfo = try self.varGenInfoPool.create();
+        varGenInfo.* = .{
             .reg = reg,
             .name = name,
             .dataSize = size,
-        });
+        };
         try self.varNameReg.put(name, varGenInfo);
         try self.regScopes.addRegister(reg);
         self.registers.items[reg].varInfo = varGenInfo;
@@ -860,6 +855,10 @@ pub const GenInfo = struct {
         const end = self.lastInstr orelse return;
 
         // NOTE - may cause issues u64 -> u16 but prob not much, change if problems happen
+        if (self.procInfo.stackFrameSize > std.math.maxInt(u16)) {
+            return CodeGenError.StackFrameSizeTooLarge;
+        }
+
         const addSpInstr = Instr{ .AddSp16 = @intCast(self.procInfo.stackFrameSize) };
         const subSpInstr = Instr{ .SubSp16 = @intCast(self.procInfo.stackFrameSize) };
         self.byteCounter += addSpInstr.getInstrLen() + subSpInstr.getInstrLen();
@@ -901,7 +900,6 @@ fn writeLoopJump(info: InstrInfo, endByte: u64) void {
 pub fn codegenAst(allocator: Allocator, context: *Context, ast: blitzAst.Ast) !void {
     writeStartVMInfo(context);
     _ = try genBytecode(allocator, context, ast.root);
-    // TODO - bring into better place
     try context.genInfo.finishProc();
 }
 

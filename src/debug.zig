@@ -42,6 +42,10 @@ pub fn printType(
     typeNode: *const blitzAst.AstTypes,
     writer: *Writer,
 ) anyerror!void {
+    if (context.settings.debug.printAddresses) {
+        try writer.print("<0x{x}> ", .{@intFromPtr(typeNode)});
+    }
+
     return switch (typeNode.*) {
         .Any => try writer.writeAll("any"),
         .Null => try writer.writeAll("null"),
@@ -234,6 +238,10 @@ fn printAstNumber(num: blitzAst.AstNumber, writer: *Writer) !void {
 }
 
 pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) anyerror!void {
+    if (context.settings.debug.printAddresses) {
+        try writer.print("<0x{x}> ", .{@intFromPtr(node)});
+    }
+
     switch (node.variant) {
         .IndexValue => |index| {
             try writer.writeAll("indexing ");

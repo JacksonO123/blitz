@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const blitz = @import("blitz.zig");
 const blitzAst = blitz.ast;
 const logger = blitz.logger;
@@ -12,6 +13,13 @@ const debug = blitz.debug;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Writer = std.Io.Writer;
+
+const ContextSettings = struct {
+    debug: struct {
+        printAddresses: bool = false,
+        trackPoolMem: bool = builtin.mode == .Debug,
+    } = .{},
+};
 
 pub const Context = struct {
     const Self = @This();
@@ -27,8 +35,15 @@ pub const Context = struct {
     deferCleanup: *DeferCleanup,
     staticPtrs: *StaticPtrs,
     code: []const u8,
+    utils: *ContextUtils,
+    settings: ContextSettings,
 
-    pub fn init(allocator: Allocator, code: []const u8, writer: *Writer) !*Self {
+    pub fn init(
+        allocator: Allocator,
+        code: []const u8,
+        writer: *Writer,
+        settings: ContextSettings,
+    ) !*Self {
         // NOTE - context pointer is passed around before initialization
         // this is intentional, these utility structs need to store the memory
         // location which is allocated before initialization
@@ -53,7 +68,7 @@ pub const Context = struct {
 
         const scanInfoPtr = try utils.createMut(scanner.ScanInfo, allocator, .{});
 
-        const genInfo = try codegen.GenInfo.init(allocator, context);
+        const genInfo = try codegen.GenInfo.init(allocator);
         const genInfoPtr = try utils.createMut(codegen.GenInfo, allocator, genInfo);
         genInfoPtr.vmInfo.stackStartSize = compInfoPtr.stackSizeEstimate;
 
@@ -62,6 +77,9 @@ pub const Context = struct {
 
         const constTypeInfos = try StaticPtrs.init(poolsPtr);
         const constTypeInfosPtr = try utils.createMut(StaticPtrs, allocator, constTypeInfos);
+
+        const contextUtils = try ContextUtils.init(allocator, context);
+        const contextUtilsPtr = try utils.createMut(ContextUtils, allocator, contextUtils);
 
         context.* = .{
             .allocator = allocator,
@@ -75,6 +93,8 @@ pub const Context = struct {
             .deferCleanup = deferCleanupPtr,
             .staticPtrs = constTypeInfosPtr,
             .code = code,
+            .utils = contextUtilsPtr,
+            .settings = settings,
         };
 
         return context;
@@ -93,6 +113,7 @@ pub const Context = struct {
         self.deferCleanup.deinit();
         self.staticPtrs.deinit(self.pools);
         self.pools.deinit();
+        self.utils.deinit();
 
         self.allocator.destroy(self.pools);
         self.allocator.destroy(self.tokenUtil);
@@ -102,6 +123,7 @@ pub const Context = struct {
         self.allocator.destroy(self.genInfo);
         self.allocator.destroy(self.deferCleanup);
         self.allocator.destroy(self.staticPtrs);
+        self.allocator.destroy(self.utils);
     }
 
     pub fn getTokString(self: Self, tok: tokenizer.Token) []const u8 {
@@ -110,6 +132,53 @@ pub const Context = struct {
 
     pub fn getTokStringDropQuotes(self: Self, tok: tokenizer.Token) []const u8 {
         return self.code[tok.start + 1 .. tok.end - 1];
+    }
+};
+
+pub const ContextUtils = struct {
+    const Self = @This();
+    const UsedNodeAddresses = std.AutoHashMap(*blitzAst.AstNode, void);
+    const UsedTypeAddresses = std.AutoHashMap(*blitzAst.AstTypes, void);
+
+    allocator: Allocator,
+    context: *Context,
+    usedNodes: *UsedNodeAddresses,
+    usedTypes: *UsedTypeAddresses,
+
+    pub fn init(allocator: Allocator, context: *Context) !Self {
+        const usedNodes = UsedNodeAddresses.init(allocator);
+        const usedTypes = UsedTypeAddresses.init(allocator);
+
+        return .{
+            .allocator = allocator,
+            .context = context,
+            .usedNodes = try utils.createMut(UsedNodeAddresses, allocator, usedNodes),
+            .usedTypes = try utils.createMut(UsedTypeAddresses, allocator, usedTypes),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.usedNodes.deinit();
+        self.allocator.destroy(self.usedNodes);
+
+        self.usedTypes.deinit();
+        self.allocator.destroy(self.usedTypes);
+    }
+
+    pub fn reserveNodeAddress(self: *Self, addr: *blitzAst.AstNode) !void {
+        try self.usedNodes.put(addr, {});
+    }
+
+    pub fn reserveTypeAddress(self: *Self, addr: *blitzAst.AstTypes) !void {
+        try self.usedTypes.put(addr, {});
+    }
+
+    pub fn releaseNodeAddress(self: *Self, addr: *blitzAst.AstNode) void {
+        _ = self.usedNodes.remove(addr);
+    }
+
+    pub fn releaseTypeAddress(self: *Self, addr: *blitzAst.AstTypes) void {
+        _ = self.usedTypes.remove(addr);
     }
 };
 
@@ -132,24 +201,29 @@ pub const StaticPtrs = struct {
     },
 
     pub fn init(pools: *allocPools.Pools) !Self {
+        // called before context is initialized, so any calls to reserve types
+        // or nodes must not use context
+
         return .{
             .types = .{
-                .voidType = (try pools.types.new(.Void)).toTypeInfo(.Const),
-                .boolType = (try pools.types.new(.Bool)).toTypeInfo(.Mut),
-                .anyType = (try pools.types.new(.Any)).toTypeInfo(.Mut),
-                .f32Type = (try pools.types.new(.{ .Number = .F32 })).toTypeInfo(.Mut),
-                .u64Type = (try pools.types.new(.{ .Number = .U64 })).toTypeInfo(.Mut),
-                .undefType = (try pools.types.new(.{ .Undef = {} })).toTypeInfo(.Mut),
+                .voidType = (try pools.newTypeUntracked(.Void)).toTypeInfo(.Const),
+                .boolType = (try pools.newTypeUntracked(.Bool)).toTypeInfo(.Mut),
+                .anyType = (try pools.newTypeUntracked(.Any)).toTypeInfo(.Mut),
+                .f32Type = (try pools.newTypeUntracked(.{ .Number = .F32 })).toTypeInfo(.Mut),
+                .u64Type = (try pools.newTypeUntracked(.{ .Number = .U64 })).toTypeInfo(.Mut),
+                .undefType = (try pools.newTypeUntracked(.{ .Undef = {} })).toTypeInfo(.Mut),
             },
             .nodes = .{
-                .noOp = try pools.nodes.new((blitzAst.AstNodeUnion{ .NoOp = {} }).toAstNode()),
-                .structPlaceholder = try pools.nodes.new((blitzAst.AstNodeUnion{
+                .noOp = try pools.newNodeUntracked((blitzAst.AstNodeUnion{
+                    .NoOp = {},
+                }).toAstNode()),
+                .structPlaceholder = try pools.newNodeUntracked((blitzAst.AstNodeUnion{
                     .StructPlaceholder = {},
                 }).toAstNode()),
-                .breakNode = try pools.nodes.new((blitzAst.AstNodeUnion{
+                .breakNode = try pools.newNodeUntracked((blitzAst.AstNodeUnion{
                     .Break = {},
                 }).toAstNode()),
-                .continueNode = try pools.nodes.new((blitzAst.AstNodeUnion{
+                .continueNode = try pools.newNodeUntracked((blitzAst.AstNodeUnion{
                     .Continue = {},
                 }).toAstNode()),
             },
@@ -174,11 +248,11 @@ pub const StaticPtrs = struct {
         };
 
         inline for (allPtrs1) |ptr| {
-            pools.types.release(ptr.astType);
+            pools.types.destroy(ptr.astType);
         }
 
         inline for (allPtrs2) |ptr| {
-            pools.nodes.release(ptr);
+            pools.nodes.destroy(ptr);
         }
     }
 

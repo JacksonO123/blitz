@@ -53,7 +53,7 @@ fn getPropType(
     for (props) |item| {
         if (utils.compString(item.prop, prop)) {
             return .{
-                .astType = try context.pools.types.new(.{
+                .astType = try context.pools.newType(.{
                     .VarInfo = item.type.toAllocInfo(
                         item.mutState,
                         .Recycled,

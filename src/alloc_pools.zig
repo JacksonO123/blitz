@@ -9,40 +9,30 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Context = blitzContext.Context;
 const Writer = std.Io.Writer;
+const MemPool = std.heap.MemoryPool;
 
 const POOL_SIZE = 1024 * 64;
 
-const NodePool = AllocPool(
-    blitzAst.AstNode,
-    POOL_SIZE,
-    "node_pool",
-    free.recursiveReleaseNode,
-    debug.printNode,
-);
-
-const TypePool = AllocPool(
-    blitzAst.AstTypes,
-    POOL_SIZE,
-    "type_pool",
-    free.recursiveReleaseType,
-    debug.printType,
-);
+const NodePool = MemPool(blitzAst.AstNode);
+const TypePool = MemPool(blitzAst.AstTypes);
 
 pub const Pools = struct {
     const Self = @This();
 
     allocator: Allocator,
+    context: *Context,
     nodes: *NodePool,
     types: *TypePool,
 
     pub fn init(allocator: Allocator, context: *Context) !Self {
-        const nodePool = try NodePool.init(allocator, context);
+        const nodePool = try NodePool.initPreheated(allocator, POOL_SIZE);
         const nodePoolPtr = try utils.createMut(NodePool, allocator, nodePool);
-        const typePool = try TypePool.init(allocator, context);
+        const typePool = try TypePool.initPreheated(allocator, POOL_SIZE);
         const typePoolPtr = try utils.createMut(TypePool, allocator, typePool);
 
         return .{
             .allocator = allocator,
+            .context = context,
             .nodes = nodePoolPtr,
             .types = typePoolPtr,
         };
@@ -56,195 +46,105 @@ pub const Pools = struct {
         self.allocator.destroy(self.types);
     }
 
+    pub fn newType(self: Self, data: blitzAst.AstTypes) !*blitzAst.AstTypes {
+        const ptr = try self.newTypeUntracked(data);
+        if (self.context.settings.debug.trackPoolMem) {
+            try self.context.utils.reserveTypeAddress(ptr);
+        }
+        return ptr;
+    }
+
+    pub fn newNode(self: Self, data: blitzAst.AstNode) !*blitzAst.AstNode {
+        const ptr = try self.newNodeUntracked(data);
+        if (self.context.settings.debug.trackPoolMem) {
+            try self.context.utils.reserveNodeAddress(ptr);
+        }
+        return ptr;
+    }
+
+    pub fn newTypeUntracked(self: Self, data: blitzAst.AstTypes) !*blitzAst.AstTypes {
+        const ptr = try self.types.create();
+        ptr.* = data;
+        return ptr;
+    }
+
+    pub fn newNodeUntracked(self: Self, data: blitzAst.AstNode) !*blitzAst.AstNode {
+        const ptr = try self.nodes.create();
+        ptr.* = data;
+        return ptr;
+    }
+
+    pub fn releaseType(self: Self, ptr: *blitzAst.AstTypes) void {
+        if (self.context.settings.debug.trackPoolMem) {
+            self.context.utils.releaseTypeAddress(ptr);
+        }
+
+        self.types.destroy(ptr);
+    }
+
+    pub fn releaseNode(self: Self, ptr: *blitzAst.AstNode) void {
+        if (self.context.settings.debug.trackPoolMem) {
+            self.context.utils.releaseNodeAddress(ptr);
+        }
+        self.nodes.destroy(ptr);
+    }
+
     pub fn writeStats(self: Self, verbose: bool, writer: *Writer) !void {
-        try self.nodes.writeStats(verbose, writer);
-        try self.types.writeStats(verbose, writer);
+        const nodesCapacity = self.nodes.arena.queryCapacity();
+        const typesCapacity = self.types.arena.queryCapacity();
+        const usedNodeCount = self.context.utils.usedNodes.count();
+        const usedTypesCount = self.context.utils.usedTypes.count();
+
+        const floatAvailableNodes: f32 = @floatFromInt(usedNodeCount);
+        const floatNodeCapacity: f32 = @floatFromInt(nodesCapacity);
+        const percentFreeNodes: f32 = (floatAvailableNodes / floatNodeCapacity) * 100;
+
+        const floatAvailableTypes: f32 = @floatFromInt(usedTypesCount);
+        const floatTypeCapacity: f32 = @floatFromInt(typesCapacity);
+        const percentFreeTypes: f32 = (floatAvailableTypes / floatTypeCapacity) * 100;
+
+        if (verbose) {
+            try writer.writeAll("node stats:\n");
+            try writer.printInt(self.context.utils.usedNodes.count(), 10, .lower, .{});
+            try writer.writeAll("/");
+            try writer.printInt(nodesCapacity, 10, .lower, .{});
+            try writer.writeAll(" : ");
+            try writer.printFloat(percentFreeNodes, .{});
+            try writer.writeAll("%\nused nodes:\n");
+
+            var usedNodeIt = self.context.utils.usedNodes.keyIterator();
+            while (usedNodeIt.next()) |item| {
+                try writer.writeAll("|-- ");
+                try debug.printNode(self.context, item.*, writer);
+                try writer.print(" 0x{x}", .{@intFromPtr(item.*)});
+                try writer.writeAll("\n");
+            }
+        }
+
+        try writer.writeAll("LEAKED NODES: ");
+        try writer.printInt(self.context.utils.usedNodes.count(), 10, .lower, .{});
+        try writer.writeAll("\n\n");
+
+        if (verbose) {
+            try writer.writeAll("type stats:\n");
+            try writer.printInt(self.context.utils.usedTypes.count(), 10, .lower, .{});
+            try writer.writeAll("/");
+            try writer.printInt(typesCapacity, 10, .lower, .{});
+            try writer.writeAll(" : ");
+            try writer.printFloat(percentFreeTypes, .{});
+            try writer.writeAll("%\nused types:\n");
+
+            var usedTypesIt = self.context.utils.usedTypes.keyIterator();
+            while (usedTypesIt.next()) |item| {
+                try writer.writeAll("|-- ");
+                try debug.printType(self.context, item.*, writer);
+                try writer.print(" 0x{x}", .{@intFromPtr(item.*)});
+                try writer.writeAll("\n");
+            }
+        }
+
+        try writer.writeAll("LEAKED TYPES: ");
+        try writer.printInt(self.context.utils.usedTypes.count(), 10, .lower, .{});
+        try writer.writeAll("\n");
     }
 };
-
-fn AllocPoolChunk(comptime T: type) type {
-    return struct {
-        items: []T,
-        next: ?*AllocPoolChunk(T),
-    };
-}
-
-fn FreeFn(comptime T: type) type {
-    return fn (Allocator, *Context, *T) void;
-}
-
-fn PrintFn(comptime T: type) type {
-    return fn (*Context, *T, *Writer) anyerror!void;
-}
-
-pub fn AllocPool(
-    comptime T: type,
-    comptime size: comptime_int,
-    comptime name: []const u8,
-    comptime freeFn: FreeFn(T),
-    comptime printFn: PrintFn(T),
-) type {
-    return struct {
-        const Self = @This();
-
-        allocator: Allocator,
-        context: *Context,
-        root: *AllocPoolChunk(T),
-        last: *AllocPoolChunk(T),
-        available: *ArrayList(*T),
-        used: *ArrayList(*T),
-        numChunks: u32,
-
-        fn newChunk(allocator: Allocator) !*AllocPoolChunk(T) {
-            const items = try allocator.alloc(T, size);
-            const chunk = utils.createMut(AllocPoolChunk(T), allocator, .{
-                .items = items,
-                .next = null,
-            });
-            return chunk;
-        }
-
-        pub fn init(
-            allocator: Allocator,
-            context: *Context,
-        ) !Self {
-            const chunk = try newChunk(allocator);
-            var availableList = try ArrayList(*T).initCapacity(allocator, size);
-            for (chunk.items) |*item| {
-                try availableList.append(allocator, item);
-            }
-            const availableListPtr = try utils.createMut(ArrayList(*T), allocator, availableList);
-
-            const usedList = try ArrayList(*T).initCapacity(allocator, size);
-            const usedListPtr = try utils.createMut(ArrayList(*T), allocator, usedList);
-
-            return .{
-                .allocator = allocator,
-                .context = context,
-                .root = chunk,
-                .last = chunk,
-                .available = availableListPtr,
-                .used = usedListPtr,
-                .numChunks = 1,
-            };
-        }
-
-        pub fn deinit(self: *Self) void {
-            var current: ?*AllocPoolChunk(T) = self.root;
-            while (current) |chunk| {
-                self.allocator.free(chunk.items);
-                self.allocator.destroy(chunk);
-                current = chunk.next;
-            }
-
-            self.available.deinit(self.allocator);
-            self.allocator.destroy(self.available);
-
-            self.used.deinit(self.allocator);
-            self.allocator.destroy(self.used);
-        }
-
-        fn popAvailablePtr(self: *Self) !*T {
-            const freePtr = self.available.pop();
-            if (freePtr) |ptr| {
-                return ptr;
-            }
-
-            try self.appendChunk();
-            return try self.popAvailablePtr();
-        }
-
-        pub fn new(self: *Self, val: T) !*T {
-            // const ptr = try self.allocator.create(T);
-            // ptr.* = val;
-            // return ptr;
-
-            const ptr = try self.popAvailablePtr();
-            ptr.* = val;
-            try self.used.append(self.allocator, ptr);
-            return ptr;
-        }
-
-        fn isAvailable(self: Self, ptr: *T) ?usize {
-            for (self.available.items, 0..) |item, index| {
-                if (item == ptr) return index;
-            }
-
-            return null;
-        }
-
-        pub fn release(self: *Self, ptr: *T) void {
-            // self.allocator.destroy(ptr);
-
-            if (self.available.items.len < self.available.capacity) {
-                self.available.appendAssumeCapacity(ptr);
-            } else if (self.isAvailable(ptr)) |index| {
-                self.available.items[index] = ptr;
-            }
-
-            for (self.used.items, 0..) |item, index| {
-                if (item == ptr) {
-                    _ = self.used.swapRemove(index);
-                    break;
-                }
-            }
-        }
-
-        pub fn releaseRecurse(self: *Self, ptr: *T) void {
-            freeFn(self.allocator, self.context, ptr);
-        }
-
-        fn appendChunk(self: *Self) !void {
-            const chunk = try newChunk(self.allocator);
-            self.last.next = chunk;
-            self.last = chunk;
-
-            var ptrs: [size]*T = undefined;
-            var i: usize = 0;
-            while (i < ptrs.len) : (i += 1) {
-                ptrs[i] = &chunk.items[i];
-            }
-
-            try self.available.appendSlice(self.allocator, &ptrs);
-            self.numChunks += 1;
-        }
-
-        pub fn writeStats(self: Self, verbose: bool, writer: *Writer) !void {
-            const availableItems = self.available.items.len;
-            const totalItems = self.numChunks * size;
-            const floatAvailable: f32 = @floatFromInt(totalItems - availableItems);
-            const percentFree: f32 = (floatAvailable / @as(f32, @floatFromInt(totalItems))) * 100;
-
-            if (verbose) {
-                try writer.writeAll(name);
-                try writer.writeAll(" stats:\n(");
-                try writer.printInt(self.numChunks, 10, .lower, .{});
-                try writer.writeAll(" chunks) ");
-                try writer.printInt(totalItems - availableItems, 10, .lower, .{});
-                try writer.writeAll("/");
-                try writer.printInt(totalItems, 10, .lower, .{});
-                try writer.writeAll(" : ");
-                try writer.printFloat(percentFree, .{});
-                try writer.writeAll("%\nused items:\n");
-            }
-
-            var numLeaked: u32 = 0;
-            for (self.used.items) |item| {
-                if (!self.context.staticPtrs.isStaticPtr(item)) {
-                    numLeaked += 1;
-                }
-
-                if (verbose) {
-                    try writer.writeAll("|-- ");
-                    try printFn(self.context, item, writer);
-                    try writer.print(" {d}", .{@intFromPtr(item)});
-                    try writer.writeAll("\n");
-                }
-            }
-
-            try writer.writeAll("LEAKED: ");
-            try writer.printInt(numLeaked, 10, .lower, .{});
-            try writer.writeAll("\n");
-        }
-    };
-}

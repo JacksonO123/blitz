@@ -49,7 +49,7 @@ pub fn main() !void {
     const code = try utils.readRelativeFile(allocator, path);
     defer allocator.free(code);
 
-    var context = try Context.init(allocator, code, writer);
+    var context = try Context.init(allocator, code, writer, .{});
     defer {
         context.deinit();
         allocator.destroy(context);
@@ -68,7 +68,7 @@ pub fn main() !void {
 
     for (structsAndErrors.structs) |s| {
         const res = try scanner.scanNode(allocator, context, s, true);
-        scanner.releaseIfAllocated(context, res);
+        scanner.releaseIfAllocated(allocator, context, res);
     }
 
     {
@@ -101,6 +101,6 @@ pub fn main() !void {
     }
 
     try writer.writeAll("\n------------\n\n");
-    try context.pools.writeStats(false, writer);
+    try context.pools.writeStats(true, writer);
     try writer.writeByte('\n');
 }

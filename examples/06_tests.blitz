@@ -1,9 +1,4 @@
-fn [T] testCapture(value: T) T {
-  fn [G] temp(newValue: G) G {
-    return newValue + value;
-  }
-
-  return temp(value);
-}
-
-testCapture(4);
+let mut val4 = 1;
+let mut val5 = 2;
+let mut ptr3: mut *u32 = mut &val4;
+ptr3 = mut &val5;

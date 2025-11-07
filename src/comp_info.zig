@@ -563,7 +563,7 @@ pub const CompInfo = struct {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
-            const varType = try self.context.pools.types.new(.{
+            const varType = try self.context.pools.newType(.{
                 .VarInfo = info,
             });
             const varInfo = varType.toAllocInfo(mutState, .Allocated);
@@ -940,7 +940,7 @@ pub const ReturnInfo = struct {
     pub fn clear(self: *Self, context: *Context) void {
         if (self.info.retType) |retType| {
             if (retType.allocState == .Allocated) {
-                context.pools.types.releaseRecurse(retType.info.astType);
+                free.recursiveReleaseType(self.allocator, context, retType.info.astType);
             }
         }
     }
