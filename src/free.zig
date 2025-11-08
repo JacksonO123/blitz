@@ -206,6 +206,7 @@ pub fn recursiveReleaseNodeUtil(
             recursiveReleaseNodeUtil(allocator, context, set.setNode, releaseType);
         },
         .VarEqOp => |eqOp| {
+            recursiveReleaseNodeUtil(allocator, context, eqOp.variable, releaseType);
             recursiveReleaseNodeUtil(allocator, context, eqOp.value, releaseType);
         },
         .Value => |val| {

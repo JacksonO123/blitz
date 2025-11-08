@@ -552,21 +552,11 @@ const ValueSetNode = struct {
     setNode: *AstNode,
 };
 
-const EqOpTypes = enum {
-    AddEq,
-    SubEq,
-    MultEq,
-    DivEq,
-    BitAndEq,
-    BitOrEq,
-    AndEq,
-    OrEq,
-};
-
 const VarEqOpNode = struct {
-    opType: EqOpTypes,
+    /// not all op types are necessarily applicable
+    opType: OpExprTypes,
     value: *AstNode,
-    variable: []const u8,
+    variable: *AstNode,
 };
 
 const ForLoopNode = struct {
@@ -934,15 +924,27 @@ fn parseStatement(
                     };
                     return try context.pools.newNode(valueSetVariant.toAstNode());
                 },
-                .AddEq => {
+                .AddEq,
+                .SubEq,
+                .MultEq,
+                .DivEq,
+                .AndEq,
+                .OrEq,
+                .BitAndEq,
+                .BitOrEq,
+                => {
                     const incNode = try parseExpression(allocator, context) orelse
                         return AstError.ExpectedExpression;
 
+                    const variableVariant: AstNodeUnion = .{
+                        .Variable = context.getTokString(first),
+                    };
+
                     const varEqOpVariant: AstNodeUnion = .{
                         .VarEqOp = .{
-                            .opType = .AddEq,
+                            .opType = tokenTypeToOpType(next.type),
                             .value = incNode,
-                            .variable = context.getTokString(first),
+                            .variable = try context.pools.newNode(variableVariant.toAstNode()),
                         },
                     };
                     return try context.pools.newNode(varEqOpVariant.toAstNode());
@@ -1912,17 +1914,41 @@ fn parsePropertyAccess(allocator: Allocator, context: *Context, node: *AstNode) 
         next = try context.tokenUtil.take();
     }
 
-    if (next.type == .EqSet) {
-        const expr = try parseExpression(allocator, context) orelse
-            return AstError.ExpectedExpression;
+    switch (next.type) {
+        .EqSet => {
+            const expr = try parseExpression(allocator, context) orelse
+                return AstError.ExpectedExpression;
 
-        const valueSetVariant: AstNodeUnion = .{
-            .ValueSet = .{
-                .value = access,
-                .setNode = expr,
-            },
-        };
-        return try context.pools.newNode(valueSetVariant.toAstNode());
+            const valueSetVariant: AstNodeUnion = .{
+                .ValueSet = .{
+                    .value = access,
+                    .setNode = expr,
+                },
+            };
+            return try context.pools.newNode(valueSetVariant.toAstNode());
+        },
+        .AddEq,
+        .SubEq,
+        .MultEq,
+        .DivEq,
+        .AndEq,
+        .OrEq,
+        .BitAndEq,
+        .BitOrEq,
+        => {
+            const expr = try parseExpression(allocator, context) orelse
+                return AstError.ExpectedExpression;
+
+            const valueSetVariant: AstNodeUnion = .{
+                .VarEqOp = .{
+                    .opType = tokenTypeToOpType(next.type),
+                    .variable = access,
+                    .value = expr,
+                },
+            };
+            return try context.pools.newNode(valueSetVariant.toAstNode());
+        },
+        else => {},
     }
 
     context.tokenUtil.returnToken();
@@ -2147,15 +2173,16 @@ fn rotatePrecedence(rootExprNode: *AstNode) ?*AstNode {
 /// note: should only be called from exhaustive switch
 /// types other than ones in OpExprTypes are marked unreachable
 pub fn tokenTypeToOpType(tokenType: tokenizer.TokenType) OpExprTypes {
+    std.debug.print("{}\n", .{tokenType});
     return switch (tokenType) {
         .Ampersand => .BitAnd,
-        .BitOr => .BitOr,
-        .And => .And,
-        .Or => .Or,
-        .Add => .Add,
-        .Sub => .Sub,
-        .Asterisk => .Mult,
-        .Div => .Div,
+        .BitOr, .BitOrEq => .BitOr,
+        .And, .AndEq => .And,
+        .Or, .OrEq => .Or,
+        .Sub, .SubEq => .Sub,
+        .Add, .AddEq => .Add,
+        .Asterisk, .MultEq => .Mult,
+        .Div, .DivEq => .Div,
         .LAngle => .LessThan,
         .RAngle => .GreaterThan,
         .LAngleEq => .LessThanEq,

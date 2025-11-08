@@ -70,6 +70,7 @@ pub const ScanError = error{
     NestedVarInfoDetected,
     RawNumberTooBigForType,
     CannotSetGenericToVarInfo,
+    InvalidEqOperationType,
 
     // pointers
     PointerTypeMismatch,
@@ -99,6 +100,7 @@ pub const ScanError = error{
     StrictMutTypeMismatch,
     InvalidSetValueTarget,
     UndefVariableRequiresAnnotation,
+    ValueSetTargetNotAVariable,
 
     // functions
     ExpectedFunctionReturn,
@@ -735,19 +737,27 @@ pub fn scanNode(
         },
         .VarEqOp => |op| {
             switch (op.opType) {
-                .AddEq, .SubEq, .MultEq, .DivEq => {
-                    const varType = try context.compInfo.getVariableType(op.variable, withGenDef);
-                    const variable = if (varType) |val|
-                        val
-                    else {
-                        return ScanError.VariableIsUndefined;
-                    };
+                .Add,
+                .Sub,
+                .Mult,
+                .Div,
+                .And,
+                .Or,
+                .BitAnd,
+                .BitOr,
+                => {
+                    const varType = try scanNode(allocator, context, op.variable, withGenDef);
+                    defer releaseIfAllocated(allocator, context, varType);
 
-                    if (variable.info.mutState == .Const) {
+                    if (varType.info.astType.* != .VarInfo) {
+                        return ScanError.ValueSetTargetNotAVariable;
+                    }
+
+                    if (varType.info.mutState == .Const) {
                         return ScanError.AssigningToConstVariable;
                     }
 
-                    const left = variable;
+                    const left = try escapeVarInfo(varType);
                     const right = try scanNode(allocator, context, op.value, withGenDef);
                     defer releaseIfAllocated(allocator, context, right);
 
@@ -789,7 +799,7 @@ pub fn scanNode(
                         return ScanError.NumberTypeMismatch;
                     }
                 },
-                else => {},
+                else => return ScanError.InvalidEqOperationType,
             }
 
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);

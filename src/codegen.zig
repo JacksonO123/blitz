@@ -15,6 +15,7 @@ const ArrayList = std.ArrayList;
 const TempRegister = vmInfo.TempRegister;
 const Writer = std.Io.Writer;
 const Context = blitzContext.Context;
+const MemoryPool = std.heap.MemoryPool;
 
 const CodeGenError = error{
     RawNumberIsTooBig,
@@ -592,15 +593,21 @@ fn blankFreeVarGenInfo(_: Allocator, _: *Context, _: *VarGenInfo) void {}
 fn blankPrintVarGenInfo(_: *Context, _: *VarGenInfo, _: *Writer) !void {}
 
 const VAR_GEN_INFO_POOL_SIZE = 1024;
-const VarGenInfoPool = std.heap.MemoryPool(VarGenInfo);
+const VarGenInfoPool = MemoryPool(VarGenInfo);
+
+const CHUNK_POOL_SIZE = 1024 * 64;
+const ChunkPool = MemoryPool(InstrChunk);
 
 pub const GenInfo = struct {
     const Self = @This();
 
     allocator: Allocator,
     procInfo: ProcInfo,
-    instrListStart: ?*InstrChunk,
-    lastInstr: ?*InstrChunk,
+    chunks: struct {
+        pool: *ChunkPool,
+        listStart: ?*InstrChunk,
+        listEnd: ?*InstrChunk,
+    },
     vmInfo: struct {
         stackStartSize: u32,
         version: u8,
@@ -613,9 +620,7 @@ pub const GenInfo = struct {
     loopInfo: *ArrayList(*LoopInfo),
     byteCounter: u64,
 
-    pub fn init(
-        allocator: Allocator,
-    ) !Self {
+    pub fn init(allocator: Allocator) !Self {
         const varNameReg = try utils.initMutPtrT(StringHashMap(*VarGenInfo), allocator);
         const regScopes = try RegScopes.init(allocator);
         const regScopesPtr = try utils.createMut(RegScopes, allocator, regScopes);
@@ -627,14 +632,20 @@ pub const GenInfo = struct {
         const tempPool = try VarGenInfoPool.initPreheated(allocator, VAR_GEN_INFO_POOL_SIZE);
         const varGenInfoPool = try utils.createMut(VarGenInfoPool, allocator, tempPool);
 
+        const chunkPool = try ChunkPool.initPreheated(allocator, CHUNK_POOL_SIZE);
+        const chunkPoolPtr = try utils.createMut(ChunkPool, allocator, chunkPool);
+
         return .{
             .allocator = allocator,
             .vmInfo = .{
                 .stackStartSize = 0,
                 .version = 0,
             },
-            .instrListStart = null,
-            .lastInstr = null,
+            .chunks = .{
+                .pool = chunkPoolPtr,
+                .listStart = null,
+                .listEnd = null,
+            },
             .varGenInfoPool = varGenInfoPool,
             .varNameReg = varNameReg,
             .regScopes = regScopesPtr,
@@ -650,12 +661,8 @@ pub const GenInfo = struct {
     }
 
     pub fn deinit(self: Self) void {
-        var current = self.instrListStart;
-        while (current != null) {
-            const next = current.?.next;
-            self.allocator.destroy(current.?);
-            current = next;
-        }
+        self.chunks.pool.deinit();
+        self.allocator.destroy(self.chunks.pool);
 
         self.registers.deinit(self.allocator);
         self.allocator.destroy(self.registers);
@@ -688,7 +695,7 @@ pub const GenInfo = struct {
         std.mem.writeInt(vmInfo.StartStackType, &buf, self.vmInfo.stackStartSize, .little);
         try writer.writeAll(&buf);
 
-        var current: ?*InstrChunk = self.instrListStart;
+        var current: ?*InstrChunk = self.chunks.listStart;
         while (current) |chunk| : (current = chunk.next) {
             try writeChunk(chunk, writer);
         }
@@ -702,13 +709,13 @@ pub const GenInfo = struct {
             self.procInfo.startInstr = newChunk;
         }
 
-        if (self.lastInstr) |last| {
+        if (self.chunks.listEnd) |last| {
             last.next = newChunk;
             newChunk.prev = last;
-            self.lastInstr = newChunk;
+            self.chunks.listEnd = newChunk;
         } else {
-            self.instrListStart = newChunk;
-            self.lastInstr = newChunk;
+            self.chunks.listStart = newChunk;
+            self.chunks.listEnd = newChunk;
         }
 
         return newChunk;
@@ -850,9 +857,9 @@ pub const GenInfo = struct {
     }
 
     pub fn finishProc(self: *Self) !void {
-        const listStart = self.instrListStart orelse return;
+        const listStart = self.chunks.listStart orelse return;
         const start = self.procInfo.startInstr orelse return;
-        const end = self.lastInstr orelse return;
+        const end = self.chunks.listEnd orelse return;
 
         // NOTE - may cause issues u64 -> u16 but prob not much, change if problems happen
         if (self.procInfo.stackFrameSize > std.math.maxInt(u16)) {
@@ -883,12 +890,12 @@ pub const GenInfo = struct {
         addChunk.next = start;
 
         if (start == listStart) {
-            self.instrListStart = addChunk;
+            self.chunks.listStart = addChunk;
         }
 
         end.next = subChunk;
         subChunk.prev = end;
-        self.lastInstr = subChunk;
+        self.chunks.listEnd = subChunk;
     }
 };
 

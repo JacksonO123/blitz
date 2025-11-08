@@ -289,19 +289,20 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
         },
         .VarEqOp => |op| {
             try writer.writeAll("set ");
-            try writer.writeAll(op.variable);
+            try printNode(context, op.value, writer);
             try writer.writeAll(" to result of (");
-            try writer.writeAll(op.variable);
+            try printNode(context, op.variable, writer);
             try writer.writeByte(' ');
             const opString = switch (op.opType) {
-                .BitOrEq => "|BitOr|",
-                .BitAndEq => "&BitAnd&",
-                .AddEq => "+ADD+",
-                .SubEq => "-SUB-",
-                .MultEq => "*MULT*",
-                .DivEq => "/DIV/",
-                .AndEq => "*MULT*",
-                .OrEq => "/DIV/",
+                .BitOr => "|BitOr|",
+                .BitAnd => "&BitAnd&",
+                .Add => "+ADD+",
+                .Sub => "-SUB-",
+                .Mult => "*MULT*",
+                .Div => "/DIV/",
+                .And => "*MULT*",
+                .Or => "/DIV/",
+                else => "invalid op",
             };
             try writer.writeAll(opString);
             try writer.writeByte(' ');
@@ -735,7 +736,7 @@ pub fn printTokens(tokens: []const tokenizer.Token, code: []u8, writer: *Writer)
 }
 
 pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
-    const chunk = context.genInfo.instrListStart orelse return;
+    const chunk = context.genInfo.chunks.listStart orelse return;
 
     try writer.writeAll("MakeStack ");
     try writeHexDecNumber(vmInfo.StartStackType, context.genInfo.vmInfo.stackStartSize, writer);
