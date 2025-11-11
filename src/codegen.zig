@@ -598,16 +598,42 @@ const VarGenInfoPool = MemoryPool(VarGenInfo);
 const CHUNK_POOL_SIZE = 1024 * 64;
 const ChunkPool = MemoryPool(InstrChunk);
 
+const GenInfoChunks = struct {
+    const Self = @This();
+
+    pool: *ChunkPool,
+    listStart: ?*InstrChunk,
+    listEnd: ?*InstrChunk,
+
+    pub fn init(allocator: Allocator) !Self {
+        const chunkPool = try ChunkPool.initPreheated(allocator, CHUNK_POOL_SIZE);
+        const chunkPoolPtr = try utils.createMut(ChunkPool, allocator, chunkPool);
+
+        return .{
+            .pool = chunkPoolPtr,
+            .listStart = null,
+            .listEnd = null,
+        };
+    }
+
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        self.pool.deinit();
+        allocator.destroy(self.pool);
+    }
+
+    pub fn newChunk(self: *Self, data: Instr) !*InstrChunk {
+        const ptr = try self.pool.create();
+        ptr.* = InstrChunk.init(data);
+        return ptr;
+    }
+};
+
 pub const GenInfo = struct {
     const Self = @This();
 
     allocator: Allocator,
     procInfo: ProcInfo,
-    chunks: struct {
-        pool: *ChunkPool,
-        listStart: ?*InstrChunk,
-        listEnd: ?*InstrChunk,
-    },
+    chunks: *GenInfoChunks,
     vmInfo: struct {
         stackStartSize: u32,
         version: u8,
@@ -632,8 +658,8 @@ pub const GenInfo = struct {
         const tempPool = try VarGenInfoPool.initPreheated(allocator, VAR_GEN_INFO_POOL_SIZE);
         const varGenInfoPool = try utils.createMut(VarGenInfoPool, allocator, tempPool);
 
-        const chunkPool = try ChunkPool.initPreheated(allocator, CHUNK_POOL_SIZE);
-        const chunkPoolPtr = try utils.createMut(ChunkPool, allocator, chunkPool);
+        const chunks = try GenInfoChunks.init(allocator);
+        const chunksPtr = try utils.createMut(GenInfoChunks, allocator, chunks);
 
         return .{
             .allocator = allocator,
@@ -641,11 +667,7 @@ pub const GenInfo = struct {
                 .stackStartSize = 0,
                 .version = 0,
             },
-            .chunks = .{
-                .pool = chunkPoolPtr,
-                .listStart = null,
-                .listEnd = null,
-            },
+            .chunks = chunksPtr,
             .varGenInfoPool = varGenInfoPool,
             .varNameReg = varNameReg,
             .regScopes = regScopesPtr,
@@ -661,8 +683,8 @@ pub const GenInfo = struct {
     }
 
     pub fn deinit(self: Self) void {
-        self.chunks.pool.deinit();
-        self.allocator.destroy(self.chunks.pool);
+        self.chunks.deinit(self.allocator);
+        self.allocator.destroy(self.chunks);
 
         self.registers.deinit(self.allocator);
         self.allocator.destroy(self.registers);
@@ -703,7 +725,8 @@ pub const GenInfo = struct {
 
     pub fn appendChunk(self: *Self, data: Instr) !*InstrChunk {
         self.byteCounter += data.getInstrLen();
-        const newChunk = try utils.createMut(InstrChunk, self.allocator, InstrChunk.init(data));
+        const newChunk = try self.chunks.pool.create();
+        newChunk.* = InstrChunk.init(data);
 
         if (self.procInfo.startInstr == null) {
             self.procInfo.startInstr = newChunk;
@@ -870,16 +893,8 @@ pub const GenInfo = struct {
         const subSpInstr = Instr{ .SubSp16 = @intCast(self.procInfo.stackFrameSize) };
         self.byteCounter += addSpInstr.getInstrLen() + subSpInstr.getInstrLen();
 
-        const addChunk = try utils.createMut(
-            InstrChunk,
-            self.allocator,
-            InstrChunk.init(addSpInstr),
-        );
-        const subChunk = try utils.createMut(
-            InstrChunk,
-            self.allocator,
-            InstrChunk.init(subSpInstr),
-        );
+        const addChunk = try self.chunks.newChunk(addSpInstr);
+        const subChunk = try self.chunks.newChunk(subSpInstr);
 
         if (start.prev) |prev| {
             prev.next = addChunk;
@@ -1562,6 +1577,39 @@ pub fn genBytecode(
 
                 return ptrReg;
             }
+        },
+        .VarEqOp => |op| {
+            const destReg = try genBytecode(allocator, context, op.variable) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
+            const valueReg = try genBytecode(allocator, context, op.value) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
+
+            const instr: Instr = switch (op.opType) {
+                .Add => .{
+                    .Add = .{
+                        .dest = destReg,
+                        .reg1 = destReg,
+                        .reg2 = valueReg,
+                    },
+                },
+                .Sub => .{
+                    .Sub = .{
+                        .dest = destReg,
+                        .reg1 = destReg,
+                        .reg2 = valueReg,
+                    },
+                },
+                .Mult => .{
+                    .Sub = .{
+                        .dest = destReg,
+                        .reg1 = destReg,
+                        .reg2 = valueReg,
+                    },
+                },
+                else => unreachable,
+            };
+
+            _ = try context.genInfo.appendChunk(instr);
         },
         else => {},
     }

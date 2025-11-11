@@ -758,8 +758,9 @@ pub fn scanNode(
                     }
 
                     const left = try escapeVarInfo(varType);
-                    const right = try scanNode(allocator, context, op.value, withGenDef);
-                    defer releaseIfAllocated(allocator, context, right);
+                    const rightOrig = try scanNode(allocator, context, op.value, withGenDef);
+                    const right = try escapeVarInfo(rightOrig);
+                    defer releaseIfAllocated(allocator, context, rightOrig);
 
                     if (isAnyType(left.info.astType)) {
                         if (right.info.astType.* != .Number and !isAnyType(right.info.astType)) {
