@@ -24,7 +24,7 @@ struct [T: rectangle<char>] square {
 let r: rectangle<char> = rectangle<char> {
   area = 5 * 10,
   // failes with wrong value
-  // value = true,
+  //value = true,
   value = 'b',
   width = 10,
   height = 5,

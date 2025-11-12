@@ -1153,7 +1153,7 @@ pub fn scanNode(
                 initAttrRel.deinit(allocator);
             }
 
-            for (structDec.attributes) |attr| {
+            for (structDec.totalMemberList) |attr| {
                 if (attr.attr != .Member or attr.static) continue;
 
                 var found = false;
