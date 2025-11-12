@@ -1,3 +1,5 @@
-let a = 1;
-let mut b = 2;
-b += a;
+let mut a = 0;
+
+for (let mut i = 0; i < 10000000; i++) {
+    a += 1;
+}

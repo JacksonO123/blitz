@@ -5,7 +5,7 @@ struct Car {
 struct [T: Car] name {
   value1: bool;
   value2: T;
-  pub static fn [T] create(value1: bool, value2: T) name<T> {
+  pub static fn create(value1: bool, value2: T) name<T> {
     return name<T> {
       value1 = !value1,
       value2
@@ -27,8 +27,8 @@ fn b(p0: name<Car>, p1: bool, p2: string, p3: u32) char {
 // let n: name<u32> = name.create(true, Car { size = 10 });
 // let n = name.create(true, 2);
 
-let a = Car { size = 10 };
-let n: name<Car> = name.create(true, a);
-n.test();
+//let a = Car { size = 10 };
+//let n: name<Car> = name.create(true, a);
+//n.test();
 
 // let h = b(n, true, "thing", 2);

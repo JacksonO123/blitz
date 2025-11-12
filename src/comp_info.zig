@@ -431,6 +431,12 @@ pub const CompInfo = struct {
 
                     const f = attr.attr.Function;
 
+                    if (f.generics) |funcGens| {
+                        for (funcGens) |generic| {
+                            try self.addParsedGeneric(generic.name);
+                        }
+                    }
+
                     const prevTokenUtil = context.tokenUtil;
                     const tempTokens = try utils.createMut(
                         tokenizer.TokenUtil,

@@ -1192,6 +1192,7 @@ fn parseStructAttributes(
         if (current.type == .RBrace) break;
     }
 
+    std.debug.print("HERE\n", .{});
     try context.tokenUtil.expectToken(.RBrace);
 
     return try attributes.toOwnedSlice(allocator);
@@ -1228,13 +1229,6 @@ fn parseStructAttributeUtil(
     if (first.type == .Static) {
         static = true;
         first = try context.tokenUtil.take();
-        try context.compInfo.pushParsedGenericsScope(false);
-    }
-
-    defer {
-        if (static) {
-            context.compInfo.popParsedGenericsScope();
-        }
     }
 
     switch (first.type) {
@@ -2061,7 +2055,8 @@ fn parseGeneric(allocator: Allocator, context: *Context) !GenericType {
     if (first.type != .Identifier) {
         return AstError.ExpectedIdentifierForGenericType;
     }
-    try context.compInfo.addParsedGeneric(context.getTokString(first));
+    const str = context.getTokString(first);
+    try context.compInfo.addParsedGeneric(str);
 
     var restriction: ?AstTypeInfo = null;
     const current = try context.tokenUtil.peak();
@@ -2173,7 +2168,6 @@ fn rotatePrecedence(rootExprNode: *AstNode) ?*AstNode {
 /// note: should only be called from exhaustive switch
 /// types other than ones in OpExprTypes are marked unreachable
 pub fn tokenTypeToOpType(tokenType: tokenizer.TokenType) OpExprTypes {
-    std.debug.print("{}\n", .{tokenType});
     return switch (tokenType) {
         .Ampersand => .BitAnd,
         .BitOr, .BitOrEq => .BitOr,

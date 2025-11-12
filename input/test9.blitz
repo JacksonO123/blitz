@@ -13,7 +13,7 @@ struct [T: rectangle<char>] square {
   pub inner: T;
   size: u32;
 
-   pub static fn [G, T] create(size: G, inner: T) square<T> {
+   pub static fn [G] create(size: G, inner: T) square<T> {
      return square<T> {
        inner,
        size
