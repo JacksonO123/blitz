@@ -302,18 +302,6 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 );
                 runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.ptrs.sp - offset;
             },
-            .Store64Offset8 => {
-                const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[current + 1]]);
-                const dest = runtimeInfo.registers[bytecode[current + 2]];
-                const offset = bytecode[current + 3];
-                const end = dest + offset + 8;
-                try ensureStackCapacityAndLength(
-                    allocator,
-                    runtimeInfo.stack,
-                    end,
-                );
-                @memcpy(runtimeInfo.stack.items[dest + offset .. end], &byteData);
-            },
             .Store64AtRegPostInc16 => {
                 try storeAtRegPostInc(u64, u16, allocator, runtimeInfo, bytecode, current);
             },

@@ -86,18 +86,18 @@ pub fn main() !void {
 
         try scanner.typeScan(allocator, ast, context);
 
-        // try codegen.codegenAst(allocator, context, ast);
+        try codegen.codegenAst(allocator, context, ast);
 
-        // try writer.writeAll("--- bytecode out ---\n");
-        // try debug.printBytecodeChunks(context, writer);
+        try writer.writeAll("--- bytecode out ---\n");
+        try debug.printBytecodeChunks(context, writer);
 
-        // const outFile = try std.fs.cwd().createFile("out.bzc", .{});
-        // defer outFile.close();
-        // var fileBuffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
-        // var fileBufferedWriter = outFile.writer(&fileBuffer);
-        // defer fileBufferedWriter.end() catch {};
-        // const fileWriter = &fileBufferedWriter.interface;
-        // try context.genInfo.writeChunks(fileWriter);
+        const outFile = try std.fs.cwd().createFile("out.bzc", .{});
+        defer outFile.close();
+        var fileBuffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
+        var fileBufferedWriter = outFile.writer(&fileBuffer);
+        defer fileBufferedWriter.end() catch {};
+        const fileWriter = &fileBufferedWriter.interface;
+        try context.genInfo.writeChunks(fileWriter);
     }
 
     try writer.writeAll("\n------------\n\n");

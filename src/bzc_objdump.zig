@@ -198,14 +198,6 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[1..3], writer);
         },
-        .Store64Offset8 => {
-            try writer.writeAll(" r");
-            try writer.printInt(bytecode[1], 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(bytecode[2], 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumberSlice(bytecode[3..4], writer);
-        },
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,
         .Store16AtRegPostInc16,

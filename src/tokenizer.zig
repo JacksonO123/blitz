@@ -103,7 +103,6 @@ const TokenVariants = enum {
     I128,
     F32,
     F64,
-    F128,
     StringType,
     Bool,
     Null,
@@ -152,7 +151,6 @@ const TokenVariants = enum {
             .I128 => "i128",
             .F32 => "f32",
             .F64 => "f64",
-            .F128 => "f128",
             .StringType => "string",
             .Bool => "bool",
             .Null => "null",
@@ -287,7 +285,6 @@ pub const TokenType = union(TokenVariants) {
     I128,
     F32,
     F64,
-    F128,
     StringType,
     Bool,
     Null,
@@ -729,7 +726,6 @@ fn parseNumber(chars: *CharUtil) !ParsedNumberInfo {
             "i128",
             "f32",
             "f64",
-            "f128",
         };
 
         for (typeStrings) |str| {
@@ -808,7 +804,6 @@ fn isDatatype(chars: []const u8) ?TokenType {
         .I128,
         .F32,
         .F64,
-        .F128,
     };
 
     return getTypeFromTuple(chars, datatypes);

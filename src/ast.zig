@@ -37,43 +37,19 @@ pub const AstNumberVariants = enum {
     I128,
     F32,
     F64,
-    F128,
 
     pub fn getSize(self: Self) u8 {
         return switch (self) {
-            .Char => 1,
-            .U8 => 1,
-            .U16 => 2,
-            .U32 => 4,
-            .U64 => 8,
-            .U128 => 16,
-            .I8 => 1,
-            .I16 => 2,
-            .I32 => 4,
-            .I64 => 8,
-            .I128 => 16,
-            .F32 => 4,
-            .F64 => 8,
-            .F128 => 16,
+            .Char, .U8, .I8 => 1,
+            .U16, .I16 => 2,
+            .U32, .I32, .F32 => 4,
+            .U64, .I64, .F64 => 8,
+            .U128, .I128 => 16,
         };
     }
 
-    pub fn isTrivial(self: Self) bool {
-        return switch (self) {
-            .Char,
-            .U8,
-            .U16,
-            .U32,
-            .U64,
-            .I8,
-            .I16,
-            .I32,
-            .I64,
-            .F32,
-            .F64,
-            => true,
-            .U128, .I128, .F128 => false,
-        };
+    pub fn getAlignment(self: Self) u8 {
+        return self.getSize();
     }
 
     pub fn fromStr(str: []const u8) ?Self {
@@ -91,7 +67,6 @@ pub const AstNumberVariants = enum {
             .{ .str = "i128", .val = .I128 },
             .{ .str = "f32", .val = .F32 },
             .{ .str = "f64", .val = .F64 },
-            .{ .str = "f128", .val = .F128 },
         };
 
         for (rels) |rel| {
@@ -116,7 +91,6 @@ pub const AstNumberVariants = enum {
             .I128 => "i128",
             .F32 => "f32",
             .F64 => "f64",
-            .F128 => "f128",
         };
     }
 };
@@ -137,7 +111,6 @@ pub const AstNumber = union(AstNumberVariants) {
     I128: i128,
     F32: f32,
     F64: f64,
-    F128: f128,
 
     pub fn toString(self: Self) []const u8 {
         return switch (self) {
@@ -154,7 +127,6 @@ pub const AstNumber = union(AstNumberVariants) {
             .I128 => "i128",
             .F32 => "f32",
             .F64 => "f64",
-            .F128 => "f128",
         };
     }
 
@@ -173,7 +145,6 @@ pub const AstNumber = union(AstNumberVariants) {
             .I128 => .I128,
             .F32 => .F32,
             .F64 => .F64,
-            .F128 => .F128,
         };
     }
 };
@@ -265,31 +236,78 @@ pub const AstTypes = union(Types) {
         };
     }
 
-    pub fn getSize(self: Self, context: *Context) !u64 {
+    pub fn getAlignment(self: Self, context: *Context) !u8 {
         return switch (self) {
-            .Null, .RawNumber, .Undef => unreachable,
-            .String => utils.unimplemented(),
+            .Null,
+            .RawNumber,
+            .Undef,
+            .StaticStructInstance,
+            => unreachable,
+            // slice so alignment is 8
+            .String => 8,
+            // slice so alignment is 8
+            .ArraySlice => 8,
+            .Number => |num| return num.getAlignment(),
+
             .Bool, .Char, .ErrorVariant => 1,
-            .Void, .Any, .Generic, .Function, .Error => 0,
-            .Number => |num| return num.getSize(),
-            .ArraySlice => 16,
-            .Pointer, .StaticStructInstance => 8,
-            .Nullable => |inner| return 1 + try inner.astType.getSize(context),
+
+            .Void,
+            .Any,
+            .Generic,
+            .Function,
+            .Error,
+            => 0,
+
+            .Pointer,
+            .VarInfo,
+            => |inner| return try inner.info.astType.getAlignment(context),
+
+            .Nullable => |inner| try inner.astType.getAlignment(context),
             .Custom => |custom| {
                 const dec = context.compInfo.getStructDec(custom.name).?;
 
-                // try context.compInfo.pushGenScope(false);
-                // defer context.compInfo.popGenScope();
+                // TODO - possibly setup generics
 
-                // for (custom.generics, dec.generics) |fromInit, fromDec| {
-                //     context.compInfo.setGeneric(fromDec.name, fromInit.toAllocInfo(.Recycled));
-                // }
+                var maxAlignment: u8 = 0;
+                for (dec.totalMemberList) |member| {
+                    if (member.attr != .Member) continue;
+
+                    const itemAlignment = try member.attr.Member.astType.getAlignment(context);
+                    maxAlignment = @max(maxAlignment, itemAlignment);
+                }
+
+                return maxAlignment;
+            },
+        };
+    }
+
+    pub fn getSize(self: Self, context: *Context) !u64 {
+        return switch (self) {
+            .Null, .RawNumber, .Undef => unreachable,
+            .Void, .Any, .Generic, .Function, .Error => 0,
+            .String => 16,
+            .Bool, .Char, .ErrorVariant => 1,
+            .Number => |num| return num.getSize(),
+            .ArraySlice => 16,
+            .Pointer, .StaticStructInstance => 8,
+            // TODO - maybe optimize for unused states (0 for pointer etc)
+            .Nullable => |inner| return 2 * try inner.astType.getAlignment(context),
+            .Custom => |custom| {
+                const dec = context.compInfo.getStructDec(custom.name).?;
+
+                // TODO - possibly setup generics
 
                 var size: u64 = 0;
                 for (dec.totalMemberList) |member| {
                     if (member.attr != .Member) continue;
 
-                    size += try member.attr.Member.astType.getSize(context);
+                    const itemAlignment = try member.attr.Member.astType.getAlignment(context);
+                    std.debug.print("here :: {d}\n", .{itemAlignment});
+                    var prepadding = if (itemAlignment == 0) 0 else itemAlignment - (size % itemAlignment);
+                    if (prepadding == itemAlignment) prepadding = 0;
+
+                    const memberSize = try member.attr.Member.astType.getSize(context);
+                    size += prepadding + memberSize;
                 }
 
                 return size;
@@ -298,35 +316,9 @@ pub const AstTypes = union(Types) {
         };
     }
 
-    // whether the type can fit into a 64 bit register (<= 64 bits)
-    pub fn isTrivial(self: Self, context: *Context) !bool {
-        return switch (self) {
-            .Null, .RawNumber => unreachable,
-            .String => utils.unimplemented(),
-            .Bool,
-            .Char,
-            .ErrorVariant,
-            .Void,
-            .Any,
-            .Generic,
-            .Function,
-            .Error,
-            .Pointer,
-            .StaticStructInstance,
-            .Undef,
-            => true,
-            .Number => |num| return num.isTrivial(),
-            .ArraySlice => false,
-            .Nullable => |inner| return (try inner.astType.getSize(context)) <= 7,
-            .Custom => utils.unimplemented(),
-            .VarInfo => |inner| return try inner.info.astType.isTrivial(context),
-        };
-    }
-
     pub fn getNodeTypeInfo(self: Self, context: *Context) !AstNodeTypeInfo {
         return .{
             .size = try self.getSize(context),
-            .isTrivial = try self.isTrivial(context),
         };
     }
 };
@@ -680,7 +672,7 @@ pub const AstNodeUnion = union(AstNodeVariants) {
 
 const AstNodeTypeInfo = struct {
     size: u64 = 0,
-    isTrivial: bool = true,
+    alignment: u8 = 0,
 };
 
 pub const AstNode = struct {
@@ -2288,7 +2280,6 @@ fn parseType(
         .I128 => .{ .Number = .I128 },
         .F32 => .{ .Number = .F32 },
         .F64 => .{ .Number = .F64 },
-        .F128 => .{ .Number = .F128 },
         .CharType => .Char,
         .Asterisk => a: {
             const pointer = try parseType(allocator, context);

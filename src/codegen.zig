@@ -75,7 +75,6 @@ pub const InstructionVariants = enum(u8) {
     XorConst8, // inst, out reg, reg1, 1B data
     AddSp16, // inst, 2B data
     SubSp16, // inst, 2B data
-    Store64Offset8, // inst, reg, to reg (ptr), offset 1B
     Store64AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
     Store32AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
     Store16AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
@@ -132,7 +131,6 @@ pub const InstructionVariants = enum(u8) {
             .MovSpNegOffset16 => 4,
             .Xor, .XorConst8 => 4,
             .AddSp16, .SubSp16 => 3,
-            .Store64Offset8 => 4,
             .Store64AtRegPostInc16 => 5,
             .Store32AtRegPostInc16 => 5,
             .Store16AtRegPostInc16 => 5,
@@ -202,7 +200,6 @@ pub const InstructionVariants = enum(u8) {
             .XorConst8 => "xor_const_byte",
             .AddSp16 => "add_sp_16",
             .SubSp16 => "sub_sp_16",
-            .Store64Offset8 => "store_64_offset_8",
             .Store64AtRegPostInc16 => "store_64_at_reg_post_inc_16",
             .Store32AtRegPostInc16 => "store_32_at_reg_post_inc_16",
             .Store16AtRegPostInc16 => "store_16_at_reg_post_inc_16",
@@ -356,7 +353,6 @@ pub const Instr = union(InstructionVariants) {
     },
     AddSp16: u16,
     SubSp16: u16,
-    Store64Offset8: StoreOffsetInstr(u8),
     Store64AtRegPostInc16: StoreIncInstr(u16),
     Store32AtRegPostInc16: StoreIncInstr(u16),
     Store16AtRegPostInc16: StoreIncInstr(u16),
@@ -889,6 +885,10 @@ pub const GenInfo = struct {
             return CodeGenError.StackFrameSizeTooLarge;
         }
 
+        if (self.procInfo.stackFrameSize == 0) return;
+
+        adjustStackLocations(start, self.procInfo.stackFrameSize);
+
         const addSpInstr = Instr{ .AddSp16 = @intCast(self.procInfo.stackFrameSize) };
         const subSpInstr = Instr{ .SubSp16 = @intCast(self.procInfo.stackFrameSize) };
         self.byteCounter += addSpInstr.getInstrLen() + subSpInstr.getInstrLen();
@@ -913,6 +913,36 @@ pub const GenInfo = struct {
         self.chunks.listEnd = subChunk;
     }
 };
+
+fn adjustStackLocations(chunk: *InstrChunk, frameSize: u64) void {
+    var current: ?*InstrChunk = chunk;
+    while (current) |val| {
+        adjustStackLocation(val, frameSize);
+        current = current.?.next;
+    }
+}
+
+fn adjustStackLocation(chunk: *InstrChunk, frameSize: u64) void {
+    switch (chunk.data) {
+        .Store8AtSpNegOffset16,
+        .Store16AtSpNegOffset16,
+        .Store32AtSpNegOffset16,
+        .Store64AtSpNegOffset16,
+        => |*instr| {
+            instr.offset = @intCast(frameSize - instr.offset);
+        },
+        .StoreSpAtSpNegOffset16 => |*instr| {
+            instr.offset = @intCast(frameSize - instr.offset);
+        },
+        .StoreSpSub16AtSpNegOffset16 => |*instr| {
+            instr.offset = @intCast(frameSize - instr.offset);
+        },
+        .MovSpNegOffset16 => |*instr| {
+            instr.offset = @intCast(frameSize - instr.offset);
+        },
+        else => {},
+    }
+}
 
 fn writeLoopJump(info: InstrInfo, endByte: u64) void {
     const diff = @as(u16, @intCast(endByte - info.location));
@@ -1072,18 +1102,20 @@ pub fn genBytecode(
                     return reg;
                 },
                 .ArraySlice => |items| {
-                    context.genInfo.procInfo.stackFrameSize += node.typeInfo.size;
                     const sfSize = context.genInfo.procInfo.stackFrameSize;
+                    const sliceSize = node.typeInfo.size;
+                    context.genInfo.procInfo.stackFrameSize += sliceSize;
                     const sliceInfo = try initSliceBytecode(
                         context,
                         items.len,
                         sfSize,
+                        sliceSize,
                     );
 
                     const setSliceAddrInstr = Instr{
                         .MovSpNegOffset16 = .{
                             .reg = sliceInfo.reg,
-                            .offset = @intCast(sfSize),
+                            .offset = @intCast(sfSize + vmInfo.POINTER_SIZE * 2),
                         },
                     };
 
@@ -1417,11 +1449,12 @@ pub fn genBytecode(
             try loopInfo.appendContinue(chunk, byteCount);
         },
         .ArrayInit => |init| {
-            context.genInfo.procInfo.stackFrameSize += node.typeInfo.size;
             const sfSize = context.genInfo.procInfo.stackFrameSize;
+            const initSize = node.typeInfo.size;
+            context.genInfo.procInfo.stackFrameSize += initSize;
 
             const initLen = try std.fmt.parseInt(u64, init.size, 10);
-            const sliceInfo = try initSliceBytecode(context, initLen, sfSize);
+            const sliceInfo = try initSliceBytecode(context, initLen, sfSize, initSize);
             defer context.genInfo.releaseRegister(sliceInfo.reg);
 
             const setSliceAddrInstr = Instr{
@@ -1531,8 +1564,8 @@ pub fn genBytecode(
 
                 const location = if (info.stackLocation) |location| location else a: {
                     const itemSize = inner.node.typeInfo.size;
-                    context.genInfo.procInfo.stackFrameSize += itemSize;
                     const spCount = context.genInfo.procInfo.stackFrameSize;
+                    context.genInfo.procInfo.stackFrameSize += itemSize;
 
                     const storeInstr = switch (info.dataSize) {
                         8, 7, 6, 5 => Instr{
@@ -1617,10 +1650,10 @@ pub fn genBytecode(
     return null;
 }
 
-fn initSliceBytecode(context: *Context, len: u64, offset: u64) !SliceBytecodeInfo {
+fn initSliceBytecode(context: *Context, len: u64, offset: u64, sliceSize: u64) !SliceBytecodeInfo {
     const writeAtSp = Instr{
         .StoreSpSub16AtSpNegOffset16 = .{
-            .sub = @intCast(offset - vmInfo.POINTER_SIZE * 2),
+            .sub = @intCast(offset + sliceSize - vmInfo.POINTER_SIZE * 2),
             .offset = @intCast(offset),
         },
     };
@@ -1639,7 +1672,7 @@ fn initSliceBytecode(context: *Context, len: u64, offset: u64) !SliceBytecodeInf
     const writeLen = Instr{
         .Store64AtSpNegOffset16 = .{
             .reg = reg,
-            .offset = @intCast(offset - vmInfo.POINTER_SIZE),
+            .offset = @intCast(offset + vmInfo.POINTER_SIZE),
         },
     };
     _ = try context.genInfo.appendChunk(writeLen);
@@ -1647,7 +1680,7 @@ fn initSliceBytecode(context: *Context, len: u64, offset: u64) !SliceBytecodeInf
     const setArrStart = Instr{
         .MovSpNegOffset16 = .{
             .reg = reg,
-            .offset = @intCast(offset - vmInfo.POINTER_SIZE * 2),
+            .offset = @intCast(offset + vmInfo.POINTER_SIZE * 2),
         },
     };
     _ = try context.genInfo.appendChunk(setArrStart);
@@ -1866,11 +1899,6 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
         },
         .AddSp16, .SubSp16 => |inst| {
             try writer.writeInt(u16, inst, .little);
-        },
-        .Store64Offset8 => |inst| {
-            try writer.writeByte(@intCast(inst.fromReg));
-            try writer.writeByte(@intCast(inst.toRegPtr));
-            try writer.writeByte(inst.offset);
         },
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,

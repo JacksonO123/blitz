@@ -233,7 +233,6 @@ fn printAstNumber(num: blitzAst.AstNumber, writer: *Writer) !void {
         .I128 => |val| printAstNumberUtil(val, num, writer),
         .F32 => |val| printAstNumberUtil(val, num, writer),
         .F64 => |val| printAstNumberUtil(val, num, writer),
-        .F128 => |val| printAstNumberUtil(val, num, writer),
     };
 }
 
@@ -892,14 +891,6 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
         .AddSp16, .SubSp16 => |inst| {
             try writer.writeByte(' ');
             try writeHexDecNumber(u16, inst, writer);
-        },
-        .Store64Offset8 => |inst| {
-            try writer.writeAll(" r");
-            try writer.printInt(inst.fromReg, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inst.fromReg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u8, inst.offset, writer);
         },
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,
