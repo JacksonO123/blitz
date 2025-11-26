@@ -27,6 +27,11 @@ const CodeGenError = error{
 };
 const GenBytecodeError = CodeGenError || Allocator.Error || std.fmt.ParseIntError;
 
+const PadingInfo = struct {
+    offset: u16,
+    padding: u8,
+};
+
 const LoopCondInfo = struct {
     prevCmpAsReg: bool,
     isCompExpr: bool,
@@ -1102,20 +1107,19 @@ pub fn genBytecode(
                     return reg;
                 },
                 .ArraySlice => |items| {
-                    const sfSize = context.genInfo.procInfo.stackFrameSize;
+                    const stackLocation = context.genInfo.procInfo.stackFrameSize;
                     const sliceSize = node.typeInfo.size;
-                    context.genInfo.procInfo.stackFrameSize += sliceSize;
                     const sliceInfo = try initSliceBytecode(
                         context,
                         items.len,
-                        sfSize,
+                        stackLocation,
                         sliceSize,
                     );
 
                     const setSliceAddrInstr = Instr{
                         .MovSpNegOffset16 = .{
                             .reg = sliceInfo.reg,
-                            .offset = @intCast(sfSize + vmInfo.POINTER_SIZE * 2),
+                            .offset = @intCast(stackLocation + vmInfo.POINTER_SIZE * 2),
                         },
                     };
 
@@ -1451,7 +1455,6 @@ pub fn genBytecode(
         .ArrayInit => |init| {
             const sfSize = context.genInfo.procInfo.stackFrameSize;
             const initSize = node.typeInfo.size;
-            context.genInfo.procInfo.stackFrameSize += initSize;
 
             const initLen = try std.fmt.parseInt(u64, init.size, 10);
             const sliceInfo = try initSliceBytecode(context, initLen, sfSize, initSize);
@@ -1564,32 +1567,37 @@ pub fn genBytecode(
 
                 const location = if (info.stackLocation) |location| location else a: {
                     const itemSize = inner.node.typeInfo.size;
+                    const alignment = inner.node.typeInfo.alignment;
+
                     const spCount = context.genInfo.procInfo.stackFrameSize;
                     context.genInfo.procInfo.stackFrameSize += itemSize;
+
+                    const paddingInfo = calculatePadding(spCount, alignment);
+                    context.genInfo.procInfo.stackFrameSize += paddingInfo.padding;
 
                     const storeInstr = switch (info.dataSize) {
                         8, 7, 6, 5 => Instr{
                             .Store64AtSpNegOffset16 = .{
                                 .reg = resReg,
-                                .offset = @intCast(spCount),
+                                .offset = paddingInfo.offset,
                             },
                         },
                         4, 3 => Instr{
                             .Store32AtSpNegOffset16 = .{
                                 .reg = resReg,
-                                .offset = @intCast(spCount),
+                                .offset = paddingInfo.offset,
                             },
                         },
                         2 => Instr{
                             .Store16AtSpNegOffset16 = .{
                                 .reg = resReg,
-                                .offset = @intCast(spCount),
+                                .offset = paddingInfo.offset,
                             },
                         },
                         1 => Instr{
                             .Store8AtSpNegOffset16 = .{
                                 .reg = resReg,
-                                .offset = @intCast(spCount),
+                                .offset = paddingInfo.offset,
                             },
                         },
                         else => utils.unimplemented(),
@@ -1650,11 +1658,26 @@ pub fn genBytecode(
     return null;
 }
 
-fn initSliceBytecode(context: *Context, len: u64, offset: u64, sliceSize: u64) !SliceBytecodeInfo {
+fn calculatePadding(stackLocation: u64, alignment: u8) PadingInfo {
+    const padding: u8 = if (stackLocation == 0)
+        0
+    else
+        @intCast(alignment - (stackLocation % alignment));
+
+    return .{
+        .offset = @intCast(stackLocation + padding),
+        .padding = padding,
+    };
+}
+
+fn initSliceBytecode(context: *Context, len: u64, stackLocation: u64, sliceSize: u64) !SliceBytecodeInfo {
+    const slicePadding = calculatePadding(stackLocation, 8);
+    context.genInfo.procInfo.stackFrameSize += slicePadding.padding + sliceSize;
+
     const writeAtSp = Instr{
         .StoreSpSub16AtSpNegOffset16 = .{
-            .sub = @intCast(offset + sliceSize - vmInfo.POINTER_SIZE * 2),
-            .offset = @intCast(offset),
+            .sub = @intCast(slicePadding.offset + sliceSize - vmInfo.POINTER_SIZE * 2),
+            .offset = @intCast(slicePadding.offset),
         },
     };
     _ = try context.genInfo.appendChunk(writeAtSp);
@@ -1672,7 +1695,7 @@ fn initSliceBytecode(context: *Context, len: u64, offset: u64, sliceSize: u64) !
     const writeLen = Instr{
         .Store64AtSpNegOffset16 = .{
             .reg = reg,
-            .offset = @intCast(offset + vmInfo.POINTER_SIZE),
+            .offset = @intCast(slicePadding.offset + vmInfo.POINTER_SIZE),
         },
     };
     _ = try context.genInfo.appendChunk(writeLen);
@@ -1680,13 +1703,13 @@ fn initSliceBytecode(context: *Context, len: u64, offset: u64, sliceSize: u64) !
     const setArrStart = Instr{
         .MovSpNegOffset16 = .{
             .reg = reg,
-            .offset = @intCast(offset + vmInfo.POINTER_SIZE * 2),
+            .offset = @intCast(slicePadding.offset + vmInfo.POINTER_SIZE * 2),
         },
     };
     _ = try context.genInfo.appendChunk(setArrStart);
 
     return .{
-        .sliceLocation = offset,
+        .sliceLocation = slicePadding.offset,
         .reg = reg,
     };
 }

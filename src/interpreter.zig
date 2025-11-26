@@ -78,12 +78,12 @@ const RuntimeInfo = struct {
     allocator: Allocator,
     registers: [vmInfo.NUM_REGISTERS]RegisterType = [_]RegisterType{0} ** vmInfo.NUM_REGISTERS,
     flags: Flags,
-    stack: *std.ArrayList(u8),
+    stack: *std.ArrayListAligned(u8, .@"64"),
     ptrs: RuntimePtrs,
 
     pub fn init(allocator: Allocator, stackSize: u32) !Self {
-        const tempStack = try std.ArrayList(u8).initCapacity(allocator, stackSize);
-        const stack = try utils.createMut(std.ArrayList(u8), allocator, tempStack);
+        const tempStack = try std.ArrayListAligned(u8, .@"64").initCapacity(allocator, stackSize);
+        const stack = try utils.createMut(std.ArrayListAligned(u8, .@"64"), allocator, tempStack);
         stack.items.len = stackSize;
 
         return .{
@@ -521,7 +521,7 @@ inline fn compareOrder(value1: u64, value2: u64) Flags {
 
 fn ensureStackCapacityAndLength(
     allocator: Allocator,
-    stack: *std.ArrayList(u8),
+    stack: *std.ArrayListAligned(u8, .@"64"),
     minCapacity: u64,
 ) !void {
     try stack.ensureTotalCapacity(allocator, minCapacity);

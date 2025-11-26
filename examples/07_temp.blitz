@@ -1,4 +1,4 @@
 let short = 2u16;
 let byte = 4u8;
-let c = &short;
 let d = &byte;
+let c = &short;
