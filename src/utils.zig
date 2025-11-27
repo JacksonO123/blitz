@@ -14,7 +14,6 @@ const ScanError = scanner.ScanError;
 const ArrayList = std.ArrayList;
 
 pub const BUFFERED_WRITER_SIZE = 1024 * 32;
-// pub const BUFFERED_WRITER_SIZE = 0;
 
 pub inline fn create(comptime T: type, allocator: Allocator, obj: T) Allocator.Error!*const T {
     return createMut(T, allocator, obj);

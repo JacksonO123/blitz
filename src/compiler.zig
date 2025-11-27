@@ -19,8 +19,17 @@ const CompInfo = blitzCompInfo.CompInfo;
 const TokenUtil = tokenizer.TokenUtil;
 const GenInfo = codegen.GenInfo;
 const Context = blitzContext.Context;
+const Writer = std.Io.Writer;
 
-const RuntimeError = error{NoInputFile};
+const DebugPrintState = enum {
+    All,
+    None,
+};
+
+const BytecodeFormat = enum {
+    Binary,
+    PlainText,
+};
 
 pub fn main() !void {
     const dbg = builtin.mode == .Debug;
@@ -32,7 +41,7 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
     if (args.len < 2) {
-        return RuntimeError.NoInputFile;
+        return error.NoInputFile;
     }
 
     const path = args[1];
@@ -42,6 +51,13 @@ pub fn main() !void {
     defer stdout.end() catch {};
     const writer = &stdout.interface;
 
+    const outFile = try std.fs.cwd().createFile("out.bzc", .{});
+    defer outFile.close();
+    var fileBuffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
+    var fileBufferedWriter = outFile.writer(&fileBuffer);
+    defer fileBufferedWriter.end() catch {};
+    const fileWriter = &fileBufferedWriter.interface;
+
     try writer.writeAll("opening ");
     try writer.writeAll(path);
     try writer.writeAll("\n");
@@ -49,7 +65,18 @@ pub fn main() !void {
     const code = try utils.readRelativeFile(allocator, path);
     defer allocator.free(code);
 
-    var context = try Context.init(allocator, code, writer, .{});
+    try compile(allocator, code, writer, fileWriter, .All, .Binary);
+}
+
+pub fn compile(
+    allocator: Allocator,
+    code: []u8,
+    printWriter: *Writer,
+    fileWriter: ?*Writer,
+    printState: DebugPrintState,
+    format: BytecodeFormat,
+) !void {
+    var context = try Context.init(allocator, code, printWriter, .{});
     defer {
         context.deinit();
         allocator.destroy(context);
@@ -61,8 +88,10 @@ pub fn main() !void {
     try context.compInfo.setStructDecs(structsAndErrors.structs);
     try context.compInfo.setErrorDecs(structsAndErrors.errors);
 
-    try debug.printRegisteredStructs(context, structsAndErrors.structs, writer);
-    try debug.printRegisteredErrors(structsAndErrors.errors, writer);
+    if (printState == .All) {
+        try debug.printRegisteredStructs(context, structsAndErrors.structs, printWriter);
+        try debug.printRegisteredErrors(structsAndErrors.errors, printWriter);
+    }
 
     try context.compInfo.prepareForAst(context);
 
@@ -79,28 +108,33 @@ pub fn main() !void {
             free.freeStructsAndErrors(allocator, context, structsAndErrors);
         }
 
-        try writer.writeAll("--- code ---\n");
-        try writer.writeAll(code);
-        try writer.writeAll("\n------------\n\n");
-        try debug.printAst(context, ast, writer);
+        if (printState == .All) {
+            try printWriter.writeAll("--- code ---\n");
+            try printWriter.writeAll(code);
+            try printWriter.writeAll("\n------------\n\n");
+            try debug.printAst(context, ast, printWriter);
+        }
 
         try scanner.typeScan(allocator, ast, context);
-
         try codegen.codegenAst(allocator, context, ast);
 
-        try writer.writeAll("--- bytecode out ---\n");
-        try debug.printBytecodeChunks(context, writer);
+        if (printState == .All) {
+            try printWriter.writeAll("--- bytecode out ---\n");
+            try debug.printBytecodeChunks(context, printWriter);
+        }
 
-        const outFile = try std.fs.cwd().createFile("out.bzc", .{});
-        defer outFile.close();
-        var fileBuffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
-        var fileBufferedWriter = outFile.writer(&fileBuffer);
-        defer fileBufferedWriter.end() catch {};
-        const fileWriter = &fileBufferedWriter.interface;
-        try context.genInfo.writeChunks(fileWriter);
+        if (fileWriter) |fWriter| {
+            if (format == .Binary) {
+                try context.genInfo.writeChunks(fWriter);
+            } else {
+                try debug.printBytecodeChunks(context, fWriter);
+            }
+        }
     }
 
-    try writer.writeAll("\n------------\n\n");
-    try context.pools.writeStats(true, writer);
-    try writer.writeByte('\n');
+    if (printState == .All) {
+        try printWriter.writeAll("\n------------\n\n");
+        try context.pools.writeStats(true, printWriter);
+        try printWriter.writeByte('\n');
+    }
 }

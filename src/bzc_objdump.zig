@@ -6,10 +6,6 @@ const codegen = blitz.codegen;
 const vmInfo = blitz.vmInfo;
 const Writer = std.Io.Writer;
 
-const BzcObjDumpError = error{
-    InvalidArgCount,
-};
-
 pub fn main() !void {
     const dbg = builtin.mode == .Debug;
     var gp = std.heap.GeneralPurposeAllocator(.{ .safety = dbg }){};
@@ -20,7 +16,7 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     if (args.len != 2) {
-        return BzcObjDumpError.InvalidArgCount;
+        return error.InvalidArgCount;
     }
 
     const filename = args[1];
