@@ -61,9 +61,8 @@ pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
 pub fn printVMStartInfo(info: []u8, writer: *Writer) !void {
     try writer.writeAll("blitz bytecode version ");
     try writer.printInt(info[0], 10, .lower, .{});
-    try writer.writeAll("\nstarting stack size: ");
-    const startStackSize = std.mem.readInt(u32, @ptrCast(info[1..5]), .little);
-    try writer.printInt(startStackSize, 10, .lower, .{});
+    try writer.writeAll("\nMakeStack ");
+    try writeHexDecNumberSlice(info[1..5], writer);
     try writer.writeByte('\n');
 }
 

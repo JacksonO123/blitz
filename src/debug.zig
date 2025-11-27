@@ -737,6 +737,10 @@ pub fn printTokens(tokens: []const tokenizer.Token, code: []u8, writer: *Writer)
 pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     const chunk = context.genInfo.chunks.listStart orelse return;
 
+    try writer.writeAll("blitz bytecode version ");
+    try writer.printInt(context.genInfo.vmInfo.version, 10, .lower, .{});
+    try writer.writeByte('\n');
+
     try writer.writeAll("MakeStack ");
     try writeHexDecNumber(vmInfo.StartStackType, context.genInfo.vmInfo.stackStartSize, writer);
     try writer.writeByte('\n');
@@ -744,7 +748,7 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     const numDigits = utils.getNumberDigitCount(u64, context.genInfo.byteCounter);
     const numInstrLenDigits = utils.getNumberDigitCount(u8, codegen.Instr.maxInstrSize());
 
-    var byteCounter: usize = 0;
+    var byteCounter: usize = vmInfo.VM_INFO_BYTECODE_LEN;
     var next: ?*codegen.InstrChunk = chunk;
     while (next) |nextChunk| {
         const chunkLen = nextChunk.data.getInstrLen();
