@@ -904,13 +904,9 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumber(u16, inst.inc, writer);
         },
-        .StoreSpAtSpNegOffset16 => |inst| {
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u16, inst.offset, writer);
-        },
         .StoreSpSub16AtSpNegOffset16 => |inst| {
             try writer.writeByte(' ');
-            try writeHexDecNumber(u16, inst.sub, writer);
+            try writeHexDecNumber(u16, inst.subTo, writer);
             try writer.writeByte(' ');
             try writeHexDecNumber(u16, inst.offset, writer);
         },

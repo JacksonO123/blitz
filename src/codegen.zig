@@ -84,7 +84,6 @@ pub const InstructionVariants = enum(u8) {
     Store32AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
     Store16AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
     Store8AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
-    StoreSpAtSpNegOffset16, // inst, offset 2B
     StoreSpSub16AtSpNegOffset16, // inst, sub 2B data, offset 2B
     Store64AtSpNegOffset16, // inst, reg, offset 2B
     Store32AtSpNegOffset16, // inst, reg, offset 2B
@@ -140,7 +139,6 @@ pub const InstructionVariants = enum(u8) {
             .Store32AtRegPostInc16 => 5,
             .Store16AtRegPostInc16 => 5,
             .Store8AtRegPostInc16 => 5,
-            .StoreSpAtSpNegOffset16 => 3,
             .StoreSpSub16AtSpNegOffset16 => 5,
             .Store64AtSpNegOffset16,
             .Store32AtSpNegOffset16,
@@ -209,7 +207,6 @@ pub const InstructionVariants = enum(u8) {
             .Store32AtRegPostInc16 => "store_32_at_reg_post_inc_16",
             .Store16AtRegPostInc16 => "store_16_at_reg_post_inc_16",
             .Store8AtRegPostInc16 => "store_8_at_reg_post_inc_16",
-            .StoreSpAtSpNegOffset16 => "store_sp_at_sp_neg_offset_16",
             .StoreSpSub16AtSpNegOffset16 => "store_sp_sub_16_at_sp_neg_offset_16",
             .Store64AtSpNegOffset16 => "store_64_at_sp_neg_offset_16",
             .Store32AtSpNegOffset16 => "store_32_at_sp_neg_offset_16",
@@ -362,11 +359,8 @@ pub const Instr = union(InstructionVariants) {
     Store32AtRegPostInc16: StoreIncInstr(u16),
     Store16AtRegPostInc16: StoreIncInstr(u16),
     Store8AtRegPostInc16: StoreIncInstr(u16),
-    StoreSpAtSpNegOffset16: struct {
-        offset: u16,
-    },
     StoreSpSub16AtSpNegOffset16: struct {
-        sub: u16,
+        subTo: u16,
         offset: u16,
     },
     Store64AtSpNegOffset16: StoreOffsetSpInstr(u16),
@@ -589,9 +583,6 @@ const ProcInfo = struct {
     stackFrameSize: u64,
     startInstr: ?*InstrChunk,
 };
-
-fn blankFreeVarGenInfo(_: Allocator, _: *Context, _: *VarGenInfo) void {}
-fn blankPrintVarGenInfo(_: *Context, _: *VarGenInfo, _: *Writer) !void {}
 
 const VAR_GEN_INFO_POOL_SIZE = 1024;
 const VarGenInfoPool = MemoryPool(VarGenInfo);
@@ -936,10 +927,8 @@ fn adjustStackLocation(chunk: *InstrChunk, frameSize: u64) void {
         => |*instr| {
             instr.offset = @intCast(frameSize - instr.offset);
         },
-        .StoreSpAtSpNegOffset16 => |*instr| {
-            instr.offset = @intCast(frameSize - instr.offset);
-        },
         .StoreSpSub16AtSpNegOffset16 => |*instr| {
+            instr.subTo = @intCast(frameSize - instr.subTo);
             instr.offset = @intCast(frameSize - instr.offset);
         },
         .MovSpNegOffset16 => |*instr| {
@@ -1659,10 +1648,11 @@ pub fn genBytecode(
 }
 
 fn calculatePadding(stackLocation: u64, alignment: u8) PadingInfo {
-    const padding: u8 = if (stackLocation == 0)
+    const missalign = stackLocation % alignment;
+    const padding: u8 = if (missalign == 0)
         0
     else
-        @intCast(alignment - (stackLocation % alignment));
+        @intCast(alignment - missalign);
 
     return .{
         .offset = @intCast(stackLocation + padding),
@@ -1670,13 +1660,29 @@ fn calculatePadding(stackLocation: u64, alignment: u8) PadingInfo {
     };
 }
 
-fn initSliceBytecode(context: *Context, len: u64, stackLocation: u64, sliceSize: u64) !SliceBytecodeInfo {
+test "Calculate padding" {
+    const p1 = calculatePadding(0, 1);
+    try std.testing.expectEqual(0, p1.padding);
+
+    const p2 = calculatePadding(1, 1);
+    try std.testing.expectEqual(0, p2.padding);
+
+    const p3 = calculatePadding(1, 2);
+    try std.testing.expectEqual(1, p3.padding);
+}
+
+fn initSliceBytecode(
+    context: *Context,
+    len: u64,
+    stackLocation: u64,
+    sliceSize: u64,
+) !SliceBytecodeInfo {
     const slicePadding = calculatePadding(stackLocation, 8);
     context.genInfo.procInfo.stackFrameSize += slicePadding.padding + sliceSize;
 
     const writeAtSp = Instr{
         .StoreSpSub16AtSpNegOffset16 = .{
-            .sub = @intCast(slicePadding.offset + sliceSize - vmInfo.POINTER_SIZE * 2),
+            .subTo = @intCast(slicePadding.offset + vmInfo.POINTER_SIZE * 2),
             .offset = @intCast(slicePadding.offset),
         },
     };
@@ -1932,11 +1938,8 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
             try writer.writeByte(@intCast(inst.toRegPtr));
             try writer.writeInt(u16, inst.inc, .little);
         },
-        .StoreSpAtSpNegOffset16 => |inst| {
-            try writer.writeInt(u16, inst.offset, .little);
-        },
         .StoreSpSub16AtSpNegOffset16 => |inst| {
-            try writer.writeInt(u16, inst.sub, .little);
+            try writer.writeInt(u16, inst.subTo, .little);
             try writer.writeInt(u16, inst.offset, .little);
         },
         .Store64AtSpNegOffset16,

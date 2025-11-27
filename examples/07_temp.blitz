@@ -1,4 +1,3 @@
-let short = 2u16;
-let byte = 4u8;
-let d = &byte;
-let c = &short;
+let b = [1u16, 2u16, 3u16];
+let a = 2u8;
+let pa = &a;

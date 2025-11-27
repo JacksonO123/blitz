@@ -328,21 +328,6 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 runtimeInfo.stack.items[dest] = byteData;
                 runtimeInfo.registers[ptrReg] += inc;
             },
-            .StoreSpAtSpNegOffset16 => {
-                const byteData: [8]u8 = @bitCast(runtimeInfo.ptrs.sp);
-                const offset = std.mem.readInt(
-                    u16,
-                    @ptrCast(bytecode[current + 1 .. current + 3]),
-                    .little,
-                );
-                const dest = runtimeInfo.ptrs.sp - offset;
-                try ensureStackCapacityAndLength(
-                    allocator,
-                    runtimeInfo.stack,
-                    dest + 8,
-                );
-                @memcpy(runtimeInfo.stack.items[dest .. dest + 8], &byteData);
-            },
             .StoreSpSub16AtSpNegOffset16 => {
                 const sub = std.mem.readInt(
                     u16,

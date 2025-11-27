@@ -210,10 +210,6 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[3..5], writer);
         },
-        .StoreSpAtSpNegOffset16 => {
-            try writer.writeByte(' ');
-            try writeHexDecNumberSlice(bytecode[2..4], writer);
-        },
         .StoreSpSub16AtSpNegOffset16 => {
             try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[1..3], writer);
