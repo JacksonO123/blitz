@@ -3,6 +3,7 @@ const std = @import("std");
 const utils = @import("utils.zig");
 const compiler = @import("compiler.zig");
 const objdump = @import("bzc_objdump.zig");
+const Writer = std.Io.Writer;
 
 const RECORDS_DIR = "bytecode-records";
 
@@ -107,47 +108,77 @@ pub fn main() !void {
     const origContents = try outFile.readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(origContents);
 
+    try writeDiff(newContents, origContents, printWriter);
+}
+
+fn writeDiff(newContents: []u8, origContents: []u8, printWriter: *Writer) !void {
     var missmatchStart: ?usize = null;
     for (newContents, 0..) |char, index| {
-        if (index < origContents.len) {
-            const missmatch = char != origContents[index] and char != '\n';
+        if (index == origContents.len) {
+            try writeDiffOverflow(newContents[index..], printWriter);
+            break;
+        }
 
-            if (!missmatch) a: {
-                const start = missmatchStart orelse break :a;
-                try printWriter.writeAll(terminalColors.green);
-                for (origContents[start..index]) |origChar| {
-                    if (origChar == '\n') {
-                        try printWriter.writeAll(terminalColors.reset);
-                    }
-                    try printWriter.writeByte(origChar);
-                    if (origChar == '\n') {
-                        try printWriter.writeAll(terminalColors.green);
-                    }
-                }
+        const missmatch = char != origContents[index];
+
+        if (!missmatch) a: {
+            const start = missmatchStart orelse break :a;
+            try writeDiffActual(origContents, start, index, printWriter);
+            missmatchStart = null;
+        } else if (missmatchStart == null) {
+            missmatchStart = index;
+        }
+
+        if (missmatch) {
+            try printWriter.writeAll(terminalColors.red);
+            if (char == '\n') {
+                try printWriter.writeAll("↵");
                 try printWriter.writeAll(terminalColors.reset);
-                missmatchStart = null;
-            } else if (missmatchStart == null) {
-                missmatchStart = index;
+                try printWriter.writeByte('\n');
+                continue;
             }
 
-            if (missmatch) {
-                try printWriter.writeAll(terminalColors.red);
-            }
             try printWriter.writeByte(char);
-            if (missmatch) {
-                try printWriter.writeAll(terminalColors.reset);
-            }
+            try printWriter.writeAll(terminalColors.reset);
             continue;
         }
 
-        if (char != '\n') {
-            try printWriter.writeAll(terminalColors.red);
-        }
         try printWriter.writeByte(char);
-        if (char != '\n') {
-            try printWriter.writeAll(terminalColors.reset);
-        }
+
+        continue;
     }
+}
+
+fn writeDiffOverflow(overflowContents: []u8, printWriter: *Writer) !void {
+    try printWriter.writeAll(terminalColors.red);
+
+    for (overflowContents) |char| {
+        if (char == '\n') {
+            try printWriter.writeAll("↵");
+            try printWriter.writeAll(terminalColors.reset);
+            try printWriter.writeByte('\n');
+            try printWriter.writeAll(terminalColors.red);
+            continue;
+        }
+
+        try printWriter.writeByte(char);
+    }
+    try printWriter.writeAll(terminalColors.reset);
+}
+
+fn writeDiffActual(origContents: []u8, start: usize, end: usize, printWriter: *Writer) !void {
+    try printWriter.writeAll(terminalColors.green);
+    for (origContents[start..end]) |origChar| {
+        if (origChar == '\n') {
+            try printWriter.writeAll(terminalColors.reset);
+            try printWriter.writeByte('\n');
+            try printWriter.writeAll(terminalColors.green);
+            continue;
+        }
+
+        try printWriter.writeByte(origChar);
+    }
+    try printWriter.writeAll(terminalColors.reset);
 }
 
 fn lastIndexOf(text: []u8, char: u8) ?usize {
