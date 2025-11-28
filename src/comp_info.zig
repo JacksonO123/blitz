@@ -444,7 +444,7 @@ pub const CompInfo = struct {
                         tokenizer.TokenUtil.init(f.bodyTokens),
                     );
                     context.tokenUtil = tempTokens;
-                    free.recursiveReleaseNodeAll(self.allocator, context, f.body);
+                    free.recursiveReleaseNodeAll(context, f.body);
                     f.body = blitzAst.parseSequence(self.allocator, context, true) catch |e| {
                         logger.logParseError(context, e);
                         return e;
@@ -946,7 +946,7 @@ pub const ReturnInfo = struct {
     pub fn clear(self: *Self, context: *Context) void {
         if (self.info.retType) |retType| {
             if (retType.allocState == .Allocated) {
-                free.recursiveReleaseType(self.allocator, context, retType.info.astType);
+                free.recursiveReleaseType(context, retType.info.astType);
             }
         }
     }
@@ -965,7 +965,7 @@ pub const ReturnInfo = struct {
     pub fn swapFree(self: *Self, context: *Context, oldRetInfo: *ReturnInfoData) void {
         if (self.info.retType) |retType| {
             if (retType.allocState == .Allocated) {
-                free.recursiveReleaseType(self.allocator, context, retType.info.astType);
+                free.recursiveReleaseType(context, retType.info.astType);
             }
         }
 

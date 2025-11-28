@@ -19,17 +19,17 @@ pub fn freeFuncDec(
     context: *Context,
     func: *const blitzAst.FuncDecNode,
 ) void {
-    recursiveReleaseNodeAll(allocator, context, func.body);
+    recursiveReleaseNodeAll(context, func.body);
 
     for (func.params) |param| {
-        recursiveReleaseTypeAll(allocator, context, param.type.astType);
+        recursiveReleaseTypeAll(context, param.type.astType);
     }
     allocator.free(func.params);
 
     if (func.generics) |generics| {
         for (generics) |generic| {
             if (generic.restriction) |restriction| {
-                recursiveReleaseTypeAll(allocator, context, restriction.astType);
+                recursiveReleaseTypeAll(context, restriction.astType);
             }
         }
         allocator.free(generics);
@@ -52,27 +52,23 @@ pub fn freeFuncDec(
 
     for (func.toScanTypes.items) |rels| {
         for (rels) |rel| {
-            recursiveReleaseTypeAll(allocator, context, rel.info.astType);
+            recursiveReleaseTypeAll(context, rel.info.astType);
         }
         allocator.free(rels);
     }
 
-    recursiveReleaseTypeAll(allocator, context, func.returnType.astType);
+    recursiveReleaseTypeAll(context, func.returnType.astType);
 
     func.toScanTypes.deinit(allocator);
     allocator.destroy(func.toScanTypes);
     allocator.destroy(func);
 }
 
-pub fn freeGenInfoRels(allocator: Allocator, rels: []blitzAst.StrToTypeInfoRel) void {
-    allocator.free(rels);
-}
-
 pub fn freeAttrs(allocator: Allocator, context: *Context, attrs: []blitzAst.StructAttribute) void {
     for (attrs) |attr| {
         switch (attr.attr) {
             .Function => |func| freeFuncDec(allocator, context, func),
-            .Member => |member| recursiveReleaseTypeAll(allocator, context, member.astType),
+            .Member => |member| recursiveReleaseTypeAll(context, member.astType),
         }
     }
 }
@@ -89,13 +85,13 @@ pub fn freeStructDec(
 
     for (dec.generics) |generic| {
         if (generic.restriction) |restriction| {
-            recursiveReleaseTypeAll(allocator, context, restriction.astType);
+            recursiveReleaseTypeAll(context, restriction.astType);
         }
     }
     allocator.free(dec.generics);
 
     for (dec.toScanTypes.items) |rels| {
-        freeGenInfoRels(allocator, rels);
+        allocator.free(rels);
     }
 
     dec.toScanTypes.deinit(allocator);
@@ -113,12 +109,13 @@ pub fn freeVariableScope(
     scope: *compInfo.VarScope,
     releaseType: ReleaseType,
 ) void {
+    _ = allocator;
     var scopeIt = scope.iterator();
     while (scopeIt.next()) |val| {
         if (val.value_ptr.allocState == .Allocated) {
-            recursiveReleaseType(allocator, context, val.value_ptr.info.astType);
+            recursiveReleaseType(context, val.value_ptr.info.astType);
         } else if (releaseType == .All) {
-            recursiveReleaseTypeAll(allocator, context, val.value_ptr.info.astType);
+            recursiveReleaseTypeAll(context, val.value_ptr.info.astType);
         }
     }
     scope.deinit();
@@ -133,12 +130,13 @@ pub fn freeGenericScope(
     scope: *compInfo.TypeScope,
     releaseType: ReleaseType,
 ) void {
+    _ = allocator;
     var scopeIt = scope.valueIterator();
     while (scopeIt.next()) |val| {
         if (val.allocState == .Allocated) {
-            recursiveReleaseType(allocator, context, val.info.astType);
+            recursiveReleaseType(context, val.info.astType);
         } else if (releaseType == .All) {
-            recursiveReleaseTypeAll(allocator, context, val.info.astType);
+            recursiveReleaseTypeAll(context, val.info.astType);
         }
     }
     scope.deinit();
@@ -155,20 +153,18 @@ pub fn deinitScope(
     scope.deinit(allocator);
 }
 
-pub fn recursiveReleaseNode(allocator: Allocator, context: *Context, ptr: *blitzAst.AstNode) void {
-    recursiveReleaseNodeUtil(allocator, context, ptr, .Allocated);
+pub fn recursiveReleaseNode(context: *Context, ptr: *blitzAst.AstNode) void {
+    recursiveReleaseNodeUtil(context, ptr, .Allocated);
 }
 
 pub fn recursiveReleaseNodeAll(
-    allocator: Allocator,
     context: *Context,
     ptr: *blitzAst.AstNode,
 ) void {
-    recursiveReleaseNodeUtil(allocator, context, ptr, .All);
+    recursiveReleaseNodeUtil(context, ptr, .All);
 }
 
 pub fn recursiveReleaseNodeUtil(
-    allocator: Allocator,
     context: *Context,
     ptr: *blitzAst.AstNode,
     releaseType: ReleaseType,
@@ -183,106 +179,106 @@ pub fn recursiveReleaseNodeUtil(
         .Dereference,
         .HeapFree,
         => |node| {
-            recursiveReleaseNodeUtil(allocator, context, node, releaseType);
+            recursiveReleaseNodeUtil(context, node, releaseType);
         },
         .Seq => |seq| {
             for (seq) |node| {
-                recursiveReleaseNodeUtil(allocator, context, node, releaseType);
+                recursiveReleaseNodeUtil(context, node, releaseType);
             }
         },
         .ArrayInit => |init| {
-            recursiveReleaseNodeUtil(allocator, context, init.initNode, releaseType);
-            recursiveReleaseTypeUtil(allocator, context, init.initType.astType, releaseType);
+            recursiveReleaseNodeUtil(context, init.initNode, releaseType);
+            recursiveReleaseTypeUtil(context, init.initType.astType, releaseType);
         },
         .VarDec => |dec| {
-            recursiveReleaseNodeUtil(allocator, context, dec.setNode, releaseType);
+            recursiveReleaseNodeUtil(context, dec.setNode, releaseType);
 
             if (dec.annotation) |annotation| {
-                recursiveReleaseTypeUtil(allocator, context, annotation.astType, releaseType);
+                recursiveReleaseTypeUtil(context, annotation.astType, releaseType);
             }
         },
         .ValueSet => |set| {
-            recursiveReleaseNodeUtil(allocator, context, set.value, releaseType);
-            recursiveReleaseNodeUtil(allocator, context, set.setNode, releaseType);
+            recursiveReleaseNodeUtil(context, set.value, releaseType);
+            recursiveReleaseNodeUtil(context, set.setNode, releaseType);
         },
         .VarEqOp => |eqOp| {
-            recursiveReleaseNodeUtil(allocator, context, eqOp.variable, releaseType);
-            recursiveReleaseNodeUtil(allocator, context, eqOp.value, releaseType);
+            recursiveReleaseNodeUtil(context, eqOp.variable, releaseType);
+            recursiveReleaseNodeUtil(context, eqOp.value, releaseType);
         },
         .Value => |val| {
             if (val == .ArraySlice) {
                 for (val.ArraySlice) |item| {
-                    recursiveReleaseNodeUtil(allocator, context, item, releaseType);
+                    recursiveReleaseNodeUtil(context, item, releaseType);
                 }
             }
         },
         .Cast => |cast| {
-            recursiveReleaseNodeUtil(allocator, context, cast.node, releaseType);
-            recursiveReleaseTypeUtil(allocator, context, cast.toType.astType, releaseType);
+            recursiveReleaseNodeUtil(context, cast.node, releaseType);
+            recursiveReleaseTypeUtil(context, cast.toType.astType, releaseType);
         },
         .IfStatement => |statement| {
-            recursiveReleaseNodeUtil(allocator, context, statement.body, releaseType);
-            recursiveReleaseNodeUtil(allocator, context, statement.condition, releaseType);
+            recursiveReleaseNodeUtil(context, statement.body, releaseType);
+            recursiveReleaseNodeUtil(context, statement.condition, releaseType);
             if (statement.fallback) |fallback| {
-                recursiveReleaseNodeUtil(allocator, context, fallback.node, releaseType);
+                recursiveReleaseNodeUtil(context, fallback.node, releaseType);
             }
         },
         .FuncCall => |call| {
-            recursiveReleaseNodeUtil(allocator, context, call.func, releaseType);
+            recursiveReleaseNodeUtil(context, call.func, releaseType);
 
             for (call.params) |param| {
-                recursiveReleaseNodeUtil(allocator, context, param, releaseType);
+                recursiveReleaseNodeUtil(context, param, releaseType);
             }
 
             if (call.callGenerics) |generics| {
                 for (generics) |gen| {
-                    recursiveReleaseTypeUtil(allocator, context, gen.astType, releaseType);
+                    recursiveReleaseTypeUtil(context, gen.astType, releaseType);
                 }
             }
         },
         .StructInit => |init| {
             for (init.generics) |generic| {
-                recursiveReleaseTypeUtil(allocator, context, generic.astType, releaseType);
+                recursiveReleaseTypeUtil(context, generic.astType, releaseType);
             }
 
             for (init.attributes) |attr| {
-                recursiveReleaseNodeUtil(allocator, context, attr.value, releaseType);
+                recursiveReleaseNodeUtil(context, attr.value, releaseType);
             }
         },
         .PropertyAccess => |access| {
-            recursiveReleaseNodeUtil(allocator, context, access.value, releaseType);
+            recursiveReleaseNodeUtil(context, access.value, releaseType);
         },
         .OpExpr => |expr| {
-            recursiveReleaseNodeUtil(allocator, context, expr.left, releaseType);
-            recursiveReleaseNodeUtil(allocator, context, expr.right, releaseType);
+            recursiveReleaseNodeUtil(context, expr.left, releaseType);
+            recursiveReleaseNodeUtil(context, expr.right, releaseType);
         },
         .IndexValue => |index| {
-            recursiveReleaseNodeUtil(allocator, context, index.target, releaseType);
-            recursiveReleaseNodeUtil(allocator, context, index.index, releaseType);
+            recursiveReleaseNodeUtil(context, index.target, releaseType);
+            recursiveReleaseNodeUtil(context, index.index, releaseType);
         },
         .ForLoop => |loop| {
             if (loop.initNode) |init| {
-                recursiveReleaseNodeUtil(allocator, context, init, releaseType);
+                recursiveReleaseNodeUtil(context, init, releaseType);
             }
 
-            recursiveReleaseNodeUtil(allocator, context, loop.condition, releaseType);
-            recursiveReleaseNodeUtil(allocator, context, loop.body, releaseType);
-            recursiveReleaseNodeUtil(allocator, context, loop.incNode, releaseType);
+            recursiveReleaseNodeUtil(context, loop.condition, releaseType);
+            recursiveReleaseNodeUtil(context, loop.body, releaseType);
+            recursiveReleaseNodeUtil(context, loop.incNode, releaseType);
         },
         .WhileLoop => |loop| {
-            recursiveReleaseNodeUtil(allocator, context, loop.condition, releaseType);
-            recursiveReleaseNodeUtil(allocator, context, loop.body, releaseType);
+            recursiveReleaseNodeUtil(context, loop.condition, releaseType);
+            recursiveReleaseNodeUtil(context, loop.body, releaseType);
         },
         .Pointer => |ptrNode| {
-            recursiveReleaseNodeUtil(allocator, context, ptrNode.node, releaseType);
+            recursiveReleaseNodeUtil(context, ptrNode.node, releaseType);
         },
         .HeapAlloc => |alloc| {
-            recursiveReleaseNodeUtil(allocator, context, alloc.node, releaseType);
+            recursiveReleaseNodeUtil(context, alloc.node, releaseType);
         },
         .StructDec => |dec| {
             if (releaseType == .All) {
                 if (dec.deriveType) |derive| {
-                    recursiveReleaseTypeAll(allocator, context, derive.astType);
+                    recursiveReleaseTypeAll(context, derive.astType);
                 }
             }
         },
@@ -295,53 +291,50 @@ pub fn recursiveReleaseNodeUtil(
 }
 
 pub fn recursiveReleaseType(
-    allocator: Allocator,
     context: *Context,
     astType: *blitzAst.AstTypes,
 ) void {
-    recursiveReleaseTypeUtil(allocator, context, astType, .Allocated);
+    recursiveReleaseTypeUtil(context, astType, .Allocated);
 }
 
 pub fn recursiveReleaseTypeAll(
-    allocator: Allocator,
     context: *Context,
     astType: *blitzAst.AstTypes,
 ) void {
-    recursiveReleaseTypeUtil(allocator, context, astType, .All);
+    recursiveReleaseTypeUtil(context, astType, .All);
 }
 
 pub fn recursiveReleaseTypeUtil(
-    allocator: Allocator,
     context: *Context,
     astType: *blitzAst.AstTypes,
     releaseType: ReleaseType,
 ) void {
     switch (astType.*) {
         .Nullable => |info| {
-            recursiveReleaseType(allocator, context, info.astType);
+            recursiveReleaseType(context, info.astType);
         },
         .VarInfo, .Pointer => |info| {
             if (info.allocState == .Allocated or releaseType == .All) {
-                recursiveReleaseType(allocator, context, info.info.astType);
+                recursiveReleaseType(context, info.info.astType);
             }
         },
         .ArraySlice => |slice| {
             if (slice.size) |size| {
-                recursiveReleaseNodeUtil(allocator, context, size, releaseType);
+                recursiveReleaseNodeUtil(context, size, releaseType);
             }
 
             if (slice.type.allocState == .Allocated or releaseType == .All) {
-                recursiveReleaseType(allocator, context, slice.type.info.astType);
+                recursiveReleaseType(context, slice.type.info.astType);
             }
         },
         .Custom => |custom| {
             for (custom.generics) |generic| {
-                recursiveReleaseType(allocator, context, generic.astType);
+                recursiveReleaseType(context, generic.astType);
             }
         },
         .Error => |err| {
             if (err.payload) |payload| {
-                recursiveReleaseType(allocator, context, payload.astType);
+                recursiveReleaseType(context, payload.astType);
             }
         },
         else => {},
@@ -353,15 +346,14 @@ pub fn recursiveReleaseTypeUtil(
 }
 
 pub fn freeStructsAndErrors(
-    allocator: Allocator,
     context: *Context,
     structsAndErrors: blitzAst.RegisterStructsAndErrorsResult,
 ) void {
     for (structsAndErrors.structs) |def| {
-        recursiveReleaseNodeAll(allocator, context, def);
+        recursiveReleaseNodeAll(context, def);
     }
 
     for (structsAndErrors.errors) |err| {
-        recursiveReleaseNodeAll(allocator, context, err);
+        recursiveReleaseNodeAll(context, err);
     }
 }

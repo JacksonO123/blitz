@@ -1,9 +1,0 @@
-struct [T: u32] square {
-  size: u32;
-  pub contains: T;
-}
-
-//let a = square<u32> {
-//  size = 10,
-//  contains = 23
-//};

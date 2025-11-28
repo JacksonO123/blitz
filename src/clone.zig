@@ -712,7 +712,7 @@ pub fn replaceGenericsOnTypeInfoAndRelease(
     };
 
     if (info.allocState == .Allocated) {
-        free.recursiveReleaseType(allocator, context, info.info.astType);
+        free.recursiveReleaseType(context, info.info.astType);
     }
 
     return res;

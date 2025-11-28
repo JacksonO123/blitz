@@ -4,8 +4,11 @@ const utils = @import("utils.zig");
 const compiler = @import("compiler.zig");
 const objdump = @import("bzc_objdump.zig");
 const Writer = std.Io.Writer;
+const Allocator = std.mem.Allocator;
 
-const RECORDS_DIR = "bytecode-records";
+pub const DIFF_DIR = "bytecode-diffs";
+pub const RECORDS_DIR = DIFF_DIR ++ "/records";
+pub const FEATURE_DIR = DIFF_DIR ++ "/features";
 
 const terminalColors = .{
     .reset = "\x1b[0m",
@@ -19,40 +22,71 @@ pub fn main() !void {
     defer _ = gp.deinit();
     const allocator = gp.allocator();
 
-    // TODO - extend later
+    var buf: [1024]u8 = undefined;
+    var stdio = std.fs.File.stdout().writer(&buf);
+    const writer = &stdio.interface;
+    defer writer.flush() catch {};
+
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
     if (args.len < 2) {
+        try writer.writeAll("No input file");
         return error.NoInputFile;
     }
 
-    const saveNew = strArrContains(args, "--save");
-    const fromObjDump = strArrContains(args, "--from-objdump");
+    const flagStructure = .{
+        .{"--help"},
+        .{"--save"},
+        .{"--from-objdump"},
+        .{ "--record-path", "Path to record directory" },
+    };
+
+    const flagMap = std.StaticStringMap(usize).initComptime(formatFlagStructure(flagStructure));
+
+    const hasHelp = strArrContains(args, "--help", &flagMap) != null;
+    if (hasHelp) {
+        if (args.len > 2) {
+            return error.TooManyArguments;
+        }
+
+        try printStructure(flagStructure, writer);
+        return;
+    }
+
+    const saveNew = strArrContains(args, "--save", &flagMap) != null;
+    const fromObjDump = strArrContains(args, "--from-objdump", &flagMap) != null;
+    const recordPath = if (strArrContains(args, "--record-path", &flagMap)) |index|
+        args[index + 1]
+    else
+        RECORDS_DIR;
 
     if (saveNew and fromObjDump) {
         return error.CannotSaveFromObjdump;
     }
 
+    try diffBytecode(allocator, recordPath, args[1], saveNew, fromObjDump);
+}
+
+pub fn diffBytecode(
+    allocator: Allocator,
+    recordPath: []const u8,
+    path: []const u8,
+    saveNew: bool,
+    fromObjDump: bool,
+) !void {
     var printBuf: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
     var stdout = std.fs.File.stdout().writer(&printBuf);
     defer stdout.end() catch {};
     const printWriter = &stdout.interface;
 
-    const path = args[1];
     try printWriter.print("opening [{s}]\n", .{path});
     const code = try utils.readRelativeFile(allocator, path);
     defer allocator.free(code);
 
-    const lastSlash = if (lastIndexOf(path, '/')) |index| index + 1 else 0;
-    const periodIndex = std.ascii.indexOfIgnoreCase(path, ".") orelse {
-        try printWriter.writeAll("Expected input file to be .blitz");
-        return;
-    };
-
-    const outName = try std.fmt.allocPrint(allocator, "{s}.bzc.txt", .{path[lastSlash..periodIndex]});
+    const outName = try getRefName(allocator, path, printWriter);
     defer allocator.free(outName);
 
-    var recordsDir = try std.fs.cwd().openDir(RECORDS_DIR, .{});
+    var recordsDir = try std.fs.cwd().openDir(recordPath, .{});
     defer recordsDir.close();
 
     var buf: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
@@ -74,34 +108,32 @@ pub fn main() !void {
     try printWriter.writeByte('\n');
 
     const newContents = if (fromObjDump) a: {
-        var binaryList: std.ArrayList(u8) = .empty;
-        defer binaryList.deinit(allocator);
-        var binaryWriter = binaryList.writer(allocator).adaptToNewApi(&buf);
-        const binaryWriterInterface = &binaryWriter.new_interface;
-        try compiler.compile(allocator, code, printWriter, binaryWriterInterface, .None, .Binary);
-        try binaryWriterInterface.flush();
+        var binaryAllocating = Writer.Allocating.init(allocator);
+        defer binaryAllocating.deinit();
+        const binaryWriter = &binaryAllocating.writer;
+        try compiler.compile(allocator, code, printWriter, binaryWriter, .None, .Binary);
+        try binaryWriter.flush();
 
-        var textList: std.ArrayList(u8) = .empty;
-        var textWriter = textList.writer(allocator).adaptToNewApi(&buf);
-        const textWriterInterface = &textWriter.new_interface;
-        try objdump.printBytecode(binaryList.items, textWriterInterface);
-        try textWriterInterface.flush();
+        var textAllocating = Writer.Allocating.init(allocator);
+        defer textAllocating.deinit();
+        const textWriter = &textAllocating.writer;
+        try objdump.printBytecode(try binaryAllocating.toOwnedSlice(), textWriter);
+        try textWriter.flush();
 
-        break :a try textList.toOwnedSlice(allocator);
+        break :a try textAllocating.toOwnedSlice();
     } else a: {
-        var textList: std.ArrayList(u8) = .empty;
-        defer textList.deinit(allocator);
-        var textWriter = textList.writer(allocator).adaptToNewApi(&buf);
-        const textWriterInterface = &textWriter.new_interface;
-        try compiler.compile(allocator, code, printWriter, textWriterInterface, .None, .PlainText);
-        try textWriterInterface.flush();
+        var textAllocating = Writer.Allocating.init(allocator);
+        defer textAllocating.deinit();
+        const textWriter = &textAllocating.writer;
+        try compiler.compile(allocator, code, printWriter, textWriter, .None, .PlainText);
+        try textWriter.flush();
 
-        break :a try textList.toOwnedSlice(allocator);
+        break :a try textAllocating.toOwnedSlice();
     };
     defer allocator.free(newContents);
 
     const outFile = recordsDir.openFile(outName, .{}) catch |err| {
-        try printWriter.print("{s} :: {s}/{s}\n", .{ @errorName(err), RECORDS_DIR, outName });
+        try printWriter.print("{s} :: {s}/{s}\n", .{ @errorName(err), recordPath, outName });
         return;
     };
     defer outFile.close();
@@ -109,6 +141,16 @@ pub fn main() !void {
     defer allocator.free(origContents);
 
     try writeDiff(newContents, origContents, printWriter);
+}
+
+pub fn getRefName(allocator: Allocator, path: []const u8, printWriter: *Writer) ![]const u8 {
+    const lastSlash = if (lastIndexOf(path, '/')) |index| index + 1 else 0;
+    const periodIndex = std.ascii.indexOfIgnoreCase(path, ".") orelse {
+        try printWriter.writeAll("Expected input file to be .blitz");
+        return error.NoBlitzFile;
+    };
+    const res = try std.fmt.allocPrint(allocator, "{s}.bzc.txt", .{path[lastSlash..periodIndex]});
+    return res;
 }
 
 fn writeDiff(newContents: []u8, origContents: []u8, printWriter: *Writer) !void {
@@ -181,7 +223,7 @@ fn writeDiffActual(origContents: []u8, start: usize, end: usize, printWriter: *W
     try printWriter.writeAll(terminalColors.reset);
 }
 
-fn lastIndexOf(text: []u8, char: u8) ?usize {
+fn lastIndexOf(text: []const u8, char: u8) ?usize {
     var i = text.len - 1;
     while (i > 0) : (i -= 1) {
         if (text[i] == char) return i;
@@ -190,9 +232,49 @@ fn lastIndexOf(text: []u8, char: u8) ?usize {
     return null;
 }
 
-fn strArrContains(arr: [][:0]u8, value: []const u8) bool {
-    for (arr) |item| {
-        if (std.mem.eql(u8, item, value)) return true;
+fn strArrContains(
+    arr: [][:0]u8,
+    value: []const u8,
+    flagMap: *const std.StaticStringMap(usize),
+) ?usize {
+    var i: usize = 0;
+    while (i < arr.len) : (i += 1) {
+        if (std.mem.eql(u8, arr[i], value)) return i;
+        if (flagMap.get(arr[i])) |width| i += width;
     }
-    return false;
+    return null;
+}
+
+const FlagInfo = struct { []const u8, usize };
+
+fn formatFlagStructure(comptime structure: anytype) [structure.len]FlagInfo {
+    var thing: [structure.len]FlagInfo = undefined;
+
+    inline for (structure, 0..) |tuple, index| {
+        thing[index] = .{ tuple[0], tuple.len - 1 };
+    }
+
+    return thing;
+}
+
+fn printStructure(comptime structure: anytype, writer: *Writer) !void {
+    const detailPad = 20;
+    inline for (structure) |item| {
+        try writer.writeAll(item[0]);
+
+        if (item.len > 1) {
+            try writer.writeAll((" " ** (detailPad - item[0].len)) ++ "[");
+            inline for (item, 0..) |detail, index| {
+                if (index == 0) continue;
+
+                try writer.writeAll(detail);
+                if (index < item.len - 1) {
+                    try writer.writeAll(", ");
+                }
+            }
+            try writer.writeByte(']');
+        }
+
+        try writer.writeByte('\n');
+    }
 }

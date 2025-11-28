@@ -302,8 +302,10 @@ pub const AstTypes = union(Types) {
                     if (member.attr != .Member) continue;
 
                     const itemAlignment = try member.attr.Member.astType.getAlignment(context);
-                    std.debug.print("here :: {d}\n", .{itemAlignment});
-                    var prepadding = if (itemAlignment == 0) 0 else itemAlignment - (size % itemAlignment);
+                    var prepadding = if (itemAlignment == 0)
+                        0
+                    else
+                        itemAlignment - (size % itemAlignment);
                     if (prepadding == itemAlignment) prepadding = 0;
 
                     const memberSize = try member.attr.Member.astType.getSize(context);
@@ -748,7 +750,7 @@ pub const Ast = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        free.recursiveReleaseNodeAll(self.allocator, self.context, self.root);
+        free.recursiveReleaseNodeAll(self.context, self.root);
     }
 };
 
@@ -1184,7 +1186,6 @@ fn parseStructAttributes(
         if (current.type == .RBrace) break;
     }
 
-    std.debug.print("HERE\n", .{});
     try context.tokenUtil.expectToken(.RBrace);
 
     return try attributes.toOwnedSlice(allocator);

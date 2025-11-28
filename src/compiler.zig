@@ -97,7 +97,7 @@ pub fn compile(
 
     for (structsAndErrors.structs) |s| {
         const res = try scanner.scanNode(allocator, context, s, true);
-        scanner.releaseIfAllocated(allocator, context, res);
+        scanner.releaseIfAllocated(context, res);
     }
 
     {
@@ -105,7 +105,7 @@ pub fn compile(
         defer {
             ast.deinit();
             context.clear();
-            free.freeStructsAndErrors(allocator, context, structsAndErrors);
+            free.freeStructsAndErrors(context, structsAndErrors);
         }
 
         if (printState == .All) {

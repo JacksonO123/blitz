@@ -1,5 +1,0 @@
-struct outerThing {
-}
-
-struct thing : outerThing {
-}

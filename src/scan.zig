@@ -120,7 +120,7 @@ pub const ScanError = error{
     UnexpectedCallGenerics,
 
     // structs
-    StructInitGenericCountMismatch,
+    GenericCountMismatch,
     StructInitAttributeCountMismatch,
     StructInitMemberTypeMismatch,
     StructInitAttributeNotFound,
@@ -128,7 +128,7 @@ pub const ScanError = error{
     StaticAccessFromStructInstance,
     NonStaticAccessFromStaticStructReference,
     SelfUsedOutsideStruct,
-    UndefinedStruct,
+    StructDoesNotExist,
     RestrictedPropertyAccess,
     InvalidPropertySource,
     NonPublicStructFieldAccessFromOutsideDefinition,
@@ -172,7 +172,7 @@ pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, context: *Context) !voi
 
     try scanNodeForFunctions(allocator, context, ast.root);
     const res = try scanNode(allocator, context, ast.root, true);
-    defer releaseIfAllocated(allocator, context, res);
+    defer releaseIfAllocated(context, res);
 
     try scanFunctionCalls(allocator, context);
 }
@@ -211,7 +211,7 @@ pub fn scanNode(
             }
 
             const origNodeType = try scanNode(allocator, context, cast.node, withGenDef);
-            defer releaseIfAllocated(allocator, context, origNodeType);
+            defer releaseIfAllocated(context, origNodeType);
             const nodeType = try escapeVarInfo(origNodeType);
 
             if (isAnyType(nodeType.info.astType) or
@@ -290,10 +290,10 @@ pub fn scanNode(
         },
         .IndexValue => |indexInfo| {
             const origIndexType = try scanNode(allocator, context, indexInfo.index, withGenDef);
-            defer releaseIfAllocated(allocator, context, origIndexType);
+            defer releaseIfAllocated(context, origIndexType);
             const indexType = try escapeVarInfo(origIndexType);
             const origTargetType = try scanNode(allocator, context, indexInfo.target, withGenDef);
-            defer releaseIfAllocated(allocator, context, origTargetType);
+            defer releaseIfAllocated(context, origTargetType);
             const targetType = try escapeVarInfo(origTargetType);
 
             if (indexType.info.astType.* == .Number and indexType.info.astType.Number != .U64) {
@@ -333,7 +333,7 @@ pub fn scanNode(
                         return ScanError.BitMaskWithMismatchingSize;
                     }
 
-                    releaseIfAllocated(allocator, context, right);
+                    releaseIfAllocated(context, right);
                     const resType = try clone.replaceGenericsOnTypeInfoAndRelease(
                         allocator,
                         context,
@@ -352,8 +352,8 @@ pub fn scanNode(
                     node.typeInfo.size = 1;
                     node.typeInfo.alignment = 1;
 
-                    releaseIfAllocated(allocator, context, left);
-                    releaseIfAllocated(allocator, context, right);
+                    releaseIfAllocated(context, left);
+                    releaseIfAllocated(context, right);
 
                     return context.staticPtrs.types.boolType.toAllocInfo(.Recycled);
                 },
@@ -371,7 +371,7 @@ pub fn scanNode(
                             withGenDef,
                         );
                         if (matches) {
-                            releaseIfAllocated(allocator, context, left);
+                            releaseIfAllocated(context, left);
                             var res = try clone.replaceGenericsOnTypeInfoAndRelease(
                                 allocator,
                                 context,
@@ -398,7 +398,7 @@ pub fn scanNode(
                             withGenDef,
                         );
                         if (matches) {
-                            releaseIfAllocated(allocator, context, right);
+                            releaseIfAllocated(context, right);
                             var resType = try clone.replaceGenericsOnTypeInfoAndRelease(
                                 allocator,
                                 context,
@@ -414,18 +414,23 @@ pub fn scanNode(
                         }
                     }
 
-                    if (left.info.astType.* != .Number or right.info.astType.* != .Number) {
-                        return ScanError.MathOpOnNonNumberType;
-                    }
+                    if (left.info.astType.* == .Number and right.info.astType.* == .Number) {
+                        const leftEnum = @intFromEnum(left.info.astType.Number);
+                        const rightEnum = @intFromEnum(right.info.astType.Number);
+                        if (leftEnum != rightEnum) {
+                            return ScanError.NumberTypeMismatch;
+                        }
 
-                    const leftEnum = @intFromEnum(left.info.astType.Number);
-                    const rightEnum = @intFromEnum(right.info.astType.Number);
-                    if (leftEnum != rightEnum) {
-                        return ScanError.NumberTypeMismatch;
-                    }
+                        node.typeInfo.size = left.info.astType.Number.getSize();
+                        node.typeInfo.alignment = left.info.astType.Number.getAlignment();
+                    } else if (left.info.astType.* == .Char and right.info.astType.* == .Char) {
+                        node.typeInfo.size = 1;
+                        node.typeInfo.alignment = 1;
+                        releaseIfAllocated(context, right);
+                        releaseIfAllocated(context, left);
 
-                    node.typeInfo.size = left.info.astType.Number.getSize();
-                    node.typeInfo.alignment = left.info.astType.Number.getAlignment();
+                        return context.staticPtrs.types.charType.toAllocInfo(.Recycled);
+                    }
 
                     if (op.type == .Div) {
                         const isFloat = switch (left.info.astType.Number) {
@@ -434,14 +439,14 @@ pub fn scanNode(
                         };
 
                         if (isFloat) {
-                            releaseIfAllocated(allocator, context, right);
+                            releaseIfAllocated(context, right);
                             return left;
                         }
 
                         return context.staticPtrs.types.f32Type.toAllocInfo(.Recycled);
                     }
 
-                    releaseIfAllocated(allocator, context, right);
+                    releaseIfAllocated(context, right);
                     return left;
                 },
                 .LessThan,
@@ -466,8 +471,8 @@ pub fn scanNode(
                     node.typeInfo.size = 1;
                     node.typeInfo.alignment = 1;
 
-                    releaseIfAllocated(allocator, context, left);
-                    releaseIfAllocated(allocator, context, right);
+                    releaseIfAllocated(context, left);
+                    releaseIfAllocated(context, right);
                     return context.staticPtrs.types.boolType.toAllocInfo(.Recycled);
                 },
             }
@@ -504,7 +509,7 @@ pub fn scanNode(
             );
             const retType = retTypeInfo.toAllocInfo(.Allocated);
 
-            releaseIfAllocated(allocator, context, valType);
+            releaseIfAllocated(context, valType);
 
             if (context.compInfo.returnInfo.info.retType) |prevRetType| {
                 const matches = try matchTypes(
@@ -518,7 +523,7 @@ pub fn scanNode(
                     return ScanError.FunctionReturnsHaveDifferentTypes;
                 }
 
-                releaseIfAllocated(allocator, context, retType);
+                releaseIfAllocated(context, retType);
             } else {
                 context.compInfo.returnInfo.info.retType = retType;
             }
@@ -551,7 +556,7 @@ pub fn scanNode(
             }
 
             const origValueInfo = try scanNode(allocator, context, access.value, withGenDef);
-            defer releaseIfAllocated(allocator, context, origValueInfo);
+            defer releaseIfAllocated(context, origValueInfo);
             const valueInfo = try escapeVarInfo(origValueInfo);
             context.scanInfo.allowStaticStructInstance = false;
             context.scanInfo.allowErrorWithoutVariants = false;
@@ -581,6 +586,10 @@ pub fn scanNode(
 
                     try context.compInfo.pushGenScope(false);
                     defer context.compInfo.popGenScope();
+
+                    if (def.generics.len < custom.generics.len) {
+                        return ScanError.GenericCountMismatch;
+                    }
 
                     const defGenerics = def.generics[0..custom.generics.len];
                     for (custom.generics, defGenerics) |customGen, genDef| {
@@ -680,7 +689,7 @@ pub fn scanNode(
         .Seq => |seq| {
             for (seq) |seqNode| {
                 const res = try scanNode(allocator, context, seqNode, withGenDef);
-                releaseIfAllocated(allocator, context, res);
+                releaseIfAllocated(context, res);
             }
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
@@ -712,7 +721,7 @@ pub fn scanNode(
                     return ScanError.VariableAnnotationMismatch;
                 }
 
-                releaseIfAllocated(allocator, context, setType);
+                releaseIfAllocated(context, setType);
                 setType = try clone.replaceGenericsOnTypeInfo(
                     allocator,
                     context,
@@ -726,7 +735,7 @@ pub fn scanNode(
         },
         .ValueSet => |set| {
             const origValType = try scanNode(allocator, context, set.value, withGenDef);
-            defer releaseIfAllocated(allocator, context, origValType);
+            defer releaseIfAllocated(context, origValType);
             if (set.value.variant != .Dereference and origValType.info.astType.* != .VarInfo) {
                 return ScanError.InvalidSetValueTarget;
             }
@@ -734,7 +743,7 @@ pub fn scanNode(
             const valType = try escapeVarInfo(origValType);
 
             const setType = try scanNode(allocator, context, set.setNode, withGenDef);
-            defer releaseIfAllocated(allocator, context, setType);
+            defer releaseIfAllocated(context, setType);
 
             const matches = try matchTypes(
                 allocator,
@@ -761,7 +770,7 @@ pub fn scanNode(
                 .BitOr,
                 => {
                     const varType = try scanNode(allocator, context, op.variable, withGenDef);
-                    defer releaseIfAllocated(allocator, context, varType);
+                    defer releaseIfAllocated(context, varType);
 
                     if (varType.info.astType.* != .VarInfo) {
                         return ScanError.ValueSetTargetNotAVariable;
@@ -774,7 +783,7 @@ pub fn scanNode(
                     const left = try escapeVarInfo(varType);
                     const rightOrig = try scanNode(allocator, context, op.value, withGenDef);
                     const right = try escapeVarInfo(rightOrig);
-                    defer releaseIfAllocated(allocator, context, rightOrig);
+                    defer releaseIfAllocated(context, rightOrig);
 
                     if (isAnyType(left.info.astType)) {
                         if (right.info.astType.* != .Number and !isAnyType(right.info.astType)) {
@@ -853,14 +862,14 @@ pub fn scanNode(
                 statement.condition,
                 withGenDef,
             );
-            defer releaseIfAllocated(allocator, context, origConditionType);
+            defer releaseIfAllocated(context, origConditionType);
             const conditionType = try escapeVarInfo(origConditionType);
             if (conditionType.info.astType.* != .Bool and statement.condition.variant != .NoOp) {
                 return ScanError.ExpectedBooleanIfCondition;
             }
 
             const bodyRes = try scanNode(allocator, context, statement.body, withGenDef);
-            defer releaseIfAllocated(allocator, context, bodyRes);
+            defer releaseIfAllocated(context, bodyRes);
 
             try context.compInfo.returnInfo.collapse(context, prev, withGenDef);
 
@@ -883,20 +892,20 @@ pub fn scanNode(
 
             if (loop.initNode) |init| {
                 const res = try scanNode(allocator, context, init, withGenDef);
-                defer releaseIfAllocated(allocator, context, res);
+                defer releaseIfAllocated(context, res);
             }
 
             const origConditionType = try scanNode(allocator, context, loop.condition, withGenDef);
-            defer releaseIfAllocated(allocator, context, origConditionType);
+            defer releaseIfAllocated(context, origConditionType);
             const conditionType = try escapeVarInfo(origConditionType);
             if (conditionType.info.astType.* != .Bool) {
                 return ScanError.ExpectedBooleanLoopCondition;
             }
 
             const incNodeType = try scanNode(allocator, context, loop.incNode, withGenDef);
-            defer releaseIfAllocated(allocator, context, incNodeType);
+            defer releaseIfAllocated(context, incNodeType);
             const bodyRes = try scanNode(allocator, context, loop.body, withGenDef);
-            defer releaseIfAllocated(allocator, context, bodyRes);
+            defer releaseIfAllocated(context, bodyRes);
 
             try context.compInfo.returnInfo.collapse(context, prev, withGenDef);
             if (context.compInfo.returnInfo.hasType()) {
@@ -911,14 +920,14 @@ pub fn scanNode(
             const prev = try context.compInfo.returnInfo.newInfo(false);
 
             const origConditionType = try scanNode(allocator, context, loop.condition, withGenDef);
-            defer releaseIfAllocated(allocator, context, origConditionType);
+            defer releaseIfAllocated(context, origConditionType);
             const conditionType = try escapeVarInfo(origConditionType);
             if (conditionType.info.astType.* != .Bool) {
                 return ScanError.ExpectedBooleanLoopCondition;
             }
 
             const bodyRes = try scanNode(allocator, context, loop.body, withGenDef);
-            defer releaseIfAllocated(allocator, context, bodyRes);
+            defer releaseIfAllocated(context, bodyRes);
 
             try context.compInfo.returnInfo.collapse(context, prev, withGenDef);
             if (context.compInfo.returnInfo.hasType()) {
@@ -965,7 +974,7 @@ pub fn scanNode(
             defer context.compInfo.returnInfo.swapFree(context, lastRetInfo);
 
             const tempDec = try scanNode(allocator, context, call.func, withGenDef);
-            defer releaseIfAllocated(allocator, context, tempDec);
+            defer releaseIfAllocated(context, tempDec);
             const dec = try escapeVarInfo(tempDec);
             if (dec.info.astType.* != .Function) return ScanError.CannotCallNonFunctionNode;
             const func = dec.info.astType.Function;
@@ -990,7 +999,7 @@ pub fn scanNode(
             const paramTypes = try allocator.alloc(TypeAndAllocInfo, call.params.len);
             defer {
                 for (paramTypes) |paramType| {
-                    releaseIfAllocated(allocator, context, paramType);
+                    releaseIfAllocated(context, paramType);
                 }
                 allocator.free(paramTypes);
             }
@@ -1097,10 +1106,11 @@ pub fn scanNode(
             try context.compInfo.pushGenScope(true);
             defer context.compInfo.popGenScope();
 
-            const structDec = context.compInfo.getStructDec(init.name).?;
+            const structDec = context.compInfo.getStructDec(init.name) orelse
+                return ScanError.StructDoesNotExist;
 
             if (init.generics.len != structDec.generics.len) {
-                return ScanError.StructInitGenericCountMismatch;
+                return ScanError.GenericCountMismatch;
             }
 
             try setInitGenerics(
@@ -1116,45 +1126,44 @@ pub fn scanNode(
             }
 
             const genScope = context.compInfo.genericScopes.getCurrentScope();
-            if (structDec.generics.len > 0) {
-                if (genScope) |scope| {
-                    for (structDec.attributes) |attr| {
-                        if (attr.attr != .Function) continue;
-                        const func = attr.attr.Function;
-                        if (func.generics == null) {
-                            const scannedBefore = try fnHasScannedWithSameGenTypes(
-                                allocator,
-                                context,
-                                func,
-                                scope,
-                                withGenDef,
-                            );
-                            if (scannedBefore) continue;
-                        }
-
-                        const scopeRels = try genScopeToRels(
+            if (structDec.generics.len > 0) a: {
+                const scope = genScope orelse break :a;
+                for (structDec.attributes) |attr| {
+                    if (attr.attr != .Function) continue;
+                    const func = attr.attr.Function;
+                    if (func.generics == null) {
+                        const scannedBefore = try fnHasScannedWithSameGenTypes(
                             allocator,
                             context,
+                            func,
                             scope,
                             withGenDef,
                         );
-                        defer allocator.free(scopeRels);
+                        if (scannedBefore) continue;
+                    }
 
-                        var typeCaptures = func.capturedTypes orelse a: {
-                            const captures = try utils.initMutPtrT(
-                                blitzCompInfo.CaptureScope,
-                                allocator,
-                            );
-                            func.capturedTypes = captures;
-                            break :a captures;
-                        };
+                    const scopeRels = try genScopeToRels(
+                        allocator,
+                        context,
+                        scope,
+                        withGenDef,
+                    );
+                    defer allocator.free(scopeRels);
 
-                        for (scopeRels) |rel| {
-                            if (!typeCaptures.contains(rel.str)) {
-                                try typeCaptures.put(rel.str, rel.info.toAllocInfo(.Allocated));
-                            } else {
-                                free.recursiveReleaseType(allocator, context, rel.info.astType);
-                            }
+                    var typeCaptures = func.capturedTypes orelse b: {
+                        const captures = try utils.initMutPtrT(
+                            blitzCompInfo.CaptureScope,
+                            allocator,
+                        );
+                        func.capturedTypes = captures;
+                        break :b captures;
+                    };
+
+                    for (scopeRels) |rel| {
+                        if (!typeCaptures.contains(rel.str)) {
+                            try typeCaptures.put(rel.str, rel.info.toAllocInfo(.Allocated));
+                        } else {
+                            free.recursiveReleaseType(context, rel.info.astType);
                         }
                     }
                 }
@@ -1164,7 +1173,7 @@ pub fn scanNode(
             var initAttrRel: ArrayList(StructInitMemberInfo) = .empty;
             defer {
                 for (initAttrRel.items) |item| {
-                    releaseIfAllocated(allocator, context, item.initInfo);
+                    releaseIfAllocated(context, item.initInfo);
                 }
                 initAttrRel.deinit(allocator);
             }
@@ -1237,7 +1246,7 @@ pub fn scanNode(
         },
         .Bang => |bang| {
             const origBangType = try scanNode(allocator, context, bang, withGenDef);
-            defer releaseIfAllocated(allocator, context, origBangType);
+            defer releaseIfAllocated(context, origBangType);
             const bangType = try escapeVarInfo(origBangType);
             if (bangType.info.astType.* != .Bool) return ScanError.ExpectedBooleanBang;
 
@@ -1303,8 +1312,9 @@ pub fn scanNode(
                 return ScanError.CannotDereferenceNonPointerValue;
             }
 
-            node.typeInfo.size = try ptrType.info.astType.Pointer.info.astType.getSize(context);
-            node.typeInfo.alignment = try ptrType.info.astType.Pointer.info.astType.getAlignment(context);
+            const pointer = ptrType.info.astType.Pointer;
+            node.typeInfo.size = try pointer.info.astType.getSize(context);
+            node.typeInfo.alignment = try pointer.info.astType.getAlignment(context);
 
             if (ptrType.allocState == .Allocated) {
                 const res = ptrType.info.astType.Pointer;
@@ -1332,7 +1342,7 @@ pub fn scanNode(
         },
         .HeapFree => |toFree| {
             const exprTypeResult = try scanNode(allocator, context, toFree, withGenDef);
-            defer releaseIfAllocated(allocator, context, exprTypeResult);
+            defer releaseIfAllocated(context, exprTypeResult);
             const exprType = try escapeVarInfo(exprTypeResult);
             if (exprType.info.astType.* != .Pointer and exprType.info.astType.* != .ArraySlice) {
                 return ScanError.CannotFreeNonPointerType;
@@ -1366,7 +1376,7 @@ pub fn scanNode(
             }
 
             const initNodeTypeResult = try scanNode(allocator, context, init.initNode, withGenDef);
-            defer releaseIfAllocated(allocator, context, initNodeTypeResult);
+            defer releaseIfAllocated(context, initNodeTypeResult);
             const initNodeType = try escapeVarInfo(initNodeTypeResult);
 
             const matches = try matchTypes(
@@ -1840,7 +1850,7 @@ fn scanIfFallback(
     }
 
     const fallbackRes = try scanNode(allocator, context, fallback.node, withGenDef);
-    releaseIfAllocated(allocator, context, fallbackRes);
+    releaseIfAllocated(context, fallbackRes);
 }
 
 fn setInitGenerics(
@@ -1991,7 +2001,7 @@ fn scanFuncBodyAndReturn(
             const varType = context.compInfo.getVariableTypeFixed(param.name);
             if (varType) |t| {
                 const innerType = t.info.astType.VarInfo.info.astType;
-                free.recursiveReleaseType(allocator, context, innerType);
+                free.recursiveReleaseType(context, innerType);
                 t.info.astType.VarInfo = context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
             }
         }
@@ -1999,7 +2009,7 @@ fn scanFuncBodyAndReturn(
 
     try scanNodeForFunctions(allocator, context, func.body);
     const bodyRes = try scanNode(allocator, context, func.body, withGenDef);
-    defer releaseIfAllocated(allocator, context, bodyRes);
+    defer releaseIfAllocated(context, bodyRes);
 
     const scope = context.compInfo.consumeVariableCaptures();
     if (scope) |s| {
@@ -2077,7 +2087,7 @@ fn validateSelfProps(
         return null;
     }
 
-    return ScanError.UndefinedStruct;
+    return ScanError.StructDoesNotExist;
 }
 
 fn validateStaticStructProps(
@@ -2342,9 +2352,9 @@ pub fn matchTypesUtil(
 
             if (arr.size != null and array.size != null) {
                 const sizeType1 = try scanNode(allocator, context, arr.size.?, withGenDef);
-                defer releaseIfAllocated(allocator, context, sizeType1);
+                defer releaseIfAllocated(context, sizeType1);
                 const sizeType2 = try scanNode(allocator, context, array.size.?, withGenDef);
-                defer releaseIfAllocated(allocator, context, sizeType2);
+                defer releaseIfAllocated(context, sizeType2);
 
                 if (!isInt(sizeType1.info.astType) or !isInt(sizeType2.info.astType)) {
                     return false;
@@ -2593,7 +2603,7 @@ fn inferArraySliceType(
 
     for (arr[1..]) |item| {
         const exprType = try scanNode(allocator, context, item, withGenDef);
-        defer releaseIfAllocated(allocator, context, exprType);
+        defer releaseIfAllocated(context, exprType);
 
         mutState = mutState.orConst(exprType.info.mutState);
 
@@ -2643,8 +2653,8 @@ fn verifyRawNumberMagnitude(node: blitzAst.RawNumberNode) bool {
     return true;
 }
 
-pub fn releaseIfAllocated(allocator: Allocator, context: *Context, result: TypeAndAllocInfo) void {
+pub fn releaseIfAllocated(context: *Context, result: TypeAndAllocInfo) void {
     if (result.allocState == .Allocated) {
-        free.recursiveReleaseType(allocator, context, result.info.astType);
+        free.recursiveReleaseType(context, result.info.astType);
     }
 }

@@ -1,4 +1,5 @@
 // declare a basic struct with some properties and methods
+// struct properties and methods are private by default, no keyword needed
 struct Box {
     size: u32;
 
@@ -27,3 +28,37 @@ struct [T] GenBox {
 // init generic struct
 let myGenBox = GenBox<u32> { data = 4 };
 //let myGenBoxData = myGenBox.getData();
+
+// structs can be defined to have factory style initializors
+struct [T] SomeData {
+    data: T;
+
+    pub static fn create(initial: T) SomeData<T> {
+        return SomeData<T> {
+            data = initial,
+        };
+    }
+}
+
+let someData: SomeData<u32> = SomeData.create(4);
+
+// protected properties and methods can be accessed in the struct they
+// are defined in, or in child structs inheriting from them
+struct ParentExample {
+    prot width: u32;
+}
+struct ProtExample : ParentExample {
+    height: u32;
+
+    pub fn getArea() u32 {
+        return self.width * self.height;
+    }
+}
+
+let example = ProtExample {
+    width = 2,
+    height = 2,
+};
+let exampleArea = example.getArea();
+// accessing this would error
+// example.width

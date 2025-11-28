@@ -4,6 +4,13 @@ error MyError {
   Variant3,
 }
 
-fn someFn() MyError<u32> {
-  return .Variant2;
+fn someFn1() MyError<u32> {
+  return MyError.Variant2;
 }
+
+fn someFn2() MyError<u32> {
+  return MyError.Variant2;
+}
+
+let res1 = someFn1();
+let res2 = someFn2();

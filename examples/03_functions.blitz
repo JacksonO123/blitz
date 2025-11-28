@@ -43,22 +43,27 @@ myFunc3<u32>(4);
 // into first
 // myFunc3<bool>(4);
 
-// generic function with polymorphic restriction
-// sometimes you only want inputs that branch from a similar
+// a generic function can extract the inner generic types of structs
+// with this syntax
 // parent struct
 
-struct MyStruct {
-  pub size: u32;
+struct [T] MyStruct {
+  pub value: T;
 }
 
-fn [T: MyStruct] myFunc4(value: T) u32 {
-  return value.size;
+fn [T] thing(a: MyStruct<T>, val: T) T {
+  return a.value + val;
 }
 
-let myStruct = MyStruct {
-  size = 10,
+let inputA = MyStruct<u32> {
+  value = 2
 };
-myFunc4(myStruct);
+let inputB = MyStruct<char> {
+  value = 'b'
+};
+
+let outputA: u32 = thing(inputA, 1);
+let outputB: char = thing(inputB, 'g');
 
 // function defined in a function
 // functions that use variables from the file scope will capture

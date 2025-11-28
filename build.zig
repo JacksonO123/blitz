@@ -18,6 +18,7 @@ pub fn build(b: *std.Build) void {
     const compilerName = if (optimize == .Debug) "blitzc-debug" else "blitzc";
     const objdumpName = if (optimize == .Debug) "bzc-objdump-debug" else "bzc-objdump";
     const interpreterName = if (optimize == .Debug) "blitz-debug" else "blitz";
+    const diffName = if (optimize == .Debug) "blitz-diff-debug" else "blitz-diff";
 
     const compilerExe = b.addExecutable(.{
         .use_llvm = true, // for debugger variables
@@ -49,10 +50,21 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    const diffExe = b.addExecutable(.{
+        .use_llvm = true, // for debugger variables
+        .name = diffName,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/diff_bytecode.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
     b.installArtifact(compilerExe);
     b.installArtifact(objdumpExe);
     b.installArtifact(interpreterExe);
+    b.installArtifact(diffExe);
 }

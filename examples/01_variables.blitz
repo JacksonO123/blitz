@@ -37,7 +37,7 @@ let m4 = m2;
 // tightening the restriction is fine, loostening it is not
 
 // strings
-//let str = "some string";
+let str = "some string";
 
 // booleans
 let mut boolValue = false;
