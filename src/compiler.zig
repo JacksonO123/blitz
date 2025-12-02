@@ -76,6 +76,9 @@ pub fn compile(
     printState: DebugPrintState,
     format: BytecodeFormat,
 ) !void {
+    _ = fileWriter;
+    _ = format;
+
     var context = try Context.init(allocator, code, printWriter, .{});
     defer {
         context.deinit();
@@ -116,20 +119,20 @@ pub fn compile(
         }
 
         try scanner.typeScan(allocator, ast, context);
-        try codegen.codegenAst(allocator, context, ast);
+        // try codegen.codegenAst(allocator, context, ast);
 
-        if (printState == .All) {
-            try printWriter.writeAll("--- bytecode out ---\n");
-            try debug.printBytecodeChunks(context, printWriter);
-        }
+        // if (printState == .All) {
+        //     try printWriter.writeAll("--- bytecode out ---\n");
+        //     try debug.printBytecodeChunks(context, printWriter);
+        // }
 
-        if (fileWriter) |fWriter| {
-            if (format == .Binary) {
-                try context.genInfo.writeChunks(fWriter);
-            } else {
-                try debug.printBytecodeChunks(context, fWriter);
-            }
-        }
+        // if (fileWriter) |fWriter| {
+        //     if (format == .Binary) {
+        //         try context.genInfo.writeChunks(fWriter);
+        //     } else {
+        //         try debug.printBytecodeChunks(context, fWriter);
+        //     }
+        // }
     }
 
     if (printState == .All) {

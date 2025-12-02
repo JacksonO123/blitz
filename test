@@ -3,43 +3,10 @@
 INPUT_DIR="examples"
 # INPUT_DIR="input"
 
-function run() {
-    zig run src/compiler.zig -- "$1"
-}
+ROOT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 
-function test_file() {
-    filename="$INPUT_DIR/$1.blitz"
-
-    if [ "$1" == "-l" ]; then
-        filename="$INPUT_DIR/$2.blitz"
-    elif [ "$1" == "-p" ]; then
-        shopt -s nullglob
-        pattern="$INPUT_DIR/*$2*"
-        matches=($pattern)
-
-        if ((${#matches[@]})); then
-            first_match="${matches[0]}"
-            full_path="$(realpath "$first_match")"
-            filename="$first_match"
-        else
-            echo "No file $pattern found"
-            exit 0
-        fi
-    fi
-
-    run "$filename"
-
-    OUT=$(echo $?)
-
-    if [ $OUT == 0 ]; then
-        echo "SUCCESS: $filename"
-    else
-        echo "FAIL: $filename"
-    fi
-}
-
-function run_dbg_build() {
-    blitzc-debug "$INPUT_DIR/$1.blitz" >/dev/null 2>&1
+function run_file() {
+    blitzc-debug "$1" >/dev/null 2>&1
 
     OUT=$(echo $?)
 
@@ -50,23 +17,36 @@ function run_dbg_build() {
     fi
 }
 
-# use multiple methods to check if in project root
-if [[ "$(pwd)" == *\/blitz ]] && [ -e "$(pwd)/build.zig" ] && [ -e "$(pwd)/.zig-cache" ]; then
-    if [ "$1" == "" ]; then
-        while IFS="" read -r p || [ -n "$p" ]; do
-            run_dbg_build "$p" &
-        done <"$INPUT_DIR/working.txt"
-    else
-        if [[ "$1" == *\.blitz ]]; then
-            echo "expected filename without [.blitz] extension"
-            exit 0
-        fi
+function test_files() {
+    for file in "$ROOT_DIR/$INPUT_DIR"/*; do
+        run_file "$file" &
+    done
+}
 
-        test_file $@
+if [ "$1" == "" ]; then
+    test_files
+elif [ "$1" == "-p" ]; then
+    shopt -s nullglob
+    pattern="$ROOT_DIR/$INPUT_DIR/*$2*"
+    matches=($pattern)
+
+    if ((${#matches[@]})); then
+        first_match="${matches[0]}"
+        run_file "$first_match"
+    else
+        echo "No file $pattern found"
+        exit 0
     fi
+elif [ "$1" == "build" ]; then
+    zig build
+    test_files
 else
-    echo "expected to be in project root"
-    exit 1
+    if [[ "$1" != *\.blitz ]]; then
+        echo "expected filename with [.blitz] extension"
+        exit 0
+    fi
+
+    run_file "$1"
 fi
 
 wait
