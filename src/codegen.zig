@@ -27,7 +27,7 @@ const CodeGenError = error{
 };
 const GenBytecodeError = CodeGenError || Allocator.Error || std.fmt.ParseIntError;
 
-const PadingInfo = struct {
+const PaddingInfo = struct {
     offset: u16,
     padding: u8,
 };
@@ -696,11 +696,6 @@ pub const GenInfo = struct {
         }
         self.loopInfo.deinit(self.allocator);
         self.allocator.destroy(self.loopInfo);
-    }
-
-    pub fn clear(self: *Self) void {
-        _ = self;
-        utils.unimplemented();
     }
 
     pub fn writeChunks(self: Self, writer: *Writer) !void {
@@ -1647,7 +1642,7 @@ pub fn genBytecode(
     return null;
 }
 
-fn calculatePadding(stackLocation: u64, alignment: u8) PadingInfo {
+fn calculatePadding(stackLocation: u64, alignment: u8) PaddingInfo {
     const missalign = stackLocation % alignment;
     const padding: u8 = if (missalign == 0)
         0
@@ -1658,17 +1653,6 @@ fn calculatePadding(stackLocation: u64, alignment: u8) PadingInfo {
         .offset = @intCast(stackLocation + padding),
         .padding = padding,
     };
-}
-
-test "Calculate padding" {
-    const p1 = calculatePadding(0, 1);
-    try std.testing.expectEqual(0, p1.padding);
-
-    const p2 = calculatePadding(1, 1);
-    try std.testing.expectEqual(0, p2.padding);
-
-    const p3 = calculatePadding(1, 2);
-    try std.testing.expectEqual(1, p3.padding);
 }
 
 fn initSliceBytecode(
@@ -1961,4 +1945,15 @@ fn writeNumber(comptime T: type, data: T, writer: *Writer) !void {
     var buf: [@sizeOf(T)]u8 = undefined;
     std.mem.writeInt(T, &buf, data, .little);
     try writer.writeAll(&buf);
+}
+
+test "Calculate padding" {
+    const p1 = calculatePadding(0, 1);
+    try std.testing.expectEqual(0, p1.padding);
+
+    const p2 = calculatePadding(1, 1);
+    try std.testing.expectEqual(0, p2.padding);
+
+    const p3 = calculatePadding(1, 2);
+    try std.testing.expectEqual(1, p3.padding);
 }
