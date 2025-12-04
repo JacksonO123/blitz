@@ -630,8 +630,10 @@ pub const GenInfo = struct {
         stackStartSize: u32,
         version: u8,
     },
-    registers: *ArrayList(RegInfo),
-    regScopes: *RegScopes,
+    registers: struct {
+        infos: *ArrayList(RegInfo),
+        scopes: *RegScopes,
+    },
     varGenInfoPool: *VarGenInfoPool,
     varNameReg: *StringHashMap(*VarGenInfo),
     settings: GenInfoSettings,
@@ -639,12 +641,15 @@ pub const GenInfo = struct {
     byteCounter: u64,
 
     pub fn init(allocator: Allocator) !Self {
+        const capacityScale = 8;
+        const scaledNumRegisters = vmInfo.NUM_REGISTERS * capacityScale;
+
         const varNameReg = try utils.initMutPtrT(StringHashMap(*VarGenInfo), allocator);
         const regScopes = try RegScopes.init(allocator);
         const regScopesPtr = try utils.createMut(RegScopes, allocator, regScopes);
         const loopInfoPtr = try utils.createMut(ArrayList(*LoopInfo), allocator, .empty);
 
-        const registers = try ArrayList(RegInfo).initCapacity(allocator, vmInfo.NUM_REGISTERS * 8);
+        const registers = try ArrayList(RegInfo).initCapacity(allocator, scaledNumRegisters);
         const registersPtr = try utils.createMut(ArrayList(RegInfo), allocator, registers);
 
         const tempPool = try VarGenInfoPool.initPreheated(allocator, VAR_GEN_INFO_POOL_SIZE);
@@ -662,11 +667,13 @@ pub const GenInfo = struct {
             .chunks = chunksPtr,
             .varGenInfoPool = varGenInfoPool,
             .varNameReg = varNameReg,
-            .regScopes = regScopesPtr,
             .byteCounter = 0,
             .settings = CODEGEN_DEFAULT_SETTINGS,
             .loopInfo = loopInfoPtr,
-            .registers = registersPtr,
+            .registers = .{
+                .infos = registersPtr,
+                .scopes = regScopesPtr,
+            },
             .procInfo = .{
                 .stackFrameSize = 0,
                 .startInstr = null,
@@ -678,14 +685,14 @@ pub const GenInfo = struct {
         self.chunks.deinit(self.allocator);
         self.allocator.destroy(self.chunks);
 
-        self.registers.deinit(self.allocator);
-        self.allocator.destroy(self.registers);
+        self.registers.infos.deinit(self.allocator);
+        self.allocator.destroy(self.registers.infos);
 
         self.varNameReg.deinit();
         self.allocator.destroy(self.varNameReg);
 
-        self.regScopes.deinit();
-        self.allocator.destroy(self.regScopes);
+        self.registers.scopes.deinit();
+        self.allocator.destroy(self.registers.scopes);
 
         self.varGenInfoPool.deinit();
         self.allocator.destroy(self.varGenInfoPool);
@@ -731,16 +738,17 @@ pub const GenInfo = struct {
         return newChunk;
     }
 
-    pub fn getAvailableReg(self: Self) !TempRegister {
-        // TODO - refactor to use available stack
-        for (self.registers.items, 0..) |reg, index| {
+    pub fn getAvailableReg(self: *Self) !TempRegister {
+        // searches linearly to ensure lowest register numbers are used for
+        // (slightly) better caching in vm, also makes the bytecode prettier
+        for (self.registers.infos.items, 0..) |reg, index| {
             if (!reg.active) {
                 return @intCast(index);
             }
         }
 
-        try self.registers.append(self.allocator, .{});
-        return @intCast(self.registers.items.len - 1);
+        try self.registers.infos.append(self.allocator, .{});
+        return @intCast(self.registers.infos.items.len - 1);
     }
 
     pub fn availableRegReplace(self: *Self, reg: TempRegister) !TempRegister {
@@ -775,12 +783,12 @@ pub const GenInfo = struct {
     }
 
     pub fn reserveRegister(self: *Self, reg: TempRegister) !void {
-        self.registers.items[reg].active = true;
-        try self.regScopes.addRegister(reg);
+        self.registers.infos.items[reg].active = true;
+        try self.registers.scopes.addRegister(reg);
     }
 
     pub fn releaseRegister(self: *Self, reg: TempRegister) void {
-        self.registers.items[reg] = .{};
+        self.registers.infos.items[reg] = .{};
     }
 
     pub fn getVariableRegister(self: Self, name: []const u8) TempRegister {
@@ -795,20 +803,20 @@ pub const GenInfo = struct {
             .dataSize = size,
         };
         try self.varNameReg.put(name, varGenInfo);
-        try self.regScopes.addRegister(reg);
-        self.registers.items[reg].varInfo = varGenInfo;
+        try self.registers.scopes.addRegister(reg);
+        self.registers.infos.items[reg].varInfo = varGenInfo;
     }
 
     pub fn isRegVariable(self: Self, reg: TempRegister) bool {
-        return self.registers.items[reg].varInfo != null;
+        return self.registers.infos.items[reg].varInfo != null;
     }
 
     pub fn pushScope(self: *Self) !void {
-        try self.regScopes.pushScope();
+        try self.registers.scopes.pushScope();
     }
 
     pub fn popScope(self: *Self) ![]TempRegister {
-        return self.regScopes.popScope();
+        return self.registers.scopes.popScope();
     }
 
     pub fn pushLoopInfo(self: *Self) !void {
@@ -859,11 +867,11 @@ pub const GenInfo = struct {
     }
 
     pub fn getRegInfo(self: Self, reg: TempRegister) RegInfo {
-        return self.registers.items[reg];
+        return self.registers.infos.items[reg];
     }
 
     pub fn getVarGenInfo(self: Self, reg: TempRegister) ?*VarGenInfo {
-        return self.registers.items[reg].varInfo;
+        return self.registers.infos.items[reg].varInfo;
     }
 
     pub fn finishProc(self: *Self) !void {
@@ -1643,11 +1651,11 @@ pub fn genBytecode(
 }
 
 fn calculatePadding(stackLocation: u64, alignment: u8) PaddingInfo {
-    const missalign = stackLocation % alignment;
-    const padding: u8 = if (missalign == 0)
+    const missAlign = stackLocation % alignment;
+    const padding: u8 = if (missAlign == 0)
         0
     else
-        @intCast(alignment - missalign);
+        @intCast(alignment - missAlign);
 
     return .{
         .offset = @intCast(stackLocation + padding),
