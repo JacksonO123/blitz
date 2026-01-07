@@ -1,4 +1,9 @@
-//let b = [4u64]u8 with 1u8;
-let b = 4u16;
-let c = &b;
-let a = [1u8, 2u8, 3u8];
+struct M {
+    width: u32;
+    height: u64;
+}
+
+let a = M {
+    width = 5,
+    height = 9u64,
+};

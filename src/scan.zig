@@ -231,28 +231,16 @@ pub fn scanNode(
             const valueRes: blitzAst.AstTypes = switch (val) {
                 .Null => .Null,
                 .String => .String,
-                .Bool => a: {
-                    node.typeInfo.size = 1;
-                    node.typeInfo.alignment = 1;
-                    break :a .Bool;
-                },
-                .Char => a: {
-                    node.typeInfo.size = 1;
-                    node.typeInfo.alignment = 1;
-                    break :a .Char;
-                },
+                .Bool => .Bool,
+                .Char => .Char,
                 .Number => |num| a: {
                     const numVariant = num.toAstNumberVariant();
-                    node.typeInfo.size = numVariant.getSize();
-                    node.typeInfo.alignment = numVariant.getAlignment();
                     break :a .{ .Number = numVariant };
                 },
                 .RawNumber => |num| a: {
                     if (!verifyRawNumberMagnitude(num)) {
                         return ScanError.RawNumberTooBigForType;
                     }
-                    node.typeInfo.size = num.numType.getSize();
-                    node.typeInfo.alignment = num.numType.getAlignment();
                     break :a .{ .Number = num.numType };
                 },
                 .ArraySlice => |arr| {
@@ -1102,7 +1090,6 @@ pub fn scanNode(
             return resType;
         },
         .StructInit => |init| {
-            // TODO - node size for this
             try context.compInfo.pushGenScope(true);
             defer context.compInfo.popGenScope();
 
@@ -1128,8 +1115,10 @@ pub fn scanNode(
             const genScope = context.compInfo.genericScopes.getCurrentScope();
             if (structDec.generics.len > 0) a: {
                 const scope = genScope orelse break :a;
+
                 for (structDec.attributes) |attr| {
                     if (attr.attr != .Function) continue;
+
                     const func = attr.attr.Function;
                     if (func.generics == null) {
                         const scannedBefore = try fnHasScannedWithSameGenTypes(
@@ -1180,28 +1169,19 @@ pub fn scanNode(
 
             for (structDec.totalMemberList) |attr| {
                 if (attr.attr != .Member or attr.static) continue;
-
-                var found = false;
-                for (init.attributes) |initAttr| {
-                    if (utils.compString(initAttr.name, attr.name)) {
-                        found = true;
-                        const attrType = try scanNode(
-                            allocator,
-                            context,
-                            initAttr.value,
-                            withGenDef,
-                        );
-                        try initAttrRel.append(allocator, .{
-                            .initInfo = attrType,
-                            .defInfo = attr.attr.Member,
-                        });
-                        break;
-                    }
-                }
-
-                if (!found) {
+                const initAttr = init.findAttribute(attr.name) orelse
                     return ScanError.StructInitAttributeNotFound;
-                }
+
+                const attrType = try scanNode(
+                    allocator,
+                    context,
+                    initAttr.value,
+                    withGenDef,
+                );
+                try initAttrRel.append(allocator, .{
+                    .initInfo = attrType,
+                    .defInfo = attr.attr.Member,
+                });
             }
 
             try context.compInfo.pushGenScope(true);
@@ -1211,6 +1191,7 @@ pub fn scanNode(
                 try setInitDeriveGenerics(allocator, context, derive);
             }
 
+            var initAlignment: u8 = 0;
             for (initAttrRel.items) |attrRel| {
                 const matches = try matchTypes(
                     allocator,
@@ -1222,7 +1203,15 @@ pub fn scanNode(
                 if (!matches) {
                     return ScanError.StructInitMemberTypeMismatch;
                 }
+
+                const attrType = attrRel.initInfo.info.astType;
+                const attrAlignment = try attrType.getAlignment(context);
+
+                const paddingInfo = utils.calculatePadding(node.typeInfo.size, attrAlignment);
+                node.typeInfo.size += try attrType.getSize(context) + paddingInfo.padding;
+                initAlignment = @max(initAlignment, attrAlignment);
             }
+            node.typeInfo.alignment = initAlignment;
 
             const generics = try allocator.alloc(blitzAst.AstTypeInfo, init.generics.len);
             try context.deferCleanup.slices.typeInfoSlices.append(generics);

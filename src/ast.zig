@@ -321,6 +321,7 @@ pub const AstTypes = union(Types) {
     pub fn getNodeTypeInfo(self: Self, context: *Context) !AstNodeTypeInfo {
         return .{
             .size = try self.getSize(context),
+            .alignment = try self.getAlignment(context),
         };
     }
 };
@@ -433,9 +434,21 @@ pub const AttributeDefinition = struct {
 };
 
 const StructInitNode = struct {
+    const Self = @This();
+
     name: []const u8,
     attributes: []AttributeDefinition,
     generics: []AstTypeInfo,
+
+    pub fn findAttribute(self: Self, attrName: []const u8) ?AttributeDefinition {
+        for (self.attributes) |attr| {
+            if (utils.compString(attrName, attr.name)) {
+                return attr;
+            }
+        }
+
+        return null;
+    }
 };
 
 pub const GenericType = struct {

@@ -27,11 +27,6 @@ const CodeGenError = error{
 };
 const GenBytecodeError = CodeGenError || Allocator.Error || std.fmt.ParseIntError;
 
-const PaddingInfo = struct {
-    offset: u16,
-    padding: u8,
-};
-
 const LoopCondInfo = struct {
     prevCmpAsReg: bool,
     isCompExpr: bool,
@@ -976,6 +971,14 @@ pub fn genBytecode(
     context: *Context,
     node: *const blitzAst.AstNode,
 ) GenBytecodeError!?TempRegister {
+    if (node.typeInfo.alignment > 0) {
+        const prePadding = utils.calculatePadding(
+            context.genInfo.procInfo.stackFrameSize,
+            node.typeInfo.alignment,
+        );
+        context.genInfo.procInfo.stackFrameSize += prePadding.padding;
+    }
+
     switch (node.variant) {
         .StructPlaceholder => {},
         .NoOp => {},
@@ -1564,7 +1567,7 @@ pub fn genBytecode(
                     const spCount = context.genInfo.procInfo.stackFrameSize;
                     context.genInfo.procInfo.stackFrameSize += itemSize;
 
-                    const paddingInfo = calculatePadding(spCount, alignment);
+                    const paddingInfo = utils.calculatePadding(spCount, alignment);
                     context.genInfo.procInfo.stackFrameSize += paddingInfo.padding;
 
                     const storeInstr = switch (info.dataSize) {
@@ -1644,22 +1647,56 @@ pub fn genBytecode(
 
             _ = try context.genInfo.appendChunk(instr);
         },
+        .StructInit => |init| {
+            var loc = context.genInfo.procInfo.stackFrameSize;
+            context.genInfo.procInfo.stackFrameSize += node.typeInfo.size;
+
+            const def = context.compInfo.getStructDec(init.name).?;
+
+            for (def.attributes) |defAttr| {
+                const attr = init.findAttribute(defAttr.name).?;
+
+                try context.genInfo.pushScope();
+                const reg = try genBytecode(allocator, context, attr.value) orelse
+                    return CodeGenError.ReturnedRegisterNotFound;
+
+                const instr = storeRegOnStackAtLocAndSize(
+                    reg,
+                    loc,
+                    attr.value.typeInfo.size,
+                );
+                _ = try context.genInfo.appendChunk(instr);
+
+                loc += attr.value.typeInfo.size + attr.value.typeInfo.alignment;
+                try context.genInfo.releaseScope();
+            }
+
+            const resReg = try context.genInfo.getAvailableReg();
+            try context.genInfo.reserveRegister(resReg);
+
+            const storePtrInstr = Instr{
+                .MovSpNegOffset16 = .{
+                    .reg = resReg,
+                    .offset = @intCast(context.genInfo.procInfo.stackFrameSize),
+                },
+            };
+            _ = try context.genInfo.appendChunk(storePtrInstr);
+
+            return resReg;
+        },
         else => {},
     }
 
     return null;
 }
 
-fn calculatePadding(stackLocation: u64, alignment: u8) PaddingInfo {
-    const missAlign = stackLocation % alignment;
-    const padding: u8 = if (missAlign == 0)
-        0
-    else
-        @intCast(alignment - missAlign);
-
-    return .{
-        .offset = @intCast(stackLocation + padding),
-        .padding = padding,
+fn storeRegOnStackAtLocAndSize(reg: u32, loc: u64, size: u64) Instr {
+    return switch (size) {
+        1 => Instr{ .Store8AtSpNegOffset16 = .{ .reg = reg, .offset = @intCast(loc) } },
+        2 => Instr{ .Store16AtSpNegOffset16 = .{ .reg = reg, .offset = @intCast(loc) } },
+        3, 4 => Instr{ .Store32AtSpNegOffset16 = .{ .reg = reg, .offset = @intCast(loc) } },
+        5...8 => Instr{ .Store64AtSpNegOffset16 = .{ .reg = reg, .offset = @intCast(loc) } },
+        else => unreachable,
     };
 }
 
@@ -1669,7 +1706,7 @@ fn initSliceBytecode(
     stackLocation: u64,
     sliceSize: u64,
 ) !SliceBytecodeInfo {
-    const slicePadding = calculatePadding(stackLocation, 8);
+    const slicePadding = utils.calculatePadding(stackLocation, 8);
     context.genInfo.procInfo.stackFrameSize += slicePadding.padding + sliceSize;
 
     const writeAtSp = Instr{
@@ -1953,15 +1990,4 @@ fn writeNumber(comptime T: type, data: T, writer: *Writer) !void {
     var buf: [@sizeOf(T)]u8 = undefined;
     std.mem.writeInt(T, &buf, data, .little);
     try writer.writeAll(&buf);
-}
-
-test "Calculate padding" {
-    const p1 = calculatePadding(0, 1);
-    try std.testing.expectEqual(0, p1.padding);
-
-    const p2 = calculatePadding(1, 1);
-    try std.testing.expectEqual(0, p2.padding);
-
-    const p3 = calculatePadding(1, 2);
-    try std.testing.expectEqual(1, p3.padding);
 }
