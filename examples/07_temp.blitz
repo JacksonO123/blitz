@@ -1,3 +1,15 @@
-let b = [1u16, 2u16, 3u16];
-let a = 2u8;
-let pa = &a;
+struct Inner {
+    big: bool;
+}
+
+struct M {
+    inner: Inner;
+    //width: u32;
+    //height: u64;
+}
+
+let a = M {
+    inner = Inner { big = true },
+    //width = 5,
+    //height = 9u64,
+};

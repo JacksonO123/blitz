@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const blitz = @import("blitz.zig");
-const blitzAst = blitz.ast;
+const ast = blitz.ast;
 const utils = blitz.utils;
 const vmInfo = blitz.vmInfo;
 const version = blitz.version;
@@ -916,6 +916,7 @@ fn adjustStackLocations(chunk: *InstrChunk, frameSize: u64) void {
     }
 }
 
+/// adjusts store instructions that are based on sp offsets
 fn adjustStackLocation(chunk: *InstrChunk, frameSize: u64) void {
     switch (chunk.data) {
         .Store8AtSpNegOffset16,
@@ -941,9 +942,9 @@ fn writeLoopJump(info: InstrInfo, endByte: u64) void {
     setJumpAmount(info.chunk, diff);
 }
 
-pub fn codegenAst(allocator: Allocator, context: *Context, ast: blitzAst.Ast) !void {
+pub fn codegenAst(allocator: Allocator, context: *Context, tree: ast.Ast) !void {
     writeStartVMInfo(context);
-    _ = try genBytecode(allocator, context, ast.root);
+    _ = try genBytecode(allocator, context, tree.root);
     try context.genInfo.finishProc();
 }
 
@@ -969,16 +970,8 @@ fn writeIntSliceToInstr(
 pub fn genBytecode(
     allocator: Allocator,
     context: *Context,
-    node: *const blitzAst.AstNode,
+    node: *const ast.AstNode,
 ) GenBytecodeError!?TempRegister {
-    if (node.typeInfo.alignment > 0) {
-        const prePadding = utils.calculatePadding(
-            context.genInfo.procInfo.stackFrameSize,
-            node.typeInfo.alignment,
-        );
-        context.genInfo.procInfo.stackFrameSize += prePadding.padding;
-    }
-
     switch (node.variant) {
         .StructPlaceholder => {},
         .NoOp => {},
@@ -1128,28 +1121,8 @@ pub fn genBytecode(
 
                         try context.genInfo.releaseScope();
 
-                        const instData: StoreIncInstr(u16) = .{
-                            .fromReg = reg,
-                            .toRegPtr = sliceInfo.reg,
-                            .inc = @intCast(itemSize),
-                        };
-
-                        const store8 = switch (itemSize) {
-                            8, 7, 6, 5 => Instr{
-                                .Store64AtRegPostInc16 = instData,
-                            },
-                            4, 3 => Instr{
-                                .Store32AtRegPostInc16 = instData,
-                            },
-                            2 => Instr{
-                                .Store16AtRegPostInc16 = instData,
-                            },
-                            1 => Instr{
-                                .Store8AtRegPostInc16 = instData,
-                            },
-                            else => utils.unimplemented(),
-                        };
-                        _ = try context.genInfo.appendChunk(store8);
+                        const storeInstr = storeRegAtRegWithPostIncAndSize(reg, sliceInfo.reg, itemSize);
+                        _ = try context.genInfo.appendChunk(storeInstr);
                     }
 
                     _ = try context.genInfo.appendChunk(setSliceAddrInstr);
@@ -1163,8 +1136,8 @@ pub fn genBytecode(
         .OpExpr => |expr| {
             var leftReg: TempRegister = undefined;
 
-            const leftDepth = blitzAst.getExprDepth(expr.left);
-            const rightDepth = blitzAst.getExprDepth(expr.right);
+            const leftDepth = ast.getExprDepth(expr.left);
+            const rightDepth = ast.getExprDepth(expr.right);
             const leftExprDeeper = leftDepth > rightDepth;
             if (leftExprDeeper) {
                 leftReg = try genBytecode(allocator, context, expr.left) orelse
@@ -1494,6 +1467,7 @@ pub fn genBytecode(
                 return CodeGenError.ReturnedRegisterNotFound;
             try context.genInfo.releaseScope();
 
+            // TODO - maybe choose different size store instr
             const writeInstr = Instr{
                 .Store64AtRegPostInc16 = .{
                     .fromReg = resReg,
@@ -1570,33 +1544,7 @@ pub fn genBytecode(
                     const paddingInfo = utils.calculatePadding(spCount, alignment);
                     context.genInfo.procInfo.stackFrameSize += paddingInfo.padding;
 
-                    const storeInstr = switch (info.dataSize) {
-                        8, 7, 6, 5 => Instr{
-                            .Store64AtSpNegOffset16 = .{
-                                .reg = resReg,
-                                .offset = paddingInfo.offset,
-                            },
-                        },
-                        4, 3 => Instr{
-                            .Store32AtSpNegOffset16 = .{
-                                .reg = resReg,
-                                .offset = paddingInfo.offset,
-                            },
-                        },
-                        2 => Instr{
-                            .Store16AtSpNegOffset16 = .{
-                                .reg = resReg,
-                                .offset = paddingInfo.offset,
-                            },
-                        },
-                        1 => Instr{
-                            .Store8AtSpNegOffset16 = .{
-                                .reg = resReg,
-                                .offset = paddingInfo.offset,
-                            },
-                        },
-                        else => utils.unimplemented(),
-                    };
+                    const storeInstr = storeRegAtSpNegOffsetAndSize(resReg, paddingInfo.offset, info.dataSize);
                     _ = try context.genInfo.appendChunk(storeInstr);
 
                     break :a spCount;
@@ -1648,6 +1596,12 @@ pub fn genBytecode(
             _ = try context.genInfo.appendChunk(instr);
         },
         .StructInit => |init| {
+            const paddingInfo = utils.calculatePadding(
+                context.genInfo.procInfo.stackFrameSize,
+                node.typeInfo.alignment,
+            );
+            context.genInfo.procInfo.stackFrameSize += paddingInfo.padding;
+
             var loc = context.genInfo.procInfo.stackFrameSize;
             context.genInfo.procInfo.stackFrameSize += node.typeInfo.size;
 
@@ -1657,10 +1611,11 @@ pub fn genBytecode(
                 const attr = init.findAttribute(defAttr.name).?;
 
                 try context.genInfo.pushScope();
+
                 const reg = try genBytecode(allocator, context, attr.value) orelse
                     return CodeGenError.ReturnedRegisterNotFound;
 
-                const instr = storeRegOnStackAtLocAndSize(
+                const instr = storeRegAtSpNegOffsetAndSize(
                     reg,
                     loc,
                     attr.value.typeInfo.size,
@@ -1690,12 +1645,68 @@ pub fn genBytecode(
     return null;
 }
 
-fn storeRegOnStackAtLocAndSize(reg: u32, loc: u64, size: u64) Instr {
+fn storeRegAtSpNegOffsetAndSize(reg: u32, loc: u64, size: u64) Instr {
     return switch (size) {
-        1 => Instr{ .Store8AtSpNegOffset16 = .{ .reg = reg, .offset = @intCast(loc) } },
-        2 => Instr{ .Store16AtSpNegOffset16 = .{ .reg = reg, .offset = @intCast(loc) } },
-        3, 4 => Instr{ .Store32AtSpNegOffset16 = .{ .reg = reg, .offset = @intCast(loc) } },
-        5...8 => Instr{ .Store64AtSpNegOffset16 = .{ .reg = reg, .offset = @intCast(loc) } },
+        1 => Instr{
+            .Store8AtSpNegOffset16 = .{
+                .reg = reg,
+                .offset = @intCast(loc),
+            },
+        },
+        2 => Instr{
+            .Store16AtSpNegOffset16 = .{
+                .reg = reg,
+                .offset = @intCast(loc),
+            },
+        },
+        3, 4 => Instr{
+            .Store32AtSpNegOffset16 = .{
+                .reg = reg,
+                .offset = @intCast(loc),
+            },
+        },
+        5...8 => Instr{
+            .Store64AtSpNegOffset16 = .{
+                .reg = reg,
+                .offset = @intCast(loc),
+            },
+        },
+        else => unreachable,
+    };
+}
+
+fn storeRegAtRegWithPostIncAndSize(reg: u32, ptrReg: u32, size: u64) Instr {
+    const inc: u16 = @intCast(size);
+
+    return switch (size) {
+        1 => Instr{
+            .Store8AtRegPostInc16 = .{
+                .fromReg = reg,
+                .toRegPtr = ptrReg,
+                .inc = inc,
+            },
+        },
+        2 => Instr{
+            .Store16AtRegPostInc16 = .{
+                .fromReg = reg,
+                .toRegPtr = ptrReg,
+                .inc = inc,
+            },
+        },
+        3, 4 => Instr{
+            .Store32AtRegPostInc16 = .{
+                .fromReg = reg,
+                .toRegPtr = ptrReg,
+                .inc = inc,
+            },
+        },
+        5...8 => Instr{
+            .Store64AtRegPostInc16 = .{
+                .fromReg = reg,
+                .toRegPtr = ptrReg,
+                .inc = inc,
+            },
+        },
         else => unreachable,
     };
 }
@@ -1749,7 +1760,7 @@ fn initSliceBytecode(
     };
 }
 
-fn prepForLoopCondition(context: *Context, condition: *blitzAst.AstNode) LoopCondInfo {
+fn prepForLoopCondition(context: *Context, condition: *ast.AstNode) LoopCondInfo {
     const prevCmpAsReg = context.genInfo.settings.outputCmpAsRegister;
     const isCompExprType = if (condition.variant == .OpExpr)
         switch (condition.variant.OpExpr.type) {
@@ -1797,7 +1808,7 @@ fn setJumpAmount(chunk: *InstrChunk, amount: u16) void {
     }
 }
 
-fn exprTypeToCmpSetReg(expr: blitzAst.OpExprTypes) Instr {
+fn exprTypeToCmpSetReg(expr: ast.OpExprTypes) Instr {
     return switch (expr) {
         .Equal => .{ .CmpSetRegEQ = .{} },
         .NotEqual => .{ .CmpSetRegNE = .{} },
@@ -1809,7 +1820,7 @@ fn exprTypeToCmpSetReg(expr: blitzAst.OpExprTypes) Instr {
     };
 }
 
-fn compOpToJump(opType: blitzAst.OpExprTypes, back: bool) !Instr {
+fn compOpToJump(opType: ast.OpExprTypes, back: bool) !Instr {
     return if (back) switch (opType) {
         .Equal => .{ .JumpBackEQ = .{} },
         .NotEqual => .{ .JumpBackNE = .{} },
@@ -1832,7 +1843,7 @@ fn compOpToJump(opType: blitzAst.OpExprTypes, back: bool) !Instr {
 fn generateFallback(
     allocator: Allocator,
     context: *Context,
-    fallback: blitzAst.FallbackInfo,
+    fallback: ast.FallbackInfo,
 ) !void {
     var jumpChunk: ?*InstrChunk = null;
 

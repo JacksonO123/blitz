@@ -1,12 +1,12 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
 const utils = blitz.utils;
-const blitzAst = blitz.ast;
+const ast = blitz.ast;
 const tokenizer = blitz.tokenizer;
 const blitzContext = blitz.context;
 const TokenUtil = tokenizer.TokenUtil;
 const File = std.fs.File;
-const AstError = blitzAst.AstError;
+const AstError = ast.AstError;
 const Writer = std.Io.Writer;
 const Context = blitzContext.Context;
 const TokenError = tokenizer.TokenError;
@@ -185,7 +185,7 @@ fn findLineBounds(code: []const u8, line: usize) LineBounds {
     };
 }
 
-pub fn logParseError(context: *Context, err: blitzAst.ParseError) void {
+pub fn logParseError(context: *Context, err: ast.ParseError) void {
     const errString = switch (err) {
         error.ExpectedNameForStruct => "expected name for struct",
         error.ExpectedIdentifierPropertyAccessSource => "expected identifier for property access source",

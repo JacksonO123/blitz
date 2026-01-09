@@ -1,6 +1,6 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
-const blitzAst = blitz.ast;
+const ast = blitz.ast;
 const utils = blitz.utils;
 const blitzCompInfo = blitz.compInfo;
 const debug = blitz.debug;
@@ -22,9 +22,9 @@ pub const CloneError = error{
 pub fn cloneAstTypeInfo(
     allocator: Allocator,
     context: *Context,
-    info: blitzAst.AstTypeInfo,
+    info: ast.AstTypeInfo,
     withGenDef: bool,
-) (Allocator.Error || CloneError)!blitzAst.AstTypeInfo {
+) (Allocator.Error || CloneError)!ast.AstTypeInfo {
     if (info.astType.* == .Generic) {
         const generic = info.astType.Generic;
         if (withGenDef) {
@@ -59,9 +59,9 @@ pub fn cloneAstTypeInfo(
 pub fn cloneAstTypesPtrMut(
     allocator: Allocator,
     context: *Context,
-    astType: *blitzAst.AstTypes,
+    astType: *ast.AstTypes,
     withGenDef: bool,
-) !*blitzAst.AstTypes {
+) !*ast.AstTypes {
     const clonedType = try cloneAstTypes(allocator, context, astType.*, withGenDef);
     return try context.pools.newType(clonedType);
 }
@@ -69,9 +69,9 @@ pub fn cloneAstTypesPtrMut(
 pub fn cloneAstTypes(
     allocator: Allocator,
     context: *Context,
-    types: blitzAst.AstTypes,
+    types: ast.AstTypes,
     withGenDef: bool,
-) (Allocator.Error || CloneError)!blitzAst.AstTypes {
+) (Allocator.Error || CloneError)!ast.AstTypes {
     switch (types) {
         .String, .Bool, .Char, .Void, .Number, .Null, .RawNumber, .Any, .Undef => return types,
 
@@ -93,7 +93,7 @@ pub fn cloneAstTypes(
                 arr.type.info,
                 withGenDef,
             )).toAllocInfo(.Allocated);
-            var sizeClone: ?*blitzAst.AstNode = null;
+            var sizeClone: ?*ast.AstNode = null;
             if (arr.size) |size| {
                 sizeClone = try cloneAstNodePtrMut(allocator, context, size, withGenDef);
             }
@@ -142,7 +142,7 @@ pub fn cloneAstTypes(
             };
         },
         .Error => |err| {
-            var payload: ?blitzAst.AstTypeInfo = null;
+            var payload: ?ast.AstTypeInfo = null;
 
             if (err.payload) |errPayload| {
                 payload = try cloneAstTypeInfo(allocator, context, errPayload, withGenDef);
@@ -171,9 +171,9 @@ pub fn cloneAstTypes(
 fn cloneAstNodePtrMut(
     allocator: Allocator,
     context: *Context,
-    node: *const blitzAst.AstNode,
+    node: *const ast.AstNode,
     withGenDef: bool,
-) (Allocator.Error || CloneError)!*blitzAst.AstNode {
+) (Allocator.Error || CloneError)!*ast.AstNode {
     const clonedNode = try cloneAstNode(allocator, context, node.*, withGenDef);
     return try context.pools.newNode(clonedNode);
 }
@@ -181,9 +181,9 @@ fn cloneAstNodePtrMut(
 pub fn cloneAstNodeUnion(
     allocator: Allocator,
     context: *Context,
-    node: blitzAst.AstNodeUnion,
+    node: ast.AstNodeUnion,
     withGenDef: bool,
-) !blitzAst.AstNodeUnion {
+) !ast.AstNodeUnion {
     switch (node) {
         .NoOp, .StructPlaceholder, .Break, .Continue, .UndefValue => return node,
         .IndexValue => |index| return .{
@@ -220,7 +220,7 @@ pub fn cloneAstNodeUnion(
             };
         },
         .Seq => |seq| {
-            var newSeq = try allocator.alloc(*blitzAst.AstNode, seq.len);
+            var newSeq = try allocator.alloc(*ast.AstNode, seq.len);
             try context.deferCleanup.slices.nodeSlices.append(newSeq);
 
             for (seq, 0..) |seqNode, index| {
@@ -271,7 +271,7 @@ pub fn cloneAstNodeUnion(
                 dec.setNode,
                 withGenDef,
             );
-            var clonedType: ?blitzAst.AstTypeInfo = null;
+            var clonedType: ?ast.AstTypeInfo = null;
 
             if (dec.annotation) |annotation| {
                 clonedType = try cloneAstTypeInfo(allocator, context, annotation, withGenDef);
@@ -361,7 +361,7 @@ pub fn cloneAstNodeUnion(
                 withGenDef,
             );
 
-            var newFallback: ?blitzAst.FallbackInfo = null;
+            var newFallback: ?ast.FallbackInfo = null;
             if (statement.fallback) |fallback| {
                 newFallback = .{
                     .node = try cloneAstNodePtrMut(
@@ -383,7 +383,7 @@ pub fn cloneAstNodeUnion(
             };
         },
         .ForLoop => |loop| {
-            var newInitNode: ?*blitzAst.AstNode = null;
+            var newInitNode: ?*ast.AstNode = null;
 
             if (loop.initNode) |init| {
                 newInitNode = try cloneAstNodePtrMut(allocator, context, init, withGenDef);
@@ -449,7 +449,7 @@ pub fn cloneAstNodeUnion(
             .ReturnNode = try cloneAstNodePtrMut(allocator, context, ret, withGenDef),
         },
         .StructInit => |init| {
-            const generics = try allocator.alloc(blitzAst.AstTypeInfo, init.generics.len);
+            const generics = try allocator.alloc(ast.AstTypeInfo, init.generics.len);
             for (init.generics, generics) |generic, *to| {
                 to.* = try cloneAstTypeInfo(allocator, context, generic, withGenDef);
             }
@@ -532,9 +532,9 @@ pub fn cloneAstNodeUnion(
 pub fn cloneAstNode(
     allocator: Allocator,
     context: *Context,
-    node: blitzAst.AstNode,
+    node: ast.AstNode,
     withGenDef: bool,
-) !blitzAst.AstNode {
+) !ast.AstNode {
     const clonedUnion = try cloneAstNodeUnion(allocator, context, node.variant, withGenDef);
     return .{
         .variant = clonedUnion,
@@ -545,10 +545,10 @@ pub fn cloneAstNode(
 pub fn cloneCustomGenerics(
     allocator: Allocator,
     context: *Context,
-    generics: []blitzAst.AstTypeInfo,
+    generics: []ast.AstTypeInfo,
     withGenDef: bool,
-) ![]blitzAst.AstTypeInfo {
-    const genericsSlice = try allocator.alloc(blitzAst.AstTypeInfo, generics.len);
+) ![]ast.AstTypeInfo {
+    const genericsSlice = try allocator.alloc(ast.AstTypeInfo, generics.len);
     try context.deferCleanup.slices.typeInfoSlices.append(genericsSlice);
 
     for (generics, 0..) |gen, index| {
@@ -561,10 +561,10 @@ pub fn cloneCustomGenerics(
 fn cloneNodeArrMut(
     allocator: Allocator,
     context: *Context,
-    nodes: []*blitzAst.AstNode,
+    nodes: []*ast.AstNode,
     withGenDef: bool,
-) ![]*blitzAst.AstNode {
-    var newNodes = try allocator.alloc(*blitzAst.AstNode, nodes.len);
+) ![]*ast.AstNode {
+    var newNodes = try allocator.alloc(*ast.AstNode, nodes.len);
     try context.deferCleanup.slices.nodeSlices.append(newNodes);
 
     for (nodes, 0..) |node, index| {
@@ -578,10 +578,10 @@ fn cloneNodeArrMut(
 pub fn cloneGenerics(
     allocator: Allocator,
     context: *Context,
-    generics: []blitzAst.GenericType,
+    generics: []ast.GenericType,
     withGenDef: bool,
-) ![]blitzAst.GenericType {
-    var clonedGenerics = try allocator.alloc(blitzAst.GenericType, generics.len);
+) ![]ast.GenericType {
+    var clonedGenerics = try allocator.alloc(ast.GenericType, generics.len);
     try context.deferCleanup.slices.genericTypeSlices.append(clonedGenerics);
 
     for (generics, 0..) |generic, index| {
@@ -595,10 +595,10 @@ pub fn cloneGenerics(
 fn cloneGeneric(
     allocator: Allocator,
     context: *Context,
-    generic: blitzAst.GenericType,
+    generic: ast.GenericType,
     withGenDef: bool,
-) !blitzAst.GenericType {
-    var restriction: ?blitzAst.AstTypeInfo = null;
+) !ast.GenericType {
+    var restriction: ?ast.AstTypeInfo = null;
 
     if (generic.restriction) |rest| {
         restriction = try cloneAstTypeInfo(allocator, context, rest, withGenDef);
@@ -613,13 +613,13 @@ fn cloneGeneric(
 fn cloneStructAttrDec(
     allocator: Allocator,
     context: *Context,
-    attrs: []blitzAst.StructAttribute,
+    attrs: []ast.StructAttribute,
     withGenDef: bool,
-) ![]blitzAst.StructAttribute {
-    var attributes = try allocator.alloc(blitzAst.StructAttribute, attrs.len);
+) ![]ast.StructAttribute {
+    var attributes = try allocator.alloc(ast.StructAttribute, attrs.len);
 
     for (attrs, 0..) |attr, index| {
-        const newAttr: blitzAst.StructAttribute = .{
+        const newAttr: ast.StructAttribute = .{
             .static = attr.static,
             .attr = try cloneStructAttributeUnion(allocator, context, attr.attr, withGenDef),
             .name = attr.name,
@@ -635,9 +635,9 @@ fn cloneStructAttrDec(
 pub fn cloneStructAttributeUnion(
     allocator: Allocator,
     context: *Context,
-    structAttrUnion: blitzAst.StructAttributeUnion,
+    structAttrUnion: ast.StructAttributeUnion,
     withGenDef: bool,
-) !blitzAst.StructAttributeUnion {
+) !ast.StructAttributeUnion {
     return switch (structAttrUnion) {
         .Member => |member| .{
             .Member = try cloneAstTypeInfo(allocator, context, member, withGenDef),
@@ -649,9 +649,9 @@ pub fn cloneStructAttributeUnion(
 pub fn cloneStructAttributeUnionType(
     allocator: Allocator,
     context: *Context,
-    structAttrUnion: blitzAst.StructAttributeUnion,
+    structAttrUnion: ast.StructAttributeUnion,
     withGenDef: bool,
-) !blitzAst.AstTypeInfo {
+) !ast.AstTypeInfo {
     return switch (structAttrUnion) {
         .Function => |func| {
             const res = try context.pools.newType(.{
@@ -666,14 +666,14 @@ pub fn cloneStructAttributeUnionType(
 fn cloneAttrDef(
     allocator: Allocator,
     context: *Context,
-    attrs: []blitzAst.AttributeDefinition,
+    attrs: []ast.AttributeDefinition,
     withGenDef: bool,
-) ![]blitzAst.AttributeDefinition {
-    var attributes = try allocator.alloc(blitzAst.AttributeDefinition, attrs.len);
+) ![]ast.AttributeDefinition {
+    var attributes = try allocator.alloc(ast.AttributeDefinition, attrs.len);
     try context.deferCleanup.slices.attrDefSlices.append(attributes);
 
     for (attrs, 0..) |attr, index| {
-        const newAttr: blitzAst.AttributeDefinition = .{
+        const newAttr: ast.AttributeDefinition = .{
             .name = attr.name,
             .value = try cloneAstNodePtrMut(allocator, context, attr.value, withGenDef),
         };

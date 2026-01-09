@@ -1,6 +1,6 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
-const blitzAst = blitz.ast;
+const ast = blitz.ast;
 const utils = blitz.utils;
 const free = blitz.free;
 const blitzContext = blitz.context;
@@ -13,8 +13,8 @@ const MemPool = std.heap.MemoryPool;
 
 const POOL_SIZE = 1024 * 64;
 
-const NodePool = MemPool(blitzAst.AstNode);
-const TypePool = MemPool(blitzAst.AstTypes);
+const NodePool = MemPool(ast.AstNode);
+const TypePool = MemPool(ast.AstTypes);
 
 pub const Pools = struct {
     const Self = @This();
@@ -46,7 +46,7 @@ pub const Pools = struct {
         self.allocator.destroy(self.types);
     }
 
-    pub fn newType(self: Self, data: blitzAst.AstTypes) !*blitzAst.AstTypes {
+    pub fn newType(self: Self, data: ast.AstTypes) !*ast.AstTypes {
         const ptr = try self.newTypeUntracked(data);
         if (self.context.settings.debug.trackPoolMem) {
             try self.context.utils.reserveTypeAddress(ptr);
@@ -54,7 +54,7 @@ pub const Pools = struct {
         return ptr;
     }
 
-    pub fn newNode(self: Self, data: blitzAst.AstNode) !*blitzAst.AstNode {
+    pub fn newNode(self: Self, data: ast.AstNode) !*ast.AstNode {
         const ptr = try self.newNodeUntracked(data);
         if (self.context.settings.debug.trackPoolMem) {
             try self.context.utils.reserveNodeAddress(ptr);
@@ -62,19 +62,19 @@ pub const Pools = struct {
         return ptr;
     }
 
-    pub fn newTypeUntracked(self: Self, data: blitzAst.AstTypes) !*blitzAst.AstTypes {
+    pub fn newTypeUntracked(self: Self, data: ast.AstTypes) !*ast.AstTypes {
         const ptr = try self.types.create();
         ptr.* = data;
         return ptr;
     }
 
-    pub fn newNodeUntracked(self: Self, data: blitzAst.AstNode) !*blitzAst.AstNode {
+    pub fn newNodeUntracked(self: Self, data: ast.AstNode) !*ast.AstNode {
         const ptr = try self.nodes.create();
         ptr.* = data;
         return ptr;
     }
 
-    pub fn releaseType(self: Self, ptr: *blitzAst.AstTypes) void {
+    pub fn releaseType(self: Self, ptr: *ast.AstTypes) void {
         if (self.context.settings.debug.trackPoolMem) {
             self.context.utils.releaseTypeAddress(ptr);
         }
@@ -82,7 +82,7 @@ pub const Pools = struct {
         self.types.destroy(ptr);
     }
 
-    pub fn releaseNode(self: Self, ptr: *blitzAst.AstNode) void {
+    pub fn releaseNode(self: Self, ptr: *ast.AstNode) void {
         if (self.context.settings.debug.trackPoolMem) {
             self.context.utils.releaseNodeAddress(ptr);
         }

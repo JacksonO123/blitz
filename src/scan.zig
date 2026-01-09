@@ -1,6 +1,6 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
-const blitzAst = blitz.ast;
+const ast = blitz.ast;
 const utils = blitz.utils;
 const free = blitz.free;
 const builtins = blitz.builtins;
@@ -17,7 +17,7 @@ pub const ScanInfo = struct {
 };
 
 pub const RetNodeInfo = struct {
-    node: blitzAst.AstNode,
+    node: ast.AstNode,
     conditional: bool,
 };
 
@@ -44,7 +44,7 @@ pub const AllocatedState = enum {
 };
 
 pub const TypeAndAllocInfo = struct {
-    info: blitzAst.AstTypeInfo,
+    info: ast.AstTypeInfo,
     allocState: AllocatedState,
 };
 
@@ -159,10 +159,10 @@ pub const ScanError = error{
 
 const StructInitMemberInfo = struct {
     initInfo: TypeAndAllocInfo,
-    defInfo: blitzAst.AstTypeInfo,
+    defInfo: ast.AstTypeInfo,
 };
 
-pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, context: *Context) !void {
+pub fn typeScan(allocator: Allocator, tree: ast.Ast, context: *Context) !void {
     while (context.compInfo.variableScopes.scopes.items.len > 1) {
         return ScanError.ScanStartedInLowerScope;
     }
@@ -170,8 +170,8 @@ pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, context: *Context) !voi
     try context.compInfo.pushScope(false);
     defer context.compInfo.popScope();
 
-    try scanNodeForFunctions(allocator, context, ast.root);
-    const res = try scanNode(allocator, context, ast.root, true);
+    try scanNodeForFunctions(allocator, context, tree.root);
+    const res = try scanNode(allocator, context, tree.root, true);
     defer releaseIfAllocated(context, res);
 
     try scanFunctionCalls(allocator, context);
@@ -180,7 +180,7 @@ pub fn typeScan(allocator: Allocator, ast: blitzAst.Ast, context: *Context) !voi
 pub fn scanNode(
     allocator: Allocator,
     context: *Context,
-    node: *blitzAst.AstNode,
+    node: *ast.AstNode,
     withGenDef: bool,
 ) ScanNodeError!TypeAndAllocInfo {
     switch (node.variant) {
@@ -228,7 +228,7 @@ pub fn scanNode(
             return ScanError.InvalidCast;
         },
         .Value => |val| {
-            const valueRes: blitzAst.AstTypes = switch (val) {
+            const valueRes: ast.AstTypes = switch (val) {
                 .Null => .Null,
                 .String => .String,
                 .Bool => .Bool,
@@ -251,7 +251,7 @@ pub fn scanNode(
                         withGenDef,
                     );
                     node.typeInfo = try inferredType.info.astType.getNodeTypeInfo(context);
-                    const valueVariant: blitzAst.AstNodeUnion = .{
+                    const valueVariant: ast.AstNodeUnion = .{
                         .Value = .{
                             .Number = .{ .U64 = arr.len },
                         },
@@ -1213,7 +1213,7 @@ pub fn scanNode(
             }
             node.typeInfo.alignment = initAlignment;
 
-            const generics = try allocator.alloc(blitzAst.AstTypeInfo, init.generics.len);
+            const generics = try allocator.alloc(ast.AstTypeInfo, init.generics.len);
             try context.deferCleanup.slices.typeInfoSlices.append(generics);
             for (init.generics, 0..) |gen, index| {
                 generics[index] = try clone.cloneAstTypeInfo(
@@ -1386,7 +1386,7 @@ pub fn scanNode(
                 withGenDef,
             );
 
-            const valueVariant: blitzAst.AstNodeUnion = .{
+            const valueVariant: ast.AstNodeUnion = .{
                 .Value = .{
                     .RawNumber = .{
                         .digits = init.size,
@@ -1428,7 +1428,7 @@ pub fn scanNode(
     }
 }
 
-fn genInGenInfoRels(rels: []blitzAst.StrToTypeInfoRel, name: []const u8) bool {
+fn genInGenInfoRels(rels: []ast.StrToTypeInfoRel, name: []const u8) bool {
     for (rels) |rel| {
         if (utils.compString(name, rel.gen)) {
             return true;
@@ -1489,7 +1489,7 @@ fn escapeVarInfoAndRelease(
 }
 
 /// true if uses undefined variables
-fn checkUndefVars(context: *Context, node: *const blitzAst.AstNode, allowSelf: bool) bool {
+fn checkUndefVars(context: *Context, node: *const ast.AstNode, allowSelf: bool) bool {
     var undef = false;
 
     return switch (node.variant) {
@@ -1647,7 +1647,7 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
 fn setGenTypesFromParams(
     allocator: Allocator,
     context: *Context,
-    func: *blitzAst.FuncDecNode,
+    func: *ast.FuncDecNode,
     paramTypes: []TypeAndAllocInfo,
     withGenDef: bool,
 ) !bool {
@@ -1726,8 +1726,8 @@ fn genScopeToRels(
     context: *Context,
     genScope: *blitzCompInfo.TypeScope,
     withGenDef: bool,
-) ![]blitzAst.StrToTypeInfoRel {
-    const slice = try allocator.alloc(blitzAst.StrToTypeInfoRel, genScope.count());
+) ![]ast.StrToTypeInfoRel {
+    const slice = try allocator.alloc(ast.StrToTypeInfoRel, genScope.count());
     var i: usize = 0;
     var scopeIt = genScope.iterator();
     while (scopeIt.next()) |entry| {
@@ -1751,7 +1751,7 @@ fn genScopeToRels(
 fn fnHasScannedWithSameGenTypes(
     allocator: Allocator,
     context: *Context,
-    func: *blitzAst.FuncDecNode,
+    func: *ast.FuncDecNode,
     genScope: *blitzCompInfo.TypeScope,
     withGenDef: bool,
 ) !bool {
@@ -1778,14 +1778,14 @@ fn fnHasScannedWithSameGenTypes(
     return false;
 }
 
-fn isAnyType(astType: *const blitzAst.AstTypes) bool {
+fn isAnyType(astType: *const ast.AstTypes) bool {
     return astType.* == .Generic or astType.* == .Any;
 }
 
 fn applyVariableCaptures(
     allocator: Allocator,
     context: *Context,
-    func: *blitzAst.FuncDecNode,
+    func: *ast.FuncDecNode,
     scope: *blitzCompInfo.CaptureScope,
 ) !void {
     if (func.capturedValues) |captured| {
@@ -1799,7 +1799,7 @@ fn applyVariableCaptures(
 fn applyGenericCaptures(
     allocator: Allocator,
     context: *Context,
-    func: *blitzAst.FuncDecNode,
+    func: *ast.FuncDecNode,
     scope: *blitzCompInfo.TypeScope,
 ) !void {
     if (func.capturedTypes) |captured| {
@@ -1812,7 +1812,7 @@ fn applyGenericCaptures(
 
 fn applyFunctionCaptures(
     allocator: Allocator,
-    func: *blitzAst.FuncDecNode,
+    func: *ast.FuncDecNode,
     scope: *blitzCompInfo.StringListScope,
 ) !void {
     if (func.capturedFuncs) |captured| {
@@ -1826,7 +1826,7 @@ fn applyFunctionCaptures(
 fn scanIfFallback(
     allocator: Allocator,
     context: *Context,
-    fallback: blitzAst.FallbackInfo,
+    fallback: ast.FallbackInfo,
     withGenDef: bool,
 ) !void {
     if (!fallback.hasCondition and fallback.node.variant.IfStatement.fallback != null) {
@@ -1845,8 +1845,8 @@ fn scanIfFallback(
 fn setInitGenerics(
     allocator: Allocator,
     context: *Context,
-    genTypes: []blitzAst.AstTypeInfo,
-    decGens: []blitzAst.GenericType,
+    genTypes: []ast.AstTypeInfo,
+    decGens: []ast.GenericType,
     withGenDef: bool,
 ) !void {
     for (genTypes, decGens) |t, decGen| {
@@ -1870,7 +1870,7 @@ fn setInitGenerics(
 fn setInitDeriveGenerics(
     allocator: Allocator,
     context: *Context,
-    deriveType: blitzAst.AstTypeInfo,
+    deriveType: ast.AstTypeInfo,
 ) !void {
     const generics = deriveType.astType.Custom.generics;
     const deriveName = switch (deriveType.astType.*) {
@@ -1903,8 +1903,8 @@ fn setInitDeriveGenerics(
 fn matchParamGenericTypes(
     allocator: Allocator,
     context: *Context,
-    custom: blitzAst.CustomType,
-    paramType: *const blitzAst.AstTypes,
+    custom: ast.CustomType,
+    paramType: *const ast.AstTypes,
 ) !bool {
     switch (paramType.*) {
         .Custom => |paramCustom| {
@@ -1964,7 +1964,7 @@ fn matchParamGenericTypes(
 fn scanFuncBodyAndReturn(
     allocator: Allocator,
     context: *Context,
-    func: *blitzAst.FuncDecNode,
+    func: *ast.FuncDecNode,
     withGenDef: bool,
 ) !void {
     try context.compInfo.pushScopeWithType(true, .Function);
@@ -2045,7 +2045,7 @@ fn validateSelfProps(
     name: []const u8,
     prop: []const u8,
     inOwnedMethod: bool,
-) !?blitzAst.AstTypeInfo {
+) !?ast.AstTypeInfo {
     const structDec = context.compInfo.getStructDec(name);
 
     if (structDec) |dec| {
@@ -2084,7 +2084,7 @@ fn validateStaticStructProps(
     context: *Context,
     name: []const u8,
     prop: []const u8,
-) !?blitzAst.AstTypeInfo {
+) !?ast.AstTypeInfo {
     const dec = context.compInfo.getStructDec(name).?;
 
     for (dec.attributes) |attr| {
@@ -2101,7 +2101,7 @@ fn validateStaticStructProps(
 fn validateCustomProps(
     allocator: Allocator,
     context: *Context,
-    custom: blitzAst.CustomType,
+    custom: ast.CustomType,
     prop: []const u8,
     withGenDef: bool,
 ) !?TypeAndAllocInfo {
@@ -2144,18 +2144,18 @@ fn validateCustomProps(
     return ScanError.InvalidPropertySource;
 }
 
-fn scanAttributes(context: *Context, dec: *blitzAst.StructDecNode) !void {
+fn scanAttributes(context: *Context, dec: *ast.StructDecNode) !void {
     for (dec.attributes) |attr| {
         switch (attr.attr) {
             .Member => {},
             .Function => |func| {
-                try context.compInfo.addFuncToScan(func, &[_]blitzAst.StrToTypeInfoRel{}, false);
+                try context.compInfo.addFuncToScan(func, &[_]ast.StrToTypeInfoRel{}, false);
             },
         }
     }
 }
 
-fn isInt(astType: *const blitzAst.AstTypes) bool {
+fn isInt(astType: *const ast.AstTypes) bool {
     return switch (astType.*) {
         .Number => |num| switch (num) {
             .U8,
@@ -2178,8 +2178,8 @@ fn isInt(astType: *const blitzAst.AstTypes) bool {
 pub fn matchTypes(
     allocator: Allocator,
     context: *Context,
-    toType: blitzAst.AstTypeInfo,
-    fromType: blitzAst.AstTypeInfo,
+    toType: ast.AstTypeInfo,
+    fromType: ast.AstTypeInfo,
     withGenDef: bool,
 ) ScanNodeError!bool {
     return try matchTypesUtil(allocator, context, toType, fromType, withGenDef, .Assign);
@@ -2189,8 +2189,8 @@ pub fn matchTypes(
 pub fn matchTypesUtil(
     allocator: Allocator,
     context: *Context,
-    toType: blitzAst.AstTypeInfo,
-    fromType: blitzAst.AstTypeInfo,
+    toType: ast.AstTypeInfo,
+    fromType: ast.AstTypeInfo,
     withGenDef: bool,
     mutMatchBehavior: MutMatchBehavior,
 ) !bool {
@@ -2334,7 +2334,7 @@ pub fn matchTypesUtil(
             return type2 == .RawNumber;
         },
         .ArraySlice => |arr| {
-            const array: blitzAst.AstArraySliceType = switch (type2) {
+            const array: ast.AstArraySliceType = switch (type2) {
                 .ArraySlice => |arraySlice| arraySlice,
                 else => return false,
             };
@@ -2469,8 +2469,8 @@ pub fn matchTypesUtil(
 }
 
 fn matchMutState(
-    toType: blitzAst.AstTypeInfo,
-    fromType: blitzAst.AstTypeInfo,
+    toType: ast.AstTypeInfo,
+    fromType: ast.AstTypeInfo,
     typesMatched: bool,
     mutMatchBehavior: MutMatchBehavior,
 ) !bool {
@@ -2497,7 +2497,7 @@ fn matchMutState(
     return true;
 }
 
-pub fn isPrimitive(astType: *const blitzAst.AstTypes) bool {
+pub fn isPrimitive(astType: *const ast.AstTypes) bool {
     return switch (astType.*) {
         .String, .Bool, .Char, .Number, .Null, .RawNumber => true,
         .Nullable => |inner| isPrimitive(inner.astType),
@@ -2508,9 +2508,9 @@ pub fn isPrimitive(astType: *const blitzAst.AstTypes) bool {
 fn getPropertyType(
     allocator: Allocator,
     context: *Context,
-    source: blitzAst.AstTypes,
+    source: ast.AstTypes,
     prop: []const u8,
-) !blitzAst.AstTypes {
+) !ast.AstTypes {
     return switch (source) {
         .StaticStructInstance => |inst| try getStructPropType(context, false, inst, prop),
         .ArraySlice => try builtins.getArraySlicePropTypes(prop),
@@ -2523,9 +2523,9 @@ fn getPropertyType(
 fn getCustomPropType(
     allocator: Allocator,
     context: *Context,
-    custom: blitzAst.CustomType,
+    custom: ast.CustomType,
     prop: []const u8,
-) !blitzAst.AstTypes {
+) !ast.AstTypes {
     const dec = context.compInfo.getStructDec(custom.name);
     if (dec) |structDec| {
         for (structDec.attributes) |attr| {
@@ -2554,7 +2554,7 @@ fn getStructPropType(
     allowNonStatic: bool,
     inst: []const u8,
     prop: []const u8,
-) !blitzAst.AstTypes {
+) !ast.AstTypes {
     const dec = context.compInfo.getStructDec(inst) orelse return ScanError.InvalidPropertySource;
 
     for (dec.?.attributes) |attr| {
@@ -2578,7 +2578,7 @@ fn getStructPropType(
 fn inferArraySliceType(
     allocator: Allocator,
     context: *Context,
-    arr: []*blitzAst.AstNode,
+    arr: []*ast.AstNode,
     withGenDef: bool,
 ) !TypeAndAllocInfo {
     if (arr.len == 0) {
@@ -2609,7 +2609,7 @@ fn inferArraySliceType(
 fn scanNodeForFunctions(
     allocator: Allocator,
     context: *Context,
-    node: *const blitzAst.AstNode,
+    node: *const ast.AstNode,
 ) !void {
     switch (node.variant) {
         .FuncDec => |dec| {
@@ -2624,7 +2624,7 @@ fn scanNodeForFunctions(
     }
 }
 
-fn verifyRawNumberMagnitude(node: blitzAst.RawNumberNode) bool {
+fn verifyRawNumberMagnitude(node: ast.RawNumberNode) bool {
     switch (node.numType) {
         .U8 => _ = std.fmt.parseInt(u8, node.digits, 10) catch return false,
         .U16 => _ = std.fmt.parseInt(u16, node.digits, 10) catch return false,

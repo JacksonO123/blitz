@@ -1,6 +1,6 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
-const blitzAst = blitz.ast;
+const ast = blitz.ast;
 const utils = blitz.utils;
 const free = blitz.free;
 const tokenizer = blitz.tokenizer;
@@ -51,8 +51,8 @@ pub const TypeScope = StringHashMap(scanner.TypeAndAllocInfo);
 pub const StringListScope = ArrayList([]const u8);
 
 const ToScanItem = struct {
-    func: *blitzAst.FuncDecNode,
-    genTypes: []blitzAst.StrToTypeInfoRel,
+    func: *ast.FuncDecNode,
+    genTypes: []ast.StrToTypeInfoRel,
     withGenDef: bool,
 };
 const ToScanStack = ArrayList(ToScanItem);
@@ -77,10 +77,10 @@ pub const CompInfo = struct {
     functionCaptures: *ScopeUtil(*StringListScope, free.deinitScope),
     parsedGenerics: *ScopeUtil(*StringListScope, free.deinitScope),
     scopeTypes: *ArrayList(ScopeType),
-    functions: *StringHashMap(*blitzAst.FuncDecNode),
+    functions: *StringHashMap(*ast.FuncDecNode),
     functionsInScope: *ScopeUtil(*StringListScope, free.deinitScope),
-    structDecs: *StringHashMap(*blitzAst.StructDecNode),
-    errorDecs: *StringHashMap(*const blitzAst.ErrorDecNode),
+    structDecs: *StringHashMap(*ast.StructDecNode),
+    errorDecs: *StringHashMap(*const ast.ErrorDecNode),
     functionsToScan: *ToScanStack,
     genericScopes: *ScopeUtil(*TypeScope, free.freeGenericScope),
     returnInfo: *ReturnInfo,
@@ -91,16 +91,16 @@ pub const CompInfo = struct {
     pub fn init(
         allocator: Allocator,
         context: *Context,
-        names: blitzAst.HoistedNames,
+        names: ast.HoistedNames,
     ) !Self {
         const functionsToScan = try utils.createMut(ToScanStack, allocator, .empty);
         const scopeTypesPtr = try utils.createMut(ArrayList(ScopeType), allocator, .empty);
         try scopeTypesPtr.append(allocator, .Normal);
 
-        const functions = try utils.initMutPtrT(StringHashMap(*blitzAst.FuncDecNode), allocator);
-        const structs = try utils.initMutPtrT(StringHashMap(*blitzAst.StructDecNode), allocator);
+        const functions = try utils.initMutPtrT(StringHashMap(*ast.FuncDecNode), allocator);
+        const structs = try utils.initMutPtrT(StringHashMap(*ast.StructDecNode), allocator);
         const errors = try utils.initMutPtrT(
-            StringHashMap(*const blitzAst.ErrorDecNode),
+            StringHashMap(*const ast.ErrorDecNode),
             allocator,
         );
 
@@ -391,14 +391,14 @@ pub const CompInfo = struct {
             while (structIt.next()) |s| {
                 const attributes = s.*.attributes;
                 const arr = if (s.*.deriveType) |derived| a: {
-                    break :a try blitzAst.mergeMembers(
+                    break :a try ast.mergeMembers(
                         self.allocator,
                         context,
                         attributes,
                         derived,
                     );
                 } else a: {
-                    var members = try ArrayList(blitzAst.StructAttribute).initCapacity(
+                    var members = try ArrayList(ast.StructAttribute).initCapacity(
                         self.allocator,
                         attributes.len,
                     );
@@ -445,7 +445,7 @@ pub const CompInfo = struct {
                     );
                     context.tokenUtil = tempTokens;
                     free.recursiveReleaseNodeAll(context, f.body);
-                    f.body = blitzAst.parseSequence(self.allocator, context, true) catch |e| {
+                    f.body = ast.parseSequence(self.allocator, context, true) catch |e| {
                         logger.logParseError(context, e);
                         return e;
                     };
@@ -653,14 +653,14 @@ pub const CompInfo = struct {
         return null;
     }
 
-    pub fn addFunction(self: *Self, name: []const u8, dec: *blitzAst.FuncDecNode) !void {
+    pub fn addFunction(self: *Self, name: []const u8, dec: *ast.FuncDecNode) !void {
         try self.functions.put(name, dec);
     }
 
     pub fn addFuncToScan(
         self: *Self,
-        func: *blitzAst.FuncDecNode,
-        rels: []blitzAst.StrToTypeInfoRel,
+        func: *ast.FuncDecNode,
+        rels: []ast.StrToTypeInfoRel,
         withGenDef: bool,
     ) !void {
         try self.functionsToScan.append(self.allocator, .{
@@ -670,7 +670,7 @@ pub const CompInfo = struct {
         });
     }
 
-    pub fn getFunction(self: Self, name: []const u8) !?*blitzAst.FuncDecNode {
+    pub fn getFunction(self: Self, name: []const u8) !?*ast.FuncDecNode {
         const func = self.getFunctionAsGlobal(name);
         const captureScope = self.functionCaptures.getCurrentScope();
         if (func) |funcDec| a: {
@@ -724,31 +724,31 @@ pub const CompInfo = struct {
         return null;
     }
 
-    pub fn getFunctionAsGlobal(self: Self, name: []const u8) ?*blitzAst.FuncDecNode {
+    pub fn getFunctionAsGlobal(self: Self, name: []const u8) ?*ast.FuncDecNode {
         return self.functions.get(name);
     }
 
-    pub fn setStructDec(self: *Self, name: []const u8, node: *blitzAst.StructDecNode) !void {
+    pub fn setStructDec(self: *Self, name: []const u8, node: *ast.StructDecNode) !void {
         try self.structDecs.put(name, node);
     }
 
-    pub fn setStructDecs(self: *Self, nodes: []*blitzAst.AstNode) !void {
+    pub fn setStructDecs(self: *Self, nodes: []*ast.AstNode) !void {
         for (nodes) |node| {
             try self.setStructDec(node.variant.StructDec.name, node.variant.StructDec);
         }
     }
 
-    pub fn setErrorDecs(self: *Self, decs: []*blitzAst.AstNode) !void {
+    pub fn setErrorDecs(self: *Self, decs: []*ast.AstNode) !void {
         for (decs) |dec| {
             try self.errorDecs.put(dec.variant.ErrorDec.name, dec.variant.ErrorDec);
         }
     }
 
-    pub fn getStructDec(self: Self, name: []const u8) ?*const blitzAst.StructDecNode {
+    pub fn getStructDec(self: Self, name: []const u8) ?*const ast.StructDecNode {
         return self.structDecs.get(name);
     }
 
-    pub fn getErrorDec(self: Self, name: []const u8) ?*const blitzAst.ErrorDecNode {
+    pub fn getErrorDec(self: Self, name: []const u8) ?*const ast.ErrorDecNode {
         return self.errorDecs.get(name);
     }
 

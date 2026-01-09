@@ -1,6 +1,6 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
-const blitzAst = blitz.ast;
+const ast = blitz.ast;
 const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
 const builtins = blitz.builtins;
@@ -17,7 +17,7 @@ pub const ReleaseType = enum {
 pub fn freeFuncDec(
     allocator: Allocator,
     context: *Context,
-    func: *const blitzAst.FuncDecNode,
+    func: *const ast.FuncDecNode,
 ) void {
     recursiveReleaseNodeAll(context, func.body);
 
@@ -64,7 +64,7 @@ pub fn freeFuncDec(
     allocator.destroy(func);
 }
 
-pub fn freeAttrs(allocator: Allocator, context: *Context, attrs: []blitzAst.StructAttribute) void {
+pub fn freeAttrs(allocator: Allocator, context: *Context, attrs: []ast.StructAttribute) void {
     for (attrs) |attr| {
         switch (attr.attr) {
             .Function => |func| freeFuncDec(allocator, context, func),
@@ -76,7 +76,7 @@ pub fn freeAttrs(allocator: Allocator, context: *Context, attrs: []blitzAst.Stru
 pub fn freeStructDec(
     allocator: Allocator,
     context: *Context,
-    dec: *blitzAst.StructDecNode,
+    dec: *ast.StructDecNode,
 ) void {
     freeAttrs(allocator, context, dec.attributes);
 
@@ -153,20 +153,20 @@ pub fn deinitScope(
     scope.deinit(allocator);
 }
 
-pub fn recursiveReleaseNode(context: *Context, ptr: *blitzAst.AstNode) void {
+pub fn recursiveReleaseNode(context: *Context, ptr: *ast.AstNode) void {
     recursiveReleaseNodeUtil(context, ptr, .Allocated);
 }
 
 pub fn recursiveReleaseNodeAll(
     context: *Context,
-    ptr: *blitzAst.AstNode,
+    ptr: *ast.AstNode,
 ) void {
     recursiveReleaseNodeUtil(context, ptr, .All);
 }
 
 pub fn recursiveReleaseNodeUtil(
     context: *Context,
-    ptr: *blitzAst.AstNode,
+    ptr: *ast.AstNode,
     releaseType: ReleaseType,
 ) void {
     switch (ptr.variant) {
@@ -292,21 +292,21 @@ pub fn recursiveReleaseNodeUtil(
 
 pub fn recursiveReleaseType(
     context: *Context,
-    astType: *blitzAst.AstTypes,
+    astType: *ast.AstTypes,
 ) void {
     recursiveReleaseTypeUtil(context, astType, .Allocated);
 }
 
 pub fn recursiveReleaseTypeAll(
     context: *Context,
-    astType: *blitzAst.AstTypes,
+    astType: *ast.AstTypes,
 ) void {
     recursiveReleaseTypeUtil(context, astType, .All);
 }
 
 pub fn recursiveReleaseTypeUtil(
     context: *Context,
-    astType: *blitzAst.AstTypes,
+    astType: *ast.AstTypes,
     releaseType: ReleaseType,
 ) void {
     switch (astType.*) {
@@ -347,7 +347,7 @@ pub fn recursiveReleaseTypeUtil(
 
 pub fn freeStructsAndErrors(
     context: *Context,
-    structsAndErrors: blitzAst.RegisterStructsAndErrorsResult,
+    structsAndErrors: ast.RegisterStructsAndErrorsResult,
 ) void {
     for (structsAndErrors.structs) |def| {
         recursiveReleaseNodeAll(context, def);

@@ -1,6 +1,6 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
-const blitzAst = blitz.ast;
+const ast = blitz.ast;
 const utils = blitz.utils;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
@@ -293,8 +293,8 @@ pub const TokenType = union(TokenVariants) {
 
     // other
     Identifier,
-    Number: blitzAst.AstNumberVariants,
-    NegNumber: blitzAst.AstNumberVariants,
+    Number: ast.AstNumberVariants,
+    NegNumber: ast.AstNumberVariants,
     NewLine,
 
     pub fn toString(self: Self) []const u8 {
@@ -684,7 +684,7 @@ fn parseNextToken(chars: *CharUtil) !?Token {
 const ParsedNumberInfo = struct {
     start: usize,
     end: usize,
-    numType: ?blitzAst.AstNumberVariants,
+    numType: ?ast.AstNumberVariants,
 };
 
 fn parseNumber(chars: *CharUtil) !ParsedNumberInfo {
@@ -734,7 +734,7 @@ fn parseNumber(chars: *CharUtil) !ParsedNumberInfo {
 
             if (utils.compString(str, charSlice)) {
                 try chars.advance(str.len + 1);
-                const variant = blitzAst.AstNumberVariants.fromStr(str).?;
+                const variant = ast.AstNumberVariants.fromStr(str).?;
                 return .{
                     .start = startIndex,
                     .end = endIndex,

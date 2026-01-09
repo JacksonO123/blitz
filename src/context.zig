@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const blitz = @import("blitz.zig");
-const blitzAst = blitz.ast;
+const ast = blitz.ast;
 const logger = blitz.logger;
 const tokenizer = blitz.tokenizer;
 const blitzCompInfo = blitz.compInfo;
@@ -56,7 +56,7 @@ pub const Context = struct {
 
         const tokens = try tokenizer.tokenize(allocator, code, writer);
 
-        const names = try blitzAst.findStructsAndErrors(allocator, tokens, code);
+        const names = try ast.findStructsAndErrors(allocator, tokens, code);
 
         const tokenUtil = tokenizer.TokenUtil.init(tokens);
         const tokenUtilPtr = try utils.createMut(tokenizer.TokenUtil, allocator, tokenUtil);
@@ -137,8 +137,8 @@ pub const Context = struct {
 
 pub const ContextUtils = struct {
     const Self = @This();
-    const UsedNodeAddresses = std.AutoHashMap(*blitzAst.AstNode, void);
-    const UsedTypeAddresses = std.AutoHashMap(*blitzAst.AstTypes, void);
+    const UsedNodeAddresses = std.AutoHashMap(*ast.AstNode, void);
+    const UsedTypeAddresses = std.AutoHashMap(*ast.AstTypes, void);
 
     allocator: Allocator,
     context: *Context,
@@ -165,19 +165,19 @@ pub const ContextUtils = struct {
         self.allocator.destroy(self.usedTypes);
     }
 
-    pub fn reserveNodeAddress(self: *Self, addr: *blitzAst.AstNode) !void {
+    pub fn reserveNodeAddress(self: *Self, addr: *ast.AstNode) !void {
         try self.usedNodes.put(addr, {});
     }
 
-    pub fn reserveTypeAddress(self: *Self, addr: *blitzAst.AstTypes) !void {
+    pub fn reserveTypeAddress(self: *Self, addr: *ast.AstTypes) !void {
         try self.usedTypes.put(addr, {});
     }
 
-    pub fn releaseNodeAddress(self: *Self, addr: *blitzAst.AstNode) void {
+    pub fn releaseNodeAddress(self: *Self, addr: *ast.AstNode) void {
         _ = self.usedNodes.remove(addr);
     }
 
-    pub fn releaseTypeAddress(self: *Self, addr: *blitzAst.AstTypes) void {
+    pub fn releaseTypeAddress(self: *Self, addr: *ast.AstTypes) void {
         _ = self.usedTypes.remove(addr);
     }
 };
@@ -186,19 +186,19 @@ pub const StaticPtrs = struct {
     const Self = @This();
 
     types: struct {
-        voidType: blitzAst.AstTypeInfo,
-        boolType: blitzAst.AstTypeInfo,
-        anyType: blitzAst.AstTypeInfo,
-        f32Type: blitzAst.AstTypeInfo,
-        u64Type: blitzAst.AstTypeInfo,
-        undefType: blitzAst.AstTypeInfo,
-        charType: blitzAst.AstTypeInfo,
+        voidType: ast.AstTypeInfo,
+        boolType: ast.AstTypeInfo,
+        anyType: ast.AstTypeInfo,
+        f32Type: ast.AstTypeInfo,
+        u64Type: ast.AstTypeInfo,
+        undefType: ast.AstTypeInfo,
+        charType: ast.AstTypeInfo,
     },
     nodes: struct {
-        noOp: *blitzAst.AstNode,
-        structPlaceholder: *blitzAst.AstNode,
-        breakNode: *blitzAst.AstNode,
-        continueNode: *blitzAst.AstNode,
+        noOp: *ast.AstNode,
+        structPlaceholder: *ast.AstNode,
+        breakNode: *ast.AstNode,
+        continueNode: *ast.AstNode,
     },
 
     pub fn init(pools: *allocPools.Pools) !Self {
@@ -216,16 +216,16 @@ pub const StaticPtrs = struct {
                 .charType = (try pools.newTypeUntracked(.{ .Char = {} })).toTypeInfo(.Mut),
             },
             .nodes = .{
-                .noOp = try pools.newNodeUntracked((blitzAst.AstNodeUnion{
+                .noOp = try pools.newNodeUntracked((ast.AstNodeUnion{
                     .NoOp = {},
                 }).toAstNode()),
-                .structPlaceholder = try pools.newNodeUntracked((blitzAst.AstNodeUnion{
+                .structPlaceholder = try pools.newNodeUntracked((ast.AstNodeUnion{
                     .StructPlaceholder = {},
                 }).toAstNode()),
-                .breakNode = try pools.newNodeUntracked((blitzAst.AstNodeUnion{
+                .breakNode = try pools.newNodeUntracked((ast.AstNodeUnion{
                     .Break = {},
                 }).toAstNode()),
-                .continueNode = try pools.newNodeUntracked((blitzAst.AstNodeUnion{
+                .continueNode = try pools.newNodeUntracked((ast.AstNodeUnion{
                     .Continue = {},
                 }).toAstNode()),
             },
@@ -259,7 +259,7 @@ pub const StaticPtrs = struct {
     }
 
     pub fn isStaticPtr(self: Self, ptr: anytype) bool {
-        if (@TypeOf(ptr) == *blitzAst.AstTypes) {
+        if (@TypeOf(ptr) == *ast.AstTypes) {
             const staticTypes = .{
                 self.types.voidType,
                 self.types.boolType,
@@ -272,7 +272,7 @@ pub const StaticPtrs = struct {
             inline for (staticTypes) |t| {
                 if (t.astType == ptr) return true;
             }
-        } else if (@TypeOf(ptr) == *blitzAst.AstNode) {
+        } else if (@TypeOf(ptr) == *ast.AstNode) {
             const staticNodes = .{
                 self.nodes.noOp,
                 self.nodes.structPlaceholder,
@@ -297,10 +297,10 @@ pub const DeferCleanup = struct {
     allocator: Allocator,
     slices: struct {
         strings: DeferedSlice([]const u8),
-        nodeSlices: DeferedSlice([]*blitzAst.AstNode),
-        typeInfoSlices: DeferedSlice([]blitzAst.AstTypeInfo),
-        genericTypeSlices: DeferedSlice([]blitzAst.GenericType),
-        attrDefSlices: DeferedSlice([]blitzAst.AttributeDefinition),
+        nodeSlices: DeferedSlice([]*ast.AstNode),
+        typeInfoSlices: DeferedSlice([]ast.AstTypeInfo),
+        genericTypeSlices: DeferedSlice([]ast.GenericType),
+        attrDefSlices: DeferedSlice([]ast.AttributeDefinition),
     },
 
     pub fn init(allocator: Allocator) !Self {
@@ -308,10 +308,10 @@ pub const DeferCleanup = struct {
             .allocator = allocator,
             .slices = .{
                 .strings = try DeferedSlice([]const u8).init(allocator),
-                .nodeSlices = try DeferedSlice([]*blitzAst.AstNode).init(allocator),
-                .typeInfoSlices = try DeferedSlice([]blitzAst.AstTypeInfo).init(allocator),
-                .genericTypeSlices = try DeferedSlice([]blitzAst.GenericType).init(allocator),
-                .attrDefSlices = try DeferedSlice([]blitzAst.AttributeDefinition).init(allocator),
+                .nodeSlices = try DeferedSlice([]*ast.AstNode).init(allocator),
+                .typeInfoSlices = try DeferedSlice([]ast.AstTypeInfo).init(allocator),
+                .genericTypeSlices = try DeferedSlice([]ast.GenericType).init(allocator),
+                .attrDefSlices = try DeferedSlice([]ast.AttributeDefinition).init(allocator),
             },
         };
     }

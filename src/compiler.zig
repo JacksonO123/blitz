@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const blitz = @import("blitz.zig");
 const tokenizer = blitz.tokenizer;
-const blitzAst = blitz.ast;
+const ast = blitz.ast;
 const scanner = blitz.scanner;
 const utils = blitz.utils;
 const free = blitz.free;
@@ -82,7 +82,7 @@ pub fn compile(
         allocator.destroy(context);
     }
 
-    const structsAndErrors = try blitzAst.registerStructsAndErrors(allocator, context);
+    const structsAndErrors = try ast.registerStructsAndErrors(allocator, context);
     defer allocator.free(structsAndErrors.structs);
     defer allocator.free(structsAndErrors.errors);
     try context.compInfo.setStructDecs(structsAndErrors.structs);
@@ -101,9 +101,9 @@ pub fn compile(
     }
 
     {
-        var ast = try blitzAst.createAst(allocator, context);
+        var tree = try ast.createAst(allocator, context);
         defer {
-            ast.deinit();
+            tree.deinit();
             context.clear();
             free.freeStructsAndErrors(context, structsAndErrors);
         }
@@ -112,11 +112,11 @@ pub fn compile(
             try printWriter.writeAll("--- code ---\n");
             try printWriter.writeAll(code);
             try printWriter.writeAll("\n------------\n\n");
-            try debug.printAst(context, ast, printWriter);
+            try debug.printAst(context, tree, printWriter);
         }
 
-        try scanner.typeScan(allocator, ast, context);
-        try codegen.codegenAst(allocator, context, ast);
+        try scanner.typeScan(allocator, tree, context);
+        try codegen.codegenAst(allocator, context, tree);
 
         if (printState == .All) {
             try printWriter.writeAll("--- bytecode out ---\n");

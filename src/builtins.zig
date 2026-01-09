@@ -1,6 +1,6 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
-const blitzAst = blitz.ast;
+const ast = blitz.ast;
 const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
 const scanner = blitz.scanner;
@@ -17,11 +17,11 @@ pub const BuiltinFuncMemo = struct {};
 
 const PropTypeMap = struct {
     prop: []const u8,
-    type: *blitzAst.AstTypes,
+    type: *ast.AstTypes,
     mutState: scanner.MutState,
 };
 
-pub fn getStringPropType(context: *Context, prop: []const u8) !blitzAst.AstTypeInfo {
+pub fn getStringPropType(context: *Context, prop: []const u8) !ast.AstTypeInfo {
     const props = &[_]PropTypeMap{
         .{
             .prop = "len",
@@ -33,7 +33,7 @@ pub fn getStringPropType(context: *Context, prop: []const u8) !blitzAst.AstTypeI
     return try getPropType(context, props, prop);
 }
 
-pub fn getArraySlicePropType(context: *Context, prop: []const u8) !blitzAst.AstTypeInfo {
+pub fn getArraySlicePropType(context: *Context, prop: []const u8) !ast.AstTypeInfo {
     const props = &[_]PropTypeMap{
         .{
             .prop = "len",
@@ -49,7 +49,7 @@ fn getPropType(
     context: *Context,
     props: []const PropTypeMap,
     prop: []const u8,
-) !blitzAst.AstTypeInfo {
+) !ast.AstTypeInfo {
     for (props) |item| {
         if (utils.compString(item.prop, prop)) {
             return .{

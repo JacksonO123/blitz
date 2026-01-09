@@ -1,7 +1,7 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
 const tokenizer = blitz.tokenizer;
-const blitzAst = blitz.ast;
+const ast = blitz.ast;
 const free = blitz.free;
 const scanner = blitz.scanner;
 const clone = blitz.clone;
@@ -9,7 +9,7 @@ const builtins = blitz.builtins;
 const codegen = blitz.codegen;
 const Allocator = std.mem.Allocator;
 const AutoHashMap = std.AutoHashMap;
-const AstError = blitzAst.AstError;
+const AstError = ast.AstError;
 const ScanError = scanner.ScanError;
 const ArrayList = std.ArrayList;
 

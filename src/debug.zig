@@ -1,6 +1,6 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
-const blitzAst = blitz.ast;
+const ast = blitz.ast;
 const utils = blitz.utils;
 const tokenizer = blitz.tokenizer;
 const codegen = blitz.codegen;
@@ -11,11 +11,11 @@ const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 const Context = blitz.context.Context;
 
-pub fn printAst(context: *Context, ast: blitzAst.Ast, writer: *Writer) !void {
-    try printNode(context, ast.root, writer);
+pub fn printAst(context: *Context, tree: ast.Ast, writer: *Writer) !void {
+    try printNode(context, tree.root, writer);
 }
 
-pub fn printStructAndErrorNames(names: blitzAst.HoistedNames, writer: *Writer) !void {
+pub fn printStructAndErrorNames(names: ast.HoistedNames, writer: *Writer) !void {
     try writer.writeAll("------------\nstructs:\n");
     for (names.structNames) |name| {
         try writer.writeAll(name);
@@ -30,7 +30,7 @@ pub fn printStructAndErrorNames(names: blitzAst.HoistedNames, writer: *Writer) !
     try writer.writeAll("------------\n");
 }
 
-pub fn printTypeInfo(context: *Context, info: blitzAst.AstTypeInfo, writer: *Writer) !void {
+pub fn printTypeInfo(context: *Context, info: ast.AstTypeInfo, writer: *Writer) !void {
     if (info.mutState == .Mut) {
         try writer.writeAll("mut ");
     }
@@ -39,7 +39,7 @@ pub fn printTypeInfo(context: *Context, info: blitzAst.AstTypeInfo, writer: *Wri
 
 pub fn printType(
     context: *Context,
-    typeNode: *const blitzAst.AstTypes,
+    typeNode: *const ast.AstTypes,
     writer: *Writer,
 ) anyerror!void {
     if (context.settings.debug.printAddresses) {
@@ -165,7 +165,7 @@ pub fn printType(
 
 fn printValue(
     context: *Context,
-    value: *const blitzAst.AstValues,
+    value: *const ast.AstValues,
     writer: *Writer,
 ) anyerror!void {
     switch (value.*) {
@@ -211,7 +211,7 @@ fn printValue(
     }
 }
 
-fn printAstNumberUtil(val: anytype, num: blitzAst.AstNumber, writer: *Writer) !void {
+fn printAstNumberUtil(val: anytype, num: ast.AstNumber, writer: *Writer) !void {
     try writer.writeByte('[');
     try writer.print("{d}", .{val});
     try writer.writeAll("](");
@@ -219,7 +219,7 @@ fn printAstNumberUtil(val: anytype, num: blitzAst.AstNumber, writer: *Writer) !v
     try writer.writeByte(')');
 }
 
-fn printAstNumber(num: blitzAst.AstNumber, writer: *Writer) !void {
+fn printAstNumber(num: ast.AstNumber, writer: *Writer) !void {
     try switch (num) {
         .Char, .U8 => |val| printAstNumberUtil(val, num, writer),
         .U16 => |val| printAstNumberUtil(val, num, writer),
@@ -236,7 +236,7 @@ fn printAstNumber(num: blitzAst.AstNumber, writer: *Writer) !void {
     };
 }
 
-pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) anyerror!void {
+pub fn printNode(context: *Context, node: *ast.AstNode, writer: *Writer) anyerror!void {
     if (context.settings.debug.printAddresses) {
         try writer.print("<0x{x}> ", .{@intFromPtr(node)});
     }
@@ -542,7 +542,7 @@ pub fn printNode(context: *Context, node: *blitzAst.AstNode, writer: *Writer) an
 
 fn printIfFallback(
     context: *Context,
-    fallback: blitzAst.FallbackInfo,
+    fallback: ast.FallbackInfo,
     writer: *Writer,
 ) anyerror!void {
     try writer.writeAll("else ");
@@ -551,7 +551,7 @@ fn printIfFallback(
 
 pub fn printFuncDec(
     context: *Context,
-    func: *const blitzAst.FuncDecNode,
+    func: *const ast.FuncDecNode,
     writer: *Writer,
 ) !void {
     try writer.writeAll("declare function [");
@@ -587,7 +587,7 @@ pub fn printFuncDec(
 
 pub fn printAttributes(
     context: *Context,
-    attrs: []blitzAst.StructAttribute,
+    attrs: []ast.StructAttribute,
     writer: *Writer,
 ) !void {
     for (attrs, 0..) |attr, index| {
@@ -611,7 +611,7 @@ pub fn printAttributes(
     }
 }
 
-fn printParams(context: *Context, params: []blitzAst.Parameter, writer: *Writer) !void {
+fn printParams(context: *Context, params: []ast.Parameter, writer: *Writer) !void {
     if (params.len == 0) {
         try writer.writeAll("(no params)");
         return;
@@ -632,7 +632,7 @@ fn printParams(context: *Context, params: []blitzAst.Parameter, writer: *Writer)
 
 pub fn printGenerics(
     context: *Context,
-    generics: []blitzAst.GenericType,
+    generics: []ast.GenericType,
     writer: *Writer,
 ) !void {
     for (generics, 0..) |generic, index| {
@@ -654,14 +654,14 @@ pub fn printGenerics(
     }
 }
 
-fn printNodes(context: *Context, nodes: []*blitzAst.AstNode, writer: *Writer) anyerror!void {
+fn printNodes(context: *Context, nodes: []*ast.AstNode, writer: *Writer) anyerror!void {
     for (nodes) |node| {
         try printNode(context, node, writer);
         try writer.writeByte('\n');
     }
 }
 
-pub fn printRegisteredError(err: *const blitzAst.ErrorDecNode, writer: *Writer) !void {
+pub fn printRegisteredError(err: *const ast.ErrorDecNode, writer: *Writer) !void {
     try writer.writeAll("defining error: {s} with variants [ ");
 
     for (err.variants, 0..) |variant, index| {
@@ -672,7 +672,7 @@ pub fn printRegisteredError(err: *const blitzAst.ErrorDecNode, writer: *Writer) 
     }
 }
 
-pub fn printRegisteredErrors(errors: []*blitzAst.AstNode, writer: *Writer) !void {
+pub fn printRegisteredErrors(errors: []*ast.AstNode, writer: *Writer) !void {
     try writer.writeAll("--- errors ---\n");
     for (errors) |err| {
         try printRegisteredError(err.variant.ErrorDec, writer);
@@ -682,7 +682,7 @@ pub fn printRegisteredErrors(errors: []*blitzAst.AstNode, writer: *Writer) !void
 
 pub fn printRegisteredStructs(
     context: *Context,
-    structs: []*blitzAst.AstNode,
+    structs: []*ast.AstNode,
     writer: *Writer,
 ) !void {
     try writer.writeAll("--- structs ---\n");
