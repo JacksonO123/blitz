@@ -385,6 +385,7 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 const source = runtimeInfo.registers[bytecode[current + 2]];
                 runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.stack.items[source];
             },
+            .MovByteRange => unreachable,
         }
 
         current += instLen;

@@ -99,4 +99,7 @@ test "Calculate padding" {
 
     const p3 = calculatePadding(1, 2);
     try std.testing.expectEqual(1, p3.padding);
+
+    const p4 = calculatePadding(2, 2);
+    try std.testing.expectEqual(0, p4.padding);
 }

@@ -117,7 +117,9 @@ pub fn diffBytecode(
         var textAllocating = Writer.Allocating.init(allocator);
         defer textAllocating.deinit();
         const textWriter = &textAllocating.writer;
-        try objdump.printBytecode(try binaryAllocating.toOwnedSlice(), textWriter);
+        const ownedBinarySlice = try binaryAllocating.toOwnedSlice();
+        defer allocator.free(ownedBinarySlice);
+        try objdump.printBytecode(ownedBinarySlice, textWriter);
         try textWriter.flush();
 
         break :a try textAllocating.toOwnedSlice();
