@@ -68,4 +68,12 @@ Use the -p flag, runs from `zig run ...`
 
 If you clone to experiment, it might be helpful to source the env.sh file. It adds the bin directory to the path so you have easier access to the executables.
 
+You must also set the environment variable `BLITZ_DIR` to the root directory of the blitz source
+
+Example:
+
+```sh
+BLITZ_DIR = "/home/name/code/blitz"
+```
+
 By _Jackson Otto_
