@@ -1,9 +1,9 @@
 struct M {
-    width: u16;
+    width: u8;
     height: u16;
 }
 
 let a = M {
-    width = 5u16,
+    width = 5u8,
     height = 9u16,
 };

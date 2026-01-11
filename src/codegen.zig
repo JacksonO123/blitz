@@ -1819,9 +1819,11 @@ pub fn genBytecode(
             const def = context.compInfo.getStructDec(init.name).?;
 
             for (def.attributes) |defAttr| {
-                const attr = init.findAttribute(defAttr.name).?;
-
                 try context.genInfo.pushScope();
+
+                const attr = init.findAttribute(defAttr.name).?;
+                const paddingInfo = utils.calculatePadding(loc, attr.value.typeInfo.alignment);
+                loc += paddingInfo.padding;
 
                 const reg = a: {
                     context.genInfo.settings.writeStructToReg = true;
@@ -1873,7 +1875,6 @@ pub fn genBytecode(
                 }
 
                 loc += attr.value.typeInfo.size;
-                // TODO - account for padding here
                 try context.genInfo.releaseScope();
             }
 
