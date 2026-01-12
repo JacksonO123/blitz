@@ -47,8 +47,10 @@ pub const InstructionVariants = enum(u8) {
 
     Add, // inst, out reg, reg1, reg2
     Add8, // inst, out reg, reg1, 1B data
+    Add16, // inst, out reg, reg1, 2B data
     Sub, // inst, out reg, reg1, reg2
     Sub8, // inst, out reg, reg1, 1B data
+    Sub16, // inst, out reg, reg1, 2B data
     Mult, // inst, out reg, reg1, reg2
 
     Jump, // inst, 2B data
@@ -124,6 +126,7 @@ pub const InstructionVariants = enum(u8) {
             .SetReg8 => 3,
 
             .Add, .Sub, .Mult, .Add8, .Sub8 => 4,
+            .Add16, .Sub16 => 5,
 
             .Jump,
             .JumpEQ,
@@ -213,6 +216,8 @@ pub const InstructionVariants = enum(u8) {
             .Mult => "mult",
             .Add8 => "add_8",
             .Sub8 => "sub_8",
+            .Add16 => "add_16",
+            .Sub16 => "sub_16",
 
             .Jump => "jump",
             .JumpEQ => "jump_eq",
@@ -385,8 +390,10 @@ pub const Instr = union(InstructionVariants) {
 
     Add: MathInstr,
     Add8: OneOpResultInstr(u8),
+    Add16: OneOpResultInstr(u16),
     Sub: MathInstr,
     Sub8: OneOpResultInstr(u8),
+    Sub16: OneOpResultInstr(u16),
     Mult: MathInstr,
 
     Jump: JumpInstr,
@@ -663,6 +670,7 @@ const GenInfoSettings = struct {
     // respected for one expr node, then set to default
     outputCmpAsRegister: bool = true,
     writeStructToReg: bool = false,
+    propertyAccessReturnsPointer: bool = false,
 };
 
 const VarGenInfo = struct {
@@ -1878,15 +1886,10 @@ pub fn genBytecode(
                 const paddingInfo = utils.calculatePadding(loc, attr.value.typeInfo.alignment);
                 loc += paddingInfo.padding;
 
-                const reg = a: {
-                    context.genInfo.settings.writeStructToReg = true;
-                    defer context.genInfo.settings.writeStructToReg = writeToReg;
-
-                    const valReg = try genBytecode(allocator, context, attr.value) orelse
-                        return CodeGenError.ReturnedRegisterNotFound;
-
-                    break :a valReg;
-                };
+                context.genInfo.settings.writeStructToReg = true;
+                const reg = try genBytecode(allocator, context, attr.value) orelse
+                    return CodeGenError.ReturnedRegisterNotFound;
+                context.genInfo.settings.writeStructToReg = writeToReg;
                 const regValue = try reg.getRegister();
 
                 if (context.genInfo.settings.writeStructToReg) {
@@ -1944,11 +1947,19 @@ pub fn genBytecode(
             return .{ .Pointer = resPtrReg };
         },
         .PropertyAccess => |accessNode| {
+            const accessOutputAsPtr = context.genInfo.settings.propertyAccessReturnsPointer;
+            context.genInfo.settings.propertyAccessReturnsPointer = true;
             const reg = try genBytecode(allocator, context, accessNode.value) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
+            context.genInfo.settings.propertyAccessReturnsPointer = accessOutputAsPtr;
 
-            const outReg = try context.genInfo.getAvailableReg();
-            try context.genInfo.reserveRegister(outReg);
+            const outReg = if (accessOutputAsPtr)
+                try reg.getRegister()
+            else a: {
+                const outReg = try context.genInfo.getAvailableReg();
+                try context.genInfo.reserveRegister(outReg);
+                break :a outReg;
+            };
 
             const fromName = node.typeInfo.accessingFrom orelse
                 return CodeGenError.AccessTargetDoesNotHaveStructName;
@@ -1956,12 +1967,21 @@ pub fn genBytecode(
 
             const loc = (try dec.getMemberLocation(context, accessNode.property)).?;
 
-            const instr = loadAtRegWithOffset(
-                try reg.getRegister(),
-                outReg,
-                loc,
-                node.typeInfo.size,
-            );
+            const instr = if (accessOutputAsPtr)
+                Instr{
+                    .Add16 = .{
+                        .dest = outReg,
+                        .reg = outReg,
+                        .data = @intCast(loc),
+                    },
+                }
+            else
+                loadAtRegWithOffset(
+                    try reg.getRegister(),
+                    outReg,
+                    loc,
+                    node.typeInfo.size,
+                );
             _ = try context.genInfo.appendChunk(instr);
 
             return RegisterContents.initWithSize(outReg, @intCast(node.typeInfo.size));
@@ -2324,6 +2344,11 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
             try writer.writeByte(@intCast(instr.dest));
             try writer.writeByte(@intCast(instr.reg));
             try writer.writeByte(@intCast(instr.data));
+        },
+        .Add16, .Sub16 => |instr| {
+            try writer.writeByte(@intCast(instr.dest));
+            try writer.writeByte(@intCast(instr.reg));
+            try writer.writeInt(u16, @intCast(instr.data), .little);
         },
         .Jump,
         .JumpEQ,

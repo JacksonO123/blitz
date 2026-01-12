@@ -139,6 +139,14 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[3..4], writer);
         },
+        .Add16, .Sub16 => {
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[1], 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[2], 10, .lower, .{});
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[3..5], writer);
+        },
         .Jump,
         .JumpEQ,
         .JumpNE,

@@ -16,6 +16,7 @@ let a = M {
     height = 9u16,
 };
 
-let c = 2;
-let d = 3;
-let b = a.inner;
+let b = 2;
+let c = 3;
+let d = a.inner;
+let e = a.inner.value;

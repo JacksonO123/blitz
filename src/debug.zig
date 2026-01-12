@@ -842,6 +842,14 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumber(u8, instr.data, writer);
         },
+        .Add16, .Sub16 => |instr| {
+            try writer.writeAll(" r");
+            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.writeByte(' ');
+            try writeHexDecNumber(u16, instr.data, writer);
+        },
         .Jump,
         .JumpEQ,
         .JumpNE,

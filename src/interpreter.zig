@@ -156,8 +156,13 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 runtimeInfo.registers[bytecode[current + 1]] = reg1Val + reg2Val;
             },
             .Add8 => {
-                const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
-                runtimeInfo.registers[bytecode[current + 1]] = reg1Val + bytecode[current + 3];
+                const regVal = runtimeInfo.registers[bytecode[current + 2]];
+                runtimeInfo.registers[bytecode[current + 1]] = regVal + bytecode[current + 3];
+            },
+            .Add16 => {
+                const regVal = runtimeInfo.registers[bytecode[current + 2]];
+                const val = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
+                runtimeInfo.registers[bytecode[current + 1]] = regVal + val;
             },
             .Sub => {
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
@@ -165,8 +170,13 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 runtimeInfo.registers[bytecode[current + 1]] = reg1Val - reg2Val;
             },
             .Sub8 => {
-                const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
-                runtimeInfo.registers[bytecode[current + 1]] = reg1Val - bytecode[current + 3];
+                const regVal = runtimeInfo.registers[bytecode[current + 2]];
+                runtimeInfo.registers[bytecode[current + 1]] = regVal - bytecode[current + 3];
+            },
+            .Sub16 => {
+                const regVal = runtimeInfo.registers[bytecode[current + 2]];
+                const val = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
+                runtimeInfo.registers[bytecode[current + 1]] = regVal - val;
             },
             .Mult => {
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
