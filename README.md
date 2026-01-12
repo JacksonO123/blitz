@@ -7,7 +7,7 @@ A bytecode compiler and interpreter written in zig.
 **Build debug**
 
 ```sh
-make
+zig build
 ```
 
 Will generate
@@ -19,18 +19,10 @@ Will generate
   <li><code>blitz-diff-debug</code>: bytecode diff utility</li>
 </ul>
 
-**Make debug and run tests**
-
-Builds then runs `./test`
-
-```sh
-make test
-```
-
 **Make prod**
 
 ```sh
-make prod
+zig build -Dprod
 ```
 
 Will generate
@@ -42,7 +34,7 @@ Will generate
   <li><code>blitz-diff</code>: bytecode diff utility</li>
 </ul>
 
-**Run all working test files**
+**Run all test files**
 
 Runs from `blitzc-debug` exe in build. Expected to have been built already
 

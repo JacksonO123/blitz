@@ -78,6 +78,8 @@ const PaddingInfo = struct {
 };
 
 pub fn calculatePadding(stackLocation: u64, alignment: u8) PaddingInfo {
+    if (alignment == 0) return .{ .offset = @intCast(stackLocation), .padding = 0 };
+
     const missAlign = stackLocation % alignment;
     const padding: u8 = if (missAlign == 0)
         0
