@@ -143,6 +143,7 @@ pub fn diffBytecode(
     defer allocator.free(origContents);
 
     try writeDiff(newContents, origContents, printWriter);
+    try printWriter.writeByte('\n');
 }
 
 pub fn getRefName(allocator: Allocator, path: []const u8, printWriter: *Writer) ![]const u8 {

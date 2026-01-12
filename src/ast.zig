@@ -291,7 +291,7 @@ pub const AstTypes = union(Types) {
             .ArraySlice => 16,
             .Pointer, .StaticStructInstance => 8,
             // TODO - maybe optimize for unused states (0 for pointer etc)
-            .Nullable => |inner| return 2 * try inner.astType.getAlignment(context),
+            .Nullable => |inner| return try inner.astType.getSize(context) + 1,
             .Custom => |custom| {
                 const dec = context.compInfo.getStructDec(custom.name).?;
 
@@ -426,6 +426,30 @@ pub const StructDecNode = struct {
     totalMemberList: []StructAttribute,
     deriveType: ?AstTypeInfo,
     toScanTypes: *ToScanTypesList,
+
+    pub fn getMemberLocation(
+        self: Self,
+        context: *Context,
+        member: []const u8,
+    ) !?u64 {
+        var loc: u64 = 0;
+
+        for (self.totalMemberList) |item| {
+            if (item.attr != .Member) continue;
+            const size = try item.attr.Member.astType.getSize(context);
+            const alignment = try item.attr.Member.astType.getAlignment(context);
+            const padding = utils.calculatePadding(
+                loc,
+                alignment,
+            );
+            loc += padding.padding;
+
+            if (utils.compString(item.name, member)) return loc;
+            loc += size;
+        }
+
+        return null;
+    }
 };
 
 pub const AttributeDefinition = struct {
@@ -688,6 +712,7 @@ pub const AstNodeUnion = union(AstNodeVariants) {
 const AstNodeTypeInfo = struct {
     size: u64 = 0,
     alignment: u8 = 0,
+    accessingFrom: ?[]const u8 = null, // name of struct
 };
 
 pub const AstNode = struct {

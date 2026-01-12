@@ -560,6 +560,8 @@ pub fn scanNode(
                         context,
                         access.property,
                     );
+                    node.typeInfo.size = try propType.astType.getSize(context);
+                    node.typeInfo.alignment = try propType.astType.getAlignment(context);
                     return propType.toAllocInfo(.Recycled);
                 },
                 .String => {
@@ -567,10 +569,13 @@ pub fn scanNode(
                         context,
                         access.property,
                     );
+                    node.typeInfo.size = try propType.astType.getSize(context);
+                    node.typeInfo.alignment = try propType.astType.getAlignment(context);
                     return propType.toAllocInfo(.Recycled);
                 },
                 .Custom => |custom| a: {
                     const def = context.compInfo.getStructDec(custom.name) orelse break :a false;
+                    node.typeInfo.accessingFrom = custom.name;
 
                     try context.compInfo.pushGenScope(false);
                     defer context.compInfo.popGenScope();
@@ -599,6 +604,9 @@ pub fn scanNode(
                     );
 
                     if (propType) |t| {
+                        node.typeInfo.size = try t.info.astType.getSize(context);
+                        node.typeInfo.alignment = try t.info.astType.getAlignment(context);
+
                         var copy = t;
                         copy.info.mutState = valueInfo.info.mutState;
                         const varInfo = try context.pools.newType(.{

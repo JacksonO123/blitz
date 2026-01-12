@@ -1,0 +1,16 @@
+blitz bytecode version 0
+MakeStack 0x00000400(1024)
+[.5] (.3) add_sp_16 0x0005(5)
+[.8] (.4) set_reg_16 r1 0x0005(5)
+[12] (.4) store_16_at_sp_neg_offset_16 r1 0x0005(5)
+[16] (.4) set_reg_16 r1 0x0009(9)
+[20] (.4) store_16_at_sp_neg_offset_16 r1 0x0003(3)
+[24] (.3) set_reg_8 r2 0x06(6)
+[27] (.3) mov r1 r2
+[30] (.4) store_8_at_sp_neg_offset_16 r1 0x0001(1)
+[34] (.4) mov_sp_neg_offset_16 r0 0x0005(5)
+[38] (.6) set_reg_32 r1 0x00000002(2)
+[44] (.6) set_reg_32 r2 0x00000003(3)
+[50] (.5) load_8_at_reg_offset_16 r3 [r0, 0x0004(4)]
+[55] (.3) sub_sp_16 0x0005(5)
+total bytes: 53 (+ 5 vm info)

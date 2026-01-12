@@ -385,7 +385,22 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 const source = runtimeInfo.registers[bytecode[current + 2]];
                 runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.stack.items[source];
             },
-            .MovByteRange => unreachable,
+            .Load8AtRegOffset16 => {
+                const source = runtimeInfo.registers[bytecode[current + 2]];
+                const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
+                const byteData = runtimeInfo.stack.items[source + offset];
+                runtimeInfo.registers[bytecode[current + 1]] = byteData;
+            },
+            .Load16AtRegOffset16 => {
+                loadAtRegOffset16(u16, runtimeInfo, bytecode, current);
+            },
+            .Load32AtRegOffset16 => {
+                loadAtRegOffset16(u32, runtimeInfo, bytecode, current);
+            },
+            .Load64AtRegOffset16 => {
+                loadAtRegOffset16(u64, runtimeInfo, bytecode, current);
+            },
+            .MovByteRange => utils.unimplemented(),
         }
 
         current += instLen;
@@ -420,6 +435,21 @@ fn storeAtRegPostInc(
     );
     @memcpy(runtimeInfo.stack.items[dest..end], &byteData);
     runtimeInfo.registers[ptrReg] += inc;
+}
+
+fn loadAtRegOffset16(
+    comptime T: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const tBits = @divExact(@typeInfo(T).int.bits, 8);
+
+    const source = runtimeInfo.registers[bytecode[current + 2]];
+    const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
+    const byteData: *const [tBits]u8 = @ptrCast(runtimeInfo.stack.items[source + offset .. source + offset + tBits]);
+    const resInt: T = @bitCast(byteData.*);
+    runtimeInfo.registers[bytecode[current + 1]] = @intCast(resInt);
 }
 
 fn loadAtReg(

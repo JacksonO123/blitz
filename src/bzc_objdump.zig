@@ -232,6 +232,19 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.printInt(bytecode[2], 10, .lower, .{});
             try writer.writeByte(']');
         },
+        .Load64AtRegOffset16,
+        .Load32AtRegOffset16,
+        .Load16AtRegOffset16,
+        .Load8AtRegOffset16,
+        => {
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[1], 10, .lower, .{});
+            try writer.writeAll(" [r");
+            try writer.printInt(bytecode[2], 10, .lower, .{});
+            try writer.writeAll(", ");
+            try writeHexDecNumberSlice(bytecode[3..5], writer);
+            try writer.writeByte(']');
+        },
         .MovByteRange => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
