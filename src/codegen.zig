@@ -919,9 +919,11 @@ pub const GenInfo = struct {
         return @intCast(self.registers.infos.items.len - 1);
     }
 
-    pub fn availableRegReplace(self: *Self, reg: TempRegister) !TempRegister {
+    pub fn availableRegReplaceReserve(self: *Self, reg: TempRegister) !TempRegister {
         if (self.isRegVariable(reg)) {
-            return try self.getAvailableReg();
+            const res = try self.getAvailableReg();
+            try self.reserveRegister(res);
+            return res;
         }
 
         return reg;
@@ -1639,7 +1641,7 @@ pub fn genBytecode(
         .Bang => |expr| {
             const reg = try genBytecode(allocator, context, expr) orelse
                 return CodeGenError.NoAvailableRegisters;
-            const setReg = try context.genInfo.availableRegReplace(try reg.getRegister());
+            const setReg = try context.genInfo.availableRegReplaceReserve(try reg.getRegister());
 
             var instr = Instr{ .XorConst8 = .{} };
             instr.XorConst8.dest = setReg;
@@ -1941,41 +1943,21 @@ pub fn genBytecode(
             return .{ .Pointer = resPtrReg };
         },
         .PropertyAccess => |accessNode| {
-            const accessOutputAsPtr = context.genInfo.settings.propertyAccessReturnsPointer;
-            context.genInfo.settings.propertyAccessReturnsPointer = true;
-            const reg = try genBytecode(allocator, context, accessNode.value) orelse
-                return CodeGenError.ReturnedRegisterNotFound;
-            context.genInfo.settings.propertyAccessReturnsPointer = accessOutputAsPtr;
-
-            const outReg = if (accessOutputAsPtr)
-                try reg.getRegister()
-            else a: {
-                const outReg = try context.genInfo.getAvailableReg();
-                try context.genInfo.reserveRegister(outReg);
-                break :a outReg;
-            };
-
             const fromName = node.typeInfo.accessingFrom orelse
                 return CodeGenError.AccessTargetDoesNotHaveStructName;
             const dec = context.compInfo.getStructDec(fromName).?;
-
             const loc = (try dec.getMemberLocation(context, accessNode.property)).?;
 
-            const instr = if (accessOutputAsPtr)
-                Instr{
-                    .Add16 = .{
-                        .dest = outReg,
-                        .reg = outReg,
-                        .data = @intCast(loc),
-                    },
-                }
-            else
-                loadAtRegWithOffset(
-                    try reg.getRegister(),
-                    outReg,
-                    loc,
-                    node.typeInfo.size,
-                );
+            const reg = try calculateAccessOffset(
+                allocator,
+                context,
+                accessNode.value,
+                @intCast(loc),
+            );
+            const regValue = try reg.getRegister();
+            const outReg = try context.genInfo.availableRegReplaceReserve(regValue);
+
+            const instr = loadAtReg(regValue, outReg, node.typeInfo.size);
             _ = try context.genInfo.appendChunk(instr);
 
             return RegisterContents.initWithSize(outReg, @intCast(node.typeInfo.size));
@@ -1984,6 +1966,50 @@ pub fn genBytecode(
     }
 
     return null;
+}
+
+fn calculateAccessOffset(
+    allocator: Allocator,
+    context: *Context,
+    node: *ast.AstNode,
+    offset: u16,
+) !RegisterContents {
+    const prevRetFormat = context.genInfo.settings.propertyAccessReturnsPointer;
+    context.genInfo.settings.propertyAccessReturnsPointer = true;
+    defer context.genInfo.settings.propertyAccessReturnsPointer = prevRetFormat;
+
+    switch (node.variant) {
+        .PropertyAccess => |accessNode| {
+            const fromName = node.typeInfo.accessingFrom orelse
+                return CodeGenError.AccessTargetDoesNotHaveStructName;
+            const dec = context.compInfo.getStructDec(fromName).?;
+            const loc = (try dec.getMemberLocation(context, accessNode.property)).?;
+            return try calculateAccessOffset(
+                allocator,
+                context,
+                accessNode.value,
+                offset + @as(u16, @intCast(loc)),
+            );
+        },
+        else => {
+            const reg = try genBytecode(allocator, context, node) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
+            const regValue = try reg.getRegister();
+
+            const outReg = try context.genInfo.availableRegReplaceReserve(regValue);
+
+            const instr = Instr{
+                .Add16 = .{
+                    .dest = outReg,
+                    .reg = regValue,
+                    .data = @intCast(offset),
+                },
+            };
+            _ = try context.genInfo.appendChunk(instr);
+
+            return reg.transferWithSize(outReg);
+        },
+    }
 }
 
 fn loadAtRegWithOffset(reg: TempRegister, outReg: TempRegister, readOffset: u64, size: u64) Instr {
@@ -2024,30 +2050,30 @@ fn loadAtRegWithOffset(reg: TempRegister, outReg: TempRegister, readOffset: u64,
     };
 }
 
-fn loadAtReg(reg: TempRegister, outReg: TempRegister, size: u64) Instr {
+fn loadAtReg(regPtr: TempRegister, outReg: TempRegister, size: u64) Instr {
     return switch (size) {
         1 => Instr{
             .Load8AtReg = .{
                 .dest = outReg,
-                .fromRegPtr = reg,
+                .fromRegPtr = regPtr,
             },
         },
         2 => Instr{
             .Load16AtReg = .{
                 .dest = outReg,
-                .fromRegPtr = reg,
+                .fromRegPtr = regPtr,
             },
         },
         3, 4 => Instr{
             .Load32AtReg = .{
                 .dest = outReg,
-                .fromRegPtr = reg,
+                .fromRegPtr = regPtr,
             },
         },
         5...8 => Instr{
             .Load64AtReg = .{
                 .dest = outReg,
-                .fromRegPtr = reg,
+                .fromRegPtr = regPtr,
             },
         },
         else => utils.unimplemented(),
