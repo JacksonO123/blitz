@@ -13,6 +13,6 @@ MakeStack 0x00000400(1024)
 [44] (.6) set_reg_32 r2 0x00000003(3)
 [50] (.5) load_8_at_reg_offset_16 r3 [r0, 0x0004(4)]
 [55] (.5) add_16 r0 r0 0x0004(4)
-[60] (.5) load_8_at_reg_offset_16 r4 [r0, 0x0000(0)]
-[65] (.3) sub_sp_16 0x0005(5)
-total bytes: 63 (+ 5 vm info)
+[60] (.3) load_8_at_reg r4 [r0]
+[63] (.3) sub_sp_16 0x0005(5)
+total bytes: 61 (+ 5 vm info)

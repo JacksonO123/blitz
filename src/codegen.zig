@@ -669,6 +669,7 @@ const RegInfo = struct {
 const GenInfoSettings = struct {
     // respected for one expr node, then set to default
     outputCmpAsRegister: bool = true,
+
     writeStructToReg: bool = false,
     propertyAccessReturnsPointer: bool = false,
 };
@@ -1761,18 +1762,11 @@ pub fn genBytecode(
                 break :a newReg;
             } else try resReg.getRegister();
 
-            const loadAtReg: LoadAtReg = .{
-                .dest = destReg,
-                .fromRegPtr = try resReg.getRegister(),
-            };
-
-            const loadInstr = switch (node.typeInfo.size) {
-                8, 7, 6, 5 => Instr{ .Load64AtReg = loadAtReg },
-                4, 3 => Instr{ .Load32AtReg = loadAtReg },
-                2 => Instr{ .Load16AtReg = loadAtReg },
-                1 => Instr{ .Load8AtReg = loadAtReg },
-                else => utils.unimplemented(),
-            };
+            const loadInstr = loadAtReg(
+                try resReg.getRegister(),
+                destReg,
+                node.typeInfo.size,
+            );
             _ = try context.genInfo.appendChunk(loadInstr);
 
             return resReg.transferWithSize(destReg);
@@ -1992,8 +1986,10 @@ pub fn genBytecode(
     return null;
 }
 
-fn loadAtRegWithOffset(reg: TempRegister, outReg: TempRegister, loc: u64, size: u64) Instr {
-    const offset: u16 = @intCast(loc);
+fn loadAtRegWithOffset(reg: TempRegister, outReg: TempRegister, readOffset: u64, size: u64) Instr {
+    const offset: u16 = @intCast(readOffset);
+
+    if (offset == 0) return loadAtReg(reg, outReg, size);
 
     return switch (size) {
         1 => Instr{
@@ -2022,6 +2018,36 @@ fn loadAtRegWithOffset(reg: TempRegister, outReg: TempRegister, loc: u64, size: 
                 .dest = outReg,
                 .fromRegPtr = reg,
                 .offset = offset,
+            },
+        },
+        else => utils.unimplemented(),
+    };
+}
+
+fn loadAtReg(reg: TempRegister, outReg: TempRegister, size: u64) Instr {
+    return switch (size) {
+        1 => Instr{
+            .Load8AtReg = .{
+                .dest = outReg,
+                .fromRegPtr = reg,
+            },
+        },
+        2 => Instr{
+            .Load16AtReg = .{
+                .dest = outReg,
+                .fromRegPtr = reg,
+            },
+        },
+        3, 4 => Instr{
+            .Load32AtReg = .{
+                .dest = outReg,
+                .fromRegPtr = reg,
+            },
+        },
+        5...8 => Instr{
+            .Load64AtReg = .{
+                .dest = outReg,
+                .fromRegPtr = reg,
             },
         },
         else => utils.unimplemented(),
