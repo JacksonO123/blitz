@@ -250,7 +250,6 @@ pub fn scanNode(
                         arr,
                         withGenDef,
                     );
-                    node.typeInfo = try inferredType.info.astType.getNodeTypeInfo(context);
                     const valueVariant: ast.AstNodeUnion = .{
                         .Value = .{
                             .Number = .{ .U64 = arr.len },
@@ -263,9 +262,8 @@ pub fn scanNode(
                         },
                     });
 
-                    const sliceSize = vmInfo.POINTER_SIZE * 2;
                     const inferredTypeSize = try inferredType.info.astType.getSize(context);
-                    node.typeInfo.size = inferredTypeSize * arr.len + sliceSize;
+                    node.typeInfo.size = inferredTypeSize * arr.len;
                     node.typeInfo.alignment = try inferredType.info.astType.getAlignment(context);
 
                     return arraySliceType.toAllocInfo(inferredType.info.mutState, .Allocated);
@@ -1411,9 +1409,8 @@ pub fn scanNode(
 
             const arrSize = std.fmt.parseInt(u64, init.size, 10) catch
                 return ScanError.InvalidNumber;
-            const sliceSize = vmInfo.POINTER_SIZE * 2;
             const initTypeSize = try initTypeClone.info.astType.getSize(context);
-            node.typeInfo.size = initTypeSize * arrSize + sliceSize;
+            node.typeInfo.size = initTypeSize * arrSize;
             node.typeInfo.alignment = try initTypeClone.info.astType.getAlignment(context);
 
             return arraySliceType.toAllocInfo(.Mut, .Allocated);

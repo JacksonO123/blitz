@@ -10,7 +10,7 @@ pub const DIFF_DIR = "bytecode-diffs";
 pub const RECORDS_DIR = DIFF_DIR ++ "/records";
 pub const FEATURE_DIR = DIFF_DIR ++ "/features";
 
-const terminalColors = .{
+const TERMINAL_COLORS = .{
     .reset = "\x1b[0m",
     .red = "\x1b[30;41m",
     .green = "\x1b[30;42m",
@@ -175,16 +175,16 @@ fn writeDiff(newContents: []u8, origContents: []u8, printWriter: *Writer) !void 
         }
 
         if (missmatch) {
-            try printWriter.writeAll(terminalColors.red);
+            try printWriter.writeAll(TERMINAL_COLORS.red);
             if (char == '\n') {
                 try printWriter.writeAll("↵");
-                try printWriter.writeAll(terminalColors.reset);
+                try printWriter.writeAll(TERMINAL_COLORS.reset);
                 try printWriter.writeByte('\n');
                 continue;
             }
 
             try printWriter.writeByte(char);
-            try printWriter.writeAll(terminalColors.reset);
+            try printWriter.writeAll(TERMINAL_COLORS.reset);
             continue;
         }
 
@@ -195,35 +195,35 @@ fn writeDiff(newContents: []u8, origContents: []u8, printWriter: *Writer) !void 
 }
 
 fn writeDiffOverflow(overflowContents: []u8, printWriter: *Writer) !void {
-    try printWriter.writeAll(terminalColors.red);
+    try printWriter.writeAll(TERMINAL_COLORS.red);
 
     for (overflowContents) |char| {
         if (char == '\n') {
             try printWriter.writeAll("↵");
-            try printWriter.writeAll(terminalColors.reset);
+            try printWriter.writeAll(TERMINAL_COLORS.reset);
             try printWriter.writeByte('\n');
-            try printWriter.writeAll(terminalColors.red);
+            try printWriter.writeAll(TERMINAL_COLORS.red);
             continue;
         }
 
         try printWriter.writeByte(char);
     }
-    try printWriter.writeAll(terminalColors.reset);
+    try printWriter.writeAll(TERMINAL_COLORS.reset);
 }
 
 fn writeDiffActual(origContents: []u8, start: usize, end: usize, printWriter: *Writer) !void {
-    try printWriter.writeAll(terminalColors.green);
+    try printWriter.writeAll(TERMINAL_COLORS.green);
     for (origContents[start..end]) |origChar| {
         if (origChar == '\n') {
-            try printWriter.writeAll(terminalColors.reset);
+            try printWriter.writeAll(TERMINAL_COLORS.reset);
             try printWriter.writeByte('\n');
-            try printWriter.writeAll(terminalColors.green);
+            try printWriter.writeAll(TERMINAL_COLORS.green);
             continue;
         }
 
         try printWriter.writeByte(origChar);
     }
-    try printWriter.writeAll(terminalColors.reset);
+    try printWriter.writeAll(TERMINAL_COLORS.reset);
 }
 
 fn lastIndexOf(text: []const u8, char: u8) ?usize {

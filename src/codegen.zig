@@ -1365,8 +1365,8 @@ pub fn genBytecode(
                         context,
                         items.len,
                         stackLocation,
-                        sliceSize,
                     );
+                    context.genInfo.procInfo.stackFrameSize += sliceSize;
 
                     const setSliceAddrInstr = Instr{
                         .MovSpNegOffset16 = .{
@@ -1377,6 +1377,8 @@ pub fn genBytecode(
 
                     const itemSize = if (items.len > 0) items[0].typeInfo.size else 0;
 
+                    const prevAccessReturn = context.genInfo.settings.propertyAccessReturnsPointer;
+                    context.genInfo.settings.propertyAccessReturnsPointer = true;
                     for (items) |item| {
                         try context.genInfo.pushScope();
 
@@ -1392,6 +1394,7 @@ pub fn genBytecode(
                         );
                         _ = try context.genInfo.appendChunk(storeInstr);
                     }
+                    context.genInfo.settings.propertyAccessReturnsPointer = prevAccessReturn;
 
                     _ = try context.genInfo.appendChunk(setSliceAddrInstr);
 
@@ -1705,8 +1708,9 @@ pub fn genBytecode(
             const initSize = node.typeInfo.size;
 
             const initLen = try std.fmt.parseInt(u64, init.size, 10);
-            const sliceInfo = try initSliceBytecode(context, initLen, sfSize, initSize);
+            const sliceInfo = try initSliceBytecode(context, initLen, sfSize);
             defer context.genInfo.releaseRegister(sliceInfo.reg);
+            context.genInfo.procInfo.stackFrameSize += initSize;
 
             const setSliceAddrInstr = Instr{
                 .MovSpNegOffset16 = .{
@@ -2270,11 +2274,9 @@ fn initSliceBytecode(
     context: *Context,
     len: u64,
     stackLocation: u64,
-    sliceSize: u64,
 ) !SliceBytecodeInfo {
     const slicePadding = utils.calculatePadding(stackLocation, vmInfo.POINTER_SIZE);
-    context.genInfo.procInfo.stackFrameSize +=
-        slicePadding.padding + sliceSize + vmInfo.POINTER_SIZE * 2;
+    context.genInfo.procInfo.stackFrameSize += slicePadding.padding + vmInfo.POINTER_SIZE * 2;
 
     const writeAtSp = Instr{
         .StoreSpSub16AtSpNegOffset16 = .{
