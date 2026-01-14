@@ -114,6 +114,8 @@ pub const InstructionVariants = enum(u8) {
 
     MovByteRange, // inst, dest reg, src reg, start 1B, end 1B
 
+    MulReg16AddReg, // inst, dest, addReg, mulReg, data 2B ( dest = addReg + (mulReg1 * data) )
+
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
     }
@@ -192,6 +194,8 @@ pub const InstructionVariants = enum(u8) {
             => 5,
 
             .MovByteRange => 5,
+
+            .MulReg16AddReg => 6,
         };
     }
 
@@ -279,6 +283,8 @@ pub const InstructionVariants = enum(u8) {
             .Load8AtRegOffset16 => "load_8_at_reg_offset_16",
 
             .MovByteRange => "mov_byte_range",
+
+            .MulReg16AddReg => "mul_reg_16_add_reg",
         };
     }
 };
@@ -380,6 +386,15 @@ fn MovByteRange(comptime T: type) type {
     };
 }
 
+fn MulRegTAddReg(comptime T: type) type {
+    return struct {
+        dest: TempRegister,
+        addReg: TempRegister,
+        mulReg: TempRegister,
+        data: T,
+    };
+}
+
 pub const Instr = union(InstructionVariants) {
     const Self = @This();
 
@@ -474,6 +489,8 @@ pub const Instr = union(InstructionVariants) {
         start: u8 = 0,
         end: u8 = 0,
     },
+
+    MulReg16AddReg: MulRegTAddReg(u16),
 
     pub fn getInstrLen(self: Self) u8 {
         const active = std.meta.activeTag(self);
@@ -919,6 +936,10 @@ pub const GenInfo = struct {
         return @intCast(self.registers.infos.items.len - 1);
     }
 
+    pub fn isRegActive(self: Self, reg: TempRegister) bool {
+        return self.registers.infos.items[reg].active;
+    }
+
     pub fn availableRegReplaceReserve(self: *Self, reg: TempRegister) !TempRegister {
         if (self.isRegVariable(reg)) {
             const res = try self.getAvailableReg();
@@ -1224,7 +1245,12 @@ pub fn genBytecode(
                         _ = try context.genInfo.appendChunk(instr);
 
                         break :a newReg;
-                    } else reg;
+                    } else a: {
+                        if (!context.genInfo.isRegActive(reg)) {
+                            try context.genInfo.reserveRegister(reg);
+                        }
+                        break :a reg;
+                    };
 
                     try context.genInfo.setVariableRegister(
                         dec.name,
@@ -1962,12 +1988,56 @@ pub fn genBytecode(
 
             return RegisterContents.initWithSize(outReg, @intCast(node.typeInfo.size));
         },
+        .IndexValue => |indexNode| {
+            const indexReg = try genBytecode(allocator, context, indexNode.index) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
+            const indexValue = try indexReg.getRegister();
+
+            const reg = try calculateAccessOffset(
+                allocator,
+                context,
+                indexNode.target,
+                0,
+            );
+            const regValue = try reg.getRegister();
+
+            context.genInfo.releaseIfPossible(indexValue);
+
+            if (context.genInfo.settings.propertyAccessReturnsPointer) {
+                return reg;
+            } else {
+                const mulAdd = Instr{
+                    .MulReg16AddReg = .{
+                        .dest = regValue,
+                        .addReg = regValue,
+                        .mulReg = indexValue,
+                        .data = @intCast(node.typeInfo.size),
+                    },
+                };
+                _ = try context.genInfo.appendChunk(mulAdd);
+
+                const outReg = try context.genInfo.availableRegReplaceRelease(
+                    indexValue,
+                    regValue,
+                );
+
+                const loadInstr = loadAtReg(regValue, outReg, @intCast(node.typeInfo.size));
+                _ = try context.genInfo.appendChunk(loadInstr);
+
+                return RegisterContents.initWithSize(outReg, @intCast(node.typeInfo.size));
+            }
+        },
         else => {},
     }
 
     return null;
 }
 
+/// returns register holding a pointer
+///
+/// the pointer is offset the amount determined by the accessing
+///
+/// the register returned will never be attributed to a variable
 fn calculateAccessOffset(
     allocator: Allocator,
     context: *Context,
@@ -1996,16 +2066,29 @@ fn calculateAccessOffset(
                 return CodeGenError.ReturnedRegisterNotFound;
             const regValue = try reg.getRegister();
 
+            const isVar = context.genInfo.isRegVariable(regValue);
             const outReg = try context.genInfo.availableRegReplaceReserve(regValue);
 
-            const instr = Instr{
-                .Add16 = .{
-                    .dest = outReg,
-                    .reg = regValue,
-                    .data = @intCast(offset),
-                },
-            };
-            _ = try context.genInfo.appendChunk(instr);
+            if (offset > 0) {
+                const instr = Instr{
+                    .Add16 = .{
+                        .dest = outReg,
+                        .reg = regValue,
+                        .data = @intCast(offset),
+                    },
+                };
+                _ = try context.genInfo.appendChunk(instr);
+            } else if (isVar) {
+                // if the returned register is associated with a variable, outReg will be a
+                // new register with unknown contents, so we set it in this case
+                const instr = Instr{
+                    .Mov = .{
+                        .dest = outReg,
+                        .src = regValue,
+                    },
+                };
+                _ = try context.genInfo.appendChunk(instr);
+            }
 
             return reg.transferWithSize(outReg);
         },
@@ -2189,8 +2272,9 @@ fn initSliceBytecode(
     stackLocation: u64,
     sliceSize: u64,
 ) !SliceBytecodeInfo {
-    const slicePadding = utils.calculatePadding(stackLocation, 8);
-    context.genInfo.procInfo.stackFrameSize += slicePadding.padding + sliceSize;
+    const slicePadding = utils.calculatePadding(stackLocation, vmInfo.POINTER_SIZE);
+    context.genInfo.procInfo.stackFrameSize +=
+        slicePadding.padding + sliceSize + vmInfo.POINTER_SIZE * 2;
 
     const writeAtSp = Instr{
         .StoreSpSub16AtSpNegOffset16 = .{
@@ -2489,6 +2573,12 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
             try writer.writeByte(@intCast(instr.src));
             try writer.writeByte(instr.start);
             try writer.writeByte(instr.end);
+        },
+        .MulReg16AddReg => |instr| {
+            try writer.writeByte(@intCast(instr.dest));
+            try writer.writeByte(@intCast(instr.addReg));
+            try writer.writeByte(@intCast(instr.mulReg));
+            try writer.writeInt(u16, instr.data, .little);
         },
     }
 }

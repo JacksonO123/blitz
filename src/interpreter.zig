@@ -410,6 +410,13 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
             .Load64AtRegOffset16 => {
                 loadAtRegOffset16(u64, runtimeInfo, bytecode, current);
             },
+            .MulReg16AddReg => {
+                const dest = bytecode[current + 1];
+                const toAdd = runtimeInfo.registers[bytecode[current + 2]];
+                const mulReg = runtimeInfo.registers[bytecode[current + 3]];
+                const data = std.mem.readInt(u16, @ptrCast(bytecode[current + 4 .. current + 6]), .little);
+                runtimeInfo.registers[dest] = toAdd + (mulReg * data);
+            },
             .MovByteRange => utils.unimplemented(),
         }
 
@@ -455,11 +462,12 @@ fn loadAtRegOffset16(
 ) void {
     const tBits = @divExact(@typeInfo(T).int.bits, 8);
 
+    const dest = bytecode[current + 1];
     const source = runtimeInfo.registers[bytecode[current + 2]];
     const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
     const byteData: *const [tBits]u8 = @ptrCast(runtimeInfo.stack.items[source + offset .. source + offset + tBits]);
     const resInt: T = @bitCast(byteData.*);
-    runtimeInfo.registers[bytecode[current + 1]] = @intCast(resInt);
+    runtimeInfo.registers[dest] = @intCast(resInt);
 }
 
 fn loadAtReg(
@@ -470,10 +478,11 @@ fn loadAtReg(
 ) void {
     const tBits = @divExact(@typeInfo(T).int.bits, 8);
 
+    const dest = bytecode[current + 1];
     const source = runtimeInfo.registers[bytecode[current + 2]];
     const byteData: *const [tBits]u8 = @ptrCast(runtimeInfo.stack.items[source .. source + tBits]);
     const resInt: T = @bitCast(byteData.*);
-    runtimeInfo.registers[bytecode[current + 1]] = @intCast(resInt);
+    runtimeInfo.registers[dest] = @intCast(resInt);
 }
 
 fn storeAtSpNegOffset(

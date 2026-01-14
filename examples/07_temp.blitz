@@ -1,15 +1,3 @@
-struct Inner {
-    big: bool;
-}
-
-struct M {
-    inner: Inner;
-    //width: u32;
-    //height: u64;
-}
-
-let a = M {
-    inner = Inner { big = true },
-    //width = 5,
-    //height = 9u64,
-};
+let arr = [1, 2, 3, 4, 5, 6, 7];
+let item = arr[4u64];
+let a = 221;

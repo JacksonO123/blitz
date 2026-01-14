@@ -962,6 +962,16 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumber(u8, instr.end, writer);
         },
+        .MulReg16AddReg => |instr| {
+            try writer.writeAll(" r");
+            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(instr.addReg, 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(instr.mulReg, 10, .lower, .{});
+            try writer.writeByte(' ');
+            try writeHexDecNumber(u16, instr.data, writer);
+        },
     }
 
     try writer.writeByte('\n');
