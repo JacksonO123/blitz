@@ -57,8 +57,8 @@ pub fn printType(
             try writer.writeAll("var info ");
             try printTypeInfo(context, info.info, writer);
         },
-        .ArraySlice => |arr| {
-            try writer.writeAll("ArraySlice<");
+        .ArrayDec => |arr| {
+            try writer.writeAll("ArrayDec<");
             if (arr.size) |size| {
                 try printNode(context, size, writer);
             } else {
@@ -172,8 +172,8 @@ fn printValue(
         .Null => {
             try writer.writeAll("null");
         },
-        .ArraySlice => |arr| {
-            try writer.writeAll("[ArraySlice]([");
+        .ArrayDec => |arr| {
+            try writer.writeAll("[ArrayDec]([");
 
             for (arr, 0..) |val, index| {
                 try printNode(context, val, writer);
@@ -772,6 +772,7 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
     try writer.writeAll(chunk.data.toString());
 
     switch (chunk.data) {
+        .Label => {},
         .SetReg64 => |instr| {
             try writer.writeAll(" r");
             try writer.printInt(instr.reg, 10, .lower, .{});
@@ -866,7 +867,7 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
         .JumpBackLTE,
         => |instr| {
             try writer.writeByte(' ');
-            try writeHexDecNumber(u16, instr.amount, writer);
+            try writeHexDecNumber(u32, @intCast(instr), writer);
         },
         .IncConst8,
         .DecConst8,
@@ -882,15 +883,24 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(instr.src, 10, .lower, .{});
         },
-        .MovSp => |instr| {
-            try writer.writeAll(" r");
-            try writer.printInt(instr, 10, .lower, .{});
-        },
+        .MovSpNegOffsetAny => unreachable,
         .MovSpNegOffset16 => |instr| {
             try writer.writeAll(" r");
             try writer.printInt(instr.reg, 10, .lower, .{});
             try writer.writeByte(' ');
             try writeHexDecNumber(u16, instr.offset, writer);
+        },
+        .MovSpNegOffset32 => |instr| {
+            try writer.writeAll(" r");
+            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.writeByte(' ');
+            try writeHexDecNumber(u32, instr.offset, writer);
+        },
+        .MovSpNegOffset64 => |instr| {
+            try writer.writeAll(" r");
+            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.writeByte(' ');
+            try writeHexDecNumber(u64, instr.offset, writer);
         },
         .XorConst8 => |instr| {
             try writer.writeAll(" r");
@@ -903,6 +913,14 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
         .AddSp16, .SubSp16 => |instr| {
             try writer.writeByte(' ');
             try writeHexDecNumber(u16, instr, writer);
+        },
+        .AddSp32, .SubSp32 => |instr| {
+            try writer.writeByte(' ');
+            try writeHexDecNumber(u32, instr, writer);
+        },
+        .AddSp64, .SubSp64 => |instr| {
+            try writer.writeByte(' ');
+            try writeHexDecNumber(u64, instr, writer);
         },
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,

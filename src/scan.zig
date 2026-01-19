@@ -79,10 +79,10 @@ pub const ScanError = error{
     CannotFreeNonPointerType,
 
     // arrays
-    ArraySliceTypeMismatch,
+    ArrayTypeMismatch,
     ExpectedArrayForIndexTarget,
-    ExpectedU64OrU32ForArraySliceSize,
-    ExpectedEqualArraySliceSizes,
+    ExpectedU64OrU32ForArrayDecSize,
+    ExpectedEqualArrayDecSizes,
     SizedSliceSetToUnknownSizedSlice,
     ArrayInitTypeInitializerMismatch,
 
@@ -221,7 +221,7 @@ pub fn scanNode(
                 return clonedCastResult;
             }
 
-            if (nodeType.info.astType.* == .ArraySlice and cast.toType.astType.* == .ArraySlice) {
+            if (nodeType.info.astType.* == .ArrayDec and cast.toType.astType.* == .ArrayDec) {
                 return clonedCastResult;
             }
 
@@ -243,8 +243,8 @@ pub fn scanNode(
                     }
                     break :a .{ .Number = num.numType };
                 },
-                .ArraySlice => |arr| {
-                    const inferredType = try inferArraySliceType(
+                .ArrayDec => |arr| {
+                    const inferredType = try inferArrayDecType(
                         allocator,
                         context,
                         arr,
@@ -255,8 +255,8 @@ pub fn scanNode(
                             .Number = .{ .U64 = arr.len },
                         },
                     };
-                    const arraySliceType = try context.pools.newType(.{
-                        .ArraySlice = .{
+                    const arrayDecType = try context.pools.newType(.{
+                        .ArrayDec = .{
                             .type = inferredType,
                             .size = try context.pools.newNode(valueVariant.toAstNode()),
                         },
@@ -266,7 +266,7 @@ pub fn scanNode(
                     node.typeInfo.size = inferredTypeSize * arr.len;
                     node.typeInfo.alignment = try inferredType.info.astType.getAlignment(context);
 
-                    return arraySliceType.toAllocInfo(inferredType.info.mutState, .Allocated);
+                    return arrayDecType.toAllocInfo(inferredType.info.mutState, .Allocated);
                 },
             };
 
@@ -286,8 +286,8 @@ pub fn scanNode(
                 return ScanError.ExpectedU64ForIndex;
             }
 
-            if (targetType.info.astType.* == .ArraySlice) {
-                const arr = targetType.info.astType.*.ArraySlice;
+            if (targetType.info.astType.* == .ArrayDec) {
+                const arr = targetType.info.astType.*.ArrayDec;
                 const resType = try clone.replaceGenericsOnTypeInfo(
                     allocator,
                     context,
@@ -553,8 +553,8 @@ pub fn scanNode(
                     anyType.mutState = valueInfo.info.mutState;
                     return anyType.toAllocInfo(.Recycled);
                 },
-                .ArraySlice => {
-                    const propType = try builtins.getArraySlicePropType(
+                .ArrayDec => {
+                    const propType = try builtins.getArrayDecPropType(
                         context,
                         access.property,
                     );
@@ -1339,7 +1339,7 @@ pub fn scanNode(
             const exprTypeResult = try scanNode(allocator, context, toFree, withGenDef);
             defer releaseIfAllocated(context, exprTypeResult);
             const exprType = try escapeVarInfo(exprTypeResult);
-            if (exprType.info.astType.* != .Pointer and exprType.info.astType.* != .ArraySlice) {
+            if (exprType.info.astType.* != .Pointer and exprType.info.astType.* != .ArrayDec) {
                 return ScanError.CannotFreeNonPointerType;
             }
 
@@ -1400,8 +1400,8 @@ pub fn scanNode(
                     },
                 },
             };
-            const arraySliceType = try context.pools.newType(.{
-                .ArraySlice = .{
+            const arrayDecType = try context.pools.newType(.{
+                .ArrayDec = .{
                     .type = initTypeClone,
                     .size = try context.pools.newNode(valueVariant.toAstNode()),
                 },
@@ -1413,7 +1413,7 @@ pub fn scanNode(
             node.typeInfo.size = initTypeSize * arrSize;
             node.typeInfo.alignment = try initTypeClone.info.astType.getAlignment(context);
 
-            return arraySliceType.toAllocInfo(.Mut, .Allocated);
+            return arrayDecType.toAllocInfo(.Mut, .Allocated);
         },
         .InferErrorVariant => |variant| {
             const errorVariant = try context.pools.newType(.{
@@ -2338,9 +2338,9 @@ pub fn matchTypesUtil(
 
             return type2 == .RawNumber;
         },
-        .ArraySlice => |arr| {
-            const array: ast.AstArraySliceType = switch (type2) {
-                .ArraySlice => |arraySlice| arraySlice,
+        .ArrayDec => |arr| {
+            const array: ast.AstArrayDecType = switch (type2) {
+                .ArrayDec => |arrayDec| arrayDec,
                 else => return false,
             };
 
@@ -2518,7 +2518,7 @@ fn getPropertyType(
 ) !ast.AstTypes {
     return switch (source) {
         .StaticStructInstance => |inst| try getStructPropType(context, false, inst, prop),
-        .ArraySlice => try builtins.getArraySlicePropTypes(prop),
+        .ArrayDec => try builtins.getArrayDecPropTypes(prop),
         .String => try builtins.getStringPropTypes(prop),
         .Custom => |custom| getCustomPropType(allocator, context, custom, prop),
         else => ScanError.UnsupportedFeature,
@@ -2580,7 +2580,7 @@ fn getStructPropType(
     return ScanError.InvalidProperty;
 }
 
-fn inferArraySliceType(
+fn inferArrayDecType(
     allocator: Allocator,
     context: *Context,
     arr: []*ast.AstNode,
@@ -2603,7 +2603,7 @@ fn inferArraySliceType(
 
         const matches = try matchTypes(allocator, context, exprType.info, firstType.info, false);
         if (!matches) {
-            return ScanError.ArraySliceTypeMismatch;
+            return ScanError.ArrayTypeMismatch;
         }
     }
 

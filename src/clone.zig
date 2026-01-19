@@ -86,7 +86,7 @@ pub fn cloneAstTypes(
                 .VarInfo = varInfo.toAllocInfo(.Allocated),
             };
         },
-        .ArraySlice => |arr| {
+        .ArrayDec => |arr| {
             const typeClone = (try cloneAstTypeInfo(
                 allocator,
                 context,
@@ -99,7 +99,7 @@ pub fn cloneAstTypes(
             }
 
             return .{
-                .ArraySlice = .{
+                .ArrayDec = .{
                     .type = typeClone,
                     .size = sizeClone,
                 },
@@ -252,9 +252,9 @@ pub fn cloneAstNodeUnion(
                         },
                     },
                 },
-                .ArraySlice => |arr| return .{
+                .ArrayDec => |arr| return .{
                     .Value = .{
-                        .ArraySlice = try cloneNodeArrMut(
+                        .ArrayDec = try cloneNodeArrMut(
                             allocator,
                             context,
                             arr,

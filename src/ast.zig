@@ -149,7 +149,7 @@ pub const AstNumber = union(AstNumberVariants) {
     }
 };
 
-pub const AstArraySliceType = struct {
+pub const AstArrayDecType = struct {
     type: scanner.TypeAndAllocInfo,
     size: ?*AstNode,
 };
@@ -180,7 +180,7 @@ const Types = enum {
     Undef,
     Number,
     RawNumber,
-    ArraySlice,
+    ArrayDec,
     Pointer,
     Nullable,
     Custom,
@@ -204,7 +204,7 @@ pub const AstTypes = union(Types) {
     Undef,
     Number: AstNumberVariants,
     RawNumber: []const u8,
-    ArraySlice: AstArraySliceType,
+    ArrayDec: AstArrayDecType,
     Pointer: scanner.TypeAndAllocInfo,
     Nullable: AstTypeInfo,
     Custom: CustomType,
@@ -246,7 +246,7 @@ pub const AstTypes = union(Types) {
             // slice so alignment is 8
             .String => 8,
             // slice so alignment is 8
-            .ArraySlice => 8,
+            .ArrayDec => 8,
             .Number => |num| return num.getAlignment(),
 
             .Bool, .Char, .ErrorVariant => 1,
@@ -288,7 +288,7 @@ pub const AstTypes = union(Types) {
             .String => 16,
             .Bool, .Char, .ErrorVariant => 1,
             .Number => |num| return num.getSize(),
-            .ArraySlice => 16,
+            .ArrayDec => 16,
             .Pointer, .StaticStructInstance => 8,
             // TODO - maybe optimize for unused states (0 for pointer etc)
             .Nullable => |inner| return try inner.astType.getSize(context) + 1,
@@ -346,7 +346,7 @@ const StaticTypes = enum {
     Char,
     Number,
     RawNumber,
-    ArraySlice,
+    ArrayDec,
     Null,
 };
 
@@ -361,7 +361,7 @@ pub const AstValues = union(StaticTypes) {
     Char: u8,
     Number: AstNumber,
     RawNumber: RawNumberNode,
-    ArraySlice: []*AstNode,
+    ArrayDec: []*AstNode,
     Null,
 };
 
@@ -736,7 +736,7 @@ pub const AstError = error{
     ExpectedNameForError,
     ExpectedNameForStruct,
     ExpectedNameForFunction,
-    ExpectedSizeForArraySlice,
+    ExpectedSizeForArrayDec,
     ExpectedIdentifierForStructProperty,
     ExpectedValueForStructProperty,
     ExpectedIdentifierPropertyAccessSource,
@@ -1696,7 +1696,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
             _ = try context.tokenUtil.take();
             const valueVariant: AstNodeUnion = .{
                 .Value = .{
-                    .ArraySlice = &[_]*AstNode{},
+                    .ArrayDec = &[_]*AstNode{},
                 },
             };
             return try context.pools.newNode(valueVariant.toAstNode());
@@ -1792,7 +1792,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
 
     const valueVariant: AstNodeUnion = .{
         .Value = .{
-            .ArraySlice = slice,
+            .ArrayDec = slice,
         },
     };
     return try context.pools.newNode(valueVariant.toAstNode());
@@ -2396,14 +2396,14 @@ fn parseType(
 
         if (next.type != .RBracket) {
             size = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedSizeForArraySlice;
+                return AstError.ExpectedSizeForArrayDec;
         }
 
         try context.tokenUtil.expectToken(.RBracket);
 
         const sliceType = (try context.pools.newType(astType)).toTypeInfo(mutState);
         const newAstType = AstTypes{
-            .ArraySlice = .{
+            .ArrayDec = .{
                 .type = sliceType.toAllocInfo(.Recycled),
                 .size = size,
             },

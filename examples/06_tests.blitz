@@ -1,22 +1,5 @@
-struct Inner {
-    pub value: u8;
+let a = true;
+
+if (!a) {
+    let b = 2;
 }
-
-struct M {
-    width: u16;
-    height: u16;
-    pub inner: Inner;
-}
-
-let a = M {
-    inner = Inner {
-        value = 6u8,
-    },
-    width = 5u16,
-    height = 9u16,
-};
-
-let b = 2;
-let c = 3;
-let d = a.inner;
-let e = a.inner.value;

@@ -202,7 +202,7 @@ pub fn logParseError(context: *Context, err: ast.ParseError) void {
         error.ExpectedIdentifierForPropertyAccess => "expected identifier for struct property access",
         error.ExpectedIdentifierForErrorVariant => "expected identifier for error variant",
         error.ExpectedIdentifierForStructName => "expected identifier for struct name",
-        error.ExpectedSizeForArraySlice => "expected size for static array",
+        error.ExpectedSizeForArrayDec => "expected size for array dec",
         error.ExpectedIdentifierForStructProperty => "expected identifier for struct property",
         error.ExpectedValueForStructProperty => "expected value for struct property",
         error.UnexpectedGenericOnErrorType => "unexpected generic type",

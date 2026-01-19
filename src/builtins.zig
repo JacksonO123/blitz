@@ -33,7 +33,7 @@ pub fn getStringPropType(context: *Context, prop: []const u8) !ast.AstTypeInfo {
     return try getPropType(context, props, prop);
 }
 
-pub fn getArraySlicePropType(context: *Context, prop: []const u8) !ast.AstTypeInfo {
+pub fn getArrayDecPropType(context: *Context, prop: []const u8) !ast.AstTypeInfo {
     const props = &[_]PropTypeMap{
         .{
             .prop = "len",

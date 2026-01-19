@@ -53,6 +53,10 @@ pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
         try writer.printInt(size, 10, .lower, .{ .width = numDigits, .fill = '.' });
         try writer.writeAll(") ");
 
+        // if (size == 0) {
+        //     current += 1;
+        //     continue;
+        // }
         try printBytecodeSlice(bytecode[current .. current + size], writer);
         current += size;
     }
@@ -72,6 +76,7 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
     try writer.writeAll(inst.toString());
 
     switch (inst) {
+        .Label => {},
         .SetReg64 => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
@@ -179,15 +184,24 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[2], 10, .lower, .{});
         },
-        .MovSp => {
-            try writer.writeAll(" r");
-            try writer.printInt(bytecode[1], 10, .lower, .{});
-        },
+        .MovSpNegOffsetAny => unreachable,
         .MovSpNegOffset16 => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
             try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[2..4], writer);
+        },
+        .MovSpNegOffset32 => {
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[1], 10, .lower, .{});
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[2..6], writer);
+        },
+        .MovSpNegOffset64 => {
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[1], 10, .lower, .{});
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[2..10], writer);
         },
         .XorConst8 => {
             try writer.writeAll(" r");
@@ -200,6 +214,14 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
         .AddSp16, .SubSp16 => {
             try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[1..3], writer);
+        },
+        .AddSp32, .SubSp32 => {
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[1..5], writer);
+        },
+        .AddSp64, .SubSp64 => {
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[1..9], writer);
         },
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,

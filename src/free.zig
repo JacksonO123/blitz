@@ -206,8 +206,8 @@ pub fn recursiveReleaseNodeUtil(
             recursiveReleaseNodeUtil(context, eqOp.value, releaseType);
         },
         .Value => |val| {
-            if (val == .ArraySlice) {
-                for (val.ArraySlice) |item| {
+            if (val == .ArrayDec) {
+                for (val.ArrayDec) |item| {
                     recursiveReleaseNodeUtil(context, item, releaseType);
                 }
             }
@@ -318,7 +318,7 @@ pub fn recursiveReleaseTypeUtil(
                 recursiveReleaseType(context, info.info.astType);
             }
         },
-        .ArraySlice => |slice| {
+        .ArrayDec => |slice| {
             if (slice.size) |size| {
                 recursiveReleaseNodeUtil(context, size, releaseType);
             }

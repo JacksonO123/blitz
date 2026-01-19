@@ -29,6 +29,7 @@ const CodeGenError = error{
     RegInteractionNotSupported,
     NoTrivialRegister,
     AccessTargetDoesNotHaveStructName,
+    LabelDoesNotExist,
 };
 const GenBytecodeError = CodeGenError || Allocator.Error || std.fmt.ParseIntError;
 
@@ -37,8 +38,22 @@ const LoopCondInfo = struct {
     isCompExpr: bool,
 };
 
+const SpOpSizes = enum {
+    U16,
+    U32,
+    U64,
+};
+
+const sizeToOpSizeTuple = .{
+    .{ std.math.maxInt(u16), SpOpSizes.U16 },
+    .{ std.math.maxInt(u32), SpOpSizes.U32 },
+    .{ std.math.maxInt(u64), SpOpSizes.U64 },
+};
+
 pub const InstructionVariants = enum(u8) {
     const Self = @This();
+
+    Label, // 0B (not in output)
 
     SetReg64, // inst, reg, 8B data
     SetReg32, // inst, reg, 4B data
@@ -53,20 +68,20 @@ pub const InstructionVariants = enum(u8) {
     Sub16, // inst, out reg, reg1, 2B data
     Mult, // inst, out reg, reg1, reg2
 
-    Jump, // inst, 2B data
-    JumpEQ, // inst, 2B data
-    JumpNE, // inst, 2B data
-    JumpGT, // inst, 2B data
-    JumpLT, // inst, 2B data
-    JumpGTE, // inst, 2B data
-    JumpLTE, // inst, 2B data
-    JumpBack, // inst, 2B data
-    JumpBackEQ, // inst, 2B data
-    JumpBackNE, // inst, 2B data
-    JumpBackGT, // inst, 2B data
-    JumpBackLT, // inst, 2B data
-    JumpBackGTE, // inst, 2B data
-    JumpBackLTE, // inst, 2B data
+    Jump, // inst, 4B data
+    JumpEQ, // inst, 4B data
+    JumpNE, // inst, 4B data
+    JumpGT, // inst, 4B data
+    JumpLT, // inst, 4B data
+    JumpGTE, // inst, 4B data
+    JumpLTE, // inst, 4B data
+    JumpBack, // inst, 4B data
+    JumpBackEQ, // inst, 4B data
+    JumpBackNE, // inst, 4B data
+    JumpBackGT, // inst, 4B data
+    JumpBackLT, // inst, 4B data
+    JumpBackGTE, // inst, 4B data
+    JumpBackLTE, // inst, 4B data
 
     Cmp, // inst, reg1, reg2  ;  sets to flags
     CmpSetRegEQ, // inst, out reg, reg1, reg2  ;  sets to flags
@@ -81,14 +96,20 @@ pub const InstructionVariants = enum(u8) {
     DecConst8, // inst, in/out reg, 1B data
 
     Mov, // inst, reg1, reg2
-    MovSp, // inst, dest
+    MovSpNegOffsetAny, // inst, dest, offset (TBD by compiler)B
     MovSpNegOffset16, // inst, dest, offset 2B
+    MovSpNegOffset32, // inst, dest, offset 4B
+    MovSpNegOffset64, // inst, dest, offset 8B
 
     Xor, // inst, out reg, reg1, reg2
     XorConst8, // inst, out reg, reg1, 1B data
 
     AddSp16, // inst, 2B data
     SubSp16, // inst, 2B data
+    AddSp32, // inst, 4B data
+    SubSp32, // inst, 4B data
+    AddSp64, // inst, 8B data
+    SubSp64, // inst, 8B data
 
     Store64AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
     Store32AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
@@ -122,6 +143,8 @@ pub const InstructionVariants = enum(u8) {
 
     pub fn getInstrLen(self: Self) u8 {
         return switch (self) {
+            .Label => 0,
+
             .SetReg64 => 10,
             .SetReg32 => 6,
             .SetReg16 => 4,
@@ -144,7 +167,7 @@ pub const InstructionVariants = enum(u8) {
             .JumpBackLT,
             .JumpBackGTE,
             .JumpBackLTE,
-            => 3,
+            => 5,
 
             .Cmp => 3,
             .CmpSetRegEQ,
@@ -160,12 +183,16 @@ pub const InstructionVariants = enum(u8) {
             .IncConst8, .DecConst8 => 3,
 
             .Mov => 3,
-            .MovSp => 2,
+            .MovSpNegOffsetAny => unreachable, // SHOULD NOT EXIST FOR WRITER
             .MovSpNegOffset16 => 4,
+            .MovSpNegOffset32 => 6,
+            .MovSpNegOffset64 => 10,
 
             .Xor, .XorConst8 => 4,
 
             .AddSp16, .SubSp16 => 3,
+            .AddSp32, .SubSp32 => 5,
+            .AddSp64, .SubSp64 => 9,
 
             .Store64AtRegPostInc16,
             .Store32AtRegPostInc16,
@@ -203,6 +230,10 @@ pub const InstructionVariants = enum(u8) {
         var max: u8 = 0;
         inline for (@typeInfo(Self).@"enum".fields) |field| {
             const val: Self = @enumFromInt(field.value);
+
+            // place holders, not actual instructions
+            if (val == .MovSpNegOffsetAny) continue;
+
             max = @max(val.getInstrLen(), max);
         }
         return max;
@@ -210,6 +241,8 @@ pub const InstructionVariants = enum(u8) {
 
     pub fn toString(self: Self) []const u8 {
         return switch (self) {
+            .Label => "(label)",
+
             .SetReg64 => "set_reg_64",
             .SetReg32 => "set_reg_32",
             .SetReg16 => "set_reg_16",
@@ -251,14 +284,20 @@ pub const InstructionVariants = enum(u8) {
             .DecConst8 => "dec_const_8",
 
             .Mov => "mov",
-            .MovSp => "mov_sp",
+            .MovSpNegOffsetAny => "mov_sp_neg_offset_ANY",
             .MovSpNegOffset16 => "mov_sp_neg_offset_16",
+            .MovSpNegOffset32 => "mov_sp_neg_offset_32",
+            .MovSpNegOffset64 => "mov_sp_neg_offset_64",
 
             .Xor => "xor",
             .XorConst8 => "xor_const_8",
 
             .AddSp16 => "add_sp_16",
             .SubSp16 => "sub_sp_16",
+            .AddSp32 => "add_sp_32",
+            .SubSp32 => "sub_sp_32",
+            .AddSp64 => "add_sp_64",
+            .SubSp64 => "sub_sp_64",
 
             .Store64AtRegPostInc16 => "store_64_at_reg_post_inc_16",
             .Store32AtRegPostInc16 => "store_32_at_reg_post_inc_16",
@@ -309,10 +348,6 @@ const RegBytePayloadInstr = struct {
 };
 
 const MathInstr = TwoOpResultInstr;
-
-const JumpInstr = struct {
-    amount: u16 = 0,
-};
 
 const SpInstr = struct {
     amount: TempRegister = 0,
@@ -395,8 +430,17 @@ fn MulRegTAddReg(comptime T: type) type {
     };
 }
 
+fn MovSpNegOffset(comptime T: type) type {
+    return struct {
+        reg: TempRegister = 0,
+        offset: T = 0,
+    };
+}
+
 pub const Instr = union(InstructionVariants) {
     const Self = @This();
+
+    Label: vmInfo.LabelType,
 
     SetReg64: SetRegInstr(u64),
     SetReg32: SetRegInstr(u32),
@@ -411,20 +455,21 @@ pub const Instr = union(InstructionVariants) {
     Sub16: OneOpResultInstr(u16),
     Mult: MathInstr,
 
-    Jump: JumpInstr,
-    JumpEQ: JumpInstr,
-    JumpNE: JumpInstr,
-    JumpGT: JumpInstr,
-    JumpLT: JumpInstr,
-    JumpGTE: JumpInstr,
-    JumpLTE: JumpInstr,
-    JumpBack: JumpInstr,
-    JumpBackEQ: JumpInstr,
-    JumpBackNE: JumpInstr,
-    JumpBackGT: JumpInstr,
-    JumpBackLT: JumpInstr,
-    JumpBackGTE: JumpInstr,
-    JumpBackLTE: JumpInstr,
+    // must be u64 because stores absolute byte position
+    Jump: u64,
+    JumpEQ: u64,
+    JumpNE: u64,
+    JumpGT: u64,
+    JumpLT: u64,
+    JumpGTE: u64,
+    JumpLTE: u64,
+    JumpBack: u64,
+    JumpBackEQ: u64,
+    JumpBackNE: u64,
+    JumpBackGT: u64,
+    JumpBackLT: u64,
+    JumpBackGTE: u64,
+    JumpBackLTE: u64,
 
     Cmp: CmpInstr,
     CmpSetRegEQ: CmpSetRegInstr,
@@ -442,11 +487,10 @@ pub const Instr = union(InstructionVariants) {
         dest: TempRegister = 0,
         src: TempRegister = 0,
     },
-    MovSp: TempRegister,
-    MovSpNegOffset16: struct {
-        reg: TempRegister = 0,
-        offset: u16 = 0,
-    },
+    MovSpNegOffsetAny: MovSpNegOffset(u64),
+    MovSpNegOffset16: MovSpNegOffset(u16),
+    MovSpNegOffset32: MovSpNegOffset(u32),
+    MovSpNegOffset64: MovSpNegOffset(u64),
 
     Xor: TwoOpResultInstr,
     XorConst8: struct {
@@ -457,6 +501,10 @@ pub const Instr = union(InstructionVariants) {
 
     AddSp16: u16,
     SubSp16: u16,
+    AddSp32: u32,
+    SubSp32: u32,
+    AddSp64: u64,
+    SubSp64: u64,
 
     Store64AtRegPostInc16: StoreIncInstr(u16),
     Store32AtRegPostInc16: StoreIncInstr(u16),
@@ -616,7 +664,7 @@ const RegScopes = struct {
         return self.scopes.getLast().registers.items;
     }
 
-    pub fn getCurrentScope(self: *Self) *RegScope {
+    pub fn getCurrentScope(self: Self) *RegScope {
         return self.scopes.getLast();
     }
 
@@ -624,18 +672,25 @@ const RegScopes = struct {
         const scope = self.getCurrentScope();
         try scope.addRegister(reg);
     }
+
+    pub fn removeRegister(self: *Self, reg: TempRegister) void {
+        const currentScope = self.getCurrentScope();
+        const index = std.mem.indexOf(TempRegister, currentScope.registers.items, reg) orelse
+            return;
+        currentScope.registers.swapRemove(index);
+    }
 };
 
 const InstrInfo = struct {
     chunk: *InstrChunk,
-    location: u64,
+    label: vmInfo.LabelType,
 };
 
 const LoopInfo = struct {
     const Self = @This();
 
     allocator: Allocator,
-    continueInstr: u64,
+    continueLabel: vmInfo.LabelType,
     breaks: *ArrayList(InstrInfo),
     continues: *ArrayList(InstrInfo),
 
@@ -645,7 +700,7 @@ const LoopInfo = struct {
 
         return .{
             .allocator = allocator,
-            .continueInstr = 0,
+            .continueLabel = 0,
             .breaks = breaksPtr,
             .continues = continuesPtr,
         };
@@ -659,22 +714,22 @@ const LoopInfo = struct {
         self.allocator.destroy(self.continues);
     }
 
-    pub fn appendBreak(self: *Self, instr: *InstrChunk, location: u64) !void {
+    pub fn appendBreak(self: *Self, instr: *InstrChunk, label: vmInfo.LabelType) !void {
         try self.breaks.append(self.allocator, .{
             .chunk = instr,
-            .location = location,
+            .label = label,
         });
     }
 
-    pub fn appendContinue(self: *Self, instr: *InstrChunk, location: u64) !void {
+    pub fn appendContinue(self: *Self, instr: *InstrChunk, label: vmInfo.LabelType) !void {
         try self.continues.append(self.allocator, .{
             .chunk = instr,
-            .location = location,
+            .label = label,
         });
     }
 
-    pub fn setContinueByte(self: *Self, byte: u64) void {
-        self.continueInstr = byte;
+    pub fn setContinueLabel(self: *Self, label: vmInfo.LabelType) void {
+        self.continueLabel = label;
     }
 };
 
@@ -741,7 +796,7 @@ const GenInfoChunks = struct {
 const StructContentInfo = struct {
     const Self = @This();
 
-    currentContentRegister: ?u32 = null,
+    currentContentRegister: ?TempRegister = null,
     structContentRegisters: [vmInfo.NUM_STRUCT_CONTENT_REGISTERS]TempRegister =
         [_]TempRegister{0} ** vmInfo.NUM_STRUCT_CONTENT_REGISTERS,
     regBytesUsed: [vmInfo.NUM_STRUCT_CONTENT_REGISTERS]u8 =
@@ -803,6 +858,112 @@ const RegisterContents = union(RegisterContentVariants) {
     }
 };
 
+const LabelByteInfo = struct {
+    const Self = @This();
+    const WaitingLabels = std.AutoHashMap(vmInfo.LabelType, *ArrayList(*u64));
+
+    labelBytes: []u64,
+    labelExists: []bool,
+    waitingLabels: *WaitingLabels,
+
+    pub fn init(allocator: Allocator) !Self {
+        const waitingLabels = WaitingLabels.init(allocator);
+        const waitingLabelsPtr = try utils.createMut(WaitingLabels, allocator, waitingLabels);
+
+        return .{
+            .labelBytes = &[_]u64{},
+            .labelExists = &[_]bool{},
+            .waitingLabels = waitingLabelsPtr,
+        };
+    }
+
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        if (self.labelBytes.len > 0) {
+            allocator.free(self.labelBytes);
+        }
+
+        if (self.labelExists.len > 0) {
+            allocator.free(self.labelExists);
+        }
+
+        self.freeWaitingMapContents(allocator);
+        allocator.destroy(self.waitingLabels);
+    }
+
+    pub fn reserveLabelCount(self: *Self, allocator: Allocator, lastLabel: vmInfo.LabelType) !void {
+        // if label id is 0, no labels have been used
+        if (lastLabel == 0) return;
+
+        if (self.labelExists.len > 0) {
+            allocator.free(self.labelExists);
+        }
+
+        if (self.labelBytes.len > 0) {
+            allocator.free(self.labelBytes);
+        }
+
+        self.freeWaitingMapContents(allocator);
+
+        self.labelBytes = try allocator.alloc(u64, lastLabel);
+        self.labelExists = try allocator.alloc(bool, lastLabel);
+        @memset(self.labelExists, false);
+    }
+
+    fn freeWaitingMapContents(self: *Self, allocator: Allocator) void {
+        var waitingLabels = self.waitingLabels.valueIterator();
+        while (waitingLabels.next()) |arrList| {
+            arrList.*.deinit(allocator);
+            allocator.destroy(arrList.*);
+        }
+        self.waitingLabels.clearAndFree();
+    }
+
+    pub fn setLabelLocation(
+        self: *Self,
+        allocator: Allocator,
+        label: vmInfo.LabelType,
+        location: u64,
+    ) void {
+        self.labelBytes[label] = location;
+
+        if (self.waitingLabels.get(label)) |arrList| {
+            for (arrList.items) |ptr| {
+                const newVal: u32 = @intCast(location - ptr.*);
+                ptr.* = newVal;
+            }
+
+            arrList.deinit(allocator);
+            allocator.destroy(arrList);
+            _ = self.waitingLabels.remove(label);
+        }
+    }
+
+    pub fn hasLabel(self: *Self, label: vmInfo.LabelType) !bool {
+        if (label >= self.labelExists.len) {
+            return CodeGenError.LabelDoesNotExist;
+        }
+
+        return self.labelExists[label];
+    }
+
+    /// labelPtr must point to the label to watch for, and be the memory
+    /// location to write the label byte location to
+    pub fn waitForLabel(
+        self: *Self,
+        allocator: Allocator,
+        labelId: vmInfo.LabelType,
+        labelPtr: *u64,
+    ) !void {
+        if (self.waitingLabels.get(labelId)) |arrList| {
+            try arrList.append(allocator, labelPtr);
+        } else {
+            const arrList = try utils.createMut(ArrayList(*u64), allocator, .empty);
+            try arrList.append(allocator, labelPtr);
+            try self.waitingLabels.put(labelId, arrList);
+        }
+    }
+};
+
 pub const GenInfo = struct {
     const Self = @This();
 
@@ -823,6 +984,8 @@ pub const GenInfo = struct {
     settings: GenInfoSettings,
     loopInfo: *ArrayList(*LoopInfo),
     byteCounter: u64,
+    currentLabelId: vmInfo.LabelType,
+    labelByteInfo: *LabelByteInfo,
 
     pub fn init(allocator: Allocator) !Self {
         const capacityScale = 8;
@@ -841,6 +1004,9 @@ pub const GenInfo = struct {
 
         const chunks = try GenInfoChunks.init(allocator);
         const chunksPtr = try utils.createMut(GenInfoChunks, allocator, chunks);
+
+        const labelByteInfo = try LabelByteInfo.init(allocator);
+        const labelByteInfoPtr = try utils.createMut(LabelByteInfo, allocator, labelByteInfo);
 
         return .{
             .allocator = allocator,
@@ -863,6 +1029,8 @@ pub const GenInfo = struct {
                 .stackFrameSize = 0,
                 .startInstr = null,
             },
+            .currentLabelId = 0,
+            .labelByteInfo = labelByteInfoPtr,
         };
     }
 
@@ -888,9 +1056,12 @@ pub const GenInfo = struct {
         }
         self.loopInfo.deinit(self.allocator);
         self.allocator.destroy(self.loopInfo);
+
+        self.labelByteInfo.deinit(self.allocator);
+        self.allocator.destroy(self.labelByteInfo);
     }
 
-    pub fn writeChunks(self: Self, writer: *Writer) !void {
+    pub fn writeChunks(self: *Self, writer: *Writer) !void {
         try writer.writeByte(self.vmInfo.version);
         var buf: [vmInfo.START_STACK_SIZE]u8 = undefined;
         std.mem.writeInt(vmInfo.StartStackType, &buf, self.vmInfo.stackStartSize, .little);
@@ -903,7 +1074,6 @@ pub const GenInfo = struct {
     }
 
     pub fn appendChunk(self: *Self, data: Instr) !*InstrChunk {
-        self.byteCounter += data.getInstrLen();
         const newChunk = try self.chunks.pool.create();
         newChunk.* = InstrChunk.init(data);
 
@@ -921,6 +1091,12 @@ pub const GenInfo = struct {
         }
 
         return newChunk;
+    }
+
+    pub fn takeLabelId(self: *Self) vmInfo.LabelType {
+        const res = self.currentLabelId;
+        self.currentLabelId += 1;
+        return res;
     }
 
     pub fn getAvailableReg(self: *Self) !TempRegister {
@@ -979,6 +1155,13 @@ pub const GenInfo = struct {
     }
 
     pub fn releaseRegister(self: *Self, reg: TempRegister) void {
+        const info = self.registers.infos.items[reg];
+
+        if (info.varInfo) |varInfo| {
+            _ = self.varNameReg.remove(varInfo.name);
+            self.varGenInfoPool.destroy(varInfo);
+        }
+
         self.registers.infos.items[reg] = .{};
     }
 
@@ -1002,6 +1185,17 @@ pub const GenInfo = struct {
         self.registers.infos.items[regValue].varInfo = varGenInfo;
     }
 
+    // deactivates register and removes it from variable scopes
+    pub fn removeVariableRegister(self: *Self, name: []const u8) void {
+        if (self.varNameReg.get(name)) |info| {
+            self.registers.scopes.removeRegister(info.reg);
+            self.registers.infos.items[info.reg].varInfo = null;
+            self.registers.infos.items[info.reg].active = false;
+            self.varGenInfoPool.destroy(info);
+            self.varNameReg.remove(name);
+        }
+    }
+
     pub fn isRegVariable(self: Self, reg: TempRegister) bool {
         return self.registers.infos.items[reg].varInfo != null;
     }
@@ -1010,7 +1204,7 @@ pub const GenInfo = struct {
         try self.registers.scopes.pushScope();
     }
 
-    pub fn popScope(self: *Self) ![]TempRegister {
+    fn popScope(self: *Self) ![]TempRegister {
         return self.registers.scopes.popScope();
     }
 
@@ -1022,15 +1216,14 @@ pub const GenInfo = struct {
 
     pub fn popLoopInfo(self: *Self) void {
         const last = self.loopInfo.pop();
-        const endByte = self.byteCounter;
 
         if (last) |info| {
             for (info.breaks.items) |chunk| {
-                writeLoopJump(chunk, endByte);
+                setJumpAmount(chunk.chunk, chunk.label);
             }
 
             for (info.continues.items) |chunk| {
-                writeLoopJump(chunk, info.continueInstr);
+                setJumpAmount(chunk.chunk, info.continueLabel);
             }
 
             info.deinit();
@@ -1054,10 +1247,10 @@ pub const GenInfo = struct {
         }
     }
 
-    pub fn setContinueByte(self: *Self) void {
+    pub fn setContinueLabel(self: *Self, label: vmInfo.LabelType) void {
         const loopInfo = self.currentLoopInfo();
         if (loopInfo) |info| {
-            info.setContinueByte(self.byteCounter);
+            info.setContinueLabel(label);
         }
     }
 
@@ -1073,26 +1266,24 @@ pub const GenInfo = struct {
         return self.varNameReg.get(name);
     }
 
-    pub fn finishProc(self: *Self) !void {
+    pub fn finishProc(self: *Self, allocator: Allocator, context: *Context) !void {
         const listStart = self.chunks.listStart orelse return;
         const start = self.procInfo.startInstr orelse return;
         const end = self.chunks.listEnd orelse return;
 
-        // NOTE - may cause issues u64 -> u16 but prob not much, change if problems happen
-        if (self.procInfo.stackFrameSize > std.math.maxInt(u16)) {
-            return CodeGenError.StackFrameSizeTooLarge;
-        }
+        try self.labelByteInfo.reserveLabelCount(allocator, self.currentLabelId);
+
+        const spInstructions = try getSpIncInstructions(self.procInfo.stackFrameSize);
+
+        self.byteCounter = vmInfo.VM_INFO_BYTECODE_LEN;
+        try adjustInstructions(allocator, context, start, self.procInfo.stackFrameSize);
 
         if (self.procInfo.stackFrameSize == 0) return;
 
-        adjustStackLocations(start, self.procInfo.stackFrameSize);
+        self.byteCounter += spInstructions.add.getInstrLen() + spInstructions.sub.getInstrLen();
 
-        const addSpInstr = Instr{ .AddSp16 = @intCast(self.procInfo.stackFrameSize) };
-        const subSpInstr = Instr{ .SubSp16 = @intCast(self.procInfo.stackFrameSize) };
-        self.byteCounter += addSpInstr.getInstrLen() + subSpInstr.getInstrLen();
-
-        const addChunk = try self.chunks.newChunk(addSpInstr);
-        const subChunk = try self.chunks.newChunk(subSpInstr);
+        const addChunk = try self.chunks.newChunk(spInstructions.add);
+        const subChunk = try self.chunks.newChunk(spInstructions.sub);
 
         if (start.prev) |prev| {
             prev.next = addChunk;
@@ -1152,17 +1343,34 @@ pub const GenInfo = struct {
     }
 };
 
-fn adjustStackLocations(chunk: *InstrChunk, frameSize: u64) void {
+fn adjustInstructions(
+    allocator: Allocator,
+    context: *Context,
+    chunk: *InstrChunk,
+    frameSize: u64,
+) !void {
     var current: ?*InstrChunk = chunk;
-    while (current) |val| {
-        adjustStackLocation(val, frameSize);
-        current = current.?.next;
+    while (current) |instr| : (current = current.?.next) {
+        try adjustInstruction(allocator, context, instr, frameSize);
+        context.genInfo.byteCounter += instr.data.getInstrLen();
     }
 }
 
 /// adjusts store instructions that are based on sp offsets
-fn adjustStackLocation(chunk: *InstrChunk, frameSize: u64) void {
+fn adjustInstruction(
+    allocator: Allocator,
+    context: *Context,
+    chunk: *InstrChunk,
+    frameSize: u64,
+) !void {
     switch (chunk.data) {
+        .Label => |label| {
+            context.genInfo.labelByteInfo.setLabelLocation(
+                allocator,
+                label,
+                context.genInfo.byteCounter,
+            );
+        },
         .Store8AtSpNegOffset16,
         .Store16AtSpNegOffset16,
         .Store32AtSpNegOffset16,
@@ -1174,22 +1382,67 @@ fn adjustStackLocation(chunk: *InstrChunk, frameSize: u64) void {
             instr.subTo = @intCast(frameSize - instr.subTo);
             instr.offset = @intCast(frameSize - instr.offset);
         },
-        .MovSpNegOffset16 => |*instr| {
-            instr.offset = @intCast(frameSize - instr.offset);
+        .MovSpNegOffsetAny => |*instr| {
+            const newInstr = try movSpNegOffset(instr.reg, frameSize - instr.offset);
+            chunk.data = newInstr;
+        },
+        .MovSpNegOffset16, .MovSpNegOffset32, .MovSpNegOffset64 => {},
+        .Jump,
+        .JumpEQ,
+        .JumpNE,
+        .JumpGT,
+        .JumpLT,
+        .JumpGTE,
+        .JumpLTE,
+        .JumpBack,
+        .JumpBackEQ,
+        .JumpBackNE,
+        .JumpBackGT,
+        .JumpBackLT,
+        .JumpBackGTE,
+        .JumpBackLTE,
+        => |*data| {
+            const labelId = data.*;
+            data.* = context.genInfo.byteCounter;
+
+            const hasLabel = try context.genInfo.labelByteInfo.hasLabel(@intCast(labelId));
+            if (!hasLabel) {
+                try context.genInfo.labelByteInfo.waitForLabel(allocator, @intCast(labelId), data);
+            }
         },
         else => {},
     }
 }
 
-fn writeLoopJump(info: InstrInfo, endByte: u64) void {
-    const diff = @as(u16, @intCast(endByte - info.location));
-    setJumpAmount(info.chunk, diff);
+fn movSpNegOffset(reg: TempRegister, offset: u64) !Instr {
+    const spOpSize = try getSpOpSizeFromNum(offset);
+
+    return switch (spOpSize) {
+        .U16 => Instr{
+            .MovSpNegOffset16 = .{
+                .reg = reg,
+                .offset = @intCast(offset),
+            },
+        },
+        .U32 => Instr{
+            .MovSpNegOffset32 = .{
+                .reg = reg,
+                .offset = @intCast(offset),
+            },
+        },
+        .U64 => Instr{
+            .MovSpNegOffset64 = .{
+                .reg = reg,
+                .offset = offset,
+            },
+        },
+    };
 }
 
 pub fn codegenAst(allocator: Allocator, context: *Context, tree: ast.Ast) !void {
     writeStartVMInfo(context);
     _ = try genBytecode(allocator, context, tree.root);
-    try context.genInfo.finishProc();
+    try context.genInfo.finishProc(allocator, context);
 }
 
 fn writeStartVMInfo(context: *Context) void {
@@ -1358,22 +1611,21 @@ pub fn genBytecode(
                     _ = try context.genInfo.appendChunk(instr);
                     return RegisterContents.initWithSize(reg, num.toAstNumberVariant().getSize());
                 },
-                .ArraySlice => |items| {
-                    const stackLocation = context.genInfo.procInfo.stackFrameSize;
+                .ArrayDec => |items| {
                     const sliceSize = node.typeInfo.size;
-                    const sliceInfo = try initSliceBytecode(
-                        context,
-                        items.len,
-                        stackLocation,
-                    );
-                    context.genInfo.procInfo.stackFrameSize += sliceSize;
 
-                    const setSliceAddrInstr = Instr{
-                        .MovSpNegOffset16 = .{
-                            .reg = sliceInfo.reg,
-                            .offset = @intCast(stackLocation + vmInfo.POINTER_SIZE * 2),
+                    const ptrReg = try context.genInfo.getAvailableReg();
+                    try context.genInfo.reserveRegister(ptrReg);
+
+                    const moveSpInstr = Instr{
+                        .MovSpNegOffsetAny = .{
+                            .reg = ptrReg,
+                            .offset = context.genInfo.procInfo.stackFrameSize,
                         },
                     };
+                    _ = try context.genInfo.appendChunk(moveSpInstr);
+
+                    context.genInfo.procInfo.stackFrameSize += sliceSize;
 
                     const itemSize = if (items.len > 0) items[0].typeInfo.size else 0;
 
@@ -1387,19 +1639,18 @@ pub fn genBytecode(
 
                         try context.genInfo.releaseScope();
 
-                        const storeInstr = try storeRegAtRegWithPostIncAndSize(
+                        const storeInstr = try storeRegAtRegWithPostInc(
                             reg,
-                            sliceInfo.reg,
-                            itemSize,
+                            ptrReg,
+                            @intCast(itemSize),
                         );
                         _ = try context.genInfo.appendChunk(storeInstr);
                     }
                     context.genInfo.settings.propertyAccessReturnsPointer = prevAccessReturn;
 
-                    _ = try context.genInfo.appendChunk(setSliceAddrInstr);
+                    _ = try context.genInfo.appendChunk(moveSpInstr);
 
-                    context.genInfo.releaseRegister(sliceInfo.reg);
-                    return .{ .Pointer = sliceInfo.reg };
+                    return .{ .Pointer = ptrReg };
                 },
                 else => {},
             }
@@ -1522,31 +1773,26 @@ pub fn genBytecode(
 
             context.genInfo.releaseIfPossible(try condReg.getRegister());
 
-            const jumpBuf = Instr{ .JumpNE = .{} };
-            const jumpChunk = try context.genInfo.appendChunk(jumpBuf);
-
-            const byteCount = context.genInfo.byteCounter;
+            const jumpLabelId = context.genInfo.takeLabelId();
+            const jumpLabel = Instr{ .Label = jumpLabelId };
+            const jumpBuf = Instr{ .JumpNE = jumpLabelId };
+            _ = try context.genInfo.appendChunk(jumpBuf);
 
             try context.genInfo.pushScope();
             _ = try genBytecode(allocator, context, statement.body);
             try context.genInfo.releaseScope();
 
             if (statement.fallback) |fallback| {
-                const jumpEndInstr = Instr{ .Jump = .{} };
-                const jumpEndChunk = try context.genInfo.appendChunk(jumpEndInstr);
+                const jumpEndLabelId = context.genInfo.takeLabelId();
+                const jumpEndInstr = Instr{ .Jump = jumpEndLabelId };
+                _ = try context.genInfo.appendChunk(jumpEndInstr);
 
-                const preFallbackByteCount = context.genInfo.byteCounter;
-
-                const diff = @as(u16, @intCast(context.genInfo.byteCounter - byteCount));
-                jumpChunk.data.JumpNE.amount = diff;
-
+                _ = try context.genInfo.appendChunk(jumpLabel);
                 try generateFallback(allocator, context, fallback);
-                const byteDiff = context.genInfo.byteCounter - preFallbackByteCount;
-                const jumpEndDiff = @as(u16, @intCast(byteDiff));
-                jumpEndChunk.data.Jump.amount = jumpEndDiff;
+                const jumpEndLabel = Instr{ .Label = jumpEndLabelId };
+                _ = try context.genInfo.appendChunk(jumpEndLabel);
             } else {
-                const diff = @as(u16, @intCast(context.genInfo.byteCounter - byteCount));
-                jumpChunk.data.JumpNE.amount = diff;
+                _ = try context.genInfo.appendChunk(jumpLabel);
             }
         },
         .ForLoop => |loop| {
@@ -1559,12 +1805,15 @@ pub fn genBytecode(
             try context.genInfo.pushLoopInfo();
             defer context.genInfo.popLoopInfo();
 
-            const preConditionByteCount = context.genInfo.byteCounter;
+            const preConditionLabelId = context.genInfo.takeLabelId();
+            const preConditionLabel = Instr{ .Label = preConditionLabelId };
+            _ = try context.genInfo.appendChunk(preConditionLabel);
+
             const condReg = try genBytecode(allocator, context, loop.condition);
             context.genInfo.settings.outputCmpAsRegister = condInfo.prevCmpAsReg;
 
-            const preBodyByteCount = context.genInfo.byteCounter;
-            var jumpEndInstr = Instr{ .JumpNE = .{} };
+            const preBodyLabelId = context.genInfo.takeLabelId();
+            var jumpEndInstr = Instr{ .JumpNE = preBodyLabelId };
 
             if (condInfo.isCompExpr) {
                 const oppositeComp = loop.condition.variant.OpExpr.type.getOppositeCompOp();
@@ -1578,21 +1827,23 @@ pub fn genBytecode(
                 _ = try context.genInfo.appendChunk(cmpInstr);
             }
 
-            const jumpEndChunk = try context.genInfo.appendChunk(jumpEndInstr);
+            _ = try context.genInfo.appendChunk(jumpEndInstr);
 
             try context.genInfo.pushScope();
             _ = try genBytecode(allocator, context, loop.body);
             try context.genInfo.releaseScope();
-            context.genInfo.setContinueByte();
+
+            const continueLabelId = context.genInfo.takeLabelId();
+            const continueLabel = Instr{ .Label = continueLabelId };
+            _ = try context.genInfo.appendChunk(continueLabel);
+            context.genInfo.setContinueLabel(continueLabelId);
+
             _ = try genBytecode(allocator, context, loop.incNode);
 
-            const jumpEndDiff: u16 = @intCast(context.genInfo.byteCounter - preBodyByteCount);
-            setJumpAmount(jumpEndChunk, jumpEndDiff);
+            const preBodyLabel = Instr{ .Label = preBodyLabelId };
+            _ = try context.genInfo.appendChunk(preBodyLabel);
 
-            var jumpStartInstr = Instr{ .JumpBack = .{} };
-            const byteDiff = context.genInfo.byteCounter - preConditionByteCount;
-            const jumpStartDiff: u16 = @intCast(byteDiff);
-            jumpStartInstr.JumpBack.amount = jumpStartDiff;
+            const jumpStartInstr = Instr{ .JumpBack = preConditionLabelId };
             _ = try context.genInfo.appendChunk(jumpStartInstr);
         },
         .WhileLoop => |loop| {
@@ -1601,11 +1852,13 @@ pub fn genBytecode(
 
             const condInfo = prepForLoopCondition(context, loop.condition);
 
-            const preConditionByteCount = context.genInfo.byteCounter;
+            const preConditionLabelId = context.genInfo.takeLabelId();
+            const preConditionLabel = Instr{ .Label = preConditionLabelId };
+            _ = try context.genInfo.appendChunk(preConditionLabel);
             const condReg = try genBytecode(allocator, context, loop.condition);
 
-            const preBodyByteCount = context.genInfo.byteCounter;
-            var jumpEndInstr = Instr{ .JumpNE = .{} };
+            const preBodyLabelId = context.genInfo.takeLabelId();
+            var jumpEndInstr = Instr{ .JumpNE = preBodyLabelId };
 
             if (condInfo.isCompExpr) {
                 const oppositeComp = loop.condition.variant.OpExpr.type.getOppositeCompOp();
@@ -1619,20 +1872,21 @@ pub fn genBytecode(
                 _ = try context.genInfo.appendChunk(cmpInstr);
             }
 
-            const jumpEndChunk = try context.genInfo.appendChunk(jumpEndInstr);
+            _ = try context.genInfo.appendChunk(jumpEndInstr);
 
             try context.genInfo.pushScope();
             _ = try genBytecode(allocator, context, loop.body);
             try context.genInfo.releaseScope();
-            context.genInfo.setContinueByte();
 
-            const jumpEndDiff = @as(u16, @intCast(context.genInfo.byteCounter - preBodyByteCount));
-            setJumpAmount(jumpEndChunk, jumpEndDiff);
+            const continueLabelId = context.genInfo.takeLabelId();
+            const continueLabel = Instr{ .Label = continueLabelId };
+            _ = try context.genInfo.appendChunk(continueLabel);
+            context.genInfo.setContinueLabel(continueLabelId);
 
-            var jumpStartInstr = Instr{ .JumpBack = .{} };
-            const byteDiff = context.genInfo.byteCounter - preConditionByteCount;
-            const jumpStartDiff = @as(u16, @intCast(byteDiff));
-            jumpStartInstr.JumpBack.amount = jumpStartDiff;
+            const preBodyLabel = Instr{ .Label = preBodyLabelId };
+            _ = try context.genInfo.appendChunk(preBodyLabel);
+
+            const jumpStartInstr = Instr{ .JumpBack = preConditionLabelId };
             _ = try context.genInfo.appendChunk(jumpStartInstr);
         },
         .IncOne => |inc| {
@@ -1689,40 +1943,40 @@ pub fn genBytecode(
             const loopInfo = context.genInfo.currentLoopInfo() orelse
                 return CodeGenError.ExpectedLoopInfo;
 
-            const buf = Instr{ .Jump = .{} };
+            const breakLabelId = context.genInfo.takeLabelId();
+            const buf = Instr{ .Jump = breakLabelId };
             const chunk = try context.genInfo.appendChunk(buf);
-            const byteCount = context.genInfo.byteCounter;
-            try loopInfo.appendBreak(chunk, byteCount);
+            try loopInfo.appendBreak(chunk, breakLabelId);
         },
         .Continue => {
             const loopInfo = context.genInfo.currentLoopInfo() orelse
                 return CodeGenError.ExpectedLoopInfo;
 
-            const instr = Instr{ .Jump = .{} };
+            const continueLabelId = context.genInfo.takeLabelId();
+            const instr = Instr{ .Jump = continueLabelId };
             const chunk = try context.genInfo.appendChunk(instr);
-            const byteCount = context.genInfo.byteCounter;
-            try loopInfo.appendContinue(chunk, byteCount);
+            try loopInfo.appendContinue(chunk, continueLabelId);
         },
         .ArrayInit => |init| {
-            const sfSize = context.genInfo.procInfo.stackFrameSize;
             const initSize = node.typeInfo.size;
 
-            const initLen = try std.fmt.parseInt(u64, init.size, 10);
-            const sliceInfo = try initSliceBytecode(context, initLen, sfSize);
-            defer context.genInfo.releaseRegister(sliceInfo.reg);
-            context.genInfo.procInfo.stackFrameSize += initSize;
-
-            const setSliceAddrInstr = Instr{
-                .MovSpNegOffset16 = .{
-                    .reg = sliceInfo.reg,
-                    .offset = @intCast(sfSize),
+            // where to write arr data
+            const ptrReg = try context.genInfo.getAvailableReg();
+            try context.genInfo.reserveRegister(ptrReg);
+            const moveSpInstr = Instr{
+                .MovSpNegOffsetAny = .{
+                    .reg = ptrReg,
+                    .offset = context.genInfo.procInfo.stackFrameSize,
                 },
             };
+            _ = try context.genInfo.appendChunk(moveSpInstr);
+
+            const initLen = try std.fmt.parseInt(u64, init.size, 10);
+            context.genInfo.procInfo.stackFrameSize += initSize;
 
             const lenReg = try context.genInfo.getAvailableReg();
             try context.genInfo.reserveRegister(lenReg);
             defer context.genInfo.releaseRegister(lenReg);
-
             const movLen = Instr{
                 .SetReg64 = .{
                     .reg = lenReg,
@@ -1731,7 +1985,31 @@ pub fn genBytecode(
             };
             _ = try context.genInfo.appendChunk(movLen);
 
-            const preCmpByteCount = context.genInfo.byteCounter;
+            // register for holding current index
+            var indexReg: ?TempRegister = null;
+            defer if (indexReg) |reg| {
+                context.genInfo.releaseRegister(reg);
+            };
+            if (init.indexIdent) |ident| {
+                indexReg = try context.genInfo.getAvailableReg();
+                try context.genInfo.reserveRegister(indexReg.?);
+                try context.genInfo.setVariableRegister(
+                    ident,
+                    RegisterContents.initWithSize(indexReg.?, vmInfo.POINTER_SIZE),
+                );
+
+                const setZeroInstr = Instr{
+                    .SetReg8 = .{
+                        .reg = indexReg.?,
+                        .data = 0,
+                    },
+                };
+                _ = try context.genInfo.appendChunk(setZeroInstr);
+            }
+
+            const preCmpLabelId = context.genInfo.takeLabelId();
+            const preCmpLabel = Instr{ .Label = preCmpLabelId };
+            _ = try context.genInfo.appendChunk(preCmpLabel);
 
             const cmpLen = Instr{
                 .CmpConst8 = .{
@@ -1741,24 +2019,24 @@ pub fn genBytecode(
             };
             _ = try context.genInfo.appendChunk(cmpLen);
 
-            const postCmpByteCount = context.genInfo.byteCounter;
+            const postCmpLabelId = context.genInfo.takeLabelId();
+            const postCmpLabel = Instr{ .Label = postCmpLabelId };
+            _ = try context.genInfo.appendChunk(postCmpLabel);
 
-            const jumpInstr = Instr{ .JumpEQ = .{} };
-            const jumpChunk = try context.genInfo.appendChunk(jumpInstr);
+            const jumpInstrLabelId = context.genInfo.takeLabelId();
+            const jumpInstr = Instr{ .JumpEQ = jumpInstrLabelId };
+            _ = try context.genInfo.appendChunk(jumpInstr);
 
             try context.genInfo.pushScope();
             const resReg = try genBytecode(allocator, context, init.initNode) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
             try context.genInfo.releaseScope();
 
-            // TODO - maybe choose different size store instr
-            const writeInstr = Instr{
-                .Store64AtRegPostInc16 = .{
-                    .fromReg = try resReg.getRegister(),
-                    .toRegPtr = sliceInfo.reg,
-                    .inc = @intCast(try init.initType.astType.getSize(context)),
-                },
-            };
+            const writeInstr = try storeRegAtRegWithPostInc(
+                resReg,
+                ptrReg,
+                @intCast(try init.initType.astType.getSize(context)),
+            );
             _ = try context.genInfo.appendChunk(writeInstr);
 
             const subLen = Instr{
@@ -1770,19 +2048,26 @@ pub fn genBytecode(
             };
             _ = try context.genInfo.appendChunk(subLen);
 
-            const diff: u16 = @intCast(context.genInfo.byteCounter - postCmpByteCount);
-            jumpChunk.data.JumpEQ.amount = diff;
+            if (indexReg) |reg| {
+                const addInstr = Instr{
+                    .Add8 = .{
+                        .dest = reg,
+                        .reg = reg,
+                        .data = 1,
+                    },
+                };
+                _ = try context.genInfo.appendChunk(addInstr);
+            }
 
-            const jumpStart = Instr{
-                .JumpBack = .{
-                    .amount = @intCast(context.genInfo.byteCounter - preCmpByteCount),
-                },
-            };
+            const jumpInstrLabel = Instr{ .Label = jumpInstrLabelId };
+            _ = try context.genInfo.appendChunk(jumpInstrLabel);
 
+            const jumpStart = Instr{ .JumpBack = preCmpLabelId };
             _ = try context.genInfo.appendChunk(jumpStart);
-            _ = try context.genInfo.appendChunk(setSliceAddrInstr);
 
-            return .{ .Pointer = sliceInfo.reg };
+            _ = try context.genInfo.appendChunk(moveSpInstr);
+
+            return .{ .Pointer = ptrReg };
         },
         .Dereference => |inner| {
             const resReg = try genBytecode(allocator, context, inner) orelse
@@ -1827,11 +2112,10 @@ pub fn genBytecode(
                     break :a spCount;
                 };
 
-                const u16Location: u16 = @intCast(location);
                 const setLocInstr = Instr{
-                    .MovSpNegOffset16 = .{
+                    .MovSpNegOffsetAny = .{
                         .reg = ptrReg,
-                        .offset = u16Location,
+                        .offset = location,
                     },
                 };
                 _ = try context.genInfo.appendChunk(setLocInstr);
@@ -1962,9 +2246,9 @@ pub fn genBytecode(
 
             if (!writeToReg) {
                 const storePtrInstr = Instr{
-                    .MovSpNegOffset16 = .{
+                    .MovSpNegOffsetAny = .{
                         .reg = resPtrReg,
-                        .offset = @intCast(startLoc),
+                        .offset = startLoc,
                     },
                 };
                 _ = try context.genInfo.appendChunk(storePtrInstr);
@@ -2035,6 +2319,41 @@ pub fn genBytecode(
     }
 
     return null;
+}
+
+fn getSpIncInstructions(size: u64) !struct {
+    add: Instr,
+    sub: Instr,
+} {
+    const spOpSize = try getSpOpSizeFromNum(size);
+
+    return switch (spOpSize) {
+        .U16 => .{
+            .add = Instr{ .AddSp16 = @intCast(size) },
+            .sub = Instr{ .SubSp16 = @intCast(size) },
+        },
+        .U32 => .{
+            .add = Instr{ .AddSp32 = @intCast(size) },
+            .sub = Instr{ .SubSp32 = @intCast(size) },
+        },
+        .U64 => .{
+            .add = Instr{ .AddSp64 = @intCast(size) },
+            .sub = Instr{ .SubSp64 = @intCast(size) },
+        },
+    };
+}
+
+fn getSpOpSizeFromNum(num: u64) !SpOpSizes {
+    var res: ?SpOpSizes = null;
+
+    inline for (sizeToOpSizeTuple) |tuple| {
+        if (num < tuple[0]) {
+            res = tuple[1];
+            break;
+        }
+    }
+
+    return res orelse CodeGenError.StackFrameSizeTooLarge;
 }
 
 /// returns register holding a pointer
@@ -2229,37 +2548,30 @@ fn storeRegAtSpNegOffsetAndSize(regContents: RegisterContents, loc: u64, size: u
     };
 }
 
-fn storeRegAtRegWithPostIncAndSize(
-    regContents: RegisterContents,
-    ptrReg: TempRegister,
-    size: u64,
-) !Instr {
-    const reg = try regContents.getRegister();
-    const inc: u16 = @intCast(size);
-
-    return switch (size) {
-        1 => Instr{
+fn storeRegAtRegWithPostInc(regContents: RegisterContents, ptrReg: TempRegister, inc: u16) !Instr {
+    return switch (regContents) {
+        .Bytes1 => |reg| Instr{
             .Store8AtRegPostInc16 = .{
                 .fromReg = reg,
                 .toRegPtr = ptrReg,
                 .inc = inc,
             },
         },
-        2 => Instr{
+        .Bytes2 => |reg| Instr{
             .Store16AtRegPostInc16 = .{
                 .fromReg = reg,
                 .toRegPtr = ptrReg,
                 .inc = inc,
             },
         },
-        3, 4 => Instr{
+        .Bytes4 => |reg| Instr{
             .Store32AtRegPostInc16 = .{
                 .fromReg = reg,
                 .toRegPtr = ptrReg,
                 .inc = inc,
             },
         },
-        5...8 => Instr{
+        .Bytes8 => |reg| Instr{
             .Store64AtRegPostInc16 = .{
                 .fromReg = reg,
                 .toRegPtr = ptrReg,
@@ -2305,9 +2617,9 @@ fn initSliceBytecode(
     _ = try context.genInfo.appendChunk(writeLen);
 
     const setArrStart = Instr{
-        .MovSpNegOffset16 = .{
+        .MovSpNegOffsetAny = .{
             .reg = reg,
-            .offset = @intCast(slicePadding.offset + vmInfo.POINTER_SIZE * 2),
+            .offset = slicePadding.offset + vmInfo.POINTER_SIZE * 2,
         },
     };
     _ = try context.genInfo.appendChunk(setArrStart);
@@ -2343,7 +2655,7 @@ fn prepForLoopCondition(context: *Context, condition: *ast.AstNode) LoopCondInfo
     };
 }
 
-fn setJumpAmount(chunk: *InstrChunk, amount: u16) void {
+fn setJumpAmount(chunk: *InstrChunk, label: vmInfo.LabelType) void {
     switch (chunk.data) {
         .Jump,
         .JumpEQ,
@@ -2360,7 +2672,7 @@ fn setJumpAmount(chunk: *InstrChunk, amount: u16) void {
         .JumpBackGTE,
         .JumpBackLTE,
         => |*instr| {
-            instr.amount = amount;
+            instr.* = label;
         },
         else => unreachable,
     }
@@ -2380,20 +2692,20 @@ fn exprTypeToCmpSetReg(expr: ast.OpExprTypes) Instr {
 
 fn compOpToJump(opType: ast.OpExprTypes, back: bool) !Instr {
     return if (back) switch (opType) {
-        .Equal => .{ .JumpBackEQ = .{} },
-        .NotEqual => .{ .JumpBackNE = .{} },
-        .GreaterThan => .{ .JumpBackGT = .{} },
-        .LessThan => .{ .JumpBackLT = .{} },
-        .GreaterThanEq => .{ .JumpBackGTE = .{} },
-        .LessThanEq => .{ .JumpBackLTE = .{} },
+        .Equal => .{ .JumpBackEQ = 0 },
+        .NotEqual => .{ .JumpBackNE = 0 },
+        .GreaterThan => .{ .JumpBackGT = 0 },
+        .LessThan => .{ .JumpBackLT = 0 },
+        .GreaterThanEq => .{ .JumpBackGTE = 0 },
+        .LessThanEq => .{ .JumpBackLTE = 0 },
         else => return CodeGenError.NoJumpInstructionMatchingComp,
     } else switch (opType) {
-        .Equal => .{ .JumpEQ = .{} },
-        .NotEqual => .{ .JumpNE = .{} },
-        .GreaterThan => .{ .JumpGT = .{} },
-        .LessThan => .{ .JumpLT = .{} },
-        .GreaterThanEq => .{ .JumpGTE = .{} },
-        .LessThanEq => .{ .JumpLTE = .{} },
+        .Equal => .{ .JumpEQ = 0 },
+        .NotEqual => .{ .JumpNE = 0 },
+        .GreaterThan => .{ .JumpGT = 0 },
+        .LessThan => .{ .JumpLT = 0 },
+        .GreaterThanEq => .{ .JumpGTE = 0 },
+        .LessThanEq => .{ .JumpLTE = 0 },
         else => return CodeGenError.NoJumpInstructionMatchingComp,
     };
 }
@@ -2403,7 +2715,7 @@ fn generateFallback(
     context: *Context,
     fallback: ast.FallbackInfo,
 ) !void {
-    var jumpChunk: ?*InstrChunk = null;
+    var jumpLabelId: ?vmInfo.LabelType = null;
 
     const statement = fallback.node.variant.IfStatement;
 
@@ -2418,35 +2730,36 @@ fn generateFallback(
 
         context.genInfo.releaseIfPossible(try condReg.getRegister());
 
-        const jumpInstr = Instr{ .JumpNE = .{} };
-        jumpChunk = try context.genInfo.appendChunk(jumpInstr);
+        jumpLabelId = context.genInfo.takeLabelId();
+        const jumpInstr = Instr{ .JumpNE = jumpLabelId.? };
+        _ = try context.genInfo.appendChunk(jumpInstr);
     }
-
-    const preBodyByteCount = context.genInfo.byteCounter;
 
     _ = try genBytecode(allocator, context, statement.body);
 
     if (statement.fallback) |newFallback| {
-        const jumpEndInstr = Instr{ .Jump = .{} };
-        const jumpEndChunk = try context.genInfo.appendChunk(jumpEndInstr);
+        const jumpEndLabelId = context.genInfo.takeLabelId();
+        const jumpEndInstr = Instr{ .Jump = jumpEndLabelId };
+        _ = try context.genInfo.appendChunk(jumpEndInstr);
 
-        const preFallbackByteCount = context.genInfo.byteCounter;
-
-        if (jumpChunk) |chunk| {
-            const diff = @as(u16, @intCast(context.genInfo.byteCounter - preBodyByteCount));
-            chunk.data.JumpNE.amount = diff;
+        if (jumpLabelId) |labelId| {
+            const jumpLabel = Instr{ .Label = labelId };
+            _ = try context.genInfo.appendChunk(jumpLabel);
         }
 
         try generateFallback(allocator, context, newFallback);
-        const diff = @as(u16, @intCast(context.genInfo.byteCounter - preFallbackByteCount));
-        jumpEndChunk.data.Jump.amount = diff;
+        const jumpEndLabel = Instr{ .Label = jumpEndLabelId };
+        _ = try context.genInfo.appendChunk(jumpEndLabel);
     }
 }
 
 fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
+    if (chunk.data == .Label) return;
+
     try writer.writeByte(chunk.data.getInstrByte());
 
     switch (chunk.data) {
+        .Label => unreachable,
         .SetReg64 => |instr| {
             try writer.writeByte(@intCast(instr.reg));
             try writeNumber(u64, instr.data, writer);
@@ -2503,7 +2816,7 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
         .JumpBackGTE,
         .JumpBackLTE,
         => |instr| {
-            try writer.writeInt(u16, instr.amount, .little);
+            try writer.writeInt(u32, @intCast(instr), .little);
         },
         .Cmp => |instr| {
             try writer.writeByte(@intCast(instr.reg1));
@@ -2517,12 +2830,18 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
             try writer.writeByte(@intCast(instr.dest));
             try writer.writeByte(@intCast(instr.src));
         },
-        .MovSp => |instr| {
-            try writer.writeByte(@intCast(instr));
-        },
+        .MovSpNegOffsetAny => unreachable,
         .MovSpNegOffset16 => |instr| {
             try writer.writeByte(@intCast(instr.reg));
             try writer.writeInt(u16, instr.offset, .little);
+        },
+        .MovSpNegOffset32 => |instr| {
+            try writer.writeByte(@intCast(instr.reg));
+            try writer.writeInt(u32, instr.offset, .little);
+        },
+        .MovSpNegOffset64 => |instr| {
+            try writer.writeByte(@intCast(instr.reg));
+            try writer.writeInt(u64, instr.offset, .little);
         },
         .XorConst8 => |instr| {
             try writer.writeByte(@intCast(instr.dest));
@@ -2531,6 +2850,12 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
         },
         .AddSp16, .SubSp16 => |instr| {
             try writer.writeInt(u16, instr, .little);
+        },
+        .AddSp32, .SubSp32 => |instr| {
+            try writer.writeInt(u32, instr, .little);
+        },
+        .AddSp64, .SubSp64 => |instr| {
+            try writer.writeInt(u64, instr, .little);
         },
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,

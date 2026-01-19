@@ -281,36 +281,32 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 runtimeInfo.registers[bytecode[current + 1]] = reg1Val ^ byte;
             },
             .AddSp16 => {
-                const amount = std.mem.readInt(
-                    u16,
-                    @ptrCast(bytecode[current + 1 .. current + 3]),
-                    .little,
-                );
-                runtimeInfo.ptrs.sp += amount;
-                try ensureStackCapacityAndLength(
-                    allocator,
-                    runtimeInfo.stack,
-                    runtimeInfo.ptrs.sp,
-                );
+                try addSp(u16, allocator, runtimeInfo, bytecode, current);
+            },
+            .AddSp32 => {
+                try addSp(u32, allocator, runtimeInfo, bytecode, current);
+            },
+            .AddSp64 => {
+                try addSp(u64, allocator, runtimeInfo, bytecode, current);
             },
             .SubSp16 => {
-                const amount = std.mem.readInt(
-                    u16,
-                    @ptrCast(bytecode[current + 1 .. current + 3]),
-                    .little,
-                );
-                runtimeInfo.ptrs.sp -= amount;
+                subSp(u16, runtimeInfo, bytecode, current);
             },
-            .MovSp => {
-                runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.ptrs.sp;
+            .SubSp32 => {
+                subSp(u32, runtimeInfo, bytecode, current);
             },
+            .SubSp64 => {
+                subSp(u64, runtimeInfo, bytecode, current);
+            },
+            .MovSpNegOffsetAny => unreachable,
             .MovSpNegOffset16 => {
-                const offset = std.mem.readInt(
-                    u16,
-                    @ptrCast(bytecode[current + 2 .. current + 4]),
-                    .little,
-                );
-                runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.ptrs.sp - offset;
+                movSpNegOffset(u16, runtimeInfo, bytecode, current);
+            },
+            .MovSpNegOffset32 => {
+                movSpNegOffset(u32, runtimeInfo, bytecode, current);
+            },
+            .MovSpNegOffset64 => {
+                movSpNegOffset(u64, runtimeInfo, bytecode, current);
             },
             .Store64AtRegPostInc16 => {
                 try storeAtRegPostInc(u64, u16, allocator, runtimeInfo, bytecode, current);
@@ -418,10 +414,63 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 runtimeInfo.registers[dest] = toAdd + (mulReg * data);
             },
             .MovByteRange => utils.unimplemented(),
+            .Label => unreachable,
         }
 
         current += instLen;
     }
+}
+
+fn movSpNegOffset(
+    comptime T: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const tBytes = @sizeOf(T);
+    const offset = std.mem.readInt(
+        T,
+        @ptrCast(bytecode[current + 2 .. current + 2 + tBytes]),
+        .little,
+    );
+    runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.ptrs.sp - offset;
+}
+
+fn addSp(
+    comptime T: type,
+    allocator: Allocator,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) !void {
+    const tBytes = @sizeOf(T);
+
+    const amount = std.mem.readInt(
+        T,
+        @ptrCast(bytecode[current + 1 .. current + 1 + tBytes]),
+        .little,
+    );
+    runtimeInfo.ptrs.sp += amount;
+    try ensureStackCapacityAndLength(
+        allocator,
+        runtimeInfo.stack,
+        runtimeInfo.ptrs.sp,
+    );
+}
+
+fn subSp(
+    comptime T: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const tBytes = @sizeOf(T);
+    const amount = std.mem.readInt(
+        T,
+        @ptrCast(bytecode[current + 1 .. current + 1 + tBytes]),
+        .little,
+    );
+    runtimeInfo.ptrs.sp -= amount;
 }
 
 fn storeAtRegPostInc(
@@ -460,12 +509,12 @@ fn loadAtRegOffset16(
     bytecode: []const u8,
     current: u64,
 ) void {
-    const tBits = @divExact(@typeInfo(T).int.bits, 8);
+    const tBytes = @divExact(@typeInfo(T).int.bits, 8);
 
     const dest = bytecode[current + 1];
     const source = runtimeInfo.registers[bytecode[current + 2]];
     const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
-    const byteData: *const [tBits]u8 = @ptrCast(runtimeInfo.stack.items[source + offset .. source + offset + tBits]);
+    const byteData: *const [tBytes]u8 = @ptrCast(runtimeInfo.stack.items[source + offset .. source + offset + tBytes]);
     const resInt: T = @bitCast(byteData.*);
     runtimeInfo.registers[dest] = @intCast(resInt);
 }
@@ -476,11 +525,11 @@ fn loadAtReg(
     bytecode: []const u8,
     current: u64,
 ) void {
-    const tBits = @divExact(@typeInfo(T).int.bits, 8);
+    const tBytes = @divExact(@typeInfo(T).int.bits, 8);
 
     const dest = bytecode[current + 1];
     const source = runtimeInfo.registers[bytecode[current + 2]];
-    const byteData: *const [tBits]u8 = @ptrCast(runtimeInfo.stack.items[source .. source + tBits]);
+    const byteData: *const [tBytes]u8 = @ptrCast(runtimeInfo.stack.items[source .. source + tBytes]);
     const resInt: T = @bitCast(byteData.*);
     runtimeInfo.registers[dest] = @intCast(resInt);
 }
