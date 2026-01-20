@@ -1,7 +1,5 @@
-let a = true;
-
-if (!a) {
+for (let mut i = 0; i < 10; i++) {
+    let a = 2;
     let b = 2;
-} else {
-    let c = 3;
+    let h = i;
 }

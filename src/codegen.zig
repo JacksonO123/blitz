@@ -928,6 +928,7 @@ const LabelByteInfo = struct {
         label: vmInfo.LabelType,
         location: u64,
     ) void {
+        self.labelExists[label] = true;
         self.labelBytes[label] = location;
 
         if (self.waitingLabels.get(label)) |arrList| {
@@ -942,12 +943,13 @@ const LabelByteInfo = struct {
         }
     }
 
-    pub fn hasLabel(self: *Self, label: vmInfo.LabelType) !bool {
-        if (label >= self.labelExists.len) {
+    pub fn getLabelLocation(self: *Self, labelId: vmInfo.LabelType) !?u64 {
+        if (labelId >= self.labelExists.len) {
             return CodeGenError.LabelDoesNotExist;
         }
 
-        return self.labelExists[label];
+        if (!self.labelExists[labelId]) return null;
+        return self.labelBytes[labelId];
     }
 
     /// labelPtr must point to the label to watch for, and be the memory
@@ -1407,10 +1409,23 @@ fn adjustInstruction(
         .JumpBackLTE,
         => |*data| {
             const labelId = data.*;
-            data.* = context.genInfo.byteCounter + chunk.data.getInstrLen();
 
-            const hasLabel = try context.genInfo.labelByteInfo.hasLabel(@intCast(labelId));
-            if (!hasLabel) {
+            if (try context.genInfo.labelByteInfo.getLabelLocation(@intCast(labelId))) |offset| {
+                data.* = context.genInfo.byteCounter - offset;
+            } else {
+                const byteOffset = switch (chunk.data) {
+                    .JumpBack,
+                    .JumpBackEQ,
+                    .JumpBackNE,
+                    .JumpBackGT,
+                    .JumpBackLT,
+                    .JumpBackGTE,
+                    .JumpBackLTE,
+                    => 0,
+                    else => chunk.data.getInstrLen(),
+                };
+                data.* = context.genInfo.byteCounter + byteOffset;
+
                 try context.genInfo.labelByteInfo.waitForLabel(allocator, @intCast(labelId), data);
             }
         },
@@ -1821,7 +1836,7 @@ pub fn genBytecode(
 
             if (condInfo.isCompExpr) {
                 const oppositeComp = loop.condition.variant.OpExpr.type.getOppositeCompOp();
-                const jumpInstruction = try compOpToJump(oppositeComp, false);
+                const jumpInstruction = try compOpToJump(oppositeComp, preBodyLabelId, false);
                 jumpEndInstr = jumpInstruction;
             } else {
                 var cmpInstr = Instr{ .CmpConst8 = .{} };
@@ -1844,11 +1859,11 @@ pub fn genBytecode(
 
             _ = try genBytecode(allocator, context, loop.incNode);
 
-            const preBodyLabel = Instr{ .Label = preBodyLabelId };
-            _ = try context.genInfo.appendChunk(preBodyLabel);
-
             const jumpStartInstr = Instr{ .JumpBack = preConditionLabelId };
             _ = try context.genInfo.appendChunk(jumpStartInstr);
+
+            const preBodyLabel = Instr{ .Label = preBodyLabelId };
+            _ = try context.genInfo.appendChunk(preBodyLabel);
         },
         .WhileLoop => |loop| {
             try context.genInfo.pushLoopInfo();
@@ -1866,7 +1881,7 @@ pub fn genBytecode(
 
             if (condInfo.isCompExpr) {
                 const oppositeComp = loop.condition.variant.OpExpr.type.getOppositeCompOp();
-                const jumpInstruction = try compOpToJump(oppositeComp, false);
+                const jumpInstruction = try compOpToJump(oppositeComp, preBodyLabelId, false);
                 jumpEndInstr = jumpInstruction;
             } else {
                 var cmpInstr = Instr{ .CmpConst8 = .{} };
@@ -2694,22 +2709,22 @@ fn exprTypeToCmpSetReg(expr: ast.OpExprTypes) Instr {
     };
 }
 
-fn compOpToJump(opType: ast.OpExprTypes, back: bool) !Instr {
+fn compOpToJump(opType: ast.OpExprTypes, labelId: vmInfo.LabelType, back: bool) !Instr {
     return if (back) switch (opType) {
-        .Equal => .{ .JumpBackEQ = 0 },
-        .NotEqual => .{ .JumpBackNE = 0 },
-        .GreaterThan => .{ .JumpBackGT = 0 },
-        .LessThan => .{ .JumpBackLT = 0 },
-        .GreaterThanEq => .{ .JumpBackGTE = 0 },
-        .LessThanEq => .{ .JumpBackLTE = 0 },
+        .Equal => .{ .JumpBackEQ = labelId },
+        .NotEqual => .{ .JumpBackNE = labelId },
+        .GreaterThan => .{ .JumpBackGT = labelId },
+        .LessThan => .{ .JumpBackLT = labelId },
+        .GreaterThanEq => .{ .JumpBackGTE = labelId },
+        .LessThanEq => .{ .JumpBackLTE = labelId },
         else => return CodeGenError.NoJumpInstructionMatchingComp,
     } else switch (opType) {
-        .Equal => .{ .JumpEQ = 0 },
-        .NotEqual => .{ .JumpNE = 0 },
-        .GreaterThan => .{ .JumpGT = 0 },
-        .LessThan => .{ .JumpLT = 0 },
-        .GreaterThanEq => .{ .JumpGTE = 0 },
-        .LessThanEq => .{ .JumpLTE = 0 },
+        .Equal => .{ .JumpEQ = labelId },
+        .NotEqual => .{ .JumpNE = labelId },
+        .GreaterThan => .{ .JumpGT = labelId },
+        .LessThan => .{ .JumpLT = labelId },
+        .GreaterThanEq => .{ .JumpGTE = labelId },
+        .LessThanEq => .{ .JumpLTE = labelId },
         else => return CodeGenError.NoJumpInstructionMatchingComp,
     };
 }

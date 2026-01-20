@@ -751,7 +751,7 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     var byteCounter: usize = vmInfo.VM_INFO_BYTECODE_LEN;
     var next: ?*codegen.InstrChunk = chunk;
     while (next) |nextChunk| : (next = nextChunk.next) {
-        if (nextChunk.data == .Label) continue;
+        // if (nextChunk.data == .Label) continue;
 
         const chunkLen = nextChunk.data.getInstrLen();
         try writer.writeByte('[');
