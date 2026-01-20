@@ -1983,7 +1983,6 @@ pub fn genBytecode(
         .ArrayInit => |init| {
             const initSize = node.typeInfo.size;
 
-            // where to write arr data
             const ptrReg = try context.genInfo.getAvailableReg();
             try context.genInfo.reserveRegister(ptrReg);
             const moveSpInstr = Instr{
@@ -2008,7 +2007,6 @@ pub fn genBytecode(
             };
             _ = try context.genInfo.appendChunk(movLen);
 
-            // register for holding current index
             var indexReg: ?TempRegister = null;
             defer if (indexReg) |reg| {
                 context.genInfo.releaseRegister(reg);
@@ -2041,10 +2039,6 @@ pub fn genBytecode(
                 },
             };
             _ = try context.genInfo.appendChunk(cmpLen);
-
-            const postCmpLabelId = context.genInfo.takeLabelId();
-            const postCmpLabel = Instr{ .Label = postCmpLabelId };
-            _ = try context.genInfo.appendChunk(postCmpLabel);
 
             const jumpInstrLabelId = context.genInfo.takeLabelId();
             const jumpInstr = Instr{ .JumpEQ = jumpInstrLabelId };
@@ -2082,11 +2076,11 @@ pub fn genBytecode(
                 _ = try context.genInfo.appendChunk(addInstr);
             }
 
-            const jumpInstrLabel = Instr{ .Label = jumpInstrLabelId };
-            _ = try context.genInfo.appendChunk(jumpInstrLabel);
-
             const jumpStart = Instr{ .JumpBack = preCmpLabelId };
             _ = try context.genInfo.appendChunk(jumpStart);
+
+            const jumpInstrLabel = Instr{ .Label = jumpInstrLabelId };
+            _ = try context.genInfo.appendChunk(jumpInstrLabel);
 
             _ = try context.genInfo.appendChunk(moveSpInstr);
 
