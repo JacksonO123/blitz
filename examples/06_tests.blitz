@@ -2,4 +2,6 @@ let a = true;
 
 if (!a) {
     let b = 2;
+} else {
+    let c = 3;
 }

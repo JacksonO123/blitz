@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
     const compilerName = if (mode == .Debug) "blitzc-debug" else "blitzc";
     const objdumpName = if (mode == .Debug) "bzc-objdump-debug" else "bzc-objdump";
     const interpreterName = if (mode == .Debug) "blitz-debug" else "blitz";
-    const diffName = if (mode == .Debug) "blitz-diff-debug" else "blitz-diff";
+    const diffName = "blitz-diff";
 
     const compilerExe = b.addExecutable(.{
         .use_llvm = true, // for debugger variables
@@ -49,7 +49,7 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/diff_bytecode.zig"),
             .target = target,
-            .optimize = mode,
+            .optimize = .Debug,
         }),
     });
 

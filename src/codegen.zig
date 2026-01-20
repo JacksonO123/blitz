@@ -890,7 +890,11 @@ const LabelByteInfo = struct {
         allocator.destroy(self.waitingLabels);
     }
 
-    pub fn reserveLabelCount(self: *Self, allocator: Allocator, lastLabel: vmInfo.LabelType) !void {
+    pub fn reserveLabelCount(
+        self: *Self,
+        allocator: Allocator,
+        lastLabel: vmInfo.LabelType,
+    ) !void {
         // if label id is 0, no labels have been used
         if (lastLabel == 0) return;
 
@@ -1403,7 +1407,7 @@ fn adjustInstruction(
         .JumpBackLTE,
         => |*data| {
             const labelId = data.*;
-            data.* = context.genInfo.byteCounter;
+            data.* = context.genInfo.byteCounter + chunk.data.getInstrLen();
 
             const hasLabel = try context.genInfo.labelByteInfo.hasLabel(@intCast(labelId));
             if (!hasLabel) {

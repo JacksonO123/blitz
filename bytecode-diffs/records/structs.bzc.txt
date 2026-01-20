@@ -16,4 +16,4 @@ MakeStack 0x00000400(1024)
 [58] (.5) add_16 r4 r0 0x0004(4)
 [63] (.3) load_8_at_reg r4 [r4]
 [66] (.3) sub_sp_16 0x0005(5)
-total bytes: 69 (+ 5 vm info)
+total bytes: 69 (5 vm info)
