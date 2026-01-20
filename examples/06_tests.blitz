@@ -1,5 +1,7 @@
-for (let mut i = 0; i < 10; i++) {
-    let a = 2;
-    let b = 2;
-    let h = i;
+let mut a = 0;
+let mut b = true;
+
+while (b) {
+    a = a + 1;
+    b = a < 4;
 }

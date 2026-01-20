@@ -1831,18 +1831,21 @@ pub fn genBytecode(
             const condReg = try genBytecode(allocator, context, loop.condition);
             context.genInfo.settings.outputCmpAsRegister = condInfo.prevCmpAsReg;
 
-            const preBodyLabelId = context.genInfo.takeLabelId();
-            var jumpEndInstr = Instr{ .JumpNE = preBodyLabelId };
+            const loopEndLabelId = context.genInfo.takeLabelId();
+            var jumpEndInstr = Instr{ .JumpNE = loopEndLabelId };
 
             if (condInfo.isCompExpr) {
                 const oppositeComp = loop.condition.variant.OpExpr.type.getOppositeCompOp();
-                const jumpInstruction = try compOpToJump(oppositeComp, preBodyLabelId, false);
+                const jumpInstruction = try compOpToJump(oppositeComp, loopEndLabelId, false);
                 jumpEndInstr = jumpInstruction;
             } else {
-                var cmpInstr = Instr{ .CmpConst8 = .{} };
                 const regValue = condReg orelse return CodeGenError.ReturnedRegisterNotFound;
-                cmpInstr.CmpConst8.reg = try regValue.getRegister();
-                cmpInstr.CmpConst8.data = 1;
+                const cmpInstr = Instr{
+                    .CmpConst8 = .{
+                        .reg = try regValue.getRegister(),
+                        .data = 1,
+                    },
+                };
                 _ = try context.genInfo.appendChunk(cmpInstr);
             }
 
@@ -1862,8 +1865,8 @@ pub fn genBytecode(
             const jumpStartInstr = Instr{ .JumpBack = preConditionLabelId };
             _ = try context.genInfo.appendChunk(jumpStartInstr);
 
-            const preBodyLabel = Instr{ .Label = preBodyLabelId };
-            _ = try context.genInfo.appendChunk(preBodyLabel);
+            const loopEndLabel = Instr{ .Label = loopEndLabelId };
+            _ = try context.genInfo.appendChunk(loopEndLabel);
         },
         .WhileLoop => |loop| {
             try context.genInfo.pushLoopInfo();
@@ -1874,20 +1877,26 @@ pub fn genBytecode(
             const preConditionLabelId = context.genInfo.takeLabelId();
             const preConditionLabel = Instr{ .Label = preConditionLabelId };
             _ = try context.genInfo.appendChunk(preConditionLabel);
+
+            context.genInfo.setContinueLabel(preConditionLabelId);
+
             const condReg = try genBytecode(allocator, context, loop.condition);
 
-            const preBodyLabelId = context.genInfo.takeLabelId();
-            var jumpEndInstr = Instr{ .JumpNE = preBodyLabelId };
+            const loopEndLabelId = context.genInfo.takeLabelId();
+            var jumpEndInstr = Instr{ .JumpNE = loopEndLabelId };
 
             if (condInfo.isCompExpr) {
                 const oppositeComp = loop.condition.variant.OpExpr.type.getOppositeCompOp();
-                const jumpInstruction = try compOpToJump(oppositeComp, preBodyLabelId, false);
+                const jumpInstruction = try compOpToJump(oppositeComp, loopEndLabelId, false);
                 jumpEndInstr = jumpInstruction;
             } else {
-                var cmpInstr = Instr{ .CmpConst8 = .{} };
                 const regValue = condReg orelse return CodeGenError.ReturnedRegisterNotFound;
-                cmpInstr.CmpConst8.reg = try regValue.getRegister();
-                cmpInstr.CmpConst8.data = 1;
+                const cmpInstr = Instr{
+                    .CmpConst8 = .{
+                        .reg = try regValue.getRegister(),
+                        .data = 1,
+                    },
+                };
                 _ = try context.genInfo.appendChunk(cmpInstr);
             }
 
@@ -1897,16 +1906,11 @@ pub fn genBytecode(
             _ = try genBytecode(allocator, context, loop.body);
             try context.genInfo.releaseScope();
 
-            const continueLabelId = context.genInfo.takeLabelId();
-            const continueLabel = Instr{ .Label = continueLabelId };
-            _ = try context.genInfo.appendChunk(continueLabel);
-            context.genInfo.setContinueLabel(continueLabelId);
-
-            const preBodyLabel = Instr{ .Label = preBodyLabelId };
-            _ = try context.genInfo.appendChunk(preBodyLabel);
-
             const jumpStartInstr = Instr{ .JumpBack = preConditionLabelId };
             _ = try context.genInfo.appendChunk(jumpStartInstr);
+
+            const preBodyLabel = Instr{ .Label = loopEndLabelId };
+            _ = try context.genInfo.appendChunk(preBodyLabel);
         },
         .IncOne => |inc| {
             const reg = try genBytecode(allocator, context, inc) orelse
