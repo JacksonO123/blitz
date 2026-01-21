@@ -1213,8 +1213,8 @@ pub fn scanNode(
                 const attrType = attrRel.initInfo.info.astType;
                 const attrAlignment = try attrType.getAlignment(context);
 
-                const paddingInfo = utils.calculatePadding(node.typeInfo.size, attrAlignment);
-                node.typeInfo.size += try attrType.getSize(context) + paddingInfo.padding;
+                const padding = utils.calculatePadding(node.typeInfo.size, attrAlignment);
+                node.typeInfo.size += try attrType.getSize(context) + padding;
                 initAlignment = @max(initAlignment, attrAlignment);
             }
             node.typeInfo.alignment = initAlignment;

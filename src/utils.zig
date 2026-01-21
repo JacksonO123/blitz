@@ -72,13 +72,8 @@ pub inline fn dbgWriter() *std.Io.Writer {
 
 pub fn noOpFn() void {}
 
-const PaddingInfo = struct {
-    offset: u16,
-    padding: u8,
-};
-
-pub fn calculatePadding(stackLocation: u64, alignment: u8) PaddingInfo {
-    if (alignment == 0) return .{ .offset = @intCast(stackLocation), .padding = 0 };
+pub fn calculatePadding(stackLocation: u64, alignment: u8) u8 {
+    if (alignment == 0) return 0;
 
     const missAlign = stackLocation % alignment;
     const padding: u8 = if (missAlign == 0)
@@ -86,10 +81,7 @@ pub fn calculatePadding(stackLocation: u64, alignment: u8) PaddingInfo {
     else
         @intCast(alignment - missAlign);
 
-    return .{
-        .offset = @intCast(stackLocation + padding),
-        .padding = padding,
-    };
+    return padding;
 }
 
 test "Calculate padding" {

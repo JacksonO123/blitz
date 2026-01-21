@@ -1,8 +1,19 @@
-let arr = [60000u64]u64 with (index) index;
-let item = arr[59999u64];
-let a = 1;
-let b = 2;
-let c = 3;
-let d = 4;
-let e = 5;
-let f = 6;
+struct Nest {
+    bigOlBird: u64;
+}
+
+struct M {
+    nest: Nest;
+    thing: u32;
+    before: u16;
+    mini: bool;
+}
+
+let m = M {
+    before = 10u16,
+    thing = 2,
+    mini = true,
+    nest = Nest {
+        bigOlBird = 4u64,
+    }
+};

@@ -442,7 +442,7 @@ pub const StructDecNode = struct {
                 loc,
                 alignment,
             );
-            loc += padding.padding;
+            loc += padding;
 
             if (utils.compString(item.name, member)) return loc;
             loc += size;
