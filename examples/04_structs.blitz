@@ -8,7 +8,7 @@ struct Box {
     }
 }
 
-// init the struct on the stack
+// init the struct on the stacks
 let myBox = Box { size = 10 };
 let sizePlusOne = myBox.getSizePlusOne();
 

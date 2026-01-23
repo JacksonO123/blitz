@@ -24,21 +24,17 @@ const SurroundingBounds = struct {
 pub const Logger = struct {
     const Self = @This();
 
-    writer: *Writer,
     tokens: *TokenUtil,
     code: []const u8,
 
-    pub fn init(tokens: *TokenUtil, code: []const u8, writer: *Writer) Self {
+    pub fn init(tokens: *TokenUtil, code: []const u8) Self {
         return Self{
-            .writer = writer,
             .tokens = tokens,
             .code = code,
         };
     }
 
-    pub fn logError(self: *Self, errStr: []const u8) void {
-        const writer = self.writer;
-
+    pub fn logError(self: *Self, errStr: []const u8, writer: *Writer) void {
         const numSurroundingLines = 1;
         const contextBlock = findSurroundingLines(
             self.code,
@@ -120,11 +116,17 @@ fn findSurroundingLines(
 
         if (currentLine + surroundingBefore + 1 == line and beforeStart == null) {
             beforeStart = index;
+            while (code[beforeStart.?] == '\n') {
+                beforeStart.? += 1;
+            }
         } else if (currentLine + 1 == line and char == '\n') {
             beforeEnd = index;
         } else if (currentLine == line + 1 and afterStart == null) {
             afterStart = index;
-        } else if (line + numSurroundingLines == currentLine and char == '\n') {
+            while (code[afterStart.?] == '\n') {
+                afterStart.? += 1;
+            }
+        } else if (line + numSurroundingLines + 1 == currentLine and char == '\n') {
             afterEnd = index;
             break;
         }
@@ -132,26 +134,20 @@ fn findSurroundingLines(
         if (char == '\n') currentLine += 1;
     }
 
-    if (beforeStart != null) {
-        while (code[beforeStart.?] == '\n') beforeStart = beforeStart.? + 1;
-    }
-
     if (afterStart) |start| {
-        while (code[afterStart.?] == '\n') afterStart = afterStart.? + 1;
-
-        if (start + 1 == afterEnd) {
+        if (afterEnd == start + 1) {
             afterEnd = start;
         }
     }
 
     return .{
         .before = .{
-            .start = if (beforeStart) |start| start else 0,
+            .start = beforeStart orelse 0,
             .end = beforeEnd,
         },
         .after = .{
-            .start = if (afterStart) |start| start else 0,
-            .end = if (afterStart == null) 0 else afterEnd,
+            .start = afterStart orelse 0,
+            .end = afterEnd,
         },
     };
 }
@@ -185,7 +181,7 @@ fn findLineBounds(code: []const u8, line: usize) LineBounds {
     };
 }
 
-pub fn logParseError(context: *Context, err: ast.ParseError) void {
+pub fn logParseError(context: *Context, err: ast.ParseError, writer: *Writer) void {
     const errString = switch (err) {
         error.ExpectedNameForStruct => "expected name for struct",
         error.ExpectedIdentifierPropertyAccessSource => "expected identifier for property access source",
@@ -224,5 +220,5 @@ pub fn logParseError(context: *Context, err: ast.ParseError) void {
         else => @errorName(err),
     };
 
-    context.logger.logError(errString);
+    context.logger.logError(errString, writer);
 }

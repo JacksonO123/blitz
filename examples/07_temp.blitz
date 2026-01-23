@@ -1,19 +1,7 @@
-struct Nest {
-    bigOlBird: u64;
-}
-
 struct M {
-    nest: Nest;
-    thing: u32;
-    before: u16;
-    mini: bool;
+    pub ptr: *M;
 }
 
-let m = M {
-    before = 10u16,
-    thing = 2,
-    mini = true,
-    nest = Nest {
-        bigOlBird = 4u64,
-    }
-};
+let arr = [200u64]M with (_, p) M { ptr = p };
+let item = arr[4u64].ptr;
+let c = 3;

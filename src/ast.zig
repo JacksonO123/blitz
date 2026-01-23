@@ -15,6 +15,7 @@ const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const TokenError = tokenizer.TokenError;
 const Context = blitz.context.Context;
+const Writer = std.Io.Writer;
 
 const AstNumberVariantsStrRel = struct {
     str: []const u8,
@@ -258,9 +259,9 @@ pub const AstTypes = union(Types) {
             .Error,
             => 0,
 
-            .Pointer,
-            .VarInfo,
-            => |inner| return try inner.info.astType.getAlignment(context),
+            .Pointer => 8,
+
+            .VarInfo => |inner| return try inner.info.astType.getAlignment(context),
 
             .Nullable => |inner| try inner.astType.getAlignment(context),
             .Custom => |custom| {
@@ -792,9 +793,9 @@ pub const Ast = struct {
     }
 };
 
-pub fn createAst(allocator: Allocator, context: *Context) !Ast {
+pub fn createAst(allocator: Allocator, context: *Context, writer: *Writer) !Ast {
     const seq = parseSequence(allocator, context, false) catch |e| {
-        logger.logParseError(context, e);
+        logger.logParseError(context, e, writer);
         return e;
     };
     return Ast.init(allocator, context, seq);
@@ -1592,13 +1593,6 @@ fn parseExpressionUtil(
 
                     return try parseFuncCall(allocator, context, context.getTokString(first));
                 },
-                .Period => {
-                    const identNode = try getIdentNode(
-                        context,
-                        context.getTokString(first),
-                    );
-                    return try parsePropertyAccess(allocator, context, identNode);
-                },
                 .LAngle => a: {
                     const tokPos = context.tokenUtil.pos;
                     _ = try context.tokenUtil.take();
@@ -1628,24 +1622,12 @@ fn parseExpressionUtil(
                         );
                     }
                 },
-                .LBracket => {
-                    const targetNode = try getIdentNode(
+                .Period, .LBracket => {
+                    const identNode = try getIdentNode(
                         context,
                         context.getTokString(first),
                     );
-
-                    _ = try context.tokenUtil.take();
-                    const index = try parseExpression(allocator, context) orelse
-                        return AstError.ExpectedExpression;
-                    try context.tokenUtil.expectToken(.RBracket);
-
-                    const indexValueVariant: AstNodeUnion = .{
-                        .IndexValue = .{
-                            .index = index,
-                            .target = targetNode,
-                        },
-                    };
-                    return try context.pools.newNode(indexValueVariant.toAstNode());
+                    return try parsePropertyAccess(allocator, context, identNode);
                 },
                 else => {},
             }
@@ -1894,59 +1876,65 @@ fn parseInitGenerics(allocator: Allocator, context: *Context) ![]AstTypeInfo {
     return ownedSlice;
 }
 
-fn parsePropertyAccess(allocator: Allocator, context: *Context, node: *AstNode) !*AstNode {
-    try context.tokenUtil.expectToken(.Period);
+fn parsePropertyAccessIfPossible(
+    allocator: Allocator,
+    context: *Context,
+    node: *AstNode,
+) !*AstNode {
+    const next = try context.tokenUtil.peak();
+    if (switch (next.type) {
+        .Period, .LBracket, .LParen => false,
+        else => true,
+    }) return node;
 
-    const ident = try context.tokenUtil.take();
-    if (ident.type != .Identifier) {
-        return AstError.ExpectedIdentifierForPropertyAccess;
-    }
+    return try parsePropertyAccess(allocator, context, node);
+}
 
-    const propertyAccessVariant: AstNodeUnion = .{
-        .PropertyAccess = .{
-            .value = node,
-            .property = context.getTokString(ident),
-        },
-    };
-    var access = try context.pools.newNode(propertyAccessVariant.toAstNode());
-
-    var next = try context.tokenUtil.take();
-    while (next.type == .LParen) {
-        const params = try parseFuncCallParams(allocator, context);
-        const funcCallVariant: AstNodeUnion = .{
-            .FuncCall = .{
-                .func = access,
-                .params = params,
-            },
-        };
-        access = try context.pools.newNode(funcCallVariant.toAstNode());
-        next = try context.tokenUtil.take();
-    }
-
-    while (next.type == .LBracket) {
-        const expr = try parseExpression(allocator, context) orelse
-            return AstError.ExpectedExpression;
-
-        const indexValueVariant: AstNodeUnion = .{
-            .IndexValue = .{
-                .index = expr,
-                .target = access,
-            },
-        };
-        access = try context.pools.newNode(indexValueVariant.toAstNode());
-
-        try context.tokenUtil.expectToken(.RBracket);
-        next = try context.tokenUtil.take();
-    }
+fn parsePropertyAccess(
+    allocator: Allocator,
+    context: *Context,
+    node: *AstNode,
+) ParseError!*AstNode {
+    const next = try context.tokenUtil.take();
 
     switch (next.type) {
+        .Period => {
+            const ident = try context.tokenUtil.take();
+            if (ident.type != .Identifier) {
+                return AstError.ExpectedIdentifierForPropertyAccess;
+            }
+
+            const propertyAccessVariant: AstNodeUnion = .{
+                .PropertyAccess = .{
+                    .value = node,
+                    .property = context.getTokString(ident),
+                },
+            };
+            const access = try context.pools.newNode(propertyAccessVariant.toAstNode());
+            return try parsePropertyAccessIfPossible(allocator, context, access);
+        },
+        .LBracket => {
+            const expr = try parseExpression(allocator, context) orelse
+                return AstError.ExpectedExpression;
+
+            const indexValueVariant: AstNodeUnion = .{
+                .IndexValue = .{
+                    .index = expr,
+                    .target = node,
+                },
+            };
+            const access = try context.pools.newNode(indexValueVariant.toAstNode());
+
+            try context.tokenUtil.expectToken(.RBracket);
+            return try parsePropertyAccessIfPossible(allocator, context, access);
+        },
         .EqSet => {
             const expr = try parseExpression(allocator, context) orelse
                 return AstError.ExpectedExpression;
 
             const valueSetVariant: AstNodeUnion = .{
                 .ValueSet = .{
-                    .value = access,
+                    .value = node,
                     .setNode = expr,
                 },
             };
@@ -1967,23 +1955,25 @@ fn parsePropertyAccess(allocator: Allocator, context: *Context, node: *AstNode) 
             const valueSetVariant: AstNodeUnion = .{
                 .VarEqOp = .{
                     .opType = tokenTypeToOpType(next.type),
-                    .variable = access,
+                    .variable = node,
                     .value = expr,
                 },
             };
             return try context.pools.newNode(valueSetVariant.toAstNode());
         },
-        else => {},
+        .LParen => {
+            const params = try parseFuncCallParams(allocator, context);
+            const funcCallVariant: AstNodeUnion = .{
+                .FuncCall = .{
+                    .func = node,
+                    .params = params,
+                },
+            };
+            const access = try context.pools.newNode(funcCallVariant.toAstNode());
+            return try parsePropertyAccessIfPossible(allocator, context, access);
+        },
+        else => return AstError.UnexpectedToken,
     }
-
-    context.tokenUtil.returnToken();
-
-    const temp = try context.tokenUtil.peak();
-    if (temp.type == .Period) {
-        return parsePropertyAccess(allocator, context, access);
-    }
-
-    return access;
 }
 
 fn parseFuncCall(allocator: Allocator, context: *Context, name: []const u8) !*AstNode {

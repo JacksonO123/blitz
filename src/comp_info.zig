@@ -13,6 +13,7 @@ const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const ArrayList = std.ArrayList;
 const Context = blitz.context.Context;
+const Writer = std.Io.Writer;
 
 fn ScopeDeinitFn(comptime T: type) type {
     return fn (Allocator, *Context, T, free.ReleaseType) void;
@@ -383,7 +384,7 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn prepareForAst(self: *Self, context: *Context) !void {
+    pub fn prepareForAst(self: *Self, context: *Context, writer: *Writer) !void {
         self.preAst = false;
 
         {
@@ -446,7 +447,7 @@ pub const CompInfo = struct {
                     context.tokenUtil = tempTokens;
                     free.recursiveReleaseNodeAll(context, f.body);
                     f.body = ast.parseSequence(self.allocator, context, true) catch |e| {
-                        logger.logParseError(context, e);
+                        logger.logParseError(context, e, writer);
                         return e;
                     };
 

@@ -1602,14 +1602,14 @@ pub fn genBytecodeUtil(
                     var writeLocInfo = if (writeLoc) |wLoc|
                         wLoc
                     else a: {
+                        const ptrReg = try context.genInfo.getAvailableReg();
+                        try context.genInfo.reserveRegister(ptrReg);
+
                         const padding = utils.calculatePadding(
                             context.genInfo.procInfo.stackFrameSize,
                             node.typeInfo.alignment,
                         );
                         context.genInfo.procInfo.stackFrameSize += padding;
-
-                        const ptrReg = try context.genInfo.getAvailableReg();
-                        try context.genInfo.reserveRegister(ptrReg);
 
                         movSpInstr = Instr{
                             .MovSpNegOffsetAny = .{
@@ -1619,20 +1619,22 @@ pub fn genBytecodeUtil(
                         };
                         _ = try context.genInfo.appendChunk(movSpInstr);
 
-                        break :a WriteLocInfo{
+                        const newWriteLoc = WriteLocInfo{
                             .reg = ptrReg,
                             .value = context.genInfo.procInfo.stackFrameSize,
                         };
-                    };
 
-                    context.genInfo.procInfo.stackFrameSize += sliceSize;
+                        context.genInfo.procInfo.stackFrameSize += sliceSize;
+
+                        break :a newWriteLoc;
+                    };
 
                     const itemSize: u16 = if (items.len > 0)
                         @intCast(items[0].typeInfo.size)
                     else
                         0;
                     const isNonPrimitive = if (items.len > 0)
-                        variantIsNonPrimitive(items[0].variant)
+                        variantIsPrimitive(items[0].variant)
                     else
                         false;
                     const itemPadding = utils.calculatePadding(itemSize, node.typeInfo.alignment);
@@ -1652,7 +1654,7 @@ pub fn genBytecodeUtil(
                         if (isNonPrimitive) {
                             const reg = regOrNull orelse
                                 return CodeGenError.ReturnedRegisterNotFound;
-                            const storeInstr = try storeRegAtRegWithPostInc(
+                            const storeInstr = storeRegAtRegWithPostInc(
                                 reg,
                                 writeLocInfo.reg,
                                 itemSize + @as(u16, @intCast(itemPadding)),
@@ -1981,19 +1983,39 @@ pub fn genBytecodeUtil(
         .ArrayInit => |init| {
             const initSize = node.typeInfo.size;
 
-            const ptrReg = try context.genInfo.getAvailableReg();
-            try context.genInfo.reserveRegister(ptrReg);
-            const moveSpInstr = Instr{
-                .MovSpNegOffsetAny = .{
-                    .reg = ptrReg,
-                    .offset = context.genInfo.procInfo.stackFrameSize,
-                },
+            var movSpInstr: Instr = undefined;
+
+            const writeLocInfo = if (writeLoc) |wLoc|
+                wLoc
+            else a: {
+                const writeReg = try context.genInfo.getAvailableReg();
+                try context.genInfo.reserveRegister(writeReg);
+
+                const padding = utils.calculatePadding(
+                    context.genInfo.procInfo.stackFrameSize,
+                    node.typeInfo.alignment,
+                );
+                context.genInfo.procInfo.stackFrameSize += padding;
+
+                movSpInstr = Instr{
+                    .MovSpNegOffsetAny = .{
+                        .reg = writeReg,
+                        .offset = context.genInfo.procInfo.stackFrameSize,
+                    },
+                };
+                _ = try context.genInfo.appendChunk(movSpInstr);
+
+                const newWriteLoc = WriteLocInfo{
+                    .reg = writeReg,
+                    .value = context.genInfo.procInfo.stackFrameSize,
+                };
+
+                context.genInfo.procInfo.stackFrameSize += initSize;
+
+                break :a newWriteLoc;
             };
-            _ = try context.genInfo.appendChunk(moveSpInstr);
 
             const initLen = try std.fmt.parseInt(u64, init.size, 10);
-            context.genInfo.procInfo.stackFrameSize += initSize;
-
             const lenReg = try context.genInfo.getAvailableReg();
             try context.genInfo.reserveRegister(lenReg);
             defer context.genInfo.releaseRegister(lenReg);
@@ -2006,9 +2028,14 @@ pub fn genBytecodeUtil(
             _ = try context.genInfo.appendChunk(movLen);
 
             var indexReg: ?TempRegister = null;
+            var ptrReg: ?TempRegister = null;
             defer if (indexReg) |reg| {
                 context.genInfo.releaseRegister(reg);
             };
+            defer if (ptrReg) |reg| {
+                context.genInfo.releaseRegister(reg);
+            };
+
             if (init.indexIdent) |ident| {
                 indexReg = try context.genInfo.getAvailableReg();
                 try context.genInfo.reserveRegister(indexReg.?);
@@ -2026,6 +2053,22 @@ pub fn genBytecodeUtil(
                 _ = try context.genInfo.appendChunk(setZeroInstr);
             }
 
+            if (init.ptrIdent) |ident| {
+                ptrReg = try context.genInfo.getAvailableReg();
+                try context.genInfo.reserveRegister(ptrReg.?);
+                try context.genInfo.setVariableRegister(
+                    ident,
+                    RegisterContents.initWithSize(ptrReg.?, vmInfo.POINTER_SIZE),
+                );
+
+                const movWriteReg = Instr{
+                    .Mov = .{
+                        .dest = ptrReg.?,
+                        .src = writeLocInfo.reg,
+                    },
+                };
+                _ = try context.genInfo.appendChunk(movWriteReg);
+            }
             const preCmpLabelId = context.genInfo.takeLabelId();
             const preCmpLabel = Instr{ .Label = preCmpLabelId };
             _ = try context.genInfo.appendChunk(preCmpLabel);
@@ -2043,16 +2086,26 @@ pub fn genBytecodeUtil(
             _ = try context.genInfo.appendChunk(jumpInstr);
 
             try context.genInfo.pushScope();
-            const resReg = try genBytecode(allocator, context, init.initNode) orelse
-                return CodeGenError.ReturnedRegisterNotFound;
+            const resRegOrNull = try genBytecodeUtil(
+                allocator,
+                context,
+                init.initNode,
+                writeLocInfo,
+            );
             try context.genInfo.releaseScope();
 
-            const writeInstr = try storeRegAtRegWithPostInc(
-                resReg,
-                ptrReg,
-                @intCast(try init.initType.astType.getSize(context)),
-            );
-            _ = try context.genInfo.appendChunk(writeInstr);
+            const itemAlignment = try init.initType.astType.getAlignment(context);
+            const itemSize = try init.initType.astType.getSize(context);
+            const itemPadding = utils.calculatePadding(itemSize, itemAlignment);
+            if (variantIsPrimitive(init.initNode.variant)) {
+                const resReg = resRegOrNull orelse return CodeGenError.ReturnedRegisterNotFound;
+                const writeInstr = storeRegAtRegWithPostInc(
+                    resReg,
+                    writeLocInfo.reg,
+                    @intCast(itemSize + itemPadding),
+                );
+                _ = try context.genInfo.appendChunk(writeInstr);
+            }
 
             const subLen = Instr{
                 .Sub8 = .{
@@ -2074,15 +2127,27 @@ pub fn genBytecodeUtil(
                 _ = try context.genInfo.appendChunk(addInstr);
             }
 
+            if (ptrReg) |reg| {
+                const addInstr = Instr{
+                    .Add16 = .{
+                        .dest = reg,
+                        .reg = reg,
+                        .data = @intCast(itemSize + itemPadding),
+                    },
+                };
+                _ = try context.genInfo.appendChunk(addInstr);
+            }
+
             const jumpStart = Instr{ .JumpBack = preCmpLabelId };
             _ = try context.genInfo.appendChunk(jumpStart);
 
             const jumpInstrLabel = Instr{ .Label = jumpInstrLabelId };
             _ = try context.genInfo.appendChunk(jumpInstrLabel);
 
-            _ = try context.genInfo.appendChunk(moveSpInstr);
-
-            return .{ .Pointer = ptrReg };
+            if (writeLoc == null) {
+                _ = try context.genInfo.appendChunk(movSpInstr);
+                return .{ .Pointer = writeLocInfo.reg };
+            }
         },
         .Dereference => |inner| {
             const resReg = try genBytecode(allocator, context, inner) orelse
@@ -2185,7 +2250,7 @@ pub fn genBytecodeUtil(
         .StructInit => |init| {
             var startLoc = context.genInfo.procInfo.stackFrameSize;
 
-            var writeLocInfo: WriteLocInfo = if (writeLoc) |wLoc|
+            const writeLocInfo: WriteLocInfo = if (writeLoc) |wLoc|
                 wLoc
             else a: {
                 const resReg = try context.genInfo.getAvailableReg();
@@ -2226,19 +2291,7 @@ pub fn genBytecodeUtil(
                     writeLocInfo,
                 );
 
-                // these types are written into memory locations
-                if (variantIsNonPrimitive(attr.value.variant)) {
-                    const reg = regOrNull orelse return CodeGenError.ReturnedRegisterNotFound;
-
-                    const instr = storeRegAtSpNegOffsetAndSize(
-                        reg,
-                        writeLocInfo.value,
-                        attr.value.typeInfo.size,
-                    );
-                    _ = try context.genInfo.appendChunk(instr);
-                }
-
-                writeLocInfo.value += attr.value.typeInfo.size;
+                var itemSize = attr.value.typeInfo.size;
 
                 if (index < def.attributes.len - 1) {
                     const nextAttr = def.attributes[index + 1];
@@ -2247,11 +2300,18 @@ pub fn genBytecodeUtil(
                         writeLocInfo.value,
                         nextAttrDef.value.typeInfo.alignment,
                     );
-                    writeLocInfo.value += nextPadding;
+                    itemSize += nextPadding;
+                }
 
-                    const inc = attr.value.typeInfo.size + nextPadding;
-                    const incInstr = try addNumToReg(writeLocInfo.reg, inc);
-                    _ = try context.genInfo.appendChunk(incInstr);
+                if (variantIsPrimitive(attr.value.variant)) {
+                    const reg = regOrNull orelse return CodeGenError.ReturnedRegisterNotFound;
+
+                    const instr = storeRegAtRegWithPostInc(
+                        reg,
+                        writeLocInfo.reg,
+                        @intCast(itemSize),
+                    );
+                    _ = try context.genInfo.appendChunk(instr);
                 }
 
                 try context.genInfo.releaseScope();
@@ -2338,7 +2398,7 @@ pub fn genBytecodeUtil(
     return null;
 }
 
-fn variantIsNonPrimitive(variant: ast.AstNodeUnion) bool {
+fn variantIsPrimitive(variant: ast.AstNodeUnion) bool {
     return (variant != .StructInit and variant != .ArrayInit and
         !(variant == .Value and variant.Value == .ArrayDec));
 }
@@ -2620,7 +2680,7 @@ fn storeRegAtSpNegOffsetAndSize(regContents: RegisterContents, loc: u64, size: u
     };
 }
 
-fn storeRegAtRegWithPostInc(regContents: RegisterContents, ptrReg: TempRegister, inc: u16) !Instr {
+fn storeRegAtRegWithPostInc(regContents: RegisterContents, ptrReg: TempRegister, inc: u16) Instr {
     return switch (regContents) {
         .Bytes1 => |reg| Instr{
             .Store8AtRegPostInc16 = .{

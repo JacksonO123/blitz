@@ -48,12 +48,10 @@ pub fn main() !void {
     defer stdout.end() catch {};
     const writer = &stdout.interface;
 
-    interpretBytecode(allocator, &runtimeInfo, bytecode) catch |e| {
-        switch (e) {
-            error.OutOfMemory => {
-                try writer.writeAll("Out of memory, cannot resize stack\n");
-            },
-        }
+    interpretBytecode(allocator, &runtimeInfo, bytecode, writer) catch |e| {
+        try writer.writeAll("Error: ");
+        try writer.writeAll(@errorName(e));
+        try writer.writeByte('\n');
     };
 
     try runtimeInfo.writeMemDebug(12, 64, writer);
@@ -126,7 +124,12 @@ const RuntimeInfo = struct {
     }
 };
 
-fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: []const u8) !void {
+fn interpretBytecode(
+    allocator: Allocator,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    writer: *Writer,
+) !void {
     var current: u64 = vmInfo.VM_INFO_BYTECODE_LEN;
     while (current < bytecode.len) {
         const inst = @as(codegen.InstructionVariants, @enumFromInt(bytecode[current]));
@@ -136,15 +139,27 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.registers[bytecode[current + 2]];
             },
             .SetReg64 => {
-                const value = std.mem.readInt(u64, @ptrCast(bytecode[current + 2 .. current + 10]), .little);
+                const value = std.mem.readInt(
+                    u64,
+                    @ptrCast(bytecode[current + 2 .. current + 10]),
+                    .little,
+                );
                 runtimeInfo.registers[bytecode[current + 1]] = value;
             },
             .SetReg32 => {
-                const value = std.mem.readInt(u32, @ptrCast(bytecode[current + 2 .. current + 6]), .little);
+                const value = std.mem.readInt(
+                    u32,
+                    @ptrCast(bytecode[current + 2 .. current + 6]),
+                    .little,
+                );
                 runtimeInfo.registers[bytecode[current + 1]] = value;
             },
             .SetReg16 => {
-                const value = std.mem.readInt(u16, @ptrCast(bytecode[current + 2 .. current + 4]), .little);
+                const value = std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 2 .. current + 4]),
+                    .little,
+                );
                 runtimeInfo.registers[bytecode[current + 1]] = value;
             },
             .SetReg8 => {
@@ -161,7 +176,11 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
             },
             .Add16 => {
                 const regVal = runtimeInfo.registers[bytecode[current + 2]];
-                const val = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
+                const val = std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 3 .. current + 5]),
+                    .little,
+                );
                 runtimeInfo.registers[bytecode[current + 1]] = regVal + val;
             },
             .Sub => {
@@ -175,7 +194,11 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
             },
             .Sub16 => {
                 const regVal = runtimeInfo.registers[bytecode[current + 2]];
-                const val = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
+                const val = std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 3 .. current + 5]),
+                    .little,
+                );
                 runtimeInfo.registers[bytecode[current + 1]] = regVal - val;
             },
             .Mult => {
@@ -393,7 +416,11 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
             },
             .Load8AtRegOffset16 => {
                 const source = runtimeInfo.registers[bytecode[current + 2]];
-                const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
+                const offset = std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 3 .. current + 5]),
+                    .little,
+                );
                 const byteData = runtimeInfo.stack.items[source + offset];
                 runtimeInfo.registers[bytecode[current + 1]] = byteData;
             },
@@ -410,13 +437,21 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 const dest = bytecode[current + 1];
                 const toAdd = runtimeInfo.registers[bytecode[current + 2]];
                 const mulReg = runtimeInfo.registers[bytecode[current + 3]];
-                const data = std.mem.readInt(u16, @ptrCast(bytecode[current + 4 .. current + 6]), .little);
+                const data = std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 4 .. current + 6]),
+                    .little,
+                );
                 runtimeInfo.registers[dest] = toAdd + (mulReg * data);
             },
             .MovByteRange => utils.unimplemented(),
-            .DbgReg => {
-                std.debug.print("r{d} :: ({d})\n", .{ bytecode[current + 1], runtimeInfo.registers[bytecode[current + 1]] });
-            },
+            .DbgReg => if (builtin.mode == .Debug) {
+                try writer.writeByte('r');
+                try writer.writeInt(u8, bytecode[current + 1], .little);
+                try writer.writeAll(" :: ");
+                try writer.writeInt(u64, runtimeInfo.registers[bytecode[current + 1]], .little);
+                try writer.writeAll(")\n");
+            } else unreachable,
             .Label => unreachable,
         }
 

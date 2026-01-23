@@ -36,10 +36,18 @@ Will generate
 
 **Run all test files**
 
-Runs from `blitzc-debug` exe in build. Expected to have been built already
+Runs from `blitzc-debug` exe. Expected to have been built already
 
 ```sh
 ./test
+```
+
+**Compile debug and run all test files**
+
+Compiles with `zig build` in debug mode. Runs from `blitzc-debug` exe.
+
+```sh
+./test -c
 ```
 
 **Run specific test file**

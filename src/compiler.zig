@@ -93,7 +93,7 @@ pub fn compile(
         try debug.printRegisteredErrors(structsAndErrors.errors, printWriter);
     }
 
-    try context.compInfo.prepareForAst(context);
+    try context.compInfo.prepareForAst(context, printWriter);
 
     for (structsAndErrors.structs) |s| {
         const res = try scanner.scanNode(allocator, context, s, true);
@@ -101,7 +101,7 @@ pub fn compile(
     }
 
     {
-        var tree = try ast.createAst(allocator, context);
+        var tree = try ast.createAst(allocator, context, printWriter);
         defer {
             tree.deinit();
             context.clear();

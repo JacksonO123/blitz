@@ -60,7 +60,7 @@ pub const Context = struct {
 
         const tokenUtil = tokenizer.TokenUtil.init(tokens);
         const tokenUtilPtr = try utils.createMut(tokenizer.TokenUtil, allocator, tokenUtil);
-        const loggerUtil = logger.Logger.init(tokenUtilPtr, code, writer);
+        const loggerUtil = logger.Logger.init(tokenUtilPtr, code);
         const loggerUtilPtr = try utils.createMut(logger.Logger, allocator, loggerUtil);
 
         const compInfo = try blitzCompInfo.CompInfo.init(allocator, context, names);
