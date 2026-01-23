@@ -295,6 +295,10 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[4..6], writer);
         },
+        .DbgReg => {
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[1], 10, .lower, .{});
+        },
     }
 
     try writer.writeByte('\n');

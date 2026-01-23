@@ -119,6 +119,7 @@ pub fn compile(
         try codegen.codegenAst(allocator, context, tree);
 
         if (printState == .All) {
+            try printWriter.writeAll("\n------------\n\n");
             try debug.printBytecodeChunks(context, printWriter);
         }
 

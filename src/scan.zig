@@ -263,8 +263,12 @@ pub fn scanNode(
                     });
 
                     const inferredTypeSize = try inferredType.info.astType.getSize(context);
-                    node.typeInfo.size = inferredTypeSize * arr.len;
                     node.typeInfo.alignment = try inferredType.info.astType.getAlignment(context);
+                    const itemPadding = utils.calculatePadding(
+                        inferredTypeSize,
+                        node.typeInfo.alignment,
+                    );
+                    node.typeInfo.size = (inferredTypeSize + itemPadding) * arr.len;
 
                     return arrayDecType.toAllocInfo(inferredType.info.mutState, .Allocated);
                 },

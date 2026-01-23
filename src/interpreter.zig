@@ -414,6 +414,9 @@ fn interpretBytecode(allocator: Allocator, runtimeInfo: *RuntimeInfo, bytecode: 
                 runtimeInfo.registers[dest] = toAdd + (mulReg * data);
             },
             .MovByteRange => utils.unimplemented(),
+            .DbgReg => {
+                std.debug.print("r{d} :: ({d})\n", .{ bytecode[current + 1], runtimeInfo.registers[bytecode[current + 1]] });
+            },
             .Label => unreachable,
         }
 

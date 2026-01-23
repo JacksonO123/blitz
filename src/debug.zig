@@ -991,6 +991,10 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumber(u16, instr.data, writer);
         },
+        .DbgReg => |reg| {
+            try writer.writeAll(" r");
+            try writer.printInt(reg, 10, .lower, .{});
+        },
     }
 
     try writer.writeByte('\n');
