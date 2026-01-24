@@ -47,6 +47,7 @@ pub fn main() !void {
     var stdout = std.fs.File.stdout().writer(&buffer);
     defer stdout.end() catch {};
     const writer = &stdout.interface;
+    defer writer.flush() catch {};
 
     interpretBytecode(allocator, &runtimeInfo, bytecode, writer) catch |e| {
         try writer.writeAll("Error: ");
