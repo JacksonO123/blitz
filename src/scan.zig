@@ -841,8 +841,6 @@ pub fn scanNode(
                 return res;
             }
 
-            std.debug.print(":: {s}\n", .{name});
-
             return ScanError.VariableIsUndefined;
         },
         .StructPlaceholder => return context.staticPtrs.types.voidType.toAllocInfo(.Recycled),
