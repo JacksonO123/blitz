@@ -1633,7 +1633,7 @@ pub fn genBytecodeUtil(
                         @intCast(items[0].typeInfo.size)
                     else
                         0;
-                    const isNonPrimitive = if (items.len > 0)
+                    const isPrimitive = if (items.len > 0)
                         variantIsPrimitive(items[0].variant)
                     else
                         false;
@@ -1651,7 +1651,7 @@ pub fn genBytecodeUtil(
                         );
                         try context.genInfo.releaseScope();
 
-                        if (isNonPrimitive) {
+                        if (isPrimitive) {
                             const reg = regOrNull orelse
                                 return CodeGenError.ReturnedRegisterNotFound;
                             const storeInstr = storeRegAtRegWithPostInc(
@@ -1660,6 +1660,15 @@ pub fn genBytecodeUtil(
                                 itemSize + @as(u16, @intCast(itemPadding)),
                             );
                             _ = try context.genInfo.appendChunk(storeInstr);
+                        } else {
+                            const addInstr = Instr{
+                                .Add16 = .{
+                                    .dest = writeLocInfo.reg,
+                                    .reg = writeLocInfo.reg,
+                                    .data = itemPadding,
+                                },
+                            };
+                            _ = try context.genInfo.appendChunk(addInstr);
                         }
 
                         writeLocInfo.value += itemSize + @as(u16, @intCast(itemPadding));

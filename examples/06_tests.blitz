@@ -32,5 +32,5 @@ let outer = Outer {
     ]
 };
 
-let thing = outer.m[2u64].value;
+let thing = outer.m[1u64].value;
 let a = 3;
