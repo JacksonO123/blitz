@@ -982,16 +982,29 @@ fn parseStatement(
                     };
                     return try context.pools.newNode(varEqOpVariant.toAstNode());
                 },
-                .LParen => {
-                    return try parseFuncCall(allocator, context, context.getTokString(first));
-                },
                 .Period => {
                     context.tokenUtil.returnToken();
-                    const identNode = try getIdentNode(
-                        context,
-                        context.getTokString(first),
-                    );
-                    return parsePropertyAccess(allocator, context, identNode);
+
+                    const identStr = context.getTokString(first);
+                    const nodeVariant = if (context.compInfo.hasStruct(identStr)) AstNodeUnion{
+                        .StaticStructInstance = identStr,
+                    } else AstNodeUnion{
+                        .Variable = identStr,
+                    };
+                    const node = try context.pools.newNode(nodeVariant.toAstNode());
+
+                    return parsePropertyAccess(allocator, context, node);
+                },
+                .LBracket => {
+                    context.tokenUtil.returnToken();
+                    const variableVariant: AstNodeUnion = .{
+                        .Variable = context.getTokString(first),
+                    };
+                    const variableNode = try context.pools.newNode(variableVariant.toAstNode());
+                    return parsePropertyAccess(allocator, context, variableNode);
+                },
+                .LParen => {
+                    return try parseFuncCall(allocator, context, context.getTokString(first));
                 },
                 .LAngle => {
                     const generics = try parseInitGenerics(allocator, context);
@@ -1071,22 +1084,6 @@ fn parseStatement(
                 .Scope = seq,
             };
             return try context.pools.newNode(scopeVariant.toAstNode());
-        },
-        .Asterisk => {
-            context.tokenUtil.returnToken();
-            const toExpr = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
-            try context.tokenUtil.expectToken(.EqSet);
-            const fromExpr = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
-
-            const valueSetVariant: AstNodeUnion = .{
-                .ValueSet = .{
-                    .value = toExpr,
-                    .setNode = fromExpr,
-                },
-            };
-            return try context.pools.newNode(valueSetVariant.toAstNode());
         },
         .Break => {
             return context.staticPtrs.nodes.breakNode;
@@ -1559,14 +1556,6 @@ fn parseExpressionUtil(
             };
             return try context.pools.newNode(ptrVariant.toAstNode());
         },
-        .Asterisk => {
-            const expr = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
-            const derefVariant: AstNodeUnion = .{
-                .Dereference = expr,
-            };
-            return try context.pools.newNode(derefVariant.toAstNode());
-        },
         .LParen => {
             const expr = try parseExpression(allocator, context) orelse
                 return AstError.ExpectedExpression;
@@ -1578,12 +1567,7 @@ fn parseExpressionUtil(
             };
             const groupNode = try context.pools.newNode(groupVariant.toAstNode());
 
-            const next = try context.tokenUtil.peak();
-            if (next.type == .Period) {
-                return try parsePropertyAccess(allocator, context, groupNode);
-            }
-
-            return groupNode;
+            return try parsePropertyAccessIfPossible(allocator, context, groupNode);
         },
         .Identifier => {
             const next = try context.tokenUtil.peak();
@@ -1883,7 +1867,19 @@ fn parsePropertyAccessIfPossible(
 ) !*AstNode {
     const next = try context.tokenUtil.peak();
     if (switch (next.type) {
-        .Period, .LBracket, .LParen => false,
+        .Period,
+        .LBracket,
+        .LParen,
+        .EqSet,
+        .AddEq,
+        .SubEq,
+        .MultEq,
+        .DivEq,
+        .AndEq,
+        .OrEq,
+        .BitAndEq,
+        .BitOrEq,
+        => false,
         else => true,
     }) return node;
 
@@ -1899,15 +1895,24 @@ fn parsePropertyAccess(
 
     switch (next.type) {
         .Period => {
-            const ident = try context.tokenUtil.take();
-            if (ident.type != .Identifier) {
+            const prop = try context.tokenUtil.take();
+
+            if (prop.type == .Asterisk) {
+                const derefVariant = AstNodeUnion{
+                    .Dereference = node,
+                };
+                const derefNode = try context.pools.newNode(derefVariant.toAstNode());
+                return try parsePropertyAccessIfPossible(allocator, context, derefNode);
+            }
+
+            if (prop.type != .Identifier) {
                 return AstError.ExpectedIdentifierForPropertyAccess;
             }
 
-            const propertyAccessVariant: AstNodeUnion = .{
+            const propertyAccessVariant = AstNodeUnion{
                 .PropertyAccess = .{
                     .value = node,
-                    .property = context.getTokString(ident),
+                    .property = context.getTokString(prop),
                 },
             };
             const access = try context.pools.newNode(propertyAccessVariant.toAstNode());
@@ -1917,7 +1922,7 @@ fn parsePropertyAccess(
             const expr = try parseExpression(allocator, context) orelse
                 return AstError.ExpectedExpression;
 
-            const indexValueVariant: AstNodeUnion = .{
+            const indexValueVariant = AstNodeUnion{
                 .IndexValue = .{
                     .index = expr,
                     .target = node,

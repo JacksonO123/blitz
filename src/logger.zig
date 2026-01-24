@@ -35,10 +35,12 @@ pub const Logger = struct {
     }
 
     pub fn logError(self: *Self, errStr: []const u8, writer: *Writer) void {
-        const numSurroundingLines = 1;
+        const tokenStart = self.tokens.tokens[self.tokens.pos.index].start;
+
+        const numSurroundingLines: u32 = 1;
         const contextBlock = findSurroundingLines(
             self.code,
-            self.tokens.pos.currentLine,
+            tokenStart,
             numSurroundingLines,
         );
         const beforeLines = self.code[contextBlock.before.start..contextBlock.before.end];
@@ -93,63 +95,45 @@ fn getStartOffset(loc: usize, code: []const u8) usize {
 
 fn findSurroundingLines(
     code: []const u8,
-    line: usize,
-    numSurroundingLines: usize,
+    charIndex: usize,
+    numSurroundingLines: u32,
 ) SurroundingBounds {
-    var surroundingBefore = numSurroundingLines;
-
-    if (line < numSurroundingLines) {
-        surroundingBefore = line;
-    }
-
-    var currentLine: usize = 0;
-    var beforeStart: ?usize = null;
-    var beforeEnd: usize = 0;
-    var afterStart: ?usize = null;
-    var afterEnd: usize = 0;
-
-    for (code, 0..) |char, index| {
-        if (index == code.len - 1) {
-            afterEnd = index;
-            break;
-        }
-
-        if (currentLine + surroundingBefore + 1 == line and beforeStart == null) {
-            beforeStart = index;
-            while (code[beforeStart.?] == '\n') {
-                beforeStart.? += 1;
-            }
-        } else if (currentLine + 1 == line and char == '\n') {
-            beforeEnd = index;
-        } else if (currentLine == line + 1 and afterStart == null) {
-            afterStart = index;
-            while (code[afterStart.?] == '\n') {
-                afterStart.? += 1;
-            }
-        } else if (line + numSurroundingLines + 1 == currentLine and char == '\n') {
-            afterEnd = index;
-            break;
-        }
-
-        if (char == '\n') currentLine += 1;
-    }
-
-    if (afterStart) |start| {
-        if (afterEnd == start + 1) {
-            afterEnd = start;
-        }
-    }
-
-    return .{
+    var output = SurroundingBounds{
         .before = .{
-            .start = beforeStart orelse 0,
-            .end = beforeEnd,
+            .start = 0,
+            .end = 0,
         },
         .after = .{
-            .start = afterStart orelse 0,
-            .end = afterEnd,
+            .start = 0,
+            .end = 0,
         },
     };
+
+    var current = charIndex;
+    while (current > 0 and code[current - 1] != '\n') : (current -= 1) {}
+    output.before.end = current - 1;
+
+    var lineCount: u32 = 0;
+    current -= 1;
+    while (current > 0) : (current -= 1) {
+        if (code[current - 1] == '\n') lineCount += 1;
+        if (lineCount == numSurroundingLines) break;
+    }
+    output.before.start = current;
+
+    current = charIndex + 1;
+    while (current < code.len and code[current] != '\n') : (current += 1) {}
+    output.after.start = current + 1;
+
+    lineCount = 0;
+    current += 1;
+    while (current < code.len) : (current += 1) {
+        if (code[current] == '\n') lineCount += 1;
+        if (lineCount == numSurroundingLines) break;
+    }
+    output.after.end = current;
+
+    return output;
 }
 
 fn findLineBounds(code: []const u8, line: usize) LineBounds {

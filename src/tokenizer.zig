@@ -562,7 +562,7 @@ fn parseNextToken(chars: *CharUtil) !?Token {
         '!' => return Token.init(.Bang, startIndex),
         '.' => {
             const next = try chars.peak();
-            if (!std.ascii.isAlphabetic(next) and !isValidNameChar(next)) {
+            if (!std.ascii.isAlphabetic(next) and !isValidNameChar(next) and next != '*') {
                 _ = try chars.take();
                 return TokenizeError.UnexpectedCharacter;
             }
