@@ -37,7 +37,6 @@ pub const Logger = struct {
     pub fn logError(self: *Self, errStr: []const u8, writer: *Writer) void {
         self.tokens.returnToken();
         const currentToken = self.tokens.tokens[self.tokens.pos];
-        std.debug.print(":: {}\n", .{currentToken});
         const tokenStart = currentToken.start;
         const tokenLen = currentToken.end - tokenStart - 1;
 

@@ -531,6 +531,11 @@ const PropertyAccess = struct {
     property: []const u8,
 };
 
+const ParseContextType = enum {
+    Statement,
+    Expression,
+};
+
 pub const OpExprTypes = enum(u8) {
     const Self = @This();
 
@@ -993,7 +998,7 @@ fn parseStatement(
                     };
                     const node = try context.pools.newNode(nodeVariant.toAstNode());
 
-                    return parsePropertyAccess(allocator, context, node);
+                    return parsePropertyAccess(allocator, context, node, .Statement);
                 },
                 .LBracket => {
                     context.tokenUtil.returnToken();
@@ -1001,7 +1006,7 @@ fn parseStatement(
                         .Variable = context.getTokString(first),
                     };
                     const variableNode = try context.pools.newNode(variableVariant.toAstNode());
-                    return parsePropertyAccess(allocator, context, variableNode);
+                    return parsePropertyAccess(allocator, context, variableNode, .Statement);
                 },
                 .LParen => {
                     return try parseFuncCall(allocator, context, context.getTokString(first));
@@ -1513,7 +1518,12 @@ fn parseExpressionUtil(
             const strNode = try context.pools.newNode(strVariant.toAstNode());
 
             if (next.type == .Period) {
-                const propAccess = try parsePropertyAccess(allocator, context, strNode);
+                const propAccess = try parsePropertyAccess(
+                    allocator,
+                    context,
+                    strNode,
+                    .Expression,
+                );
                 return propAccess;
             }
 
@@ -1567,7 +1577,7 @@ fn parseExpressionUtil(
             };
             const groupNode = try context.pools.newNode(groupVariant.toAstNode());
 
-            return try parsePropertyAccessIfPossible(allocator, context, groupNode);
+            return try parsePropertyAccessIfPossible(allocator, context, groupNode, .Expression);
         },
         .Identifier => {
             const next = try context.tokenUtil.peak();
@@ -1611,7 +1621,7 @@ fn parseExpressionUtil(
                         context,
                         context.getTokString(first),
                     );
-                    return try parsePropertyAccess(allocator, context, identNode);
+                    return try parsePropertyAccess(allocator, context, identNode, .Expression);
                 },
                 else => {},
             }
@@ -1864,12 +1874,32 @@ fn parsePropertyAccessIfPossible(
     allocator: Allocator,
     context: *Context,
     node: *AstNode,
+    parseContext: ParseContextType,
 ) !*AstNode {
     const next = try context.tokenUtil.peak();
+
+    if (parseContext == .Expression) switch (next.type) {
+        .EqSet,
+        .AddEq,
+        .SubEq,
+        .MultEq,
+        .DivEq,
+        .AndEq,
+        .OrEq,
+        .BitAndEq,
+        .BitOrEq,
+        => {
+            _ = try context.tokenUtil.take();
+            return AstError.UnexpectedToken;
+        },
+        else => {},
+    };
+
     if (switch (next.type) {
         .Period,
         .LBracket,
         .LParen,
+
         .EqSet,
         .AddEq,
         .SubEq,
@@ -1883,15 +1913,30 @@ fn parsePropertyAccessIfPossible(
         else => true,
     }) return node;
 
-    return try parsePropertyAccess(allocator, context, node);
+    return try parsePropertyAccess(allocator, context, node, parseContext);
 }
 
 fn parsePropertyAccess(
     allocator: Allocator,
     context: *Context,
     node: *AstNode,
+    parseContext: ParseContextType,
 ) ParseError!*AstNode {
     const next = try context.tokenUtil.take();
+
+    if (parseContext == .Expression) switch (next.type) {
+        .EqSet,
+        .AddEq,
+        .SubEq,
+        .MultEq,
+        .DivEq,
+        .AndEq,
+        .OrEq,
+        .BitAndEq,
+        .BitOrEq,
+        => return AstError.UnexpectedToken,
+        else => {},
+    };
 
     switch (next.type) {
         .Period => {
@@ -1902,7 +1947,12 @@ fn parsePropertyAccess(
                     .Dereference = node,
                 };
                 const derefNode = try context.pools.newNode(derefVariant.toAstNode());
-                return try parsePropertyAccessIfPossible(allocator, context, derefNode);
+                return try parsePropertyAccessIfPossible(
+                    allocator,
+                    context,
+                    derefNode,
+                    parseContext,
+                );
             }
 
             if (prop.type != .Identifier) {
@@ -1916,7 +1966,7 @@ fn parsePropertyAccess(
                 },
             };
             const access = try context.pools.newNode(propertyAccessVariant.toAstNode());
-            return try parsePropertyAccessIfPossible(allocator, context, access);
+            return try parsePropertyAccessIfPossible(allocator, context, access, parseContext);
         },
         .LBracket => {
             const expr = try parseExpression(allocator, context) orelse
@@ -1931,7 +1981,7 @@ fn parsePropertyAccess(
             const access = try context.pools.newNode(indexValueVariant.toAstNode());
 
             try context.tokenUtil.expectToken(.RBracket);
-            return try parsePropertyAccessIfPossible(allocator, context, access);
+            return try parsePropertyAccessIfPossible(allocator, context, access, parseContext);
         },
         .EqSet => {
             const expr = try parseExpression(allocator, context) orelse
@@ -1975,7 +2025,7 @@ fn parsePropertyAccess(
                 },
             };
             const access = try context.pools.newNode(funcCallVariant.toAstNode());
-            return try parsePropertyAccessIfPossible(allocator, context, access);
+            return try parsePropertyAccessIfPossible(allocator, context, access, parseContext);
         },
         else => return AstError.UnexpectedToken,
     }
