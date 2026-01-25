@@ -65,7 +65,7 @@ pub fn main() !void {
     const code = try utils.readRelativeFile(allocator, path);
     defer allocator.free(code);
 
-    try compile(allocator, code, writer, fileWriter, .All, .Binary);
+    try compile(allocator, code, writer, fileWriter, .None, .Binary);
 }
 
 pub fn compile(
@@ -76,7 +76,8 @@ pub fn compile(
     printState: DebugPrintState,
     format: BytecodeFormat,
 ) !void {
-    var context = try Context.init(allocator, code, printWriter, .{});
+    var context = try allocator.create(Context);
+    try Context.initToPtr(context, allocator, code, printWriter, .{});
     defer {
         context.deinit();
         allocator.destroy(context);
@@ -104,7 +105,7 @@ pub fn compile(
         var tree = try ast.createAst(allocator, context, printWriter);
         defer {
             tree.deinit();
-            context.clear();
+            context.clearPoolMem();
             free.freeStructsAndErrors(context, structsAndErrors);
         }
 

@@ -38,18 +38,18 @@ pub const Context = struct {
     utils: *ContextUtils,
     settings: ContextSettings,
 
-    pub fn init(
+    pub fn initToPtr(
+        context: *Context,
         allocator: Allocator,
         code: []const u8,
         writer: *Writer,
         settings: ContextSettings,
-    ) !*Self {
+    ) !void {
         // NOTE - context pointer is passed around before initialization
         // this is intentional, these utility structs need to store the memory
         // location which is allocated before initialization
         // to make this pattern safe, all of these util init functions must not
         // use context properties, as they are undefined
-        const context = try allocator.create(Context);
 
         const pools = try allocPools.Pools.init(allocator, context);
         const poolsPtr = try utils.createMut(allocPools.Pools, allocator, pools);
@@ -96,14 +96,11 @@ pub const Context = struct {
             .utils = contextUtilsPtr,
             .settings = settings,
         };
-
-        return context;
     }
 
-    pub fn clear(self: *Self) void {
+    /// call to free unused pool mem
+    pub fn clearPoolMem(self: *Self) void {
         self.compInfo.clearPoolMem();
-        // self.genInfo.cleanup();
-        // self.deferCleanup.clear();
     }
 
     pub fn deinit(self: *Self) void {
@@ -202,9 +199,6 @@ pub const StaticPtrs = struct {
     },
 
     pub fn init(pools: *allocPools.Pools) !Self {
-        // called before context is initialized, so any calls to reserve types
-        // or nodes must not use context
-
         return .{
             .types = .{
                 .voidType = (try pools.newTypeUntracked(.Void)).toTypeInfo(.Const),
