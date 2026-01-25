@@ -859,32 +859,21 @@ fn tokenizeErrorToString(err: TokenizeError) []const u8 {
     };
 }
 
-const TokenPosition = struct {
-    index: usize,
-    currentLine: usize,
-};
-
 pub const TokenUtil = struct {
     const Self = @This();
 
-    pos: TokenPosition,
+    pos: usize,
     tokens: []Token,
 
     pub fn init(tokens: []Token) Self {
         return Self{
-            .pos = .{
-                .index = 0,
-                .currentLine = 0,
-            },
+            .pos = 0,
             .tokens = tokens,
         };
     }
 
     pub fn reset(self: *Self) void {
-        self.pos = .{
-            .index = 0,
-            .currentLine = 0,
-        };
+        self.pos = 0;
     }
 
     pub fn take(self: *Self) !Token {
@@ -898,39 +887,35 @@ pub const TokenUtil = struct {
     }
 
     pub fn takeFixed(self: *Self) !Token {
-        if (self.pos.index >= self.tokens.len) {
+        if (self.pos >= self.tokens.len) {
             return TokenError.ExpectedTokenFoundNothing;
         }
 
-        const res = self.tokens[self.pos.index];
-        self.pos.index += 1;
+        const res = self.tokens[self.pos];
+        self.pos += 1;
 
-        if (res.type == .NewLine) {
-            self.pos.currentLine += 1;
-        }
+        if (res.type == .NewLine) {}
 
         return res;
     }
 
     pub fn peakFixed(self: Self) !Token {
-        if (self.pos.index >= self.tokens.len) {
+        if (self.pos >= self.tokens.len) {
             return TokenError.ExpectedTokenFoundNothing;
         }
 
-        return self.tokens[self.pos.index];
+        return self.tokens[self.pos];
     }
 
     pub fn peak(self: *Self) !Token {
         const res = try self.peakFixed();
 
         if (res.type == .NewLine) {
-            self.pos.index += 1;
-            self.pos.currentLine += 1;
+            self.pos += 1;
 
             const newRes = self.peak();
 
-            self.pos.index -= 1;
-            self.pos.currentLine -= 1;
+            self.pos -= 1;
 
             return newRes;
         }
@@ -939,8 +924,8 @@ pub const TokenUtil = struct {
     }
 
     pub fn returnToken(self: *Self) void {
-        self.pos.index -= 1;
-        while (self.tokens[self.pos.index].type == .NewLine) : (self.pos.index -= 1) {}
+        self.pos -= 1;
+        while (self.tokens[self.pos].type == .NewLine) : (self.pos -= 1) {}
     }
 
     pub fn expectToken(self: *Self, tokenType: TokenType) !void {
@@ -951,7 +936,7 @@ pub const TokenUtil = struct {
     }
 
     pub fn hasNextFixed(self: Self) bool {
-        if (self.pos.index < self.tokens.len) return true;
+        if (self.pos < self.tokens.len) return true;
         return false;
     }
 

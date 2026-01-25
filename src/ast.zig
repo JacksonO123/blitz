@@ -2032,9 +2032,9 @@ fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncD
 
     try context.tokenUtil.expectToken(.LBrace);
 
-    const index = context.tokenUtil.pos.index;
+    const index = context.tokenUtil.pos;
     const body = try parseSequence(allocator, context, true);
-    const endIndex = context.tokenUtil.pos.index;
+    const endIndex = context.tokenUtil.pos;
     const bodyTokens = context.tokenUtil.tokens[index..endIndex];
 
     try context.tokenUtil.expectToken(.RBrace);

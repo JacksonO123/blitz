@@ -35,7 +35,11 @@ pub const Logger = struct {
     }
 
     pub fn logError(self: *Self, errStr: []const u8, writer: *Writer) void {
-        const tokenStart = self.tokens.tokens[self.tokens.pos.index].start;
+        self.tokens.returnToken();
+        const currentToken = self.tokens.tokens[self.tokens.pos];
+        std.debug.print(":: {}\n", .{currentToken});
+        const tokenStart = currentToken.start;
+        const tokenLen = currentToken.end - tokenStart - 1;
 
         const numSurroundingLines: u32 = 1;
         const contextBlock = findSurroundingLines(
@@ -46,12 +50,8 @@ pub const Logger = struct {
         const beforeLines = self.code[contextBlock.before.start..contextBlock.before.end];
         const afterLines = self.code[contextBlock.after.start..contextBlock.after.end];
 
-        const lineBounds = findLineBounds(self.code, self.tokens.pos.currentLine);
-        const line = self.code[lineBounds.start..lineBounds.end];
-        const startOffset = getStartOffset(
-            self.tokens.tokens[self.tokens.pos.index - 1].start,
-            self.code,
-        );
+        const line = self.code[contextBlock.before.end + 1 .. contextBlock.after.start - 1];
+        const startOffset = tokenStart - contextBlock.before.end - 1;
 
         writer.writeAll("Error: ") catch {};
         writer.writeAll(errStr) catch {};
@@ -69,7 +69,12 @@ pub const Logger = struct {
         while (i < startOffset) : (i += 1) {
             writer.writeByte(' ') catch {};
         }
-        writer.writeAll(&[_]u8{ '^', '\n' }) catch {};
+        writer.writeByte('^') catch {};
+        i = 0;
+        while (i < tokenLen) : (i += 1) {
+            writer.writeByte('~') catch {};
+        }
+        writer.writeByte('\n') catch {};
 
         if (afterLines.len > 0) {
             writer.writeAll(afterLines) catch {};
@@ -77,21 +82,6 @@ pub const Logger = struct {
         }
     }
 };
-
-fn getStartOffset(loc: usize, code: []const u8) usize {
-    var offset: usize = 0;
-
-    for (code, 0..) |char, index| {
-        if (index == loc) return offset;
-        if (char == '\n') {
-            offset = 0;
-        } else {
-            offset += 1;
-        }
-    }
-
-    return offset;
-}
 
 fn findSurroundingLines(
     code: []const u8,
@@ -134,35 +124,6 @@ fn findSurroundingLines(
     output.after.end = current;
 
     return output;
-}
-
-fn findLineBounds(code: []const u8, line: usize) LineBounds {
-    var start: ?usize = null;
-    var end: usize = 0;
-    var currentLine: usize = 0;
-
-    for (code, 0..) |char, index| {
-        if (index == code.len - 1) {
-            end = index;
-            break;
-        }
-
-        if (currentLine == line) {
-            if (start == null) {
-                start = index;
-            } else if (char == '\n') {
-                end = index;
-                break;
-            }
-        }
-
-        if (char == '\n') currentLine += 1;
-    }
-
-    return .{
-        .start = if (start) |s| s else 0,
-        .end = end,
-    };
 }
 
 pub fn logParseError(context: *Context, err: ast.ParseError, writer: *Writer) void {
