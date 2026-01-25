@@ -53,10 +53,6 @@ pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
         try writer.printInt(size, 10, .lower, .{ .width = numDigits, .fill = '.' });
         try writer.writeAll(") ");
 
-        // if (size == 0) {
-        //     current += 1;
-        //     continue;
-        // }
         try printBytecodeSlice(bytecode[current .. current + size], writer);
         current += size;
     }
@@ -222,6 +218,16 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
         .AddSp64, .SubSp64 => {
             try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[1..9], writer);
+        },
+        .Store64AtReg,
+        .Store32AtReg,
+        .Store16AtReg,
+        .Store8AtReg,
+        => {
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[1], 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[2], 10, .lower, .{});
         },
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,

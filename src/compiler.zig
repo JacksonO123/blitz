@@ -115,24 +115,21 @@ pub fn compile(
             try debug.printAst(context, tree, printWriter);
         }
 
-        _ = format;
-        _ = fileWriter;
-
         try scanner.typeScan(allocator, tree, context);
-        // try codegen.codegenAst(allocator, context, tree);
+        try codegen.codegenAst(allocator, context, tree);
 
-        // if (printState == .All) {
-        //     try printWriter.writeAll("\n------------\n\n");
-        //     try debug.printBytecodeChunks(context, printWriter);
-        // }
+        if (printState == .All) {
+            try printWriter.writeAll("\n------------\n\n");
+            try debug.printBytecodeChunks(context, printWriter);
+        }
 
-        // if (fileWriter) |fWriter| {
-        //     if (format == .Binary) {
-        //         try context.genInfo.writeChunks(fWriter);
-        //     } else {
-        //         try debug.printBytecodeChunks(context, fWriter);
-        //     }
-        // }
+        if (fileWriter) |fWriter| {
+            if (format == .Binary) {
+                try context.genInfo.writeChunks(fWriter);
+            } else {
+                try debug.printBytecodeChunks(context, fWriter);
+            }
+        }
     }
 
     if (printState == .All) {

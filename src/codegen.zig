@@ -111,6 +111,11 @@ pub const InstructionVariants = enum(u8) {
     AddSp64, // inst, 8B data
     SubSp64, // inst, 8B data
 
+    Store64AtReg, // inst, reg, to reg (ptr)
+    Store32AtReg, // inst, reg, to reg (ptr)
+    Store16AtReg, // inst, reg, to reg (ptr)
+    Store8AtReg, // inst, reg, to reg (ptr)
+
     Store64AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
     Store32AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
     Store16AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
@@ -195,6 +200,12 @@ pub const InstructionVariants = enum(u8) {
             .AddSp16, .SubSp16 => 3,
             .AddSp32, .SubSp32 => 5,
             .AddSp64, .SubSp64 => 9,
+
+            .Store64AtReg,
+            .Store32AtReg,
+            .Store16AtReg,
+            .Store8AtReg,
+            => 3,
 
             .Store64AtRegPostInc16,
             .Store32AtRegPostInc16,
@@ -303,6 +314,11 @@ pub const InstructionVariants = enum(u8) {
             .AddSp64 => "add_sp_64",
             .SubSp64 => "sub_sp_64",
 
+            .Store64AtReg => "store_64_at_reg",
+            .Store32AtReg => "store_32_at_reg",
+            .Store16AtReg => "store_16_at_reg",
+            .Store8AtReg => "store_8_at_reg",
+
             .Store64AtRegPostInc16 => "store_64_at_reg_post_inc_16",
             .Store32AtRegPostInc16 => "store_32_at_reg_post_inc_16",
             .Store16AtRegPostInc16 => "store_16_at_reg_post_inc_16",
@@ -392,13 +408,18 @@ fn StoreOffsetSpInstr(comptime T: type) type {
     };
 }
 
-fn StoreIncInstr(comptime T: type) type {
+fn StoreAtRegIncInstr(comptime T: type) type {
     return struct {
         fromReg: TempRegister = 0,
         toRegPtr: TempRegister = 0,
         inc: T = 0,
     };
 }
+
+const StoreAtRegInstr = struct {
+    fromReg: TempRegister = 0,
+    toRegPtr: TempRegister = 0,
+};
 
 fn StoreIncSpInstr(comptime T: type) type {
     return struct {
@@ -512,10 +533,15 @@ pub const Instr = union(InstructionVariants) {
     AddSp64: u64,
     SubSp64: u64,
 
-    Store64AtRegPostInc16: StoreIncInstr(u16),
-    Store32AtRegPostInc16: StoreIncInstr(u16),
-    Store16AtRegPostInc16: StoreIncInstr(u16),
-    Store8AtRegPostInc16: StoreIncInstr(u16),
+    Store64AtReg: StoreAtRegInstr,
+    Store32AtReg: StoreAtRegInstr,
+    Store16AtReg: StoreAtRegInstr,
+    Store8AtReg: StoreAtRegInstr,
+
+    Store64AtRegPostInc16: StoreAtRegIncInstr(u16),
+    Store32AtRegPostInc16: StoreAtRegIncInstr(u16),
+    Store16AtRegPostInc16: StoreAtRegIncInstr(u16),
+    Store8AtRegPostInc16: StoreAtRegIncInstr(u16),
 
     StoreSpSub16AtSpNegOffset16: struct {
         subTo: u16 = 0,
@@ -1943,14 +1969,33 @@ pub fn genBytecodeUtil(
             return genBytecode(allocator, context, group);
         },
         .ValueSet => |set| {
+            const isDeref = set.value.variant == .Dereference;
+            const targetNode = if (isDeref)
+                set.value.variant.Dereference
+            else
+                set.value;
+
+            const destReg = try genBytecode(allocator, context, targetNode) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
             const srcReg = try genBytecode(allocator, context, set.setNode) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
-            const destReg = try genBytecode(allocator, context, set.value) orelse
-                return CodeGenError.ReturnedRegisterNotFound;
+            const destRegValue = destReg.getRegister();
+            const srcRegValue = srcReg.getRegister();
+            defer context.genInfo.releaseIfPossible(srcRegValue);
 
-            var instr = Instr{ .Mov = .{} };
-            instr.Mov.dest = destReg.getRegister();
-            instr.Mov.src = srcReg.getRegister();
+            const instr = if (isDeref)
+                storeRegAtRegWithSize(
+                    srcReg,
+                    destRegValue,
+                    set.setNode.typeInfo.size,
+                )
+            else
+                Instr{
+                    .Mov = .{
+                        .dest = destRegValue,
+                        .src = srcRegValue,
+                    },
+                };
             _ = try context.genInfo.appendChunk(instr);
         },
         .Bang => |expr| {
@@ -2689,6 +2734,38 @@ fn storeRegAtSpNegOffsetAndSize(regContents: RegisterContents, loc: u64, size: u
     };
 }
 
+fn storeRegAtRegWithSize(regContents: RegisterContents, ptrReg: TempRegister, size: u64) Instr {
+    const reg = regContents.getRegister();
+
+    return switch (size) {
+        1 => Instr{
+            .Store8AtReg = .{
+                .fromReg = reg,
+                .toRegPtr = ptrReg,
+            },
+        },
+        2 => Instr{
+            .Store16AtReg = .{
+                .fromReg = reg,
+                .toRegPtr = ptrReg,
+            },
+        },
+        3, 4 => Instr{
+            .Store32AtReg = .{
+                .fromReg = reg,
+                .toRegPtr = ptrReg,
+            },
+        },
+        5...8 => Instr{
+            .Store64AtReg = .{
+                .fromReg = reg,
+                .toRegPtr = ptrReg,
+            },
+        },
+        else => utils.unimplemented(),
+    };
+}
+
 fn storeRegAtRegWithPostInc(regContents: RegisterContents, ptrReg: TempRegister, inc: u16) Instr {
     return switch (regContents) {
         .Bytes1 => |reg| Instr{
@@ -2997,6 +3074,14 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
         },
         .AddSp64, .SubSp64 => |instr| {
             try writer.writeInt(u64, instr, .little);
+        },
+        .Store64AtReg,
+        .Store32AtReg,
+        .Store16AtReg,
+        .Store8AtReg,
+        => |instr| {
+            try writer.writeByte(@intCast(instr.fromReg));
+            try writer.writeByte(@intCast(instr.toRegPtr));
         },
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,

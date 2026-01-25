@@ -923,6 +923,16 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumber(u64, instr, writer);
         },
+        .Store64AtReg,
+        .Store32AtReg,
+        .Store16AtReg,
+        .Store8AtReg,
+        => |instr| {
+            try writer.writeAll(" r");
+            try writer.printInt(instr.fromReg, 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(instr.toRegPtr, 10, .lower, .{});
+        },
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,
         .Store16AtRegPostInc16,
