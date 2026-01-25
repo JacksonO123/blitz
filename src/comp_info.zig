@@ -603,27 +603,6 @@ pub const CompInfo = struct {
                     .shouldCapture = capture,
                     .varTypeUsedInfo = t,
                 };
-                // var copy = t;
-                // copy.varTypeAndAllocInfo.allocState = .Recycled;
-
-                // if (!capture) {
-                //     return copy;
-                // }
-
-                // if (allowCapture) {
-                //     const captureScope = self.variableCaptures.getCurrentScope();
-                //     if (captureScope) |capScope| {
-                //         const clonedType = try clone.cloneAstTypeInfo(
-                //             self.allocator,
-                //             self.context,
-                //             copy.varTypeAndAllocInfo.info,
-                //             replaceGenerics,
-                //         );
-                //         try capScope.put(name, clonedType.toAllocInfo(.Allocated));
-                //     }
-                // }
-
-                // return copy;
             }
 
             const nextLeak = self.variableScopes.getNextInLeak();
