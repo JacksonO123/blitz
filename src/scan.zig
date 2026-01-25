@@ -536,7 +536,6 @@ pub fn scanNode(
             return ScanError.IdentifierNotAFunction;
         },
         .PropertyAccess => |access| {
-            // TODO - node size for this
             if (access.value.variant == .Error) {
                 context.scanInfo.allowErrorWithoutVariants = true;
             }
@@ -1321,8 +1320,7 @@ pub fn scanNode(
                 return res;
             }
 
-            const resType = ptrType.info.astType.Pointer;
-            return resType;
+            return ptrType.info.astType.Pointer;
         },
         .HeapAlloc => |*alloc| {
             const exprTypeResult = try scanNode(allocator, context, alloc.*.node, withGenDef);

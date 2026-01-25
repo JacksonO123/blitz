@@ -2789,14 +2789,13 @@ fn storeRegAtRegWithPostInc(regContents: RegisterContents, ptrReg: TempRegister,
                 .inc = inc,
             },
         },
-        .Bytes8 => |reg| Instr{
+        .Bytes8, .Pointer => |reg| Instr{
             .Store64AtRegPostInc16 = .{
                 .fromReg = reg,
                 .toRegPtr = ptrReg,
                 .inc = inc,
             },
         },
-        else => utils.unimplemented(),
     };
 }
 
