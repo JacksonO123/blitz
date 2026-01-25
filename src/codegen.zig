@@ -1501,7 +1501,9 @@ pub fn genBytecodeUtil(
                 => |reg| {
                     const varReg = if (context.genInfo.isRegVariable(reg)) a: {
                         const newReg = try context.genInfo.getAvailableReg();
-                        if (!node.typeInfo.lastVarUse) {
+                        if (!context.settings.behavior.optimizeVarRegisters or
+                            !node.typeInfo.lastVarUse)
+                        {
                             try context.genInfo.reserveRegister(newReg);
                         }
 
@@ -1515,7 +1517,9 @@ pub fn genBytecodeUtil(
 
                         break :a newReg;
                     } else a: {
-                        if (node.typeInfo.lastVarUse) {
+                        if (context.settings.behavior.optimizeVarRegisters and
+                            node.typeInfo.lastVarUse)
+                        {
                             context.genInfo.releaseIfPossible(reg);
                         } else if (!context.genInfo.isRegActive(reg)) {
                             try context.genInfo.reserveRegister(reg);
@@ -1524,7 +1528,9 @@ pub fn genBytecodeUtil(
                         break :a reg;
                     };
 
-                    if (!node.typeInfo.lastVarUse) {
+                    if (!context.settings.behavior.optimizeVarRegisters or
+                        !node.typeInfo.lastVarUse)
+                    {
                         try context.genInfo.setVariableRegister(
                             dec.name,
                             regContents.transferWithSize(varReg),
@@ -1826,7 +1832,7 @@ pub fn genBytecodeUtil(
         .Variable => |name| {
             const varInfo = context.genInfo.getVarGenInfoFromName(name).?;
             const resReg = varInfo.reg;
-            if (node.typeInfo.lastVarUse) {
+            if (context.settings.behavior.optimizeVarRegisters and node.typeInfo.lastVarUse) {
                 context.genInfo.removeVariableRegister(name);
             }
             return resReg;

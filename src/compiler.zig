@@ -65,7 +65,7 @@ pub fn main() !void {
     const code = try utils.readRelativeFile(allocator, path);
     defer allocator.free(code);
 
-    try compile(allocator, code, writer, fileWriter, .None, .Binary);
+    try compile(allocator, code, writer, fileWriter, .All, .Binary);
 }
 
 pub fn compile(
