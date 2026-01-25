@@ -727,7 +727,7 @@ pub fn scanNode(
                 );
             }
 
-            try context.compInfo.setVariableType(dec.name, setType, dec.mutState);
+            try context.compInfo.setVariableType(dec.name, setType, node, dec.mutState);
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
         .ValueSet => |set| {
@@ -837,6 +837,9 @@ pub fn scanNode(
                 );
                 node.typeInfo.size = try info.info.astType.getSize(context);
                 node.typeInfo.alignment = try info.info.astType.getAlignment(context);
+
+                try context.compInfo.setVariableLastUsedNode(name, node);
+
                 return res;
             }
 
@@ -1056,6 +1059,7 @@ pub fn scanNode(
                     try context.compInfo.setVariableType(
                         param.name,
                         typeClone,
+                        null,
                         param.mutState,
                     );
                 }
@@ -1357,6 +1361,7 @@ pub fn scanNode(
                 try context.compInfo.setVariableType(
                     ident,
                     info.toAllocInfo(.Recycled),
+                    null,
                     .Const,
                 );
             }
@@ -1368,6 +1373,7 @@ pub fn scanNode(
                 try context.compInfo.setVariableType(
                     ident,
                     info,
+                    null,
                     .Const,
                 );
             }
@@ -1632,6 +1638,7 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
                 try context.compInfo.setVariableType(
                     item.key_ptr.*,
                     clonedType,
+                    null,
                     value.info.mutState,
                 );
             }
@@ -1988,6 +1995,7 @@ fn scanFuncBodyAndReturn(
         try context.compInfo.setVariableType(
             param.name,
             typeClone.toAllocInfo(.Recycled),
+            null,
             param.mutState,
         );
     }

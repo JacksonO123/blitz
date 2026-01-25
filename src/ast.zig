@@ -719,6 +719,7 @@ const AstNodeTypeInfo = struct {
     size: u64 = 0,
     alignment: u8 = 0,
     accessingFrom: ?[]const u8 = null, // name of struct
+    lastVarUse: bool = false,
 };
 
 pub const AstNode = struct {

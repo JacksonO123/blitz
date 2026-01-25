@@ -46,7 +46,12 @@ fn initScopeUtilWithBase(
     return scopePtr;
 }
 
-pub const VarScope = StringHashMap(scanner.TypeAndAllocInfo);
+const VarTypeAndUsedInfo = struct {
+    varTypeAndAllocInfo: scanner.TypeAndAllocInfo,
+    lastUsedNode: ?*ast.AstNode,
+};
+
+pub const VarScope = StringHashMap(VarTypeAndUsedInfo);
 pub const CaptureScope = StringHashMap(scanner.TypeAndAllocInfo);
 pub const TypeScope = StringHashMap(scanner.TypeAndAllocInfo);
 pub const StringListScope = ArrayList([]const u8);
@@ -561,6 +566,7 @@ pub const CompInfo = struct {
         self: *Self,
         name: []const u8,
         info: scanner.TypeAndAllocInfo,
+        decNode: ?*ast.AstNode,
         mutState: scanner.MutState,
     ) !void {
         if (info.info.astType.* == .VarInfo) {
@@ -574,40 +580,50 @@ pub const CompInfo = struct {
                 .VarInfo = info,
             });
             const varInfo = varType.toAllocInfo(mutState, .Allocated);
-            try s.put(name, varInfo);
+            const varTypeAndUsedInfo = VarTypeAndUsedInfo{
+                .varTypeAndAllocInfo = varInfo,
+                .lastUsedNode = decNode,
+            };
+            try s.put(name, varTypeAndUsedInfo);
         }
     }
 
-    pub fn getVariableType(
+    fn getVariableTypeInfo(
         self: *Self,
         name: []const u8,
-        replaceGenerics: bool,
-    ) !?scanner.TypeAndAllocInfo {
+    ) !?struct { scope: *VarScope, shouldCapture: bool, varTypeUsedInfo: VarTypeAndUsedInfo } {
         var scope: ?*VarScope = self.variableScopes.getCurrentScope();
         defer self.variableScopes.resetLeakIndex();
         var capture = false;
 
         while (scope) |s| {
             if (s.get(name)) |t| {
-                var copy = t;
-                copy.allocState = .Recycled;
+                return .{
+                    .scope = s,
+                    .shouldCapture = capture,
+                    .varTypeUsedInfo = t,
+                };
+                // var copy = t;
+                // copy.varTypeAndAllocInfo.allocState = .Recycled;
 
-                if (!capture) {
-                    return copy;
-                }
+                // if (!capture) {
+                //     return copy;
+                // }
 
-                const captureScope = self.variableCaptures.getCurrentScope();
-                if (captureScope) |capScope| {
-                    const clonedType = try clone.cloneAstTypeInfo(
-                        self.allocator,
-                        self.context,
-                        copy.info,
-                        replaceGenerics,
-                    );
-                    try capScope.put(name, clonedType.toAllocInfo(.Allocated));
-                }
+                // if (allowCapture) {
+                //     const captureScope = self.variableCaptures.getCurrentScope();
+                //     if (captureScope) |capScope| {
+                //         const clonedType = try clone.cloneAstTypeInfo(
+                //             self.allocator,
+                //             self.context,
+                //             copy.varTypeAndAllocInfo.info,
+                //             replaceGenerics,
+                //         );
+                //         try capScope.put(name, clonedType.toAllocInfo(.Allocated));
+                //     }
+                // }
 
-                return copy;
+                // return copy;
             }
 
             const nextLeak = self.variableScopes.getNextInLeak();
@@ -620,6 +636,40 @@ pub const CompInfo = struct {
         }
 
         return null;
+    }
+
+    pub fn getVariableType(
+        self: *Self,
+        name: []const u8,
+        replaceGenerics: bool,
+    ) !?scanner.TypeAndAllocInfo {
+        const varTypeInfo = (try self.getVariableTypeInfo(name)) orelse return null;
+
+        var copy = varTypeInfo.varTypeUsedInfo;
+        copy.varTypeAndAllocInfo.allocState = .Recycled;
+
+        if (!varTypeInfo.shouldCapture) {
+            return copy.varTypeAndAllocInfo;
+        }
+
+        const captureScope = self.variableCaptures.getCurrentScope();
+        if (captureScope) |capScope| {
+            const clonedType = try clone.cloneAstTypeInfo(
+                self.allocator,
+                self.context,
+                copy.varTypeAndAllocInfo.info,
+                replaceGenerics,
+            );
+            try capScope.put(name, clonedType.toAllocInfo(.Allocated));
+        }
+
+        return copy.varTypeAndAllocInfo;
+    }
+
+    pub fn setVariableLastUsedNode(self: *Self, name: []const u8, node: *ast.AstNode) !void {
+        var varTypeInfo = (try self.getVariableTypeInfo(name)) orelse return;
+        varTypeInfo.varTypeUsedInfo.lastUsedNode = node;
+        try varTypeInfo.scope.put(name, varTypeInfo.varTypeUsedInfo);
     }
 
     pub fn isVariableInScope(self: *Self, name: []const u8) bool {
@@ -647,7 +697,7 @@ pub const CompInfo = struct {
 
         if (scope) |s| {
             if (s.get(name)) |t| {
-                return t;
+                return t.varTypeAndAllocInfo;
             }
         }
 
@@ -866,8 +916,7 @@ fn ScopeUtil(comptime T: type, freeFn: ScopeDeinitFn(T)) type {
 
             self.current = self.scopes.items.len - 1;
 
-            const last = self.scopes.pop();
-            return last;
+            return self.scopes.pop();
         }
 
         pub fn pop(self: *Self) void {

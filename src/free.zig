@@ -112,6 +112,34 @@ pub fn freeVariableScope(
     _ = allocator;
     var scopeIt = scope.iterator();
     while (scopeIt.next()) |val| {
+        const astType = val.value_ptr.lastUsedNode;
+
+        if (astType) |lastNode| {
+            if (lastNode.variant == .Variable or lastNode.variant == .VarDec) {
+                lastNode.typeInfo.lastVarUse = true;
+            }
+        }
+
+        if (val.value_ptr.varTypeAndAllocInfo.allocState == .Allocated) {
+            recursiveReleaseType(context, val.value_ptr.varTypeAndAllocInfo.info.astType);
+        } else if (releaseType == .All) {
+            recursiveReleaseTypeAll(context, val.value_ptr.varTypeAndAllocInfo.info.astType);
+        }
+    }
+    scope.deinit();
+}
+
+pub const freeGenericCaptures = freeGenericScope;
+
+pub fn freeVariableCaptures(
+    allocator: Allocator,
+    context: *Context,
+    scope: *compInfo.CaptureScope,
+    releaseType: ReleaseType,
+) void {
+    _ = allocator;
+    var scopeIt = scope.iterator();
+    while (scopeIt.next()) |val| {
         if (val.value_ptr.allocState == .Allocated) {
             recursiveReleaseType(context, val.value_ptr.info.astType);
         } else if (releaseType == .All) {
@@ -120,9 +148,6 @@ pub fn freeVariableScope(
     }
     scope.deinit();
 }
-
-pub const freeVariableCaptures = freeVariableScope;
-pub const freeGenericCaptures = freeGenericScope;
 
 pub fn freeGenericScope(
     allocator: Allocator,

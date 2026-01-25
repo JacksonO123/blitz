@@ -468,9 +468,9 @@ fn interpretBytecode(
             .MovByteRange => utils.unimplemented(),
             .DbgReg => if (builtin.mode == .Debug) {
                 try writer.writeByte('r');
-                try writer.writeInt(u8, bytecode[current + 1], .little);
-                try writer.writeAll(" :: ");
-                try writer.writeInt(u64, runtimeInfo.registers[bytecode[current + 1]], .little);
+                try writer.printInt(bytecode[current + 1], 10, .lower, .{});
+                try writer.writeAll(" :: (");
+                try writer.printInt(runtimeInfo.registers[bytecode[current + 1]], 10, .lower, .{});
                 try writer.writeAll(")\n");
             } else unreachable,
             .Label => unreachable,

@@ -709,9 +709,9 @@ const RegScopes = struct {
 
     pub fn removeRegister(self: *Self, reg: TempRegister) void {
         const currentScope = self.getCurrentScope();
-        const index = std.mem.indexOf(TempRegister, currentScope.registers.items, reg) orelse
+        const index = std.mem.indexOfScalar(TempRegister, currentScope.registers.items, reg) orelse
             return;
-        currentScope.registers.swapRemove(index);
+        _ = currentScope.registers.swapRemove(index);
     }
 };
 
@@ -1216,11 +1216,12 @@ pub const GenInfo = struct {
     // deactivates register and removes it from variable scopes
     pub fn removeVariableRegister(self: *Self, name: []const u8) void {
         if (self.varNameReg.get(name)) |info| {
-            self.registers.scopes.removeRegister(info.reg);
-            self.registers.infos.items[info.reg].varInfo = null;
-            self.registers.infos.items[info.reg].active = false;
+            const reg = info.reg.getRegister();
+            self.registers.scopes.removeRegister(reg);
+            self.registers.infos.items[reg].varInfo = null;
+            self.registers.infos.items[reg].active = false;
             self.varGenInfoPool.destroy(info);
-            self.varNameReg.remove(name);
+            _ = self.varNameReg.remove(name);
         }
     }
 
@@ -1500,25 +1501,35 @@ pub fn genBytecodeUtil(
                 => |reg| {
                     const varReg = if (context.genInfo.isRegVariable(reg)) a: {
                         const newReg = try context.genInfo.getAvailableReg();
-                        try context.genInfo.reserveRegister(newReg);
+                        if (!node.typeInfo.lastVarUse) {
+                            try context.genInfo.reserveRegister(newReg);
+                        }
 
-                        var instr = Instr{ .Mov = .{} };
-                        instr.Mov.dest = newReg;
-                        instr.Mov.src = reg;
+                        const instr = Instr{
+                            .Mov = .{
+                                .dest = newReg,
+                                .src = reg,
+                            },
+                        };
                         _ = try context.genInfo.appendChunk(instr);
 
                         break :a newReg;
                     } else a: {
-                        if (!context.genInfo.isRegActive(reg)) {
+                        if (node.typeInfo.lastVarUse) {
+                            context.genInfo.releaseIfPossible(reg);
+                        } else if (!context.genInfo.isRegActive(reg)) {
                             try context.genInfo.reserveRegister(reg);
                         }
+
                         break :a reg;
                     };
 
-                    try context.genInfo.setVariableRegister(
-                        dec.name,
-                        regContents.transferWithSize(varReg),
-                    );
+                    if (!node.typeInfo.lastVarUse) {
+                        try context.genInfo.setVariableRegister(
+                            dec.name,
+                            regContents.transferWithSize(varReg),
+                        );
+                    }
                 },
             }
         },
@@ -1814,15 +1825,22 @@ pub fn genBytecodeUtil(
         },
         .Variable => |name| {
             const varInfo = context.genInfo.getVarGenInfoFromName(name).?;
-            return varInfo.reg;
+            const resReg = varInfo.reg;
+            if (node.typeInfo.lastVarUse) {
+                context.genInfo.removeVariableRegister(name);
+            }
+            return resReg;
         },
         .IfStatement => |statement| {
             const condReg = try genBytecode(allocator, context, statement.condition) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
 
-            var buf = Instr{ .CmpConst8 = .{} };
-            buf.CmpConst8.reg = condReg.getRegister();
-            buf.CmpConst8.data = 1;
+            const buf = Instr{
+                .CmpConst8 = .{
+                    .reg = condReg.getRegister(),
+                    .data = 1,
+                },
+            };
             _ = try context.genInfo.appendChunk(buf);
 
             context.genInfo.releaseIfPossible(condReg.getRegister());
@@ -2223,47 +2241,57 @@ pub fn genBytecodeUtil(
             return resReg.transferWithSize(destReg);
         },
         .Pointer => |inner| {
+            const ptrReg = try context.genInfo.getAvailableReg();
+            try context.genInfo.reserveRegister(ptrReg);
             const resReg = try genBytecode(allocator, context, inner.node) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
 
-            if (context.genInfo.getVarGenInfoFromReg(resReg.getRegister())) |info| {
-                const ptrReg = try context.genInfo.getAvailableReg();
-                try context.genInfo.reserveRegister(ptrReg);
-
-                const location = if (info.stackLocation) |location|
+            const varGenInfo = context.genInfo.getVarGenInfoFromReg(resReg.getRegister());
+            const varStackLocation = if (varGenInfo) |info|
+                if (info.stackLocation) |location|
                     location
-                else a: {
-                    const itemSize = inner.node.typeInfo.size;
-                    const alignment = inner.node.typeInfo.alignment;
+                else
+                    null
+            else
+                null;
 
-                    const padding = utils.calculatePadding(
-                        context.genInfo.procInfo.stackFrameSize,
-                        alignment,
-                    );
-                    context.genInfo.procInfo.stackFrameSize += padding;
-                    const spAfterPadding = context.genInfo.procInfo.stackFrameSize;
+            const location = varStackLocation orelse a: {
+                const itemSize = inner.node.typeInfo.size;
+                const alignment = inner.node.typeInfo.alignment;
 
-                    const storeInstr = try storeRegAtSpNegOffset(
-                        resReg,
-                        context.genInfo.procInfo.stackFrameSize,
-                    );
-                    _ = try context.genInfo.appendChunk(storeInstr);
+                const padding = utils.calculatePadding(
+                    context.genInfo.procInfo.stackFrameSize,
+                    alignment,
+                );
+                context.genInfo.procInfo.stackFrameSize += padding;
+                const spAfterPadding = context.genInfo.procInfo.stackFrameSize;
 
-                    context.genInfo.procInfo.stackFrameSize += itemSize;
+                const storeInstr = try storeRegAtSpNegOffset(
+                    resReg,
+                    context.genInfo.procInfo.stackFrameSize,
+                );
+                _ = try context.genInfo.appendChunk(storeInstr);
 
-                    break :a spAfterPadding;
-                };
+                context.genInfo.procInfo.stackFrameSize += itemSize;
 
-                const setLocInstr = Instr{
-                    .MovSpNegOffsetAny = .{
-                        .reg = ptrReg,
-                        .offset = location,
-                    },
-                };
-                _ = try context.genInfo.appendChunk(setLocInstr);
+                break :a spAfterPadding;
+            };
 
-                return .{ .Pointer = ptrReg };
+            if (varGenInfo) |info| {
+                if (info.stackLocation == null) {
+                    info.stackLocation = location;
+                }
             }
+
+            const setLocInstr = Instr{
+                .MovSpNegOffsetAny = .{
+                    .reg = ptrReg,
+                    .offset = location,
+                },
+            };
+            _ = try context.genInfo.appendChunk(setLocInstr);
+
+            return .{ .Pointer = ptrReg };
         },
         .VarEqOp => |op| {
             const destReg = try genBytecode(allocator, context, op.variable) orelse

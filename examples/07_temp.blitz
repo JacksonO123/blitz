@@ -1,7 +1,7 @@
 struct M {
-    pub ptr: *M;
+    pub index: u64;
 }
 
-let arr = [200u64]M with (_, p) M { ptr = p };
-let item = arr[4u64].ptr;
+let arr = [100000000u64]M with (index) M { index };
+let item = arr[99999999u64].index;
 let c = 3;

@@ -1,14 +1,5 @@
-//let a = 2;
-//let ap = &a;
-//let av = ap.*;
-//ap.* = 4;
-//let c = 5;
-
-struct M {
-    pub ptr: *mut u64;
-}
-
-let a = 2u64;
-let m = M { ptr = &a };
-m.ptr.* = 5u64;
-let c = 3;
+let a = 2;
+let ap = &a;
+let av = ap.*;
+ap.* = 4;
+let c = 5;
