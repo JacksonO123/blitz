@@ -1,5 +1,7 @@
 let a = 2;
-let ap = &a;
-let av = ap.*;
-ap.* = 4;
-let c = 5;
+
+{
+    let a = 3;
+}
+
+let b = a;

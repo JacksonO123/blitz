@@ -615,106 +615,6 @@ pub const InstrChunk = struct {
     }
 };
 
-const RegScope = struct {
-    const Self = @This();
-
-    allocator: Allocator,
-    registers: *ArrayList(TempRegister),
-
-    pub fn init(allocator: Allocator) !Self {
-        const registers = try utils.createMut(ArrayList(TempRegister), allocator, .empty);
-
-        return .{
-            .allocator = allocator,
-            .registers = registers,
-        };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.registers.deinit(self.allocator);
-        self.allocator.destroy(self.registers);
-    }
-
-    pub fn empty(self: *Self) ![]TempRegister {
-        return try self.registers.toOwnedSlice(self.allocator);
-    }
-
-    pub fn addRegister(self: *Self, reg: TempRegister) !void {
-        try self.registers.append(self.allocator, reg);
-    }
-};
-
-const RegScopes = struct {
-    const Self = @This();
-
-    allocator: Allocator,
-    scopes: *ArrayList(*RegScope),
-
-    pub fn init(allocator: Allocator) !Self {
-        const firstScope = try RegScope.init(allocator);
-        const firstScopePtr = try utils.createMut(RegScope, allocator, firstScope);
-        var scopes = try utils.createMut(ArrayList(*RegScope), allocator, .empty);
-        try scopes.append(allocator, firstScopePtr);
-
-        return .{
-            .allocator = allocator,
-            .scopes = scopes,
-        };
-    }
-
-    fn deinitScope(self: *Self, scope: *RegScope) void {
-        scope.deinit();
-        self.allocator.destroy(scope);
-    }
-
-    pub fn deinit(self: *Self) void {
-        for (self.scopes.items) |scope| {
-            self.deinitScope(scope);
-        }
-
-        self.scopes.deinit(self.allocator);
-        self.allocator.destroy(self.scopes);
-    }
-
-    pub fn pushScope(self: *Self) !void {
-        const newScope = try RegScope.init(self.allocator);
-        const newScopePtr = try utils.createMut(RegScope, self.allocator, newScope);
-        try self.scopes.append(self.allocator, newScopePtr);
-    }
-
-    pub fn popScope(self: *Self) ![]TempRegister {
-        if (self.scopes.items.len == 1) {
-            const oldContents = try self.scopes.items[0].empty();
-            return oldContents;
-        }
-
-        const scope = self.scopes.pop().?;
-        const oldContents = try scope.registers.toOwnedSlice(self.allocator);
-        self.deinitScope(scope);
-        return oldContents;
-    }
-
-    pub fn getCurrentScopeContents(self: *Self) []TempRegister {
-        return self.scopes.getLast().registers.items;
-    }
-
-    pub fn getCurrentScope(self: Self) *RegScope {
-        return self.scopes.getLast();
-    }
-
-    pub fn addRegister(self: *Self, reg: TempRegister) !void {
-        const scope = self.getCurrentScope();
-        try scope.addRegister(reg);
-    }
-
-    pub fn removeRegister(self: *Self, reg: TempRegister) void {
-        const currentScope = self.getCurrentScope();
-        const index = std.mem.indexOfScalar(TempRegister, currentScope.registers.items, reg) orelse
-            return;
-        _ = currentScope.registers.swapRemove(index);
-    }
-};
-
 const InstrInfo = struct {
     chunk: *InstrChunk,
     label: vmInfo.LabelType,
@@ -781,6 +681,7 @@ const GenInfoSettings = struct {
 
 const VarGenInfo = struct {
     stackLocation: ?u64 = null,
+    prevInfo: ?*VarGenInfo = null,
     name: []const u8,
     reg: RegisterContents,
 };
@@ -850,8 +751,7 @@ const RegisterContents = union(RegisterContentVariants) {
             3, 4 => .{ .Bytes4 = reg },
             5...8 => .{ .Bytes8 = reg },
             9...16 => utils.unimplemented(),
-            // TODO - possibly assign to struct content registers
-            else => utils.unimplemented(),
+            else => unreachable,
         };
     }
 
@@ -1006,7 +906,6 @@ pub const GenInfo = struct {
     },
     registers: struct {
         infos: *ArrayList(RegInfo),
-        scopes: *RegScopes,
     },
     varGenInfoPool: *VarGenInfoPool,
     varNameReg: *StringHashMap(*VarGenInfo),
@@ -1021,8 +920,6 @@ pub const GenInfo = struct {
         const scaledNumRegisters = vmInfo.NUM_REGISTERS * capacityScale;
 
         const varNameReg = try utils.initMutPtrT(StringHashMap(*VarGenInfo), allocator);
-        const regScopes = try RegScopes.init(allocator);
-        const regScopesPtr = try utils.createMut(RegScopes, allocator, regScopes);
         const loopInfoPtr = try utils.createMut(ArrayList(*LoopInfo), allocator, .empty);
 
         const registers = try ArrayList(RegInfo).initCapacity(allocator, scaledNumRegisters);
@@ -1051,7 +948,6 @@ pub const GenInfo = struct {
             .loopInfo = loopInfoPtr,
             .registers = .{
                 .infos = registersPtr,
-                .scopes = regScopesPtr,
             },
             .procInfo = .{
                 .stackFrameSize = 0,
@@ -1071,9 +967,6 @@ pub const GenInfo = struct {
 
         self.varNameReg.deinit();
         self.allocator.destroy(self.varNameReg);
-
-        self.registers.scopes.deinit();
-        self.allocator.destroy(self.registers.scopes);
 
         self.varGenInfoPool.deinit();
         self.allocator.destroy(self.varGenInfoPool);
@@ -1179,7 +1072,6 @@ pub const GenInfo = struct {
 
     pub fn reserveRegister(self: *Self, reg: TempRegister) !void {
         self.registers.infos.items[reg].active = true;
-        try self.registers.scopes.addRegister(reg);
     }
 
     pub fn releaseRegister(self: *Self, reg: TempRegister) void {
@@ -1202,14 +1094,18 @@ pub const GenInfo = struct {
         name: []const u8,
         reg: RegisterContents,
     ) !void {
-        const varGenInfo = try self.varGenInfoPool.create();
+        var varGenInfo = try self.varGenInfoPool.create();
         varGenInfo.* = .{
             .reg = reg,
             .name = name,
         };
+
+        if (self.varNameReg.get(name)) |prevInfo| {
+            varGenInfo.prevInfo = prevInfo;
+        }
+
         try self.varNameReg.put(name, varGenInfo);
         const regValue = reg.getRegister();
-        try self.registers.scopes.addRegister(regValue);
         self.registers.infos.items[regValue].varInfo = varGenInfo;
     }
 
@@ -1217,24 +1113,18 @@ pub const GenInfo = struct {
     pub fn removeVariableRegister(self: *Self, name: []const u8) void {
         if (self.varNameReg.get(name)) |info| {
             const reg = info.reg.getRegister();
-            self.registers.scopes.removeRegister(reg);
-            self.registers.infos.items[reg].varInfo = null;
+            const prevInfo = info.prevInfo;
+            self.registers.infos.items[reg].varInfo = prevInfo;
             self.registers.infos.items[reg].active = false;
             self.varGenInfoPool.destroy(info);
-            _ = self.varNameReg.remove(name);
+            if (prevInfo == null) {
+                _ = self.varNameReg.remove(name);
+            }
         }
     }
 
     pub fn isRegVariable(self: Self, reg: TempRegister) bool {
         return self.registers.infos.items[reg].varInfo != null;
-    }
-
-    pub fn pushScope(self: *Self) !void {
-        try self.registers.scopes.pushScope();
-    }
-
-    fn popScope(self: *Self) ![]TempRegister {
-        return self.registers.scopes.popScope();
     }
 
     pub fn pushLoopInfo(self: *Self) !void {
@@ -1685,14 +1575,15 @@ pub fn genBytecodeUtil(
                     const prevAccessReturn = context.genInfo.settings.propertyAccessReturnsPointer;
                     context.genInfo.settings.propertyAccessReturnsPointer = true;
                     for (items) |item| {
-                        try context.genInfo.pushScope();
                         const regOrNull = try genBytecodeUtil(
                             allocator,
                             context,
                             item,
                             writeLocInfo,
                         );
-                        try context.genInfo.releaseScope();
+                        defer if (regOrNull) |reg| {
+                            context.genInfo.releaseIfPossible(reg.getRegister());
+                        };
 
                         if (isPrimitive) {
                             const reg = regOrNull orelse
@@ -1856,9 +1747,7 @@ pub fn genBytecodeUtil(
             const jumpBuf = Instr{ .JumpNE = jumpLabelId };
             _ = try context.genInfo.appendChunk(jumpBuf);
 
-            try context.genInfo.pushScope();
             _ = try genBytecode(allocator, context, statement.body);
-            try context.genInfo.releaseScope();
 
             if (statement.fallback) |fallback| {
                 const jumpEndLabelId = context.genInfo.takeLabelId();
@@ -1910,9 +1799,7 @@ pub fn genBytecodeUtil(
 
             _ = try context.genInfo.appendChunk(jumpEndInstr);
 
-            try context.genInfo.pushScope();
             _ = try genBytecode(allocator, context, loop.body);
-            try context.genInfo.releaseScope();
 
             const continueLabelId = context.genInfo.takeLabelId();
             const continueLabel = Instr{ .Label = continueLabelId };
@@ -1961,9 +1848,7 @@ pub fn genBytecodeUtil(
 
             _ = try context.genInfo.appendChunk(jumpEndInstr);
 
-            try context.genInfo.pushScope();
             _ = try genBytecode(allocator, context, loop.body);
-            try context.genInfo.releaseScope();
 
             const jumpStartInstr = Instr{ .JumpBack = preConditionLabelId };
             _ = try context.genInfo.appendChunk(jumpStartInstr);
@@ -2036,9 +1921,7 @@ pub fn genBytecodeUtil(
             return .{ .Bytes1 = setReg };
         },
         .Scope => |scope| {
-            try context.genInfo.pushScope();
             _ = try genBytecode(allocator, context, scope);
-            try context.genInfo.releaseScope();
         },
         .Break => {
             const loopInfo = context.genInfo.currentLoopInfo() orelse
@@ -2163,14 +2046,13 @@ pub fn genBytecodeUtil(
             const jumpInstr = Instr{ .JumpEQ = jumpInstrLabelId };
             _ = try context.genInfo.appendChunk(jumpInstr);
 
-            try context.genInfo.pushScope();
             const resRegOrNull = try genBytecodeUtil(
                 allocator,
                 context,
                 init.initNode,
                 writeLocInfo,
             );
-            try context.genInfo.releaseScope();
+            defer if (resRegOrNull) |reg| context.genInfo.releaseIfPossible(reg.getRegister());
 
             const itemAlignment = try init.initType.astType.getAlignment(context);
             const itemSize = try init.initType.astType.getSize(context);
@@ -2368,8 +2250,6 @@ pub fn genBytecodeUtil(
             const def = context.compInfo.getStructDec(init.name).?;
 
             for (def.attributes, 0..) |defAttr, index| {
-                try context.genInfo.pushScope();
-
                 const attr = init.findAttribute(defAttr.name).?;
 
                 const regOrNull = try genBytecodeUtil(
@@ -2378,6 +2258,7 @@ pub fn genBytecodeUtil(
                     attr.value,
                     writeLocInfo,
                 );
+                defer if (regOrNull) |reg| context.genInfo.releaseIfPossible(reg.getRegister());
 
                 var itemSize = attr.value.typeInfo.size;
 
@@ -2401,8 +2282,6 @@ pub fn genBytecodeUtil(
                     );
                     _ = try context.genInfo.appendChunk(instr);
                 }
-
-                try context.genInfo.releaseScope();
             }
 
             if (writeLoc == null) {
