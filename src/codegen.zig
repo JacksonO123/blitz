@@ -1109,7 +1109,7 @@ pub const GenInfo = struct {
         self.registers.infos.items[regValue].varInfo = varGenInfo;
     }
 
-    // deactivates register and removes it from variable scopes
+    // deactivates register and removes variable info
     pub fn removeVariableRegister(self: *Self, name: []const u8) void {
         if (self.varNameReg.get(name)) |info| {
             const reg = info.reg.getRegister();
@@ -1152,12 +1152,6 @@ pub const GenInfo = struct {
 
     pub fn currentLoopInfo(self: Self) ?*LoopInfo {
         return self.loopInfo.getLastOrNull();
-    }
-
-    pub fn releaseScope(self: *Self) !void {
-        const old = try self.popScope();
-        self.releaseRegisters(old);
-        self.allocator.free(old);
     }
 
     fn releaseRegisters(self: *Self, regs: []TempRegister) void {
