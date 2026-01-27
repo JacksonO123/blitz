@@ -311,7 +311,7 @@ pub fn recursiveReleaseNodeUtil(
     }
 
     if (!context.staticPtrs.isStaticPtr(ptr)) {
-        context.pools.releaseNode(ptr);
+        context.pools.releaseNode(context, ptr);
     }
 }
 
@@ -366,7 +366,7 @@ pub fn recursiveReleaseTypeUtil(
     }
 
     if (!context.staticPtrs.isStaticPtr(astType)) {
-        context.pools.releaseType(astType);
+        context.pools.releaseType(context, astType);
     }
 }
 

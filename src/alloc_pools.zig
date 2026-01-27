@@ -19,45 +19,41 @@ const TypePool = MemPool(ast.AstTypes);
 pub const Pools = struct {
     const Self = @This();
 
-    allocator: Allocator,
-    context: *Context,
     nodes: *NodePool,
     types: *TypePool,
 
-    pub fn init(allocator: Allocator, context: *Context) !Self {
+    pub fn init(allocator: Allocator) !Self {
         const nodePool = try NodePool.initPreheated(allocator, POOL_SIZE);
         const nodePoolPtr = try utils.createMut(NodePool, allocator, nodePool);
         const typePool = try TypePool.initPreheated(allocator, POOL_SIZE);
         const typePoolPtr = try utils.createMut(TypePool, allocator, typePool);
 
         return .{
-            .allocator = allocator,
-            .context = context,
             .nodes = nodePoolPtr,
             .types = typePoolPtr,
         };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, allocator: Allocator) void {
         self.nodes.deinit();
-        self.allocator.destroy(self.nodes);
+        allocator.destroy(self.nodes);
 
         self.types.deinit();
-        self.allocator.destroy(self.types);
+        allocator.destroy(self.types);
     }
 
-    pub fn newType(self: Self, data: ast.AstTypes) !*ast.AstTypes {
+    pub fn newType(self: Self, context: *Context, data: ast.AstTypes) !*ast.AstTypes {
         const ptr = try self.newTypeUntracked(data);
-        if (self.context.settings.debug.trackPoolMem) {
-            try self.context.utils.reserveTypeAddress(ptr);
+        if (context.settings.debug.trackPoolMem) {
+            try context.utils.reserveTypeAddress(ptr);
         }
         return ptr;
     }
 
-    pub fn newNode(self: Self, data: ast.AstNode) !*ast.AstNode {
+    pub fn newNode(self: Self, context: *Context, data: ast.AstNode) !*ast.AstNode {
         const ptr = try self.newNodeUntracked(data);
-        if (self.context.settings.debug.trackPoolMem) {
-            try self.context.utils.reserveNodeAddress(ptr);
+        if (context.settings.debug.trackPoolMem) {
+            try context.utils.reserveNodeAddress(ptr);
         }
         return ptr;
     }
@@ -74,26 +70,26 @@ pub const Pools = struct {
         return ptr;
     }
 
-    pub fn releaseType(self: Self, ptr: *ast.AstTypes) void {
-        if (self.context.settings.debug.trackPoolMem) {
-            self.context.utils.releaseTypeAddress(ptr);
+    pub fn releaseType(self: Self, context: *Context, ptr: *ast.AstTypes) void {
+        if (context.settings.debug.trackPoolMem) {
+            context.utils.releaseTypeAddress(ptr);
         }
 
         self.types.destroy(ptr);
     }
 
-    pub fn releaseNode(self: Self, ptr: *ast.AstNode) void {
-        if (self.context.settings.debug.trackPoolMem) {
-            self.context.utils.releaseNodeAddress(ptr);
+    pub fn releaseNode(self: Self, context: *Context, ptr: *ast.AstNode) void {
+        if (context.settings.debug.trackPoolMem) {
+            context.utils.releaseNodeAddress(ptr);
         }
         self.nodes.destroy(ptr);
     }
 
-    pub fn writeStats(self: Self, verbose: bool, writer: *Writer) !void {
+    pub fn writeStats(self: Self, context: *Context, verbose: bool, writer: *Writer) !void {
         const nodesCapacity = self.nodes.arena.queryCapacity();
         const typesCapacity = self.types.arena.queryCapacity();
-        const usedNodeCount = self.context.utils.usedNodes.count();
-        const usedTypesCount = self.context.utils.usedTypes.count();
+        const usedNodeCount = context.utils.usedNodes.count();
+        const usedTypesCount = context.utils.usedTypes.count();
 
         const floatAvailableNodes: f32 = @floatFromInt(usedNodeCount);
         const floatNodeCapacity: f32 = @floatFromInt(nodesCapacity);
@@ -105,46 +101,46 @@ pub const Pools = struct {
 
         if (verbose) {
             try writer.writeAll("node stats:\n");
-            try writer.printInt(self.context.utils.usedNodes.count(), 10, .lower, .{});
+            try writer.printInt(context.utils.usedNodes.count(), 10, .lower, .{});
             try writer.writeAll("/");
             try writer.printInt(nodesCapacity, 10, .lower, .{});
             try writer.writeAll(" : ");
             try writer.printFloat(percentFreeNodes, .{});
             try writer.writeAll("%\nused nodes:\n");
 
-            var usedNodeIt = self.context.utils.usedNodes.keyIterator();
+            var usedNodeIt = context.utils.usedNodes.keyIterator();
             while (usedNodeIt.next()) |item| {
                 try writer.writeAll("|-- ");
-                try debug.printNode(self.context, item.*, writer);
+                try debug.printNode(context, item.*, writer);
                 try writer.print(" 0x{x}", .{@intFromPtr(item.*)});
                 try writer.writeAll("\n");
             }
         }
 
         try writer.writeAll("LEAKED NODES: ");
-        try writer.printInt(self.context.utils.usedNodes.count(), 10, .lower, .{});
+        try writer.printInt(context.utils.usedNodes.count(), 10, .lower, .{});
         try writer.writeAll("\n\n");
 
         if (verbose) {
             try writer.writeAll("type stats:\n");
-            try writer.printInt(self.context.utils.usedTypes.count(), 10, .lower, .{});
+            try writer.printInt(context.utils.usedTypes.count(), 10, .lower, .{});
             try writer.writeAll("/");
             try writer.printInt(typesCapacity, 10, .lower, .{});
             try writer.writeAll(" : ");
             try writer.printFloat(percentFreeTypes, .{});
             try writer.writeAll("%\nused types:\n");
 
-            var usedTypesIt = self.context.utils.usedTypes.keyIterator();
+            var usedTypesIt = context.utils.usedTypes.keyIterator();
             while (usedTypesIt.next()) |item| {
                 try writer.writeAll("|-- ");
-                try debug.printType(self.context, item.*, writer);
+                try debug.printType(context, item.*, writer);
                 try writer.print(" 0x{x}", .{@intFromPtr(item.*)});
                 try writer.writeAll("\n");
             }
         }
 
         try writer.writeAll("LEAKED TYPES: ");
-        try writer.printInt(self.context.utils.usedTypes.count(), 10, .lower, .{});
+        try writer.printInt(context.utils.usedTypes.count(), 10, .lower, .{});
         try writer.writeAll("\n");
     }
 };

@@ -77,9 +77,9 @@ pub fn compile(
     format: BytecodeFormat,
 ) !void {
     var context = try allocator.create(Context);
-    try Context.initToPtr(context, allocator, code, printWriter, .{});
+    context.* = try Context.init(allocator, code, printWriter, .{});
     defer {
-        context.deinit();
+        context.deinit(allocator);
         allocator.destroy(context);
     }
 
@@ -94,7 +94,7 @@ pub fn compile(
         try debug.printRegisteredErrors(structsAndErrors.errors, printWriter);
     }
 
-    try context.compInfo.prepareForAst(context, printWriter);
+    try context.compInfo.prepareForAst(allocator, context, printWriter);
 
     for (structsAndErrors.structs) |s| {
         const res = try scanner.scanNode(allocator, context, s, true);
@@ -105,7 +105,7 @@ pub fn compile(
         var tree = try ast.createAst(allocator, context, printWriter);
         defer {
             tree.deinit();
-            context.clearPoolMem();
+            context.clearPoolMem(allocator);
             free.freeStructsAndErrors(context, structsAndErrors);
         }
 
@@ -135,7 +135,7 @@ pub fn compile(
 
     if (printState == .All) {
         try printWriter.writeAll("\n------------\n\n");
-        try context.pools.writeStats(true, printWriter);
+        try context.pools.writeStats(context, true, printWriter);
         try printWriter.writeByte('\n');
     }
 }

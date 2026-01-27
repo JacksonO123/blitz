@@ -28,7 +28,7 @@ pub fn cloneAstTypeInfo(
     if (info.astType.* == .Generic) {
         const generic = info.astType.Generic;
         if (withGenDef) {
-            const genType = try context.compInfo.getGeneric(generic);
+            const genType = try context.compInfo.getGeneric(allocator, context, generic);
             if (genType) |gType| {
                 const clonedType = try cloneAstTypeInfo(
                     allocator,
@@ -43,7 +43,7 @@ pub fn cloneAstTypeInfo(
         }
 
         return .{
-            .astType = try context.pools.newType(.{
+            .astType = try context.pools.newType(context, .{
                 .Generic = generic,
             }),
             .mutState = info.mutState,
@@ -63,7 +63,7 @@ pub fn cloneAstTypesPtrMut(
     withGenDef: bool,
 ) !*ast.AstTypes {
     const clonedType = try cloneAstTypes(allocator, context, astType.*, withGenDef);
-    return try context.pools.newType(clonedType);
+    return try context.pools.newType(context, clonedType);
 }
 
 pub fn cloneAstTypes(
@@ -175,7 +175,7 @@ fn cloneAstNodePtrMut(
     withGenDef: bool,
 ) (Allocator.Error || CloneError)!*ast.AstNode {
     const clonedNode = try cloneAstNode(allocator, context, node.*, withGenDef);
-    return try context.pools.newNode(clonedNode);
+    return try context.pools.newNode(context, clonedNode);
 }
 
 pub fn cloneAstNodeUnion(
@@ -221,7 +221,7 @@ pub fn cloneAstNodeUnion(
         },
         .Seq => |seq| {
             var newSeq = try allocator.alloc(*ast.AstNode, seq.len);
-            try context.deferCleanup.slices.nodeSlices.append(newSeq);
+            try context.deferCleanup.nodeSlices.append(allocator, newSeq);
 
             for (seq, 0..) |seqNode, index| {
                 newSeq[index] = try cloneAstNodePtrMut(
@@ -453,7 +453,7 @@ pub fn cloneAstNodeUnion(
             for (init.generics, generics) |generic, *to| {
                 to.* = try cloneAstTypeInfo(allocator, context, generic, withGenDef);
             }
-            try context.deferCleanup.slices.typeInfoSlices.append(generics);
+            try context.deferCleanup.typeInfoSlices.append(allocator, generics);
 
             const name = init.name;
             const attributes = try cloneAttrDef(
@@ -549,7 +549,7 @@ pub fn cloneCustomGenerics(
     withGenDef: bool,
 ) ![]ast.AstTypeInfo {
     const genericsSlice = try allocator.alloc(ast.AstTypeInfo, generics.len);
-    try context.deferCleanup.slices.typeInfoSlices.append(genericsSlice);
+    try context.deferCleanup.typeInfoSlices.append(allocator, genericsSlice);
 
     for (generics, 0..) |gen, index| {
         genericsSlice[index] = try cloneAstTypeInfo(allocator, context, gen, withGenDef);
@@ -565,7 +565,7 @@ fn cloneNodeArrMut(
     withGenDef: bool,
 ) ![]*ast.AstNode {
     var newNodes = try allocator.alloc(*ast.AstNode, nodes.len);
-    try context.deferCleanup.slices.nodeSlices.append(newNodes);
+    try context.deferCleanup.nodeSlices.append(allocator, newNodes);
 
     for (nodes, 0..) |node, index| {
         const nodePtr = try cloneAstNodePtrMut(allocator, context, node, withGenDef);
@@ -582,7 +582,7 @@ pub fn cloneGenerics(
     withGenDef: bool,
 ) ![]ast.GenericType {
     var clonedGenerics = try allocator.alloc(ast.GenericType, generics.len);
-    try context.deferCleanup.slices.genericTypeSlices.append(clonedGenerics);
+    try context.deferCleanup.genericTypeSlices.append(allocator, clonedGenerics);
 
     for (generics, 0..) |generic, index| {
         const newGeneric = try cloneGeneric(allocator, context, generic, withGenDef);
@@ -654,7 +654,7 @@ pub fn cloneStructAttributeUnionType(
 ) !ast.AstTypeInfo {
     return switch (structAttrUnion) {
         .Function => |func| {
-            const res = try context.pools.newType(.{
+            const res = try context.pools.newType(context, .{
                 .Function = func,
             });
             return res.toTypeInfo(.Const);
@@ -670,7 +670,7 @@ fn cloneAttrDef(
     withGenDef: bool,
 ) ![]ast.AttributeDefinition {
     var attributes = try allocator.alloc(ast.AttributeDefinition, attrs.len);
-    try context.deferCleanup.slices.attrDefSlices.append(attributes);
+    try context.deferCleanup.attrDefSlices.append(allocator, attributes);
 
     for (attrs, 0..) |attr, index| {
         const newAttr: ast.AttributeDefinition = .{

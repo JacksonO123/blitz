@@ -27,7 +27,6 @@ const ContextSettings = struct {
 pub const Context = struct {
     const Self = @This();
 
-    allocator: Allocator,
     tokens: []tokenizer.Token,
     pools: *allocPools.Pools,
     logger: *logger.Logger,
@@ -41,20 +40,19 @@ pub const Context = struct {
     utils: *ContextUtils,
     settings: ContextSettings,
 
-    pub fn initToPtr(
-        context: *Context,
+    pub fn init(
         allocator: Allocator,
         code: []const u8,
         writer: *Writer,
         settings: ContextSettings,
-    ) !void {
+    ) !Self {
         // NOTE - context pointer is passed around before initialization
         // this is intentional, these utility structs need to store the memory
         // location which is allocated before initialization
         // to make this pattern safe, all of these util init functions must not
         // use context properties, as they are undefined
 
-        const pools = try allocPools.Pools.init(allocator, context);
+        const pools = try allocPools.Pools.init(allocator);
         const poolsPtr = try utils.createMut(allocPools.Pools, allocator, pools);
 
         const tokens = try tokenizer.tokenize(allocator, code, writer);
@@ -66,7 +64,7 @@ pub const Context = struct {
         const loggerUtil = logger.Logger.init(tokenUtilPtr, code);
         const loggerUtilPtr = try utils.createMut(logger.Logger, allocator, loggerUtil);
 
-        const compInfo = try blitzCompInfo.CompInfo.init(allocator, context, names);
+        const compInfo = try blitzCompInfo.CompInfo.init(allocator, names);
         const compInfoPtr = try utils.createMut(blitzCompInfo.CompInfo, allocator, compInfo);
 
         const scanInfoPtr = try utils.createMut(scanner.ScanInfo, allocator, .{});
@@ -81,11 +79,10 @@ pub const Context = struct {
         const constTypeInfos = try StaticPtrs.init(poolsPtr);
         const constTypeInfosPtr = try utils.createMut(StaticPtrs, allocator, constTypeInfos);
 
-        const contextUtils = try ContextUtils.init(allocator, context);
+        const contextUtils = try ContextUtils.init(allocator);
         const contextUtilsPtr = try utils.createMut(ContextUtils, allocator, contextUtils);
 
-        context.* = .{
-            .allocator = allocator,
+        return .{
             .pools = poolsPtr,
             .logger = loggerUtilPtr,
             .tokens = tokens,
@@ -102,28 +99,27 @@ pub const Context = struct {
     }
 
     /// call to free unused pool mem
-    pub fn clearPoolMem(self: *Self) void {
-        self.compInfo.clearPoolMem();
+    pub fn clearPoolMem(self: *Self, allocator: Allocator) void {
+        self.compInfo.clearPoolMem(allocator, self);
     }
 
-    pub fn deinit(self: *Self) void {
-        self.allocator.free(self.tokens);
-        self.compInfo.deinit();
-        self.genInfo.deinit();
-        self.deferCleanup.deinit();
-        self.staticPtrs.deinit(self.pools);
-        self.pools.deinit();
-        self.utils.deinit();
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        allocator.free(self.tokens);
+        self.compInfo.deinit(allocator, self);
+        self.genInfo.deinit(allocator);
+        self.deferCleanup.deinit(allocator);
+        self.pools.deinit(allocator);
+        self.utils.deinit(allocator);
 
-        self.allocator.destroy(self.pools);
-        self.allocator.destroy(self.tokenUtil);
-        self.allocator.destroy(self.logger);
-        self.allocator.destroy(self.compInfo);
-        self.allocator.destroy(self.scanInfo);
-        self.allocator.destroy(self.genInfo);
-        self.allocator.destroy(self.deferCleanup);
-        self.allocator.destroy(self.staticPtrs);
-        self.allocator.destroy(self.utils);
+        allocator.destroy(self.pools);
+        allocator.destroy(self.tokenUtil);
+        allocator.destroy(self.logger);
+        allocator.destroy(self.compInfo);
+        allocator.destroy(self.scanInfo);
+        allocator.destroy(self.genInfo);
+        allocator.destroy(self.deferCleanup);
+        allocator.destroy(self.staticPtrs);
+        allocator.destroy(self.utils);
     }
 
     pub fn getTokString(self: Self, tok: tokenizer.Token) []const u8 {
@@ -140,29 +136,25 @@ pub const ContextUtils = struct {
     const UsedNodeAddresses = std.AutoHashMap(*ast.AstNode, void);
     const UsedTypeAddresses = std.AutoHashMap(*ast.AstTypes, void);
 
-    allocator: Allocator,
-    context: *Context,
     usedNodes: *UsedNodeAddresses,
     usedTypes: *UsedTypeAddresses,
 
-    pub fn init(allocator: Allocator, context: *Context) !Self {
+    pub fn init(allocator: Allocator) !Self {
         const usedNodes = UsedNodeAddresses.init(allocator);
         const usedTypes = UsedTypeAddresses.init(allocator);
 
         return .{
-            .allocator = allocator,
-            .context = context,
             .usedNodes = try utils.createMut(UsedNodeAddresses, allocator, usedNodes),
             .usedTypes = try utils.createMut(UsedTypeAddresses, allocator, usedTypes),
         };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, allocator: Allocator) void {
         self.usedNodes.deinit();
-        self.allocator.destroy(self.usedNodes);
+        allocator.destroy(self.usedNodes);
 
         self.usedTypes.deinit();
-        self.allocator.destroy(self.usedTypes);
+        allocator.destroy(self.usedTypes);
     }
 
     pub fn reserveNodeAddress(self: *Self, addr: *ast.AstNode) !void {
@@ -229,32 +221,6 @@ pub const StaticPtrs = struct {
         };
     }
 
-    pub fn deinit(self: *Self, pools: *allocPools.Pools) void {
-        const allPtrs1 = .{
-            self.types.voidType,
-            self.types.boolType,
-            self.types.anyType,
-            self.types.f32Type,
-            self.types.u64Type,
-            self.types.undefType,
-        };
-
-        const allPtrs2 = .{
-            self.nodes.noOp,
-            self.nodes.structPlaceholder,
-            self.nodes.breakNode,
-            self.nodes.continueNode,
-        };
-
-        inline for (allPtrs1) |ptr| {
-            pools.types.destroy(ptr.astType);
-        }
-
-        inline for (allPtrs2) |ptr| {
-            pools.nodes.destroy(ptr);
-        }
-    }
-
     pub fn isStaticPtr(self: Self, ptr: anytype) bool {
         if (@TypeOf(ptr) == *ast.AstTypes) {
             const staticTypes = .{
@@ -291,42 +257,36 @@ pub const StaticPtrs = struct {
 pub const DeferCleanup = struct {
     const Self = @This();
 
-    allocator: Allocator,
-    slices: struct {
-        strings: DeferedSlice([]const u8),
-        nodeSlices: DeferedSlice([]*ast.AstNode),
-        typeInfoSlices: DeferedSlice([]ast.AstTypeInfo),
-        genericTypeSlices: DeferedSlice([]ast.GenericType),
-        attrDefSlices: DeferedSlice([]ast.AttributeDefinition),
-    },
+    strings: DeferedSlice([]const u8),
+    nodeSlices: DeferedSlice([]*ast.AstNode),
+    typeInfoSlices: DeferedSlice([]ast.AstTypeInfo),
+    genericTypeSlices: DeferedSlice([]ast.GenericType),
+    attrDefSlices: DeferedSlice([]ast.AttributeDefinition),
 
     pub fn init(allocator: Allocator) !Self {
         return .{
-            .allocator = allocator,
-            .slices = .{
-                .strings = try DeferedSlice([]const u8).init(allocator),
-                .nodeSlices = try DeferedSlice([]*ast.AstNode).init(allocator),
-                .typeInfoSlices = try DeferedSlice([]ast.AstTypeInfo).init(allocator),
-                .genericTypeSlices = try DeferedSlice([]ast.GenericType).init(allocator),
-                .attrDefSlices = try DeferedSlice([]ast.AttributeDefinition).init(allocator),
-            },
+            .strings = try DeferedSlice([]const u8).init(allocator),
+            .nodeSlices = try DeferedSlice([]*ast.AstNode).init(allocator),
+            .typeInfoSlices = try DeferedSlice([]ast.AstTypeInfo).init(allocator),
+            .genericTypeSlices = try DeferedSlice([]ast.GenericType).init(allocator),
+            .attrDefSlices = try DeferedSlice([]ast.AttributeDefinition).init(allocator),
         };
     }
 
-    pub fn clear(self: *Self) void {
-        self.slices.strings.cleanup();
-        self.slices.nodeSlices.cleanup();
-        self.slices.typeInfoSlices.cleanup();
-        self.slices.genericTypeSlices.cleanup();
-        self.slices.attrDefSlices.cleanup();
+    pub fn clear(self: *Self, allocator: Allocator) void {
+        self.strings.cleanup(allocator);
+        self.nodeSlices.cleanup(allocator);
+        self.typeInfoSlices.cleanup(allocator);
+        self.genericTypeSlices.cleanup(allocator);
+        self.attrDefSlices.cleanup(allocator);
     }
 
-    pub fn deinit(self: *Self) void {
-        self.slices.strings.deinit();
-        self.slices.nodeSlices.deinit();
-        self.slices.typeInfoSlices.deinit();
-        self.slices.genericTypeSlices.deinit();
-        self.slices.attrDefSlices.deinit();
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        self.strings.deinit(allocator);
+        self.nodeSlices.deinit(allocator);
+        self.typeInfoSlices.deinit(allocator);
+        self.genericTypeSlices.deinit(allocator);
+        self.attrDefSlices.deinit(allocator);
     }
 };
 
@@ -334,35 +294,33 @@ fn DeferedSlice(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        allocator: Allocator,
         slices: *ArrayList(T),
 
         pub fn init(allocator: Allocator) !Self {
             const ptr = try utils.createMut(ArrayList(T), allocator, .empty);
 
             return .{
-                .allocator = allocator,
                 .slices = ptr,
             };
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: *Self, allocator: Allocator) void {
             for (self.slices.items) |slice| {
-                self.allocator.free(slice);
+                allocator.free(slice);
             }
-            self.slices.deinit(self.allocator);
-            self.allocator.destroy(self.slices);
+            self.slices.deinit(allocator);
+            allocator.destroy(self.slices);
         }
 
-        pub fn cleanup(self: *Self) void {
+        pub fn cleanup(self: *Self, allocator: Allocator) void {
             for (self.slices.items) |slice| {
-                self.allocator.free(slice);
+                allocator.free(slice);
             }
             self.slices.clearRetainingCapacity();
         }
 
-        pub fn append(self: *Self, slice: T) !void {
-            try self.slices.append(self.allocator, slice);
+        pub fn append(self: *Self, allocator: Allocator, slice: T) !void {
+            try self.slices.append(allocator, slice);
         }
     };
 }

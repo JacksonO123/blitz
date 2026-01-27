@@ -15,25 +15,21 @@ const InterpreterError = error{
 };
 
 pub fn main() !void {
-    const dbg = builtin.mode == .Debug;
-    var gp = std.heap.GeneralPurposeAllocator(.{ .safety = dbg }){};
-    defer _ = gp.deinit();
-    const allocator = gp.allocator();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
     if (args.len < 2) {
         return InterpreterError.NoInputFile;
     }
 
     const filename = args[1];
     const bzcFilename = try allocator.alloc(u8, filename.len + 4);
-    defer allocator.free(bzcFilename);
     @memcpy(bzcFilename[0..filename.len], filename);
     @memcpy(bzcFilename[filename.len .. filename.len + 4], ".bzc");
 
     const bytecode = try utils.readRelativeFile(allocator, bzcFilename);
-    defer allocator.free(bytecode);
     const bytecodeVersion = bytecode[0];
     if (bytecodeVersion != version.VERSION) {
         return InterpreterError.IncompatibleInterpreterVersions;
@@ -41,7 +37,6 @@ pub fn main() !void {
 
     const stackSize = std.mem.readInt(u32, @ptrCast(bytecode[1..5]), .little);
     var runtimeInfo = try RuntimeInfo.init(allocator, stackSize);
-    defer runtimeInfo.deinit();
 
     var buffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
     var stdout = std.fs.File.stdout().writer(&buffer);
@@ -74,7 +69,6 @@ const RuntimePtrs = struct {
 const RuntimeInfo = struct {
     const Self = @This();
 
-    allocator: Allocator,
     registers: [vmInfo.NUM_REGISTERS]RegisterType = [_]RegisterType{0} ** vmInfo.NUM_REGISTERS,
     flags: Flags,
     stack: *std.ArrayListAligned(u8, .@"64"),
@@ -86,18 +80,12 @@ const RuntimeInfo = struct {
         stack.items.len = stackSize;
 
         return .{
-            .allocator = allocator,
             .flags = Flags{},
             .stack = stack,
             .ptrs = .{
                 .sp = 0,
             },
         };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.stack.deinit(self.allocator);
-        self.allocator.destroy(self.stack);
     }
 
     pub fn writeMemDebug(self: Self, untilReg: usize, untilStack: usize, writer: *Writer) !void {
