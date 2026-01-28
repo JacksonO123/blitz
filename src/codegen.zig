@@ -2162,6 +2162,8 @@ pub fn genBytecodeUtil(
             const def = context.compInfo.getStructDec(init.name).?;
 
             for (def.attributes, 0..) |defAttr, index| {
+                if (defAttr.attr != .Member) continue;
+
                 const attr = init.findAttribute(defAttr.name).?;
 
                 const regOrNull = try genBytecodeUtil(
@@ -2174,8 +2176,10 @@ pub fn genBytecodeUtil(
 
                 var itemSize = attr.value.typeInfo.size;
 
-                if (index < def.attributes.len - 1) {
-                    const nextAttr = def.attributes[index + 1];
+                var nextItemOffset: usize = 1;
+                while (index + nextItemOffset < def.attributes.len) : (nextItemOffset += 1) {
+                    if (def.attributes[index + nextItemOffset].attr != .Member) continue;
+                    const nextAttr = def.attributes[index + nextItemOffset];
                     const nextAttrDef = init.findAttribute(nextAttr.name).?;
                     const nextPadding = utils.calculatePadding(
                         writeLocInfo.value,

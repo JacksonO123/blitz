@@ -1287,7 +1287,7 @@ fn parseStructAttributeUtil(
                         .allowPrivateReads = true,
                     },
                 });
-                const selfInfo = customType.toAllocInfo(.Const, .Allocated);
+                const selfInfo = customType.toAllocInfo(.Mut, .Allocated);
                 try valueCaptures.put("self", selfInfo);
             }
 

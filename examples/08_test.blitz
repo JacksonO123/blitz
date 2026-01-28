@@ -1,7 +1,12 @@
-let a = 2;
+struct M {
+    pub data: u32;
 
-{
-    let a = 3;
+    pub fn getSelf() *mut M {
+        // self.data = 2;
+        return &self;
+    }
 }
 
-let b = a;
+let val = M { data = 10 };
+let mutVal = val.getSelf();
+mutVal.*.data = 5;

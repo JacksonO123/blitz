@@ -2029,6 +2029,8 @@ fn scanFuncBodyAndReturn(
         }
 
         if (context.compInfo.returnInfo.info.retType) |retType| {
+            // std.debug.print(":: {}\n", .{func.returnType});
+            // std.debug.print(":: {}\n", .{retType.info});
             const matches = try matchTypes(
                 allocator,
                 context,
@@ -2493,10 +2495,8 @@ fn matchMutState(
 
     switch (mutMatchBehavior) {
         .Assign => {
-            if (toType.astType.* == .Pointer and
-                toType.mutState == .Mut and
-                fromType.mutState == .Const)
-            {
+            const matchRequired = toType.astType.* == .Pointer;
+            if (matchRequired and toType.mutState == .Mut and fromType.mutState == .Const) {
                 return ScanError.PointerTypeConstMismatch;
             }
         },
