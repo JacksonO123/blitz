@@ -1,14 +1,10 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
-const utils = blitz.utils;
-const blitzCompInfo = blitz.compInfo;
 const debug = blitz.debug;
 const scanner = blitz.scanner;
 const free = blitz.free;
 const Allocator = std.mem.Allocator;
-const StringHashMap = std.StringHashMap;
-const ArrayList = std.ArrayList;
 const Context = blitz.context.Context;
 
 pub const CloneError = error{

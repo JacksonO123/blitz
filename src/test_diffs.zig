@@ -4,13 +4,9 @@ const diffBytecode = @import("diff_bytecode.zig");
 const utils = @import("utils.zig");
 
 pub fn main() !void {
-    const dbg = builtin.mode == .Debug;
-    var gp = std.heap.GeneralPurposeAllocator(.{ .safety = dbg }){};
-    defer _ = gp.deinit();
-    const allocator = gp.allocator();
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var buf: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
     var stdout = std.fs.File.stdout().writer(&buf);
@@ -27,13 +23,11 @@ pub fn main() !void {
         if (item.kind != .file) continue;
 
         const refFileName = try diffBytecode.getRefName(allocator, item.name, writer);
-        defer allocator.free(refFileName);
 
         const sourceFileName = try std.fmt.allocPrint(allocator, "{s}/{s}", .{
             diffBytecode.FEATURE_DIR,
             item.name,
         });
-        defer allocator.free(sourceFileName);
 
         const fileExists = try doesFileExist(refFileName, recordDirectory);
         try diffBytecode.diffBytecode(

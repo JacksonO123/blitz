@@ -14,8 +14,7 @@ pub const ReleaseType = enum {
     Allocated,
 };
 
-pub fn freeFuncDec(
-    allocator: Allocator,
+pub fn releaseFuncDec(
     context: *Context,
     func: *const ast.FuncDecNode,
 ) void {
@@ -24,7 +23,6 @@ pub fn freeFuncDec(
     for (func.params) |param| {
         recursiveReleaseTypeAll(context, param.type.astType);
     }
-    allocator.free(func.params);
 
     if (func.generics) |generics| {
         for (generics) |generic| {
@@ -32,84 +30,52 @@ pub fn freeFuncDec(
                 recursiveReleaseTypeAll(context, restriction.astType);
             }
         }
-        allocator.free(generics);
     }
 
     if (func.capturedValues) |captured| {
-        freeVariableCaptures(allocator, context, captured, .All);
-        allocator.destroy(captured);
+        freeVariableCaptures(context, captured, .All);
     }
 
     if (func.capturedTypes) |captured| {
-        freeGenericCaptures(allocator, context, captured, .All);
-        allocator.destroy(captured);
-    }
-
-    if (func.capturedFuncs) |captured| {
-        captured.deinit(allocator);
-        allocator.destroy(captured);
+        freeGenericCaptures(context, captured, .All);
     }
 
     for (func.toScanTypes.items) |rels| {
         for (rels) |rel| {
             recursiveReleaseTypeAll(context, rel.info.astType);
         }
-        allocator.free(rels);
     }
 
     recursiveReleaseTypeAll(context, func.returnType.astType);
-
-    func.toScanTypes.deinit(allocator);
-    allocator.destroy(func.toScanTypes);
-    allocator.destroy(func);
 }
 
-pub fn freeAttrs(allocator: Allocator, context: *Context, attrs: []ast.StructAttribute) void {
+pub fn freeStructAttrs(context: *Context, attrs: []ast.StructAttribute) void {
     for (attrs) |attr| {
         switch (attr.attr) {
-            .Function => |func| freeFuncDec(allocator, context, func),
+            .Function => |func| releaseFuncDec(context, func),
             .Member => |member| recursiveReleaseTypeAll(context, member.astType),
         }
     }
 }
 
-pub fn freeStructDec(
-    allocator: Allocator,
+pub fn releaseStructDec(
     context: *Context,
     dec: *ast.StructDecNode,
 ) void {
-    freeAttrs(allocator, context, dec.attributes);
-
-    allocator.free(dec.attributes);
-    allocator.free(dec.totalMemberList);
+    freeStructAttrs(context, dec.attributes);
 
     for (dec.generics) |generic| {
         if (generic.restriction) |restriction| {
             recursiveReleaseTypeAll(context, restriction.astType);
         }
     }
-    allocator.free(dec.generics);
-
-    for (dec.toScanTypes.items) |rels| {
-        allocator.free(rels);
-    }
-
-    dec.toScanTypes.deinit(allocator);
-    allocator.destroy(dec.toScanTypes);
-}
-
-pub fn freeBuiltins(allocator: Allocator, memos: builtins.BuiltinFuncMemo) void {
-    _ = allocator;
-    _ = memos;
 }
 
 pub fn freeVariableScope(
-    allocator: Allocator,
     context: *Context,
     scope: *compInfo.VarScope,
     releaseType: ReleaseType,
 ) void {
-    _ = allocator;
     var scopeIt = scope.iterator();
     while (scopeIt.next()) |val| {
         const astType = val.value_ptr.lastUsedNode;
@@ -132,12 +98,10 @@ pub fn freeVariableScope(
 pub const freeGenericCaptures = freeGenericScope;
 
 pub fn freeVariableCaptures(
-    allocator: Allocator,
     context: *Context,
     scope: *compInfo.CaptureScope,
     releaseType: ReleaseType,
 ) void {
-    _ = allocator;
     var scopeIt = scope.iterator();
     while (scopeIt.next()) |val| {
         if (val.value_ptr.allocState == .Allocated) {
@@ -150,12 +114,10 @@ pub fn freeVariableCaptures(
 }
 
 pub fn freeGenericScope(
-    allocator: Allocator,
     context: *Context,
     scope: *compInfo.TypeScope,
     releaseType: ReleaseType,
 ) void {
-    _ = allocator;
     var scopeIt = scope.valueIterator();
     while (scopeIt.next()) |val| {
         if (val.allocState == .Allocated) {
@@ -167,15 +129,14 @@ pub fn freeGenericScope(
     scope.deinit();
 }
 
-pub fn deinitScope(
-    allocator: Allocator,
+pub fn NoopDeinitScope(
     context: *Context,
     scope: *compInfo.StringListScope,
     releaseType: ReleaseType,
 ) void {
+    _ = scope;
     _ = context;
     _ = releaseType;
-    scope.deinit(allocator);
 }
 
 pub fn recursiveReleaseNode(context: *Context, ptr: *ast.AstNode) void {
@@ -311,7 +272,7 @@ pub fn recursiveReleaseNodeUtil(
     }
 
     if (!context.staticPtrs.isStaticPtr(ptr)) {
-        context.pools.releaseNode(context, ptr);
+        context.releasePoolNode(ptr);
     }
 }
 
@@ -366,11 +327,11 @@ pub fn recursiveReleaseTypeUtil(
     }
 
     if (!context.staticPtrs.isStaticPtr(astType)) {
-        context.pools.releaseType(context, astType);
+        context.releasePoolType(astType);
     }
 }
 
-pub fn freeStructsAndErrors(
+pub fn releaseStructsAndErrors(
     context: *Context,
     structsAndErrors: ast.RegisterStructsAndErrorsResult,
 ) void {

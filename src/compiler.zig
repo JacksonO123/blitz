@@ -32,14 +32,12 @@ const BytecodeFormat = enum {
 };
 
 pub fn main() !void {
-    const dbg = builtin.mode == .Debug;
-    var gp = std.heap.GeneralPurposeAllocator(.{ .safety = dbg }){};
-    defer _ = gp.deinit();
-    const allocator = gp.allocator();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     // TODO - extend later
     const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
     if (args.len < 2) {
         return error.NoInputFile;
     }
@@ -63,79 +61,74 @@ pub fn main() !void {
     try writer.writeAll("\n");
 
     const code = try utils.readRelativeFile(allocator, path);
-    defer allocator.free(code);
-
     try compile(allocator, code, writer, fileWriter, .All, .Binary);
 }
 
 pub fn compile(
-    allocator: Allocator,
+    baseAllocator: Allocator,
     code: []u8,
     printWriter: *Writer,
     fileWriter: ?*Writer,
     printState: DebugPrintState,
     format: BytecodeFormat,
 ) !void {
-    var context = try allocator.create(Context);
-    context.* = try Context.init(allocator, code, printWriter, .{});
-    defer {
-        context.deinit(allocator);
-        allocator.destroy(context);
-    }
+    var arena = std.heap.ArenaAllocator.init(baseAllocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-    const structsAndErrors = try ast.registerStructsAndErrors(allocator, context);
-    defer allocator.free(structsAndErrors.structs);
-    defer allocator.free(structsAndErrors.errors);
+    var context = try Context.init(allocator, code, printWriter, .{});
+
+    const structsAndErrors = try ast.registerStructsAndErrors(allocator, &context);
     try context.compInfo.setStructDecs(structsAndErrors.structs);
     try context.compInfo.setErrorDecs(structsAndErrors.errors);
 
     if (printState == .All) {
-        try debug.printRegisteredStructs(context, structsAndErrors.structs, printWriter);
+        try debug.printRegisteredStructs(&context, structsAndErrors.structs, printWriter);
         try debug.printRegisteredErrors(structsAndErrors.errors, printWriter);
     }
 
-    try context.compInfo.prepareForAst(allocator, context, printWriter);
+    try context.compInfo.prepareForAst(allocator, &context, printWriter);
 
     for (structsAndErrors.structs) |s| {
-        const res = try scanner.scanNode(allocator, context, s, true);
-        scanner.releaseIfAllocated(context, res);
+        const res = try scanner.scanNode(allocator, &context, s, true);
+        scanner.releaseIfAllocated(&context, res);
     }
 
     {
-        var tree = try ast.createAst(allocator, context, printWriter);
+        var tree = try ast.createAst(allocator, &context, printWriter);
         defer {
             tree.deinit();
-            context.clearPoolMem(allocator);
-            free.freeStructsAndErrors(context, structsAndErrors);
+            context.clearPoolMem();
+            free.releaseStructsAndErrors(&context, structsAndErrors);
         }
 
         if (printState == .All) {
             try printWriter.writeAll("--- code ---\n");
             try printWriter.writeAll(code);
             try printWriter.writeAll("\n------------\n\n");
-            try debug.printAst(context, tree, printWriter);
+            try debug.printAst(&context, tree, printWriter);
         }
 
-        try scanner.typeScan(allocator, tree, context);
-        try codegen.codegenAst(allocator, context, tree);
+        try scanner.typeScan(allocator, tree, &context);
+        try codegen.codegenAst(allocator, &context, tree);
 
         if (printState == .All) {
             try printWriter.writeAll("\n------------\n\n");
-            try debug.printBytecodeChunks(context, printWriter);
+            try debug.printBytecodeChunks(&context, printWriter);
         }
 
         if (fileWriter) |fWriter| {
             if (format == .Binary) {
                 try context.genInfo.writeChunks(fWriter);
             } else {
-                try debug.printBytecodeChunks(context, fWriter);
+                try debug.printBytecodeChunks(&context, fWriter);
             }
         }
     }
 
     if (printState == .All) {
         try printWriter.writeAll("\n------------\n\n");
-        try context.pools.writeStats(context, true, printWriter);
+        try context.pools.writeStats(&context, true, printWriter);
         try printWriter.writeByte('\n');
     }
 }

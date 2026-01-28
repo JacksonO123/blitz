@@ -4,7 +4,6 @@ const ast = blitz.ast;
 const utils = blitz.utils;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
-const Logger = blitz.logger.Logger;
 const Writer = std.Io.Writer;
 
 const INIT_TOK_CAPACITY = 1024 * 10;

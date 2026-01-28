@@ -17,10 +17,9 @@ const TERMINAL_COLORS = .{
 };
 
 pub fn main() !void {
-    const dbg = builtin.mode == .Debug;
-    var gp = std.heap.GeneralPurposeAllocator(.{ .safety = dbg }){};
-    defer _ = gp.deinit();
-    const allocator = gp.allocator();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var buf: [1024]u8 = undefined;
     var stdio = std.fs.File.stdout().writer(&buf);
@@ -28,7 +27,6 @@ pub fn main() !void {
     defer writer.flush() catch {};
 
     const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
     if (args.len < 2) {
         try writer.writeAll("No input file");
         return error.NoInputFile;
@@ -81,10 +79,8 @@ pub fn diffBytecode(
 
     try printWriter.print("opening [{s}]\n", .{path});
     const code = try utils.readRelativeFile(allocator, path);
-    defer allocator.free(code);
 
     const outName = try getRefName(allocator, path, printWriter);
-    defer allocator.free(outName);
 
     var recordsDir = try std.fs.cwd().openDir(recordPath, .{});
     defer recordsDir.close();
@@ -109,30 +105,25 @@ pub fn diffBytecode(
 
     const newContents = if (fromObjDump) a: {
         var binaryAllocating = Writer.Allocating.init(allocator);
-        defer binaryAllocating.deinit();
         const binaryWriter = &binaryAllocating.writer;
         try compiler.compile(allocator, code, printWriter, binaryWriter, .None, .Binary);
         try binaryWriter.flush();
 
         var textAllocating = Writer.Allocating.init(allocator);
-        defer textAllocating.deinit();
         const textWriter = &textAllocating.writer;
         const ownedBinarySlice = try binaryAllocating.toOwnedSlice();
-        defer allocator.free(ownedBinarySlice);
         try objdump.printBytecode(ownedBinarySlice, textWriter);
         try textWriter.flush();
 
         break :a try textAllocating.toOwnedSlice();
     } else a: {
         var textAllocating = Writer.Allocating.init(allocator);
-        defer textAllocating.deinit();
         const textWriter = &textAllocating.writer;
         try compiler.compile(allocator, code, printWriter, textWriter, .None, .PlainText);
         try textWriter.flush();
 
         break :a try textAllocating.toOwnedSlice();
     };
-    defer allocator.free(newContents);
 
     const outFile = recordsDir.openFile(outName, .{}) catch |err| {
         try printWriter.print("{s} :: {s}/{s}\n", .{ @errorName(err), recordPath, outName });
@@ -140,7 +131,6 @@ pub fn diffBytecode(
     };
     defer outFile.close();
     const origContents = try outFile.readToEndAlloc(allocator, std.math.maxInt(usize));
-    defer allocator.free(origContents);
 
     try writeDiff(newContents, origContents, printWriter);
     try printWriter.writeByte('\n');

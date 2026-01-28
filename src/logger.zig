@@ -5,7 +5,6 @@ const ast = blitz.ast;
 const tokenizer = blitz.tokenizer;
 const blitzContext = blitz.context;
 const TokenUtil = tokenizer.TokenUtil;
-const File = std.fs.File;
 const AstError = ast.AstError;
 const Writer = std.Io.Writer;
 const Context = blitzContext.Context;

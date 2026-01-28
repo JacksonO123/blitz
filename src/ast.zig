@@ -4,15 +4,10 @@ const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
 const free = blitz.free;
 const scanner = blitz.scanner;
-const clone = blitz.clone;
-const blitzCompInfo = blitz.compInfo;
+const compInfo = blitz.compInfo;
 const logger = blitz.logger;
-const ast = blitz.ast;
-const create = utils.create;
-const createMut = utils.createMut;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const StringHashMap = std.StringHashMap;
 const TokenError = tokenizer.TokenError;
 const Context = blitz.context.Context;
 const Writer = std.Io.Writer;
@@ -413,7 +408,7 @@ pub const StructAttribute = struct {
 
 pub const StrToTypeInfoRel = struct {
     str: []const u8,
-    info: ast.AstTypeInfo,
+    info: AstTypeInfo,
 };
 
 pub const ToScanTypesList = ArrayList([]StrToTypeInfoRel);
@@ -511,9 +506,9 @@ pub const FuncDecNode = struct {
     body: *AstNode,
     bodyTokens: []tokenizer.Token,
     returnType: AstTypeInfo,
-    capturedValues: ?*blitzCompInfo.CaptureScope,
-    capturedTypes: ?*blitzCompInfo.TypeScope,
-    capturedFuncs: ?*blitzCompInfo.StringListScope,
+    capturedValues: ?*compInfo.CaptureScope,
+    capturedTypes: ?*compInfo.TypeScope,
+    capturedFuncs: ?*compInfo.StringListScope,
     toScanTypes: *ToScanTypesList,
     funcType: FuncType,
     visited: bool,
@@ -811,7 +806,6 @@ pub fn parseSequence(
     fromBlock: bool,
 ) ParseError!*AstNode {
     var seq: ArrayList(*AstNode) = .empty;
-    defer seq.deinit(allocator);
 
     while (context.tokenUtil.hasNext()) {
         const peakToken = try context.tokenUtil.peakFixed();
@@ -1151,7 +1145,7 @@ fn parseIfChain(allocator: Allocator, context: *Context) !?FallbackInfo {
 
 fn parseStruct(allocator: Allocator, context: *Context) !?*AstNode {
     try context.compInfo.pushParsedGenericsScope(allocator, false);
-    defer context.compInfo.popParsedGenericsScope(allocator, context);
+    defer context.compInfo.popParsedGenericsScope(context);
 
     var deriveType: ?AstTypeInfo = null;
     var generics: []GenericType = &[_]GenericType{};
@@ -1193,7 +1187,7 @@ fn parseStruct(allocator: Allocator, context: *Context) !?*AstNode {
     const attributes = try parseStructAttributes(allocator, context, structName);
 
     const structDecVariant: AstNodeUnion = .{
-        .StructDec = try createMut(StructDecNode, allocator, .{
+        .StructDec = try utils.createMut(StructDecNode, allocator, .{
             .name = structName,
             .generics = generics,
             .attributes = attributes,
@@ -1211,7 +1205,6 @@ fn parseStructAttributes(
     structName: []const u8,
 ) ![]StructAttribute {
     var attributes: ArrayList(StructAttribute) = .empty;
-    defer attributes.deinit(allocator);
 
     var current = try context.tokenUtil.peak();
     while (current.type != .RBrace) {
@@ -1283,7 +1276,7 @@ fn parseStructAttributeUtil(
 
             if (!static) {
                 const valueCaptures = try utils.initMutPtrT(
-                    blitzCompInfo.CaptureScope,
+                    compInfo.CaptureScope,
                     allocator,
                 );
                 def.capturedValues = valueCaptures;
@@ -1328,7 +1321,7 @@ fn parseError(allocator: Allocator, context: *Context) !*const ErrorDecNode {
         return TokenError.UnexpectedToken;
     }
 
-    return try create(ErrorDecNode, allocator, .{
+    return try utils.create(ErrorDecNode, allocator, .{
         .name = context.getTokString(name),
         .variants = variants,
     });
@@ -1336,7 +1329,6 @@ fn parseError(allocator: Allocator, context: *Context) !*const ErrorDecNode {
 
 fn parseVariants(allocator: Allocator, context: *Context) ![][]const u8 {
     var variants: ArrayList([]const u8) = .empty;
-    defer variants.deinit(allocator);
 
     var variant = try context.tokenUtil.take();
     while (variant.type == .Identifier) {
@@ -1746,7 +1738,6 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
     }
 
     var items: ArrayList(*AstNode) = .empty;
-    defer items.deinit(allocator);
 
     while (current.type != .RBracket) {
         const item = try parseExpression(allocator, context) orelse
@@ -1793,7 +1784,6 @@ fn parseStructInit(
 
 fn parseStructInitAttributes(allocator: Allocator, context: *Context) ![]AttributeDefinition {
     var attributes: ArrayList(AttributeDefinition) = .empty;
-    defer attributes.deinit(allocator);
 
     var current = try context.tokenUtil.peak();
     while (current.type != .RBrace) {
@@ -1848,7 +1838,6 @@ fn parseStructInitAttribute(allocator: Allocator, context: *Context) !AttributeD
 
 fn parseInitGenerics(allocator: Allocator, context: *Context) ![]AstTypeInfo {
     var generics: ArrayList(AstTypeInfo) = .empty;
-    defer generics.deinit(allocator);
 
     var current = try context.tokenUtil.peak();
     while (current.type != .RAngle) {
@@ -2049,7 +2038,7 @@ fn parseFuncCall(allocator: Allocator, context: *Context, name: []const u8) !*As
 
 fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncDecNode {
     try context.compInfo.pushParsedGenericsScope(allocator, true);
-    defer context.compInfo.popParsedGenericsScope(allocator, context);
+    defer context.compInfo.popParsedGenericsScope(context);
 
     var next = try context.tokenUtil.take();
     var nameStr: []const u8 = undefined;
@@ -2088,7 +2077,7 @@ fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncD
 
     try context.tokenUtil.expectToken(.RBrace);
 
-    return try createMut(FuncDecNode, allocator, .{
+    return try utils.createMut(FuncDecNode, allocator, .{
         .name = nameStr,
         .generics = generics,
         .params = params,
@@ -2107,7 +2096,6 @@ fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncD
 
 fn parseGenerics(allocator: Allocator, context: *Context) ![]GenericType {
     var generics: ArrayList(GenericType) = .empty;
-    defer generics.deinit(allocator);
 
     var current = try context.tokenUtil.peak();
     while (current.type != .RBracket) {
@@ -2155,7 +2143,6 @@ fn parseParams(allocator: Allocator, context: *Context) ![]Parameter {
     }
 
     var params: ArrayList(Parameter) = .empty;
-    defer params.deinit(allocator);
 
     while (current.type != .RParen) {
         const param = try parseParam(allocator, context);
@@ -2201,7 +2188,6 @@ fn parseFuncCallParams(allocator: Allocator, context: *Context) ![]*AstNode {
     }
 
     var params: ArrayList(*AstNode) = .empty;
-    defer params.deinit(allocator);
 
     var current = try context.tokenUtil.peak();
     while (current.type != .RParen) {
@@ -2470,9 +2456,7 @@ pub fn findStructsAndErrors(
     code: []const u8,
 ) !HoistedNames {
     var structNames: ArrayList([]const u8) = .empty;
-    defer structNames.deinit(allocator);
     var errorNames: ArrayList([]const u8) = .empty;
-    defer errorNames.deinit(allocator);
 
     var scopeCount: usize = 0;
     var i: usize = 0;
@@ -2520,9 +2504,7 @@ pub fn registerStructsAndErrors(
     context: *Context,
 ) !RegisterStructsAndErrorsResult {
     var structDecs: ArrayList(*AstNode) = .empty;
-    defer structDecs.deinit(allocator);
     var errorDecs: ArrayList(*AstNode) = .empty;
-    defer errorDecs.deinit(allocator);
 
     while (context.tokenUtil.hasNext()) {
         const token = try context.tokenUtil.take();

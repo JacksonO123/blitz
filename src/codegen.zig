@@ -6,8 +6,6 @@ const utils = blitz.utils;
 const vmInfo = blitz.vmInfo;
 const version = blitz.version;
 const blitzContext = blitz.context;
-const allocPools = blitz.allocPools;
-const free = blitz.free;
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const AutoHashMap = std.AutoHashMap;
@@ -638,14 +636,6 @@ const LoopInfo = struct {
         };
     }
 
-    pub fn deinit(self: *Self, allocator: Allocator) void {
-        self.breaks.deinit(allocator);
-        allocator.destroy(self.breaks);
-
-        self.continues.deinit(allocator);
-        allocator.destroy(self.continues);
-    }
-
     pub fn appendBreak(self: *Self, allocator: Allocator, instr: *InstrChunk, label: vmInfo.LabelType) !void {
         try self.breaks.append(allocator, .{
             .chunk = instr,
@@ -711,11 +701,6 @@ const GenInfoChunks = struct {
             .listStart = null,
             .listEnd = null,
         };
-    }
-
-    pub fn deinit(self: *Self, allocator: Allocator) void {
-        self.pool.deinit();
-        allocator.destroy(self.pool);
     }
 
     pub fn newChunk(self: *Self, data: Instr) !*InstrChunk {
@@ -794,19 +779,6 @@ const LabelByteInfo = struct {
         };
     }
 
-    pub fn deinit(self: *Self, allocator: Allocator) void {
-        if (self.labelBytes.len > 0) {
-            allocator.free(self.labelBytes);
-        }
-
-        if (self.labelExists.len > 0) {
-            allocator.free(self.labelExists);
-        }
-
-        self.freeWaitingMapContents(allocator);
-        allocator.destroy(self.waitingLabels);
-    }
-
     pub fn reserveLabelCount(
         self: *Self,
         allocator: Allocator,
@@ -815,33 +787,13 @@ const LabelByteInfo = struct {
         // if label id is 0, no labels have been used
         if (lastLabel == 0) return;
 
-        if (self.labelExists.len > 0) {
-            allocator.free(self.labelExists);
-        }
-
-        if (self.labelBytes.len > 0) {
-            allocator.free(self.labelBytes);
-        }
-
-        self.freeWaitingMapContents(allocator);
-
         self.labelBytes = try allocator.alloc(u64, lastLabel);
         self.labelExists = try allocator.alloc(bool, lastLabel);
         @memset(self.labelExists, false);
     }
 
-    fn freeWaitingMapContents(self: *Self, allocator: Allocator) void {
-        var waitingLabels = self.waitingLabels.valueIterator();
-        while (waitingLabels.next()) |arrList| {
-            arrList.*.deinit(allocator);
-            allocator.destroy(arrList.*);
-        }
-        self.waitingLabels.clearAndFree();
-    }
-
     pub fn setLabelLocation(
         self: *Self,
-        allocator: Allocator,
         label: vmInfo.LabelType,
         location: u64,
     ) void {
@@ -854,8 +806,6 @@ const LabelByteInfo = struct {
                 ptr.* = newVal;
             }
 
-            arrList.deinit(allocator);
-            allocator.destroy(arrList);
             _ = self.waitingLabels.remove(label);
         }
     }
@@ -952,30 +902,6 @@ pub const GenInfo = struct {
             .currentLabelId = 0,
             .labelByteInfo = labelByteInfoPtr,
         };
-    }
-
-    pub fn deinit(self: Self, allocator: Allocator) void {
-        self.chunks.deinit(allocator);
-        allocator.destroy(self.chunks);
-
-        self.registers.infos.deinit(allocator);
-        allocator.destroy(self.registers.infos);
-
-        self.varNameReg.deinit();
-        allocator.destroy(self.varNameReg);
-
-        self.varGenInfoPool.deinit();
-        allocator.destroy(self.varGenInfoPool);
-
-        for (self.loopInfo.items) |item| {
-            item.deinit(allocator);
-            allocator.destroy(item);
-        }
-        self.loopInfo.deinit(allocator);
-        allocator.destroy(self.loopInfo);
-
-        self.labelByteInfo.deinit(allocator);
-        allocator.destroy(self.labelByteInfo);
     }
 
     pub fn writeChunks(self: *Self, writer: *Writer) !void {
@@ -1076,7 +1002,6 @@ pub const GenInfo = struct {
 
         if (info.varInfo) |varInfo| {
             _ = self.varNameReg.remove(varInfo.name);
-            self.varGenInfoPool.destroy(varInfo);
         }
 
         self.registers.infos.items[reg] = .{};
@@ -1113,7 +1038,6 @@ pub const GenInfo = struct {
             const prevInfo = info.prevInfo;
             self.registers.infos.items[reg].varInfo = prevInfo;
             self.registers.infos.items[reg].active = false;
-            self.varGenInfoPool.destroy(info);
             if (prevInfo == null) {
                 _ = self.varNameReg.remove(name);
             }
@@ -1130,7 +1054,7 @@ pub const GenInfo = struct {
         try self.loopInfo.append(allocator, newLoopPtr);
     }
 
-    pub fn popLoopInfo(self: *Self, allocator: Allocator) void {
+    pub fn popLoopInfo(self: *Self) void {
         const last = self.loopInfo.pop();
 
         if (last) |info| {
@@ -1141,9 +1065,6 @@ pub const GenInfo = struct {
             for (info.continues.items) |chunk| {
                 setJumpAmount(chunk.chunk, info.continueLabel);
             }
-
-            info.deinit(allocator);
-            allocator.destroy(info);
         }
     }
 
@@ -1236,7 +1157,6 @@ fn adjustInstruction(
     switch (chunk.data) {
         .Label => |label| {
             context.genInfo.labelByteInfo.setLabelLocation(
-                allocator,
                 label,
                 context.genInfo.byteCounter,
             );
@@ -1323,13 +1243,9 @@ fn movSpNegOffset(reg: TempRegister, offset: u64) !Instr {
 }
 
 pub fn codegenAst(allocator: Allocator, context: *Context, tree: ast.Ast) !void {
-    writeStartVMInfo(context);
+    context.genInfo.vmInfo.version = version.VERSION;
     _ = try genBytecode(allocator, context, tree.root);
     try context.genInfo.finishProc(allocator, context);
-}
-
-fn writeStartVMInfo(context: *Context) void {
-    context.genInfo.vmInfo.version = version.VERSION;
 }
 
 fn writeIntSliceToInstr(
@@ -1763,7 +1679,7 @@ pub fn genBytecodeUtil(
             const condInfo = prepForLoopCondition(context, loop.condition);
 
             try context.genInfo.pushLoopInfo(allocator);
-            defer context.genInfo.popLoopInfo(allocator);
+            defer context.genInfo.popLoopInfo();
 
             const preConditionLabelId = context.genInfo.takeLabelId();
             const preConditionLabel = Instr{ .Label = preConditionLabelId };
@@ -1809,7 +1725,7 @@ pub fn genBytecodeUtil(
         },
         .WhileLoop => |loop| {
             try context.genInfo.pushLoopInfo(allocator);
-            defer context.genInfo.popLoopInfo(allocator);
+            defer context.genInfo.popLoopInfo();
 
             const condInfo = prepForLoopCondition(context, loop.condition);
 

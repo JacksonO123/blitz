@@ -2,11 +2,9 @@ const std = @import("std");
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
-const free = blitz.free;
 const blitzContext = blitz.context;
 const debug = blitz.debug;
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 const Context = blitzContext.Context;
 const Writer = std.Io.Writer;
 const MemPool = std.heap.MemoryPool;
@@ -32,14 +30,6 @@ pub const Pools = struct {
             .nodes = nodePoolPtr,
             .types = typePoolPtr,
         };
-    }
-
-    pub fn deinit(self: *Self, allocator: Allocator) void {
-        self.nodes.deinit();
-        allocator.destroy(self.nodes);
-
-        self.types.deinit();
-        allocator.destroy(self.types);
     }
 
     pub fn newType(self: Self, context: *Context, data: ast.AstTypes) !*ast.AstTypes {
@@ -68,21 +58,6 @@ pub const Pools = struct {
         const ptr = try self.nodes.create();
         ptr.* = data;
         return ptr;
-    }
-
-    pub fn releaseType(self: Self, context: *Context, ptr: *ast.AstTypes) void {
-        if (context.settings.debug.trackPoolMem) {
-            context.utils.releaseTypeAddress(ptr);
-        }
-
-        self.types.destroy(ptr);
-    }
-
-    pub fn releaseNode(self: Self, context: *Context, ptr: *ast.AstNode) void {
-        if (context.settings.debug.trackPoolMem) {
-            context.utils.releaseNodeAddress(ptr);
-        }
-        self.nodes.destroy(ptr);
     }
 
     pub fn writeStats(self: Self, context: *Context, verbose: bool, writer: *Writer) !void {

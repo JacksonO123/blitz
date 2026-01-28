@@ -7,13 +7,11 @@ const vmInfo = blitz.vmInfo;
 const Writer = std.Io.Writer;
 
 pub fn main() !void {
-    const dbg = builtin.mode == .Debug;
-    var gp = std.heap.GeneralPurposeAllocator(.{ .safety = dbg }){};
-    defer _ = gp.deinit();
-    const allocator = gp.allocator();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
 
     if (args.len != 2) {
         return error.InvalidArgCount;
@@ -21,12 +19,10 @@ pub fn main() !void {
 
     const filename = args[1];
     const bzcFilename = try allocator.alloc(u8, filename.len + 4);
-    defer allocator.free(bzcFilename);
     @memcpy(bzcFilename[0..filename.len], filename);
     @memcpy(bzcFilename[filename.len .. filename.len + 4], ".bzc");
 
     const bytecode = try utils.readRelativeFile(allocator, bzcFilename);
-    defer allocator.free(bytecode);
 
     var buffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
     var stdout = std.fs.File.stdout().writer(&buffer);

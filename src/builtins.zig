@@ -1,16 +1,11 @@
 const std = @import("std");
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
-const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
 const scanner = blitz.scanner;
-const clone = blitz.clone;
-const free = blitz.free;
 const blitzContext = blitz.context;
 const Allocator = std.mem.Allocator;
 const ScanError = scanner.ScanError;
-const createMut = utils.createMut;
-const create = utils.create;
 const Context = blitzContext.Context;
 
 pub const BuiltinFuncMemo = struct {};
