@@ -1,8 +1,12 @@
-const builtin = @import("builtin");
 const std = @import("std");
-const utils = @import("utils.zig");
+const builtin = @import("builtin");
 const compiler = @import("compiler.zig");
 const objdump = @import("bzc_objdump.zig");
+const blitz = @import("blitz.zig");
+const ast = blitz.ast;
+const utils = blitz.utils;
+const blitzContext = blitz.context;
+const debug = blitz.debug;
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 

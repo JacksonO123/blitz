@@ -3,10 +3,9 @@ const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
 const scanner = blitz.scanner;
-const blitzContext = blitz.context;
 const Allocator = std.mem.Allocator;
 const ScanError = scanner.ScanError;
-const Context = blitzContext.Context;
+const Context = blitz.context.Context;
 
 pub const BuiltinFuncMemo = struct {};
 

@@ -3,7 +3,7 @@ const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const debug = blitz.debug;
 const scanner = blitz.scanner;
-const free = blitz.free;
+const pools = blitz.allocPools;
 const Allocator = std.mem.Allocator;
 const Context = blitz.context.Context;
 
@@ -708,7 +708,7 @@ pub fn replaceGenericsOnTypeInfoAndRelease(
     };
 
     if (info.allocState == .Allocated) {
-        free.recursiveReleaseType(context, info.info.astType);
+        pools.recursiveReleaseType(context, info.info.astType);
     }
 
     return res;

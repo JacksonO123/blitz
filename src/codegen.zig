@@ -5,14 +5,13 @@ const ast = blitz.ast;
 const utils = blitz.utils;
 const vmInfo = blitz.vmInfo;
 const version = blitz.version;
-const blitzContext = blitz.context;
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const AutoHashMap = std.AutoHashMap;
 const ArrayList = std.ArrayList;
 const TempRegister = vmInfo.TempRegister;
 const Writer = std.Io.Writer;
-const Context = blitzContext.Context;
+const Context = blitz.context.Context;
 const MemoryPool = std.heap.MemoryPool;
 
 const CodeGenError = error{

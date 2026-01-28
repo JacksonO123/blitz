@@ -1,5 +1,4 @@
 const std = @import("std");
-const blitz = @import("blitz.zig");
 const Allocator = std.mem.Allocator;
 
 pub const BUFFERED_WRITER_SIZE = 1024 * 32;

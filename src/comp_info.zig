@@ -2,13 +2,13 @@ const std = @import("std");
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
-const free = blitz.free;
 const tokenizer = blitz.tokenizer;
 const logger = blitz.logger;
 const builtins = blitz.builtins;
 const clone = blitz.clone;
 const scanner = blitz.scanner;
 const vmInfo = blitz.vmInfo;
+const pools = blitz.allocPools;
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const ArrayList = std.ArrayList;
@@ -16,7 +16,7 @@ const Context = blitz.context.Context;
 const Writer = std.Io.Writer;
 
 fn ScopeDeinitFn(comptime T: type) type {
-    return fn (*Context, T, free.ReleaseType) void;
+    return fn (*Context, T, pools.ReleaseType) void;
 }
 
 fn initScopeUtil(
@@ -73,18 +73,18 @@ pub const CompInfo = struct {
     structNames: [][]const u8,
     errorNames: [][]const u8,
     // variableScopes store VarInfo as allocated, but return as recycled to preserve source
-    variableScopes: *ScopeUtil(*VarScope, free.freeVariableScope),
-    variableCaptures: *ScopeUtil(*CaptureScope, free.freeVariableCaptures),
-    genericCaptures: *ScopeUtil(*TypeScope, free.freeGenericCaptures),
-    functionCaptures: *ScopeUtil(*StringListScope, free.NoopDeinitScope),
-    parsedGenerics: *ScopeUtil(*StringListScope, free.NoopDeinitScope),
+    variableScopes: *ScopeUtil(*VarScope, pools.releaseVariableScope),
+    variableCaptures: *ScopeUtil(*CaptureScope, pools.releaseVariableCaptures),
+    genericCaptures: *ScopeUtil(*TypeScope, pools.releaseGenericCaptures),
+    functionCaptures: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
+    parsedGenerics: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
     scopeTypes: *ArrayList(ScopeType),
     functions: *StringHashMap(*ast.FuncDecNode),
-    functionsInScope: *ScopeUtil(*StringListScope, free.NoopDeinitScope),
+    functionsInScope: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
     structDecs: *StringHashMap(*ast.StructDecNode),
     errorDecs: *StringHashMap(*const ast.ErrorDecNode),
     functionsToScan: *ToScanStack,
-    genericScopes: *ScopeUtil(*TypeScope, free.freeGenericScope),
+    genericScopes: *ScopeUtil(*TypeScope, pools.releaseGenericScope),
     returnInfo: *ReturnInfo,
     builtins: builtins.BuiltinFuncMemo,
     stackSizeEstimate: vmInfo.StartStackType,
@@ -107,39 +107,39 @@ pub const CompInfo = struct {
 
         const genericScopes = try initScopeUtil(
             TypeScope,
-            free.freeGenericScope,
+            pools.releaseGenericScope,
             allocator,
         );
         const variableScopes = try initScopeUtil(
             VarScope,
-            free.freeVariableScope,
+            pools.releaseVariableScope,
             allocator,
         );
         const variableCaptures = try initScopeUtil(
             CaptureScope,
-            free.freeVariableCaptures,
+            pools.releaseVariableCaptures,
             allocator,
         );
         const genericCaptures = try initScopeUtil(
             TypeScope,
-            free.freeGenericCaptures,
+            pools.releaseGenericCaptures,
             allocator,
         );
         const functionCaptures = try initScopeUtilWithBase(
             StringListScope,
-            free.NoopDeinitScope,
+            pools.NoopReleaseScope,
             allocator,
             .empty,
         );
         const parsedGenerics = try initScopeUtilWithBase(
             StringListScope,
-            free.NoopDeinitScope,
+            pools.NoopReleaseScope,
             allocator,
             .empty,
         );
         const functionsInScope = try initScopeUtilWithBase(
             StringListScope,
-            free.NoopDeinitScope,
+            pools.NoopReleaseScope,
             allocator,
             .empty,
         );
@@ -172,12 +172,12 @@ pub const CompInfo = struct {
     pub fn clearPoolMem(self: *Self, context: *Context) void {
         var functionIt = self.functions.valueIterator();
         while (functionIt.next()) |f| {
-            free.releaseFuncDec(context, f.*);
+            pools.releaseFuncDec(context, f.*);
         }
 
         var structsIt = self.structDecs.valueIterator();
         while (structsIt.next()) |dec| {
-            free.releaseStructDec(context, dec.*);
+            pools.releaseStructDec(context, dec.*);
         }
 
         self.variableScopes.clear(context);
@@ -366,7 +366,7 @@ pub const CompInfo = struct {
                         tokenizer.TokenUtil.init(f.bodyTokens),
                     );
                     context.tokenUtil = tempTokens;
-                    free.recursiveReleaseNodeAll(context, f.body);
+                    pools.recursiveReleaseNodeAll(context, f.body);
                     f.body = ast.parseSequence(allocator, context, true) catch |e| {
                         logger.logParseError(context, e, writer);
                         return e;
@@ -868,7 +868,7 @@ pub const ReturnInfo = struct {
     pub fn clear(self: *Self, context: *Context) void {
         if (self.info.retType) |retType| {
             if (retType.allocState == .Allocated) {
-                free.recursiveReleaseType(context, retType.info.astType);
+                pools.recursiveReleaseType(context, retType.info.astType);
             }
         }
     }
@@ -887,7 +887,7 @@ pub const ReturnInfo = struct {
     pub fn swapFree(self: *Self, allocator: Allocator, context: *Context, oldRetInfo: *ReturnInfoData) void {
         if (self.info.retType) |retType| {
             if (retType.allocState == .Allocated) {
-                free.recursiveReleaseType(context, retType.info.astType);
+                pools.recursiveReleaseType(context, retType.info.astType);
             }
         }
 

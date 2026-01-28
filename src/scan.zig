@@ -2,11 +2,11 @@ const std = @import("std");
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
-const free = blitz.free;
 const builtins = blitz.builtins;
 const clone = blitz.clone;
 const compInfo = blitz.compInfo;
 const vmInfo = blitz.vmInfo;
+const allocPools = blitz.allocPools;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Context = blitz.context.Context;
@@ -1159,7 +1159,7 @@ pub fn scanNode(
                         if (!typeCaptures.contains(rel.str)) {
                             try typeCaptures.put(rel.str, rel.info.toAllocInfo(.Allocated));
                         } else {
-                            free.recursiveReleaseType(context, rel.info.astType);
+                            allocPools.recursiveReleaseType(context, rel.info.astType);
                         }
                     }
                 }
@@ -1800,7 +1800,7 @@ fn applyVariableCaptures(
     scope: *compInfo.CaptureScope,
 ) !void {
     if (func.capturedValues) |captured| {
-        free.freeVariableCaptures(context, captured, .Allocated);
+        allocPools.releaseVariableCaptures(context, captured, .Allocated);
     }
 
     func.capturedValues = scope;
@@ -1812,7 +1812,7 @@ fn applyGenericCaptures(
     scope: *compInfo.TypeScope,
 ) !void {
     if (func.capturedTypes) |captured| {
-        free.freeGenericCaptures(context, captured, .Allocated);
+        allocPools.releaseGenericCaptures(context, captured, .Allocated);
     }
 
     func.capturedTypes = scope;
@@ -1998,7 +1998,7 @@ fn scanFuncBodyAndReturn(
             const varType = context.compInfo.getVariableTypeFixed(param.name);
             if (varType) |t| {
                 const innerType = t.info.astType.VarInfo.info.astType;
-                free.recursiveReleaseType(context, innerType);
+                allocPools.recursiveReleaseType(context, innerType);
                 t.info.astType.VarInfo = context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
             }
         }
@@ -2657,6 +2657,6 @@ fn verifyRawNumberMagnitude(node: ast.RawNumberNode) bool {
 
 pub fn releaseIfAllocated(context: *Context, result: TypeAndAllocInfo) void {
     if (result.allocState == .Allocated) {
-        free.recursiveReleaseType(context, result.info.astType);
+        allocPools.recursiveReleaseType(context, result.info.astType);
     }
 }

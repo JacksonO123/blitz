@@ -2,10 +2,10 @@ const std = @import("std");
 const blitz = @import("blitz.zig");
 const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
-const free = blitz.free;
 const scanner = blitz.scanner;
 const compInfo = blitz.compInfo;
 const logger = blitz.logger;
+const pools = blitz.allocPools;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const TokenError = tokenizer.TokenError;
@@ -788,7 +788,7 @@ pub const Ast = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        free.recursiveReleaseNodeAll(self.context, self.root);
+        pools.recursiveReleaseNodeAll(self.context, self.root);
     }
 };
 

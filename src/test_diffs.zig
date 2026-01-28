@@ -1,7 +1,8 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const diffBytecode = @import("diff_bytecode.zig");
-const utils = @import("utils.zig");
+const blitz = @import("blitz.zig");
+const utils = blitz.utils;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);

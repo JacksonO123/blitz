@@ -5,20 +5,18 @@ const tokenizer = blitz.tokenizer;
 const ast = blitz.ast;
 const scanner = blitz.scanner;
 const utils = blitz.utils;
-const free = blitz.free;
 const codegen = blitz.codegen;
 const blitzCompInfo = blitz.compInfo;
 const debug = blitz.debug;
 const logger = blitz.logger;
 const allocPools = blitz.allocPools;
-const blitzContext = blitz.context;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = std.mem.Allocator;
 const CompInfo = blitzCompInfo.CompInfo;
 const TokenUtil = tokenizer.TokenUtil;
 const GenInfo = codegen.GenInfo;
-const Context = blitzContext.Context;
+const Context = blitz.context.Context;
 const Writer = std.Io.Writer;
 
 const DebugPrintState = enum {
@@ -99,7 +97,7 @@ pub fn compile(
         defer {
             tree.deinit();
             context.clearPoolMem();
-            free.releaseStructsAndErrors(&context, structsAndErrors);
+            allocPools.releaseStructsAndErrors(&context, structsAndErrors);
         }
 
         if (printState == .All) {
