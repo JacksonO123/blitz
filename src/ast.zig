@@ -237,12 +237,7 @@ pub const AstTypes = union(Types) {
             .Null,
             .RawNumber,
             .Undef,
-            .StaticStructInstance,
             => unreachable,
-            // slice so alignment is 8
-            .String => 8,
-            // slice so alignment is 8
-            .ArrayDec => 8,
             .Number => |num| return num.getAlignment(),
 
             .Bool, .Char, .ErrorVariant => 1,
@@ -254,7 +249,7 @@ pub const AstTypes = union(Types) {
             .Error,
             => 0,
 
-            .Pointer => 8,
+            .ArrayDec, .String, .StaticStructInstance, .Pointer => 8,
 
             .VarInfo => |inner| return try inner.info.astType.getAlignment(context),
 
@@ -493,6 +488,11 @@ pub const Parameter = struct {
     mutState: scanner.MutState,
 };
 
+const ParseParamsResult = struct {
+    params: []Parameter,
+    selfInfo: ?struct { mutState: scanner.MutState },
+};
+
 const FuncType = enum {
     Builtin,
     StructMethod,
@@ -502,7 +502,7 @@ const FuncType = enum {
 pub const FuncDecNode = struct {
     name: []const u8,
     generics: ?[]GenericType,
-    params: []Parameter,
+    params: ParseParamsResult,
     body: *AstNode,
     bodyTokens: []tokenizer.Token,
     returnType: AstTypeInfo,
@@ -755,6 +755,7 @@ pub const AstError = error{
     NegativeNumberWithUnsignedTypeConflict,
     ExpectedIdentifierForArrayInitIndex,
     ExpectedIdentifierForArrayInitPtr,
+    SelfStructNameNotFound,
 } || TokenError;
 
 pub const ParseError = AstError || Allocator.Error;
@@ -875,7 +876,7 @@ fn parseStatement(
             return try context.pools.newNode(context, ifVariant.toAstNode());
         },
         .Fn => {
-            const func = try parseFuncDef(allocator, context, false);
+            const func = try parseFuncDef(allocator, context, null);
             try context.compInfo.addFunction(func.name, func);
 
             const funcDecVariant: AstNodeUnion = .{
@@ -1272,24 +1273,7 @@ fn parseStructAttributeUtil(
             };
         },
         .Fn => {
-            const def = try parseFuncDef(allocator, context, true);
-
-            if (!static) {
-                const valueCaptures = try utils.initMutPtrT(
-                    compInfo.CaptureScope,
-                    allocator,
-                );
-                def.capturedValues = valueCaptures;
-                const customType = try context.pools.newType(context, .{
-                    .Custom = .{
-                        .name = structName,
-                        .generics = &.{},
-                        .allowPrivateReads = true,
-                    },
-                });
-                const selfInfo = customType.toAllocInfo(.Mut, .Allocated);
-                try valueCaptures.put("self", selfInfo);
-            }
+            const def = try parseFuncDef(allocator, context, structName);
 
             return .{
                 .name = def.name,
@@ -2036,7 +2020,11 @@ fn parseFuncCall(allocator: Allocator, context: *Context, name: []const u8) !*As
     return try context.pools.newNode(context, funcCallVariant.toAstNode());
 }
 
-fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncDecNode {
+fn parseFuncDef(
+    allocator: Allocator,
+    context: *Context,
+    selfStructNameOrNull: ?[]const u8,
+) !*FuncDecNode {
     try context.compInfo.pushParsedGenericsScope(allocator, true);
     defer context.compInfo.popParsedGenericsScope(context);
 
@@ -2057,7 +2045,7 @@ fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncD
 
     try context.tokenUtil.expectToken(.LParen);
 
-    const params = try parseParams(allocator, context);
+    const params = try parseParams(allocator, context, selfStructNameOrNull);
     var returnType: AstTypeInfo = undefined;
 
     const retNext = try context.tokenUtil.peak();
@@ -2088,7 +2076,7 @@ fn parseFuncDef(allocator: Allocator, context: *Context, structFn: bool) !*FuncD
         .capturedTypes = null,
         .capturedFuncs = null,
         .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
-        .funcType = if (structFn) .StructMethod else .Normal,
+        .funcType = if (selfStructNameOrNull == null) .Normal else .StructMethod,
         .visited = false,
         .globallyDefined = context.compInfo.getScopeDepth() == 1,
     });
@@ -2134,19 +2122,31 @@ fn parseGeneric(allocator: Allocator, context: *Context) !GenericType {
     };
 }
 
-fn parseParams(allocator: Allocator, context: *Context) ![]Parameter {
+fn parseParams(
+    allocator: Allocator,
+    context: *Context,
+    selfStructNameOrNull: ?[]const u8,
+) !ParseParamsResult {
+    var res = ParseParamsResult{
+        .params = &[_]Parameter{},
+        .selfInfo = null,
+    };
     var current = try context.tokenUtil.peak();
 
     if (current.type == .RParen) {
         _ = try context.tokenUtil.take();
-        return &[_]Parameter{};
+        return res;
     }
 
     var params: ArrayList(Parameter) = .empty;
 
     while (current.type != .RParen) {
-        const param = try parseParam(allocator, context);
+        const param = try parseParam(allocator, context, selfStructNameOrNull);
         try params.append(allocator, param);
+
+        if (utils.compString(param.name, "self")) {
+            res.selfInfo = .{ .mutState = param.mutState };
+        }
 
         current = try context.tokenUtil.peak();
         if (current.type == .RParen) break;
@@ -2156,10 +2156,15 @@ fn parseParams(allocator: Allocator, context: *Context) ![]Parameter {
 
     try context.tokenUtil.expectToken(.RParen);
 
-    return try params.toOwnedSlice(allocator);
+    res.params = try params.toOwnedSlice(allocator);
+    return res;
 }
 
-fn parseParam(allocator: Allocator, context: *Context) !Parameter {
+fn parseParam(
+    allocator: Allocator,
+    context: *Context,
+    selfStructNameOrNull: ?[]const u8,
+) !Parameter {
     var first = try context.tokenUtil.take();
     var isConst = true;
     if (first.type == .Mut) {
@@ -2171,11 +2176,30 @@ fn parseParam(allocator: Allocator, context: *Context) !Parameter {
         return AstError.ExpectedIdentifierForParameterName;
     }
 
+    const tokString = context.getTokString(first);
+    if (utils.compString(tokString, "self")) {
+        const selfStructName = selfStructNameOrNull orelse return AstError.SelfStructNameNotFound;
+
+        const typeNode = try context.pools.newType(context, .{
+            .Custom = .{
+                .name = selfStructName,
+                .generics = &[_]AstTypeInfo{},
+                .allowPrivateReads = true,
+            },
+        });
+
+        return .{
+            .name = tokString,
+            .type = typeNode.toTypeInfo(if (isConst) .Const else .Mut),
+            .mutState = if (isConst) .Const else .Mut,
+        };
+    }
+
     try context.tokenUtil.expectToken(.Colon);
     const paramType = try parseType(allocator, context);
 
     return .{
-        .name = context.getTokString(first),
+        .name = tokString,
         .type = paramType,
         .mutState = if (isConst) .Const else .Mut,
     };

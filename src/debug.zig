@@ -118,14 +118,14 @@ pub fn printType(
 
             try writer.writeAll(" (");
 
-            for (func.params, 0..) |param, index| {
+            for (func.params.params, 0..) |param, index| {
                 try writer.writeByte('(');
                 try writer.writeAll(param.name);
                 try writer.writeAll(")[");
                 try printTypeInfo(context, param.type, writer);
                 try writer.writeByte(']');
 
-                if (index < func.params.len - 1) {
+                if (index < func.params.params.len - 1) {
                     try writer.writeAll(", ");
                 }
             }
@@ -566,7 +566,7 @@ pub fn printFuncDec(
     }
 
     try writer.writeAll(" with params [");
-    try printParams(context, func.params, writer);
+    try printParams(context, func.params.params, writer);
 
     if (func.capturedValues) |captured| {
         try writer.writeAll("] capturing [");

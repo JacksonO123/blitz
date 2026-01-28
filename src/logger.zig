@@ -160,6 +160,7 @@ pub fn logParseError(context: *Context, err: ast.ParseError, writer: *Writer) vo
         error.ExpectedIdentifierForArrayInitPtr => "expected identifier for array init ptr",
         error.ExpectedTokenFoundNothing => "expected token found nothing",
         error.UnexpectedToken => "unexpected token",
+        error.SelfStructNameNotFound => "self struct name not found",
         else => @errorName(err),
     };
 

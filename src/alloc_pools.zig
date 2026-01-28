@@ -132,7 +132,7 @@ pub fn releaseFuncDec(
 ) void {
     recursiveReleaseNodeAll(context, func.body);
 
-    for (func.params) |param| {
+    for (func.params.params) |param| {
         recursiveReleaseTypeAll(context, param.type.astType);
     }
 

@@ -118,6 +118,8 @@ pub const ScanError = error{
     ExpectedMutableParameter,
     CallGenericsAndFuncDecGenericCountMismatch,
     UnexpectedCallGenerics,
+    UnexpectedSelfParameter,
+    ExpectedSelfParameterToBeFirst,
 
     // structs
     GenericCountMismatch,
@@ -133,6 +135,7 @@ pub const ScanError = error{
     InvalidPropertySource,
     NonPublicStructFieldAccessFromOutsideDefinition,
     GenericStructMethodRedefiningStructGeneric,
+    ExpectedMutableStructInstance,
 
     // operations
     MathOpOnNonNumberType,
@@ -605,6 +608,18 @@ pub fn scanNode(
                     );
 
                     if (propType) |t| {
+                        if (t.info.astType.* == .Function) {
+                            const func = t.info.astType.Function;
+                            const strictMutState = valueInfo.info.mutState.orConst(
+                                origValueInfo.info.mutState,
+                            );
+                            if (func.params.selfInfo) |info| {
+                                if (info.mutState == .Mut and strictMutState == .Const) {
+                                    return ScanError.ExpectedMutableStructInstance;
+                                }
+                            }
+                        }
+
                         node.typeInfo.size = try t.info.astType.getSize(context);
                         node.typeInfo.alignment = try t.info.astType.getAlignment(context);
 
@@ -959,6 +974,10 @@ pub fn scanNode(
 
             const func = context.compInfo.getFunctionAsGlobal(name).?;
 
+            if (func.params.selfInfo != null) {
+                return ScanError.UnexpectedSelfParameter;
+            }
+
             if (func.visited) {
                 return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
             }
@@ -997,7 +1016,15 @@ pub fn scanNode(
                 }
             }
 
-            if (func.params.len != call.params.len) {
+            if (func.params.selfInfo != null and
+                !utils.compString("self", func.params.params[0].name))
+            {
+                return ScanError.ExpectedSelfParameterToBeFirst;
+            }
+
+            const lenOffset: u32 = if (func.params.selfInfo != null) 1 else 0;
+            const decParams = func.params.params[lenOffset..];
+            if (decParams.len != call.params.len) {
                 return ScanError.FunctionCallParamCountMismatch;
             }
 
@@ -1035,13 +1062,23 @@ pub fn scanNode(
                     _ = try setGenTypesFromParams(
                         allocator,
                         context,
-                        func,
+                        decParams,
                         call.params,
                         withGenDef,
                     );
                 }
 
-                for (func.params) |param| {
+                if (func.params.selfInfo) |info| {
+                    try context.compInfo.setVariableType(
+                        context,
+                        "self",
+                        func.params.params[0].type.toAllocInfo(.Recycled),
+                        null,
+                        info.mutState,
+                    );
+                }
+
+                for (decParams) |param| {
                     const typeClone = try clone.replaceGenericsOnTypeInfo(
                         allocator,
                         context,
@@ -1657,13 +1694,13 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
 fn setGenTypesFromParams(
     allocator: Allocator,
     context: *Context,
-    func: *ast.FuncDecNode,
+    decParams: []ast.Parameter,
     callParams: []*ast.AstNode,
     withGenDef: bool,
 ) !bool {
     var includesGenerics = false;
 
-    for (func.params, 0..) |decParam, paramIndex| {
+    for (decParams, 0..) |decParam, paramIndex| {
         const origCallParam = try scanNode(allocator, context, callParams[paramIndex], withGenDef);
         const callParamType = try escapeVarInfoAndRelease(context, origCallParam);
         defer releaseIfAllocated(context, callParamType);
@@ -1976,7 +2013,7 @@ fn scanFuncBodyAndReturn(
     try context.compInfo.pushScopeWithType(allocator, true, .Function);
     defer context.compInfo.popScope(context);
 
-    for (func.params) |param| {
+    for (func.params.params) |param| {
         const typeClone = try clone.cloneAstTypeInfo(
             allocator,
             context,
@@ -1994,7 +2031,7 @@ fn scanFuncBodyAndReturn(
     }
 
     defer {
-        for (func.params) |param| {
+        for (func.params.params) |param| {
             const varType = context.compInfo.getVariableTypeFixed(param.name);
             if (varType) |t| {
                 const innerType = t.info.astType.VarInfo.info.astType;
@@ -2029,8 +2066,6 @@ fn scanFuncBodyAndReturn(
         }
 
         if (context.compInfo.returnInfo.info.retType) |retType| {
-            // std.debug.print(":: {}\n", .{func.returnType});
-            // std.debug.print(":: {}\n", .{retType.info});
             const matches = try matchTypes(
                 allocator,
                 context,
