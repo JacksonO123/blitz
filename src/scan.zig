@@ -120,6 +120,7 @@ pub const ScanError = error{
     UnexpectedCallGenerics,
     UnexpectedSelfParameter,
     ExpectedSelfParameterToBeFirst,
+    ExpectedSelfParameter,
 
     // structs
     GenericCountMismatch,
@@ -2194,6 +2195,10 @@ fn scanAttributes(allocator: Allocator, context: *Context, dec: *ast.StructDecNo
         switch (attr.attr) {
             .Member => {},
             .Function => |func| {
+                if (func.params.selfInfo == null) {
+                    return ScanError.ExpectedSelfParameter;
+                }
+
                 try context.compInfo.addFuncToScan(
                     allocator,
                     func,

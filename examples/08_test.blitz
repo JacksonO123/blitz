@@ -1,11 +1,7 @@
-struct M {
-    pub data: u32;
+struct Box {
+    size: u32;
 
-    pub fn getSelf(mut self) u32 {
-        self.data = 4;
-        return 2;
+    pub fn getSizePlusOne(self) u32 {
+        return self.size + 1;
     }
 }
-
-let mut val = M { data = 10 };
-let mutVal = val.getSelf();
