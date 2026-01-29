@@ -76,7 +76,10 @@ pub fn compile(
 
     var context = try Context.init(allocator, code, printWriter, .{});
 
-    const structsAndErrors = try ast.registerStructsAndErrors(allocator, &context);
+    const structsAndErrors = ast.registerStructsAndErrors(allocator, &context) catch |e| {
+        logger.logParseError(&context, e, printWriter);
+        return e;
+    };
     try context.compInfo.setStructDecs(structsAndErrors.structs);
     try context.compInfo.setErrorDecs(structsAndErrors.errors);
 

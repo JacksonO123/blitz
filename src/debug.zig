@@ -692,11 +692,6 @@ pub fn printRegisteredStructs(
         try writer.writeAll("declaring ");
         try writer.writeAll(dec.name);
 
-        if (dec.deriveType) |derived| {
-            try writer.writeAll(" extending ");
-            try printTypeInfo(context, derived, writer);
-        }
-
         if (dec.generics.len > 0) {
             try writer.writeAll(" with generics [");
             try printGenerics(context, dec.generics, writer);

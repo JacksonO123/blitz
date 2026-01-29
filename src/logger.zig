@@ -128,8 +128,6 @@ pub fn logParseError(context: *Context, err: ast.ParseError, writer: *Writer) vo
     const errString = switch (err) {
         error.ExpectedNameForStruct => "expected name for struct",
         error.ExpectedIdentifierPropertyAccessSource => "expected identifier for property access source",
-        error.ExpectedStructDeriveType => "expected struct derive type",
-        error.ExpectedIdentifierForDeriveType => "expected identifier for derive type",
         error.ExpectedIdentifierForErrorName => "expected identifier for struct type",
         error.ExpectedNameForError => "expected name for error",
         error.ExpectedIdentifierForVariableName => "expected identifier for variable name",
@@ -154,13 +152,13 @@ pub fn logParseError(context: *Context, err: ast.ParseError, writer: *Writer) vo
         error.StructDefinedInLowerScope => "struct defined in lower scope",
         error.ErrorDefinedInLowerScope => "struct defined in lower scope",
         error.FunctionDefinedInLowerScope => "function defined in lower scope",
-        error.UnexpectedDeriveType => "unexpected derive type",
         error.NegativeNumberWithUnsignedTypeConflict => "negative number with unsigned type conflict",
         error.ExpectedIdentifierForArrayInitIndex => "expected identifier for array init index",
         error.ExpectedIdentifierForArrayInitPtr => "expected identifier for array init ptr",
         error.ExpectedTokenFoundNothing => "expected token found nothing",
         error.UnexpectedToken => "unexpected token",
         error.SelfStructNameNotFound => "self struct name not found",
+        error.UnexpectedSelfParamOnStaticFunction => "unexpected self parameter on static function",
         else => @errorName(err),
     };
 

@@ -1231,10 +1231,6 @@ pub fn scanNode(
             try context.compInfo.pushGenScope(allocator, true);
             defer context.compInfo.popGenScope(context);
 
-            if (structDec.deriveType) |derive| {
-                try setInitDeriveGenerics(allocator, context, derive);
-            }
-
             var initAlignment: u8 = 0;
             for (initAttrRel.items) |attrRel| {
                 const matches = try matchTypes(
@@ -1907,39 +1903,6 @@ fn setInitGenerics(
     }
 }
 
-fn setInitDeriveGenerics(
-    allocator: Allocator,
-    context: *Context,
-    deriveType: ast.AstTypeInfo,
-) !void {
-    const generics = deriveType.astType.Custom.generics;
-    const deriveName = switch (deriveType.astType.*) {
-        .Custom => |custom| custom.name,
-        .StaticStructInstance => |inst| inst,
-        else => unreachable,
-    };
-    const deriveDec = context.compInfo.getStructDec(deriveName);
-    const decGens = deriveDec.?.generics;
-
-    for (generics, decGens) |gen, decGen| {
-        const clonedType = try clone.replaceGenericsOnTypeInfo(
-            allocator,
-            context,
-            gen.toAllocInfo(.Recycled),
-            true,
-        );
-
-        if (decGen.restriction) |restriction| {
-            const matches = try matchTypes(allocator, context, clonedType.info, restriction, true);
-            if (!matches) {
-                return ScanError.GenericRestrictionConflict;
-            }
-        }
-
-        try context.compInfo.setGeneric(decGen.name, clonedType);
-    }
-}
-
 fn matchParamGenericTypes(
     allocator: Allocator,
     context: *Context,
@@ -2109,16 +2072,6 @@ fn validateSelfProps(
             }
         }
 
-        if (dec.deriveType) |derive| {
-            const deriveName = switch (derive.astType.*) {
-                .StaticStructInstance => |structName| structName,
-                .Custom => |custom| custom.name,
-                else => unreachable,
-            };
-
-            return validateSelfProps(allocator, context, deriveName, prop, false);
-        }
-
         return null;
     }
 
@@ -2171,19 +2124,6 @@ fn validateCustomProps(
             }
         }
 
-        if (structDec.deriveType) |deriveType| {
-            switch (deriveType.astType.*) {
-                .Custom => |c| return try validateCustomProps(
-                    allocator,
-                    context,
-                    c,
-                    prop,
-                    withGenDef,
-                ),
-                else => unreachable,
-            }
-        }
-
         return null;
     }
 
@@ -2195,7 +2135,7 @@ fn scanAttributes(allocator: Allocator, context: *Context, dec: *ast.StructDecNo
         switch (attr.attr) {
             .Member => {},
             .Function => |func| {
-                if (func.params.selfInfo == null) {
+                if (!attr.static and func.params.selfInfo == null) {
                     return ScanError.ExpectedSelfParameter;
                 }
 
@@ -2588,12 +2528,6 @@ fn getCustomPropType(
             if (attr.visibility != .Public) return ScanError.RestrictedPropertyAccess;
 
             return try clone.cloneStructAttributeUnion(allocator, context, attr.attr, false);
-        }
-
-        if (structDec.deriveType) |deriveType| {
-            if (deriveType.* == .Custom) {
-                return try getCustomPropType(allocator, context, deriveType.Custom, prop);
-            } else return ScanError.UnexpectedDeriveType;
         }
 
         return ScanError.InvalidProperty;

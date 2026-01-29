@@ -3,7 +3,7 @@
 struct Box {
     size: u32;
 
-    pub fn getSizePlusOne() u32 {
+    pub fn getSizePlusOne(self) u32 {
         return self.size + 1;
     }
 }
@@ -20,7 +20,7 @@ delete heapBox;
 struct [T] GenBox {
     data: T;
 
-    pub fn getData() T {
+    pub fn getData(self) T {
         return self.data;
     }
 }
@@ -41,24 +41,3 @@ struct [T] SomeData {
 }
 
 let someData: SomeData<u32> = SomeData.create(4);
-
-// protected properties and methods can be accessed in the struct they
-// are defined in, or in child structs inheriting from them
-struct ParentExample {
-    prot width: u32;
-}
-struct ProtExample : ParentExample {
-    height: u32;
-
-    pub fn getArea() u32 {
-        return self.width * self.height;
-    }
-}
-
-let example = ProtExample {
-    width = 2,
-    height = 2,
-};
-let exampleArea = example.getArea();
-// accessing this would error
-// example.width

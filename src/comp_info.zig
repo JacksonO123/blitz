@@ -312,26 +312,17 @@ pub const CompInfo = struct {
             var structIt = self.structDecs.valueIterator();
             while (structIt.next()) |s| {
                 const attributes = s.*.attributes;
-                const arr = if (s.*.deriveType) |derived| a: {
-                    break :a try ast.mergeMembers(
-                        allocator,
-                        context,
-                        attributes,
-                        derived,
-                    );
-                } else a: {
-                    var members = try ArrayList(ast.StructAttribute).initCapacity(
-                        allocator,
-                        attributes.len,
-                    );
+                var members = try ArrayList(ast.StructAttribute).initCapacity(
+                    allocator,
+                    attributes.len,
+                );
 
-                    for (attributes) |attr| {
-                        if (attr.attr != .Member) continue;
-                        try members.append(allocator, attr);
-                    }
+                for (attributes) |attr| {
+                    if (attr.attr != .Member) continue;
+                    try members.append(allocator, attr);
+                }
 
-                    break :a try members.toOwnedSlice(allocator);
-                };
+                const arr = try members.toOwnedSlice(allocator);
 
                 s.*.totalMemberList = arr;
             }

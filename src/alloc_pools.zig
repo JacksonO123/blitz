@@ -370,13 +370,6 @@ pub fn recursiveReleaseNodeUtil(
         .HeapAlloc => |alloc| {
             recursiveReleaseNodeUtil(context, alloc.node, releaseType);
         },
-        .StructDec => |dec| {
-            if (releaseType == .All) {
-                if (dec.deriveType) |derive| {
-                    recursiveReleaseTypeAll(context, derive.astType);
-                }
-            }
-        },
         else => {},
     }
 

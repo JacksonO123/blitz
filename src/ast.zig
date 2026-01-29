@@ -415,7 +415,6 @@ pub const StructDecNode = struct {
     generics: []GenericType,
     attributes: []StructAttribute,
     totalMemberList: []StructAttribute,
-    deriveType: ?AstTypeInfo,
     toScanTypes: *ToScanTypesList,
 
     pub fn getMemberLocation(
@@ -513,6 +512,11 @@ pub const FuncDecNode = struct {
     funcType: FuncType,
     visited: bool,
     globallyDefined: bool,
+};
+
+const FuncParseStructInfo = struct {
+    name: []const u8,
+    isStatic: bool,
 };
 
 const FuncCallNode = struct {
@@ -733,8 +737,6 @@ pub const AstError = error{
     ExpectedIdentifierForPropertyAccess,
     ExpectedIdentifierForErrorVariant,
     ExpectedIdentifierForStructName,
-    ExpectedStructDeriveType,
-    ExpectedIdentifierForDeriveType,
     ExpectedNameForError,
     ExpectedNameForStruct,
     ExpectedNameForFunction,
@@ -751,11 +753,11 @@ pub const AstError = error{
     StructDefinedInLowerScope,
     ErrorDefinedInLowerScope,
     FunctionDefinedInLowerScope,
-    UnexpectedDeriveType,
     NegativeNumberWithUnsignedTypeConflict,
     ExpectedIdentifierForArrayInitIndex,
     ExpectedIdentifierForArrayInitPtr,
     SelfStructNameNotFound,
+    UnexpectedSelfParamOnStaticFunction,
 } || TokenError;
 
 pub const ParseError = AstError || Allocator.Error;
@@ -1074,7 +1076,7 @@ fn parseStatement(
                 return context.staticPtrs.nodes.structPlaceholder;
             }
 
-            return try parseStruct(allocator, context);
+            return try parseStructDec(allocator, context);
         },
         .LBrace => {
             const seq = try parseSequence(allocator, context, true);
@@ -1144,11 +1146,10 @@ fn parseIfChain(allocator: Allocator, context: *Context) !?FallbackInfo {
     };
 }
 
-fn parseStruct(allocator: Allocator, context: *Context) !?*AstNode {
+fn parseStructDec(allocator: Allocator, context: *Context) !?*AstNode {
     try context.compInfo.pushParsedGenericsScope(allocator, false);
     defer context.compInfo.popParsedGenericsScope(context);
 
-    var deriveType: ?AstTypeInfo = null;
     var generics: []GenericType = &[_]GenericType{};
 
     var first = try context.tokenUtil.take();
@@ -1160,28 +1161,9 @@ fn parseStruct(allocator: Allocator, context: *Context) !?*AstNode {
     }
 
     const structName = context.getTokString(first);
-    var next = try context.tokenUtil.take();
 
-    if (next.type == .Colon) {
-        next = try context.tokenUtil.peak();
-
-        if (next.type != .Identifier) {
-            return AstError.ExpectedIdentifierForDeriveType;
-        }
-
-        if (!context.compInfo.hasStruct(context.getTokString(next))) {
-            return AstError.ExpectedStructDeriveType;
-        }
-
-        deriveType = try parseType(allocator, context);
-        if (deriveType) |*derive| {
-            if (derive.astType.* != .Custom) {
-                return AstError.UnexpectedDeriveType;
-            }
-            derive.astType.Custom.allowPrivateReads = true;
-        }
-        try context.tokenUtil.expectToken(.LBrace);
-    } else if (next.type != .LBrace) {
+    const next = try context.tokenUtil.take();
+    if (next.type != .LBrace) {
         return TokenError.UnexpectedToken;
     }
 
@@ -1193,7 +1175,6 @@ fn parseStruct(allocator: Allocator, context: *Context) !?*AstNode {
             .generics = generics,
             .attributes = attributes,
             .totalMemberList = &[_]StructAttribute{},
-            .deriveType = deriveType,
             .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
         }),
     };
@@ -1273,7 +1254,14 @@ fn parseStructAttributeUtil(
             };
         },
         .Fn => {
-            const def = try parseFuncDef(allocator, context, structName);
+            const def = try parseFuncDef(
+                allocator,
+                context,
+                .{
+                    .name = structName,
+                    .isStatic = static,
+                },
+            );
 
             return .{
                 .name = def.name,
@@ -2023,7 +2011,7 @@ fn parseFuncCall(allocator: Allocator, context: *Context, name: []const u8) !*As
 fn parseFuncDef(
     allocator: Allocator,
     context: *Context,
-    selfStructNameOrNull: ?[]const u8,
+    structInfoOrNull: ?FuncParseStructInfo,
 ) !*FuncDecNode {
     try context.compInfo.pushParsedGenericsScope(allocator, true);
     defer context.compInfo.popParsedGenericsScope(context);
@@ -2045,7 +2033,7 @@ fn parseFuncDef(
 
     try context.tokenUtil.expectToken(.LParen);
 
-    const params = try parseParams(allocator, context, selfStructNameOrNull);
+    const params = try parseParams(allocator, context, structInfoOrNull);
     var returnType: AstTypeInfo = undefined;
 
     const retNext = try context.tokenUtil.peak();
@@ -2076,7 +2064,7 @@ fn parseFuncDef(
         .capturedTypes = null,
         .capturedFuncs = null,
         .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
-        .funcType = if (selfStructNameOrNull == null) .Normal else .StructMethod,
+        .funcType = if (structInfoOrNull == null) .Normal else .StructMethod,
         .visited = false,
         .globallyDefined = context.compInfo.getScopeDepth() == 1,
     });
@@ -2125,7 +2113,7 @@ fn parseGeneric(allocator: Allocator, context: *Context) !GenericType {
 fn parseParams(
     allocator: Allocator,
     context: *Context,
-    selfStructNameOrNull: ?[]const u8,
+    structInfoOrNull: ?FuncParseStructInfo,
 ) !ParseParamsResult {
     var res = ParseParamsResult{
         .params = &[_]Parameter{},
@@ -2141,7 +2129,7 @@ fn parseParams(
     var params: ArrayList(Parameter) = .empty;
 
     while (current.type != .RParen) {
-        const param = try parseParam(allocator, context, selfStructNameOrNull);
+        const param = try parseParam(allocator, context, structInfoOrNull);
         try params.append(allocator, param);
 
         if (utils.compString(param.name, "self")) {
@@ -2163,7 +2151,7 @@ fn parseParams(
 fn parseParam(
     allocator: Allocator,
     context: *Context,
-    selfStructNameOrNull: ?[]const u8,
+    structInfoOrNull: ?FuncParseStructInfo,
 ) !Parameter {
     var first = try context.tokenUtil.take();
     var isConst = true;
@@ -2178,21 +2166,27 @@ fn parseParam(
 
     const tokString = context.getTokString(first);
     if (utils.compString(tokString, "self")) {
-        const selfStructName = selfStructNameOrNull orelse return AstError.SelfStructNameNotFound;
+        if (structInfoOrNull) |structInfo| {
+            if (structInfo.isStatic) {
+                return AstError.UnexpectedSelfParamOnStaticFunction;
+            }
 
-        const typeNode = try context.pools.newType(context, .{
-            .Custom = .{
-                .name = selfStructName,
-                .generics = &[_]AstTypeInfo{},
-                .allowPrivateReads = true,
-            },
-        });
+            const typeNode = try context.pools.newType(context, .{
+                .Custom = .{
+                    .name = structInfo.name,
+                    .generics = &[_]AstTypeInfo{},
+                    .allowPrivateReads = true,
+                },
+            });
 
-        return .{
-            .name = tokString,
-            .type = typeNode.toTypeInfo(if (isConst) .Const else .Mut),
-            .mutState = if (isConst) .Const else .Mut,
-        };
+            return .{
+                .name = tokString,
+                .type = typeNode.toTypeInfo(if (isConst) .Const else .Mut),
+                .mutState = if (isConst) .Const else .Mut,
+            };
+        } else {
+            return AstError.SelfStructNameNotFound;
+        }
     }
 
     try context.tokenUtil.expectToken(.Colon);
@@ -2269,40 +2263,6 @@ pub fn tokenTypeToOpType(tokenType: tokenizer.TokenType) OpExprTypes {
         .EqComp => .Equal,
         else => unreachable,
     };
-}
-
-pub fn mergeMembers(
-    allocator: Allocator,
-    context: *Context,
-    attrs: []StructAttribute,
-    derive: AstTypeInfo,
-) ![]StructAttribute {
-    var res = try ArrayList(StructAttribute).initCapacity(allocator, attrs.len);
-    const structName = switch (derive.astType.*) {
-        .Custom => |custom| custom.name,
-        .StaticStructInstance => |inst| inst,
-        else => unreachable,
-    };
-    const deriveDec = context.compInfo.getStructDec(structName);
-
-    for (attrs) |attr| {
-        if (attr.attr != .Member) continue;
-        try res.append(allocator, attr);
-    }
-
-    if (deriveDec) |dec| {
-        if (dec.deriveType) |decDerive| {
-            const arr = try mergeMembers(allocator, context, dec.attributes, decDerive);
-            try res.appendSlice(allocator, arr);
-        } else {
-            for (dec.attributes) |attr| {
-                if (attr.attr != .Member) continue;
-                try res.append(allocator, attr);
-            }
-        }
-    }
-
-    return try res.toOwnedSlice(allocator);
 }
 
 fn createBoolNode(context: *Context, value: bool) !*AstNode {
