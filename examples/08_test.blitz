@@ -1,4 +1,0 @@
-fn myFunc(mut i: u32) bool {
-}
-
-let a = myFunc(2);

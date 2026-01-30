@@ -576,20 +576,41 @@ pub fn printFuncDec(
         try writer.writeByte(']');
     }
 
+    if (func.definedCaptures.len > 0) {
+        try writer.writeAll(" with captures [");
+        for (func.definedCaptures, 0..) |capture, index| {
+            if (capture.mutState == .Mut) {
+                try writer.writeAll("mutable");
+            }
+
+            if (capture.isPtr) {
+                try writer.writeAll(" &");
+            }
+
+            try writer.writeAll(capture.ident);
+
+            if (index < func.definedCaptures.len - 1) {
+                try writer.writeAll(", ");
+            }
+        }
+        try writer.writeByte(']');
+    }
+
     try writer.writeAll(" with params [");
     try printParams(context, func.params.params, writer);
 
-    if (func.capturedValues) |captured| {
-        try writer.writeAll("] capturing [");
-        var captureIt = captured.iterator();
-        while (captureIt.next()) |item| {
-            try writer.writeByte('(');
-            try writer.writeAll(item.key_ptr.*);
-            try writer.writeAll(": ");
-            try printTypeInfo(context, item.value_ptr.info, writer);
-            try writer.writeByte(')');
-        }
-    }
+    // TODO
+    // if (func.capturedValues) |captured| {
+    //     try writer.writeAll("] capturing [");
+    //     var captureIt = captured.iterator();
+    //     while (captureIt.next()) |item| {
+    //         try writer.writeByte('(');
+    //         try writer.writeAll(item.key_ptr.*);
+    //         try writer.writeAll(": ");
+    //         try printTypeInfo(context, item.value_ptr.info, writer);
+    //         try writer.writeByte(')');
+    //     }
+    // }
 
     try writer.writeAll("] -- body --\n");
     try printNode(context, func.body, writer);

@@ -32,7 +32,7 @@ fn [T] myFunc3(value: T) T {
 // works
 myFunc3(3);
 
-// errors because 1 cannot be added to the string "what"
+// supports duck typing: errors because 1 cannot be added to the string "what"
 // myFunc3("what");
 
 // you can also decleratively specify the type of generics when calling
@@ -77,7 +77,7 @@ let outputB: char = thing(inputB, 'g');
 
 
 fn [T] testCapture(value: T) T {
-  fn [G] temp(newValue: G) G {
+  fn [G] temp(newValue: G) [value] G {
     return newValue + value;
   }
 

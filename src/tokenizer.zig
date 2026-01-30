@@ -668,11 +668,13 @@ fn parseNextToken(chars: *CharUtil) !?Token {
                 }
 
                 if (isKeyword(chars.chars[startIndex..endIndex])) |keywordType| {
-                    return Token.init(keywordType, startIndex);
+                    const len = keywordType.toString().len;
+                    return Token.initBounds(keywordType, startIndex, startIndex + len);
                 }
 
                 if (isDatatype(chars.chars[startIndex..endIndex])) |dataType| {
-                    return Token.init(dataType, startIndex);
+                    const len = dataType.toString().len;
+                    return Token.initBounds(dataType, startIndex, startIndex + len);
                 }
 
                 return Token.initBounds(.Identifier, startIndex, endIndex);

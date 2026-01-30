@@ -144,10 +144,6 @@ pub fn releaseFuncDec(
         }
     }
 
-    if (func.capturedValues) |captured| {
-        releaseVariableCaptures(context, captured, .All);
-    }
-
     if (func.capturedTypes) |captured| {
         releaseGenericCaptures(context, captured, .All);
     }

@@ -509,7 +509,8 @@ pub const FuncDecNode = struct {
     body: *AstNode,
     bodyTokens: []tokenizer.Token,
     returnType: AstTypeInfo,
-    capturedValues: ?*compInfo.CaptureScope,
+    definedCaptures: []FuncCaptures,
+    capturedVariables: ?*compInfo.CaptureScope,
     capturedTypes: ?*compInfo.TypeScope,
     capturedFuncs: ?*compInfo.StringListScope,
     toScanTypes: *ToScanTypesList,
@@ -527,6 +528,12 @@ const FuncCallNode = struct {
     callGenerics: ?[]AstTypeInfo = null,
     params: []*AstNode,
     func: *AstNode,
+};
+
+const FuncCaptures = struct {
+    ident: []const u8,
+    isPtr: bool,
+    mutState: scanner.MutState,
 };
 
 const PropertyAccess = struct {
@@ -770,6 +777,8 @@ pub const AstError = error{
     ExpectedIdentifierForEnumVariant,
     EnumDefinedInLowerScope,
     ExpectedNameForEnum,
+    StructMethodsCannotDefineCaptureGroups,
+    EmptyFunctionCaptures,
 } || TokenError;
 
 pub const ParseError = AstError || Allocator.Error;
@@ -2067,6 +2076,7 @@ fn parseFuncDef(
     var next = try context.tokenUtil.take();
     var nameStr: []const u8 = undefined;
     var generics: ?[]GenericType = null;
+    var captures: []FuncCaptures = &[_]FuncCaptures{};
 
     if (next.type == .LBracket) {
         generics = try parseGenerics(allocator, context);
@@ -2084,7 +2094,18 @@ fn parseFuncDef(
     const params = try parseParams(allocator, context, structInfoOrNull);
     var returnType: AstTypeInfo = undefined;
 
-    const retNext = try context.tokenUtil.peak();
+    var retNext = try context.tokenUtil.peak();
+
+    if (retNext.type == .LBracket) {
+        if (structInfoOrNull != null) {
+            return AstError.StructMethodsCannotDefineCaptureGroups;
+        }
+
+        _ = try context.tokenUtil.take();
+        captures = try parseFuncCaptures(allocator, context);
+
+        retNext = try context.tokenUtil.peak();
+    }
 
     if (retNext.type != .LBrace) {
         returnType = try parseType(allocator, context);
@@ -2108,7 +2129,8 @@ fn parseFuncDef(
         .body = body,
         .bodyTokens = bodyTokens,
         .returnType = returnType,
-        .capturedValues = null,
+        .definedCaptures = captures,
+        .capturedVariables = null,
         .capturedTypes = null,
         .capturedFuncs = null,
         .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
@@ -2116,6 +2138,56 @@ fn parseFuncDef(
         .visited = false,
         .globallyDefined = context.compInfo.getScopeDepth() == 1,
     });
+}
+
+fn parseFuncCaptures(allocator: Allocator, context: *Context) ![]FuncCaptures {
+    var res: ArrayList(FuncCaptures) = .empty;
+
+    var current = try context.tokenUtil.peak();
+    if (current.type == .RBracket) {
+        return AstError.EmptyFunctionCaptures;
+    }
+
+    while (current.type != .RBracket) {
+        var mutState: scanner.MutState = .Const;
+        if (current.type == .Mut) {
+            mutState = .Mut;
+            _ = try context.tokenUtil.take();
+            current = try context.tokenUtil.peak();
+        }
+
+        const isPtr = switch (current.type) {
+            .Ampersand => a: {
+                _ = try context.tokenUtil.take();
+                current = try context.tokenUtil.peak();
+                break :a true;
+            },
+            .Identifier => false,
+            else => {
+                _ = try context.tokenUtil.take();
+                return AstError.UnexpectedToken;
+            },
+        };
+        if (current.type != .Identifier) {
+            return AstError.UnexpectedToken;
+        }
+
+        try res.append(allocator, .{
+            .ident = context.getTokString(current),
+            .isPtr = isPtr,
+            .mutState = mutState,
+        });
+
+        _ = try context.tokenUtil.take();
+        current = try context.tokenUtil.peak();
+        if (current.type == .RBracket) break;
+
+        try context.tokenUtil.expectToken(.Comma);
+    }
+
+    _ = try context.tokenUtil.take();
+
+    return try res.toOwnedSlice(allocator);
 }
 
 fn parseGenerics(allocator: Allocator, context: *Context) ![]GenericType {

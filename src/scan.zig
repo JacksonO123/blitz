@@ -120,6 +120,7 @@ pub const ScanError = error{
     UnexpectedSelfParameter,
     ExpectedSelfParameterToBeFirst,
     ExpectedSelfParameter,
+    CaptureVariableIsNotInScope,
 
     // structs
     GenericCountMismatch,
@@ -877,6 +878,7 @@ pub fn scanNode(
                 return res;
             }
 
+            std.debug.print("what :: {s}\n", .{name});
             return ScanError.VariableIsUndefined;
         },
         .StructPlaceholder => return context.staticPtrs.types.voidType.toAllocInfo(.Recycled),
@@ -998,6 +1000,41 @@ pub fn scanNode(
                 func.visited = true;
             }
 
+            const capturedVariables = if (func.capturedVariables) |vars| vars else a: {
+                const captureScope = try utils.createMut(
+                    compInfo.CaptureScope,
+                    allocator,
+                    compInfo.CaptureScope.init(allocator),
+                );
+                func.capturedVariables = captureScope;
+                break :a captureScope;
+            };
+
+            for (func.definedCaptures) |capture| {
+                const origVarType = try context.compInfo.getVariableType(
+                    allocator,
+                    context,
+                    capture.ident,
+                    withGenDef,
+                ) orelse return ScanError.VariableIsUndefined;
+                const varType = try escapeVarInfo(origVarType);
+
+                if (capture.isPtr and capture.mutState == .Mut and
+                    varType.info.mutState == .Const)
+                {
+                    return ScanError.PointerTypeConstMismatch;
+                }
+
+                const captureType = if (capture.isPtr) a: {
+                    const ptrType = try context.pools.newType(context, .{
+                        .Pointer = varType,
+                    });
+                    break :a ptrType.toAllocInfo(capture.mutState, .Allocated);
+                } else varType;
+
+                try capturedVariables.put(capture.ident, captureType);
+            }
+
             try scanFuncBodyAndReturn(allocator, context, func, false);
 
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
@@ -1022,6 +1059,12 @@ pub fn scanNode(
                     }
                 } else {
                     return ScanError.UnexpectedCallGenerics;
+                }
+            }
+
+            for (func.definedCaptures) |value| {
+                if (!context.compInfo.isVariableInScope(value.ident)) {
+                    return ScanError.CaptureVariableIsNotInScope;
                 }
             }
 
@@ -1662,27 +1705,24 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
             }
         }
 
-        if (func.capturedValues) |captured| {
-            var captureIt = captured.iterator();
-            while (captureIt.next()) |item| {
-                const value = item.value_ptr.*;
-                const paramType = try escapeVarInfo(value);
+        for (func.definedCaptures) |capture| {
+            const item = func.capturedVariables.?.get(capture.ident).?;
+            const captureType = try escapeVarInfo(item);
 
-                var clonedType = try clone.replaceGenericsOnTypeInfo(
-                    allocator,
-                    context,
-                    paramType,
-                    false,
-                );
-                clonedType.allocState = .Recycled;
-                try context.compInfo.setVariableType(
-                    context,
-                    item.key_ptr.*,
-                    clonedType,
-                    null,
-                    value.info.mutState,
-                );
-            }
+            var clonedType = try clone.replaceGenericsOnTypeInfo(
+                allocator,
+                context,
+                captureType,
+                false,
+            );
+            clonedType.allocState = .Recycled;
+            try context.compInfo.setVariableType(
+                context,
+                capture.ident,
+                clonedType,
+                null,
+                item.info.mutState,
+            );
         }
 
         for (toScanItem.genTypes) |rel| {
@@ -1837,18 +1877,6 @@ fn fnHasScannedWithSameGenTypes(
 
 fn isAnyType(astType: *const ast.AstTypes) bool {
     return astType.* == .Generic or astType.* == .Any;
-}
-
-fn applyVariableCaptures(
-    context: *Context,
-    func: *ast.FuncDecNode,
-    scope: *compInfo.CaptureScope,
-) !void {
-    if (func.capturedValues) |captured| {
-        allocPools.releaseVariableCaptures(context, captured, .Allocated);
-    }
-
-    func.capturedValues = scope;
 }
 
 fn applyGenericCaptures(
@@ -2024,11 +2052,6 @@ fn scanFuncBodyAndReturn(
     const bodyRes = try scanNode(allocator, context, func.body, withGenDef);
     defer releaseIfAllocated(context, bodyRes);
 
-    const scope = context.compInfo.consumeVariableCaptures();
-    if (scope) |s| {
-        try applyVariableCaptures(context, func, s);
-    }
-
     const genScope = context.compInfo.consumeGenericCaptures();
     if (genScope) |s| {
         try applyGenericCaptures(context, func, s);
@@ -2047,22 +2070,6 @@ fn scanFuncBodyAndReturn(
         if (!context.compInfo.returnInfo.info.hasType) {
             return ScanError.FunctionMissingReturn;
         }
-
-        // TODO - condition for function return not found
-        // if (context.compInfo.returnInfo.info.retType) |retType| {
-        //     const matches = try matchTypes(
-        //         allocator,
-        //         context,
-        //         func.returnType,
-        //         retType.info,
-        //         withGenDef,
-        //     );
-        //     if (!matches) {
-        //         return ScanError.FunctionReturnTypeMismatch;
-        //     }
-        // } else {
-        //     return ScanError.FunctionMissingReturn;
-        // }
     }
 }
 

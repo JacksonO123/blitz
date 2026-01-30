@@ -1,5 +1,6 @@
-fn thing(mut index: u32) {
-    index = 3;
+let mut a = 2;
+
+fn thing() [mut &a] {
 }
 
-thing(2);
+thing();

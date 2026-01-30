@@ -77,7 +77,6 @@ pub const CompInfo = struct {
     },
     // variableScopes store VarInfo as allocated, but return as recycled to preserve source
     variableScopes: *ScopeUtil(*VarScope, pools.releaseVariableScope),
-    variableCaptures: *ScopeUtil(*CaptureScope, pools.releaseVariableCaptures),
     genericCaptures: *ScopeUtil(*TypeScope, pools.releaseGenericCaptures),
     functionCaptures: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
     parsedGenerics: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
@@ -110,11 +109,6 @@ pub const CompInfo = struct {
         const variableScopes = try initScopeUtil(
             VarScope,
             pools.releaseVariableScope,
-            allocator,
-        );
-        const variableCaptures = try initScopeUtil(
-            CaptureScope,
-            pools.releaseVariableCaptures,
             allocator,
         );
         const genericCaptures = try initScopeUtil(
@@ -179,7 +173,6 @@ pub const CompInfo = struct {
                 .enums = hoistedEnumNames,
             },
             .variableScopes = variableScopes,
-            .variableCaptures = variableCaptures,
             .functionCaptures = functionCaptures,
             .genericCaptures = genericCaptures,
             .parsedGenerics = parsedGenerics,
@@ -208,7 +201,6 @@ pub const CompInfo = struct {
         }
 
         self.variableScopes.clear(context);
-        self.variableCaptures.clear(context);
         self.functionCaptures.clear(context);
         self.genericCaptures.clear(context);
         self.genericScopes.clear(context);
@@ -244,15 +236,12 @@ pub const CompInfo = struct {
         try self.variableScopes.addCaptureIndex(allocator);
         try self.functionsInScope.addCaptureIndex(allocator);
 
-        const newVarScope = try utils.initMutPtrT(CaptureScope, allocator);
         const newFuncScope = try utils.createMut(StringListScope, allocator, .empty);
 
-        try self.variableCaptures.add(allocator, newVarScope, false);
         try self.functionCaptures.add(allocator, newFuncScope, false);
     }
 
     pub fn popCaptureScope(self: *Self, context: *Context) void {
-        self.variableCaptures.pop(context);
         self.functionCaptures.pop(context);
     }
 
@@ -264,10 +253,6 @@ pub const CompInfo = struct {
 
     pub fn popGenericCaptureScope(self: *Self, context: *Context) void {
         self.genericCaptures.pop(context);
-    }
-
-    pub fn consumeVariableCaptures(self: *Self) ?*CaptureScope {
-        return self.variableCaptures.release();
     }
 
     pub fn consumeGenericCaptures(self: *Self) ?*TypeScope {
@@ -563,16 +548,19 @@ pub const CompInfo = struct {
             return copy.varTypeAndAllocInfo;
         }
 
-        const captureScope = self.variableCaptures.getCurrentScope();
-        if (captureScope) |capScope| {
-            const clonedType = try clone.cloneAstTypeInfo(
-                allocator,
-                context,
-                copy.varTypeAndAllocInfo.info,
-                replaceGenerics,
-            );
-            try capScope.put(name, clonedType.toAllocInfo(.Allocated));
-        }
+        _ = allocator;
+        _ = context;
+        _ = replaceGenerics;
+        // const captureScope = self.variableCaptures.getCurrentScope();
+        // if (captureScope) |capScope| {
+        //     const clonedType = try clone.cloneAstTypeInfo(
+        //         allocator,
+        //         context,
+        //         copy.varTypeAndAllocInfo.info,
+        //         replaceGenerics,
+        //     );
+        //     try capScope.put(name, clonedType.toAllocInfo(.Allocated));
+        // }
 
         return copy.varTypeAndAllocInfo;
     }
