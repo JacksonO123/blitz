@@ -57,7 +57,7 @@ pub const Context = struct {
 
         const tokens = try tokenizer.tokenize(allocator, code, writer);
 
-        const names = try ast.findStructsAndErrors(allocator, tokens, code);
+        const names = try ast.findHoistedInfo(allocator, tokens, code);
 
         const tokenUtil = tokenizer.TokenUtil.init(tokens);
         const tokenUtilPtr = try utils.createMut(tokenizer.TokenUtil, allocator, tokenUtil);

@@ -184,7 +184,8 @@ const Types = enum {
     Function,
     StaticStructInstance,
     Error,
-    ErrorVariant,
+    ErrorOrEnumVariant,
+    Enum,
     VarInfo,
 };
 
@@ -208,7 +209,8 @@ pub const AstTypes = union(Types) {
     Function: *FuncDecNode,
     StaticStructInstance: []const u8,
     Error: ErrorAstType,
-    ErrorVariant: ErrorVariantType,
+    ErrorOrEnumVariant: ErrorVariantType,
+    Enum: []const u8,
     VarInfo: scanner.TypeAndAllocInfo,
 
     pub fn toTypeInfo(self: *Self, mutState: scanner.MutState) AstTypeInfo {
@@ -238,15 +240,17 @@ pub const AstTypes = union(Types) {
             .RawNumber,
             .Undef,
             => unreachable,
+
             .Number => |num| return num.getAlignment(),
 
-            .Bool, .Char, .ErrorVariant => 1,
+            .Bool, .Char, .ErrorOrEnumVariant => 1,
 
             .Void,
             .Any,
             .Generic,
             .Function,
             .Error,
+            .Enum,
             => 0,
 
             .ArrayDec, .String, .StaticStructInstance, .Pointer => 8,
@@ -275,9 +279,9 @@ pub const AstTypes = union(Types) {
     pub fn getSize(self: Self, context: *Context) !u64 {
         return switch (self) {
             .Null, .RawNumber, .Undef => unreachable,
-            .Void, .Any, .Generic, .Function, .Error => 0,
+            .Void, .Any, .Generic, .Function, .Error, .Enum => 0,
             .String => 16,
-            .Bool, .Char, .ErrorVariant => 1,
+            .Bool, .Char, .ErrorOrEnumVariant => 1,
             .Number => |num| return num.getSize(),
             .ArrayDec => 16,
             .Pointer, .StaticStructInstance => 8,
@@ -578,7 +582,7 @@ const IndexValueNode = struct {
     target: *AstNode,
 };
 
-pub const ErrorDecNode = struct {
+pub const ErrorOrEnumDecNode = struct {
     name: []const u8,
     variants: [][]const u8,
 };
@@ -650,7 +654,9 @@ const AstNodeVariants = enum {
     IndexValue,
     ErrorDec,
     Error,
-    InferErrorVariant,
+    InferErrorOrEnumVariant,
+    EnumDec,
+    Enum,
     Group,
     Scope,
     IncOne,
@@ -691,9 +697,11 @@ pub const AstNodeUnion = union(AstNodeVariants) {
     FuncReference: []const u8,
     OpExpr: OpExpr,
     IndexValue: IndexValueNode,
-    ErrorDec: *const ErrorDecNode,
+    ErrorDec: *const ErrorOrEnumDecNode,
     Error: []const u8,
-    InferErrorVariant: []const u8,
+    InferErrorOrEnumVariant: []const u8,
+    EnumDec: *const ErrorOrEnumDecNode,
+    Enum: []const u8,
     Group: *AstNode,
     Scope: *AstNode,
     IncOne: *AstNode,
@@ -758,18 +766,24 @@ pub const AstError = error{
     ExpectedIdentifierForArrayInitPtr,
     SelfStructNameNotFound,
     UnexpectedSelfParamOnStaticFunction,
+    ExpectedIdentifierForEnumName,
+    ExpectedIdentifierForEnumVariant,
+    EnumDefinedInLowerScope,
+    ExpectedNameForEnum,
 } || TokenError;
 
 pub const ParseError = AstError || Allocator.Error;
 
-pub const RegisterStructsAndErrorsResult = struct {
+pub const HoistedNodes = struct {
     structs: []*AstNode,
     errors: []*AstNode,
+    enums: []*AstNode,
 };
 
 pub const HoistedNames = struct {
     structNames: [][]const u8,
     errorNames: [][]const u8,
+    enumNames: [][]const u8,
 };
 
 const OpExprTokenMap = struct {
@@ -868,7 +882,7 @@ fn parseStatement(
 
             const fallback = try parseIfChain(allocator, context);
 
-            const ifVariant: AstNodeUnion = .{
+            const ifVariant = AstNodeUnion{
                 .IfStatement = .{
                     .condition = condition,
                     .body = seq,
@@ -881,7 +895,7 @@ fn parseStatement(
             const func = try parseFuncDef(allocator, context, null);
             try context.compInfo.addFunction(func.name, func);
 
-            const funcDecVariant: AstNodeUnion = .{
+            const funcDecVariant = AstNodeUnion{
                 .FuncDec = func.name,
             };
             return try context.pools.newNode(context, funcDecVariant.toAstNode());
@@ -911,7 +925,7 @@ fn parseStatement(
             const body = try parseSequence(allocator, context, true);
             try context.tokenUtil.expectToken(.RBrace);
 
-            const forLoopVariant: AstNodeUnion = .{
+            const forLoopVariant = AstNodeUnion{
                 .ForLoop = .{
                     .initNode = initNode,
                     .condition = condition,
@@ -932,7 +946,7 @@ fn parseStatement(
             const body = try parseSequence(allocator, context, true);
             try context.tokenUtil.expectToken(.RBrace);
 
-            const whileLoopVariant: AstNodeUnion = .{
+            const whileLoopVariant = AstNodeUnion{
                 .WhileLoop = .{
                     .condition = condition,
                     .body = body,
@@ -947,10 +961,10 @@ fn parseStatement(
                     const setNode = try parseExpression(allocator, context) orelse
                         return AstError.ExpectedExpression;
 
-                    const variableVariant: AstNodeUnion = .{
+                    const variableVariant = AstNodeUnion{
                         .Variable = context.getTokString(first),
                     };
-                    const valueSetVariant: AstNodeUnion = .{
+                    const valueSetVariant = AstNodeUnion{
                         .ValueSet = .{
                             .setNode = setNode,
                             .value = try context.pools.newNode(context, variableVariant.toAstNode()),
@@ -970,11 +984,11 @@ fn parseStatement(
                     const incNode = try parseExpression(allocator, context) orelse
                         return AstError.ExpectedExpression;
 
-                    const variableVariant: AstNodeUnion = .{
+                    const variableVariant = AstNodeUnion{
                         .Variable = context.getTokString(first),
                     };
 
-                    const varEqOpVariant: AstNodeUnion = .{
+                    const varEqOpVariant = AstNodeUnion{
                         .VarEqOp = .{
                             .opType = tokenTypeToOpType(next.type),
                             .value = incNode,
@@ -998,7 +1012,7 @@ fn parseStatement(
                 },
                 .LBracket => {
                     context.tokenUtil.returnToken();
-                    const variableVariant: AstNodeUnion = .{
+                    const variableVariant = AstNodeUnion{
                         .Variable = context.getTokString(first),
                     };
                     const variableNode = try context.pools.newNode(context, variableVariant.toAstNode());
@@ -1019,7 +1033,7 @@ fn parseStatement(
                     return funcCall;
                 },
                 else => {
-                    const variableVariant: AstNodeUnion = .{
+                    const variableVariant = AstNodeUnion{
                         .Variable = context.getTokString(first),
                     };
                     return try context.pools.newNode(context, variableVariant.toAstNode());
@@ -1031,7 +1045,7 @@ fn parseStatement(
                 return AstError.ExpectedExpression;
             try context.tokenUtil.expectToken(.Semicolon);
 
-            const returnVariant: AstNodeUnion = .{
+            const returnVariant = AstNodeUnion{
                 .ReturnNode = value,
             };
             return try context.pools.newNode(context, returnVariant.toAstNode());
@@ -1053,7 +1067,7 @@ fn parseStatement(
 
             const errNode = try parseError(allocator, context);
 
-            const errDecVariant: AstNodeUnion = .{
+            const errDecVariant = AstNodeUnion{
                 .ErrorDec = errNode,
             };
             return try context.pools.newNode(context, errDecVariant.toAstNode());
@@ -1078,10 +1092,27 @@ fn parseStatement(
 
             return try parseStructDec(allocator, context);
         },
+        .Enum => {
+            if (!context.compInfo.preAst) {
+                _ = try context.tokenUtil.take();
+                var next = try context.tokenUtil.take();
+                while (next.type != .RBrace) {
+                    next = try context.tokenUtil.take();
+                }
+
+                return context.staticPtrs.nodes.noOp;
+            }
+
+            const enumDec = try parseEnumDec(allocator, context);
+            const enumDecVariant = AstNodeUnion{
+                .EnumDec = enumDec,
+            };
+            return context.pools.newNode(context, enumDecVariant.toAstNode());
+        },
         .LBrace => {
             const seq = try parseSequence(allocator, context, true);
             try context.tokenUtil.expectToken(.RBrace);
-            const scopeVariant: AstNodeUnion = .{
+            const scopeVariant = AstNodeUnion{
                 .Scope = seq,
             };
             return try context.pools.newNode(context, scopeVariant.toAstNode());
@@ -1095,7 +1126,7 @@ fn parseStatement(
         .Delete => {
             const expr = try parseExpression(allocator, context) orelse
                 return AstError.ExpectedExpression;
-            const heapVariant: AstNodeUnion = .{
+            const heapVariant = AstNodeUnion{
                 .HeapFree = expr,
             };
             return try context.pools.newNode(context, heapVariant.toAstNode());
@@ -1104,6 +1135,21 @@ fn parseStatement(
             return TokenError.UnexpectedToken;
         },
     }
+}
+
+fn parseEnumDec(allocator: Allocator, context: *Context) !*const ErrorOrEnumDecNode {
+    const name = try context.tokenUtil.take();
+    if (name.type != .Identifier) {
+        return AstError.ExpectedIdentifierForEnumName;
+    }
+
+    try context.tokenUtil.expectToken(.LBrace);
+    const variants = try parseVariants(allocator, context);
+
+    return try utils.create(ErrorOrEnumDecNode, allocator, .{
+        .name = context.getTokString(name),
+        .variants = variants,
+    });
 }
 
 fn parseIfChain(allocator: Allocator, context: *Context) !?FallbackInfo {
@@ -1131,7 +1177,7 @@ fn parseIfChain(allocator: Allocator, context: *Context) !?FallbackInfo {
     try context.tokenUtil.expectToken(.RBrace);
     const fallback = try parseIfChain(allocator, context);
 
-    const ifVariant: AstNodeUnion = .{
+    const ifVariant = AstNodeUnion{
         .IfStatement = .{
             .condition = condition orelse context.staticPtrs.nodes.noOp,
             .body = body,
@@ -1169,7 +1215,7 @@ fn parseStructDec(allocator: Allocator, context: *Context) !?*AstNode {
 
     const attributes = try parseStructAttributes(allocator, context, structName);
 
-    const structDecVariant: AstNodeUnion = .{
+    const structDecVariant = AstNodeUnion{
         .StructDec = try utils.createMut(StructDecNode, allocator, .{
             .name = structName,
             .generics = generics,
@@ -1278,7 +1324,7 @@ fn parseStructAttributeUtil(
     }
 }
 
-fn parseError(allocator: Allocator, context: *Context) !*const ErrorDecNode {
+fn parseError(allocator: Allocator, context: *Context) !*const ErrorOrEnumDecNode {
     const name = try context.tokenUtil.take();
     if (name.type != .Identifier) {
         return AstError.ExpectedIdentifierForErrorName;
@@ -1293,7 +1339,7 @@ fn parseError(allocator: Allocator, context: *Context) !*const ErrorDecNode {
         return TokenError.UnexpectedToken;
     }
 
-    return try utils.create(ErrorDecNode, allocator, .{
+    return try utils.create(ErrorOrEnumDecNode, allocator, .{
         .name = context.getTokString(name),
         .variants = variants,
     });
@@ -1351,7 +1397,7 @@ fn parseExpression(allocator: Allocator, context: *Context) !?*AstNode {
             const depthRight = getExprDepth(after);
             const depth = @max(depthLeft, depthRight) + 1;
 
-            const opExprVariant: AstNodeUnion = .{
+            const opExprVariant = AstNodeUnion{
                 .OpExpr = .{
                     .type = tokenTypeToOpType(next.type),
                     .left = expr.?,
@@ -1363,14 +1409,14 @@ fn parseExpression(allocator: Allocator, context: *Context) !?*AstNode {
         },
         .Inc => a: {
             _ = try context.tokenUtil.take();
-            const incVariant: AstNodeUnion = .{
+            const incVariant = AstNodeUnion{
                 .IncOne = expr.?,
             };
             break :a try context.pools.newNode(context, incVariant.toAstNode());
         },
         .Dec => a: {
             _ = try context.tokenUtil.take();
-            const decVariant: AstNodeUnion = .{
+            const decVariant = AstNodeUnion{
                 .DecOne = expr.?,
             };
             break :a try context.pools.newNode(context, decVariant.toAstNode());
@@ -1410,11 +1456,11 @@ fn parseExpressionUtil(
     const first = try context.tokenUtil.take();
     switch (first.type) {
         .Undef => {
-            const undefVariant: AstNodeUnion = .{ .UndefValue = {} };
+            const undefVariant = AstNodeUnion{ .UndefValue = {} };
             return try context.pools.newNode(context, undefVariant.toAstNode());
         },
         .Null => {
-            const valueVariant: AstNodeUnion = .{
+            const valueVariant = AstNodeUnion{
                 .Value = .Null,
             };
             return try context.pools.newNode(context, valueVariant.toAstNode());
@@ -1422,7 +1468,7 @@ fn parseExpressionUtil(
         .New => {
             const expr = try parseExpression(allocator, context) orelse
                 return AstError.ExpectedExpression;
-            const heapVariant: AstNodeUnion = .{
+            const heapVariant = AstNodeUnion{
                 .HeapAlloc = .{
                     .node = expr,
                 },
@@ -1430,7 +1476,7 @@ fn parseExpressionUtil(
             return try context.pools.newNode(context, heapVariant.toAstNode());
         },
         .Number => |numType| {
-            const valueVariant: AstNodeUnion = .{
+            const valueVariant = AstNodeUnion{
                 .Value = .{
                     .RawNumber = .{
                         .digits = context.getTokString(first),
@@ -1448,7 +1494,7 @@ fn parseExpressionUtil(
                 else => {},
             }
 
-            const valueVariant: AstNodeUnion = .{
+            const valueVariant = AstNodeUnion{
                 .Value = .{
                     .RawNumber = .{
                         .digits = context.getTokString(first),
@@ -1464,16 +1510,16 @@ fn parseExpressionUtil(
                 return AstError.ExpectedIdentifierForErrorVariant;
             }
 
-            const errVariant: AstNodeUnion = .{
-                .InferErrorVariant = context.getTokString(next),
+            const errOrEnumVariant = AstNodeUnion{
+                .InferErrorOrEnumVariant = context.getTokString(next),
             };
-            return try context.pools.newNode(context, errVariant.toAstNode());
+            return try context.pools.newNode(context, errOrEnumVariant.toAstNode());
         },
         .StringToken => {
             const str = context.getTokString(first);
             const next = try context.tokenUtil.peak();
 
-            const strVariant: AstNodeUnion = .{
+            const strVariant = AstNodeUnion{
                 .Value = .{
                     .String = str,
                 },
@@ -1493,7 +1539,7 @@ fn parseExpressionUtil(
             return strNode;
         },
         .CharToken => {
-            const valueVariant: AstNodeUnion = .{
+            const valueVariant = AstNodeUnion{
                 .Value = .{
                     .Char = context.getTokString(first)[0],
                 },
@@ -1513,7 +1559,7 @@ fn parseExpressionUtil(
         .Bang => {
             const expr = try parseExpression(allocator, context) orelse
                 return AstError.ExpectedExpression;
-            const bangVariant: AstNodeUnion = .{
+            const bangVariant = AstNodeUnion{
                 .Bang = expr,
             };
             return try context.pools.newNode(context, bangVariant.toAstNode());
@@ -1521,7 +1567,7 @@ fn parseExpressionUtil(
         .Ampersand => {
             const expr = try parseExpression(allocator, context) orelse
                 return AstError.ExpectedExpression;
-            const ptrVariant: AstNodeUnion = .{
+            const ptrVariant = AstNodeUnion{
                 .Pointer = .{
                     .node = expr,
                     .mutState = .Const,
@@ -1535,7 +1581,7 @@ fn parseExpressionUtil(
 
             try context.tokenUtil.expectToken(.RParen);
 
-            const groupVariant: AstNodeUnion = .{
+            const groupVariant = AstNodeUnion{
                 .Group = expr,
             };
             const groupNode = try context.pools.newNode(context, groupVariant.toAstNode());
@@ -1601,7 +1647,7 @@ fn parseExpressionUtil(
             const inner = try parseExpression(allocator, context) orelse
                 return AstError.ExpectedExpression;
 
-            const castVariant: AstNodeUnion = .{
+            const castVariant = AstNodeUnion{
                 .Cast = .{
                     .node = inner,
                     .toType = toType,
@@ -1618,6 +1664,8 @@ fn getIdentNode(context: *Context, str: []const u8) !*AstNode {
 
     if (context.compInfo.hasStruct(str)) {
         node = .{ .StaticStructInstance = str };
+    } else if (context.compInfo.hasEnum(str)) {
+        node = .{ .Enum = str };
     } else if (context.compInfo.hasError(str)) {
         node = .{ .Error = str };
     } else {
@@ -1633,7 +1681,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
     switch (current.type) {
         .RBracket => {
             _ = try context.tokenUtil.take();
-            const valueVariant: AstNodeUnion = .{
+            const valueVariant = AstNodeUnion{
                 .Value = .{
                     .ArrayDec = &[_]*AstNode{},
                 },
@@ -1695,7 +1743,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
                 return AstError.ExpectedU64ForArraySize;
             }
 
-            const arrayInitVariant: AstNodeUnion = .{
+            const arrayInitVariant = AstNodeUnion{
                 .ArrayInit = .{
                     .size = context.getTokString(current),
                     .initType = arrType,
@@ -1728,7 +1776,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
     const slice = try items.toOwnedSlice(allocator);
     try context.deferCleanup.nodeSlices.append(allocator, slice);
 
-    const valueVariant: AstNodeUnion = .{
+    const valueVariant = AstNodeUnion{
         .Value = .{
             .ArrayDec = slice,
         },
@@ -1744,7 +1792,7 @@ fn parseStructInit(
 ) !*AstNode {
     const attributes = try parseStructInitAttributes(allocator, context);
 
-    const structInitVariant: AstNodeUnion = .{
+    const structInitVariant = AstNodeUnion{
         .StructInit = .{
             .name = name,
             .attributes = attributes,
@@ -1785,7 +1833,7 @@ fn parseStructInitAttribute(allocator: Allocator, context: *Context) !AttributeD
 
     const next = try context.tokenUtil.take();
     if (next.type == .Comma or next.type == .RBrace) {
-        const variableVariant: AstNodeUnion = .{
+        const variableVariant = AstNodeUnion{
             .Variable = context.getTokString(first),
         };
         const res = AttributeDefinition{
@@ -1947,7 +1995,7 @@ fn parsePropertyAccess(
             const expr = try parseExpression(allocator, context) orelse
                 return AstError.ExpectedExpression;
 
-            const valueSetVariant: AstNodeUnion = .{
+            const valueSetVariant = AstNodeUnion{
                 .ValueSet = .{
                     .value = node,
                     .setNode = expr,
@@ -1967,7 +2015,7 @@ fn parsePropertyAccess(
             const expr = try parseExpression(allocator, context) orelse
                 return AstError.ExpectedExpression;
 
-            const valueSetVariant: AstNodeUnion = .{
+            const valueSetVariant = AstNodeUnion{
                 .VarEqOp = .{
                     .opType = tokenTypeToOpType(next.type),
                     .variable = node,
@@ -1978,7 +2026,7 @@ fn parsePropertyAccess(
         },
         .LParen => {
             const params = try parseFuncCallParams(allocator, context);
-            const funcCallVariant: AstNodeUnion = .{
+            const funcCallVariant = AstNodeUnion{
                 .FuncCall = .{
                     .func = node,
                     .params = params,
@@ -1992,14 +2040,14 @@ fn parsePropertyAccess(
 }
 
 fn parseFuncCall(allocator: Allocator, context: *Context, name: []const u8) !*AstNode {
-    const funcRefVariant: AstNodeUnion = .{
+    const funcRefVariant = AstNodeUnion{
         .FuncReference = name,
     };
     const func = try context.pools.newNode(context, funcRefVariant.toAstNode());
 
     const params = try parseFuncCallParams(allocator, context);
 
-    const funcCallVariant: AstNodeUnion = .{
+    const funcCallVariant = AstNodeUnion{
         .FuncCall = .{
             .func = func,
             .params = params,
@@ -2266,7 +2314,7 @@ pub fn tokenTypeToOpType(tokenType: tokenizer.TokenType) OpExprTypes {
 }
 
 fn createBoolNode(context: *Context, value: bool) !*AstNode {
-    const valueVariant: AstNodeUnion = .{
+    const valueVariant = AstNodeUnion{
         .Value = .{
             .Bool = value,
         },
@@ -2297,7 +2345,7 @@ fn createVarDecNode(
 
     const setValue = try parseExpression(allocator, context) orelse return null;
 
-    const varDecVariant: AstNodeUnion = .{
+    const varDecVariant = AstNodeUnion{
         .VarDec = .{
             .name = context.getTokString(name),
             .mutState = mutState,
@@ -2363,6 +2411,10 @@ fn parseType(
                         .generics = generics,
                         .allowPrivateReads = false,
                     },
+                };
+            } else if (context.compInfo.hasEnum(str)) {
+                break :a .{
+                    .Enum = str,
                 };
             } else if (context.compInfo.hasError(str)) {
                 const next = try context.tokenUtil.peak();
@@ -2434,13 +2486,14 @@ fn parseType(
     return resType.toTypeInfo(mutState);
 }
 
-pub fn findStructsAndErrors(
+pub fn findHoistedInfo(
     allocator: Allocator,
     tokens: []tokenizer.Token,
     code: []const u8,
 ) !HoistedNames {
     var structNames: ArrayList([]const u8) = .empty;
     var errorNames: ArrayList([]const u8) = .empty;
+    var enumNames: ArrayList([]const u8) = .empty;
 
     var scopeCount: usize = 0;
     var i: usize = 0;
@@ -2471,6 +2524,16 @@ pub fn findStructsAndErrors(
                 const str = tokens[i + 1].strFromCode(code);
                 try errorNames.append(allocator, str);
             },
+            .Enum => {
+                if (scopeCount != 0) return AstError.EnumDefinedInLowerScope;
+
+                if (tokens[i + 1].type != .Identifier) {
+                    return AstError.ExpectedNameForEnum;
+                }
+
+                const str = tokens[i + 1].strFromCode(code);
+                try enumNames.append(allocator, str);
+            },
             .LBrace => scopeCount += 1,
             .RBrace => scopeCount -= 1,
             else => {},
@@ -2480,19 +2543,21 @@ pub fn findStructsAndErrors(
     return .{
         .structNames = try structNames.toOwnedSlice(allocator),
         .errorNames = try errorNames.toOwnedSlice(allocator),
+        .enumNames = try enumNames.toOwnedSlice(allocator),
     };
 }
 
-pub fn registerStructsAndErrors(
+pub fn hoistRelevantNodes(
     allocator: Allocator,
     context: *Context,
-) !RegisterStructsAndErrorsResult {
+) !HoistedNodes {
     var structDecs: ArrayList(*AstNode) = .empty;
     var errorDecs: ArrayList(*AstNode) = .empty;
+    var enumDecs: ArrayList(*AstNode) = .empty;
 
     while (context.tokenUtil.hasNext()) {
         const token = try context.tokenUtil.take();
-        if (token.type != .Struct and token.type != .Error) {
+        if (token.type != .Struct and token.type != .Error and token.type != .Enum) {
             continue;
         }
 
@@ -2506,6 +2571,9 @@ pub fn registerStructsAndErrors(
             .ErrorDec => {
                 try errorDecs.append(allocator, node);
             },
+            .EnumDec => {
+                try enumDecs.append(allocator, node);
+            },
             else => unreachable,
         }
     }
@@ -2513,5 +2581,6 @@ pub fn registerStructsAndErrors(
     return .{
         .structs = try structDecs.toOwnedSlice(allocator),
         .errors = try errorDecs.toOwnedSlice(allocator),
+        .enums = try enumDecs.toOwnedSlice(allocator),
     };
 }

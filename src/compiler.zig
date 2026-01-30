@@ -76,21 +76,20 @@ pub fn compile(
 
     var context = try Context.init(allocator, code, printWriter, .{});
 
-    const structsAndErrors = ast.registerStructsAndErrors(allocator, &context) catch |e| {
+    const hoistedNodes = ast.hoistRelevantNodes(allocator, &context) catch |e| {
         logger.logParseError(&context, e, printWriter);
         return e;
     };
-    try context.compInfo.setStructDecs(structsAndErrors.structs);
-    try context.compInfo.setErrorDecs(structsAndErrors.errors);
+    try context.compInfo.setHoistedNodes(hoistedNodes);
 
     if (printState == .All) {
-        try debug.printRegisteredStructs(&context, structsAndErrors.structs, printWriter);
-        try debug.printRegisteredErrors(structsAndErrors.errors, printWriter);
+        try debug.printRegisteredStructs(&context, hoistedNodes.structs, printWriter);
+        try debug.printRegisteredErrors(hoistedNodes.errors, printWriter);
     }
 
     try context.compInfo.prepareForAst(allocator, &context, printWriter);
 
-    for (structsAndErrors.structs) |structs| {
+    for (hoistedNodes.structs) |structs| {
         const res = try scanner.scanNode(allocator, &context, structs, true);
         scanner.releaseIfAllocated(&context, res);
     }
@@ -100,7 +99,7 @@ pub fn compile(
         defer {
             tree.deinit();
             context.clearPoolMem();
-            allocPools.releaseStructsAndErrors(&context, structsAndErrors);
+            allocPools.releaseHoistedNodes(&context, hoistedNodes);
         }
 
         if (printState == .All) {

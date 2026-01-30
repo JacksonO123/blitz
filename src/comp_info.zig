@@ -70,8 +70,11 @@ const ScopeType = enum {
 pub const CompInfo = struct {
     const Self = @This();
 
-    structNames: [][]const u8,
-    errorNames: [][]const u8,
+    hoistedDecs: struct {
+        structs: *StringHashMap(?*ast.StructDecNode),
+        errors: *StringHashMap(?*const ast.ErrorOrEnumDecNode),
+        enums: *StringHashMap(?*const ast.ErrorOrEnumDecNode),
+    },
     // variableScopes store VarInfo as allocated, but return as recycled to preserve source
     variableScopes: *ScopeUtil(*VarScope, pools.releaseVariableScope),
     variableCaptures: *ScopeUtil(*CaptureScope, pools.releaseVariableCaptures),
@@ -81,8 +84,6 @@ pub const CompInfo = struct {
     scopeTypes: *ArrayList(ScopeType),
     functions: *StringHashMap(*ast.FuncDecNode),
     functionsInScope: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
-    structDecs: *StringHashMap(*ast.StructDecNode),
-    errorDecs: *StringHashMap(*const ast.ErrorDecNode),
     functionsToScan: *ToScanStack,
     genericScopes: *ScopeUtil(*TypeScope, pools.releaseGenericScope),
     returnInfo: *ReturnInfo,
@@ -99,11 +100,6 @@ pub const CompInfo = struct {
         try scopeTypesPtr.append(allocator, .Normal);
 
         const functions = try utils.initMutPtrT(StringHashMap(*ast.FuncDecNode), allocator);
-        const structs = try utils.initMutPtrT(StringHashMap(*ast.StructDecNode), allocator);
-        const errors = try utils.initMutPtrT(
-            StringHashMap(*const ast.ErrorDecNode),
-            allocator,
-        );
 
         const genericScopes = try initScopeUtil(
             TypeScope,
@@ -147,9 +143,40 @@ pub const CompInfo = struct {
         const returnInfoUtil = try ReturnInfo.init(allocator);
         const returnInfo = try utils.createMut(ReturnInfo, allocator, returnInfoUtil);
 
+        const hoistedStructNames = try utils.createMut(
+            StringHashMap(?*ast.StructDecNode),
+            allocator,
+            StringHashMap(?*ast.StructDecNode).init(allocator),
+        );
+        const hoistedErrorNames = try utils.createMut(
+            StringHashMap(?*const ast.ErrorOrEnumDecNode),
+            allocator,
+            StringHashMap(?*const ast.ErrorOrEnumDecNode).init(allocator),
+        );
+        const hoistedEnumNames = try utils.createMut(
+            StringHashMap(?*const ast.ErrorOrEnumDecNode),
+            allocator,
+            StringHashMap(?*const ast.ErrorOrEnumDecNode).init(allocator),
+        );
+
+        for (names.structNames) |name| {
+            try hoistedStructNames.put(name, null);
+        }
+
+        for (names.errorNames) |name| {
+            try hoistedErrorNames.put(name, null);
+        }
+
+        for (names.enumNames) |name| {
+            try hoistedEnumNames.put(name, null);
+        }
+
         return Self{
-            .structNames = names.structNames,
-            .errorNames = names.errorNames,
+            .hoistedDecs = .{
+                .structs = hoistedStructNames,
+                .errors = hoistedErrorNames,
+                .enums = hoistedEnumNames,
+            },
             .variableScopes = variableScopes,
             .variableCaptures = variableCaptures,
             .functionCaptures = functionCaptures,
@@ -158,8 +185,6 @@ pub const CompInfo = struct {
             .scopeTypes = scopeTypesPtr,
             .functions = functions,
             .functionsInScope = functionsInScope,
-            .structDecs = structs,
-            .errorDecs = errors,
             .functionsToScan = functionsToScan,
             .genericScopes = genericScopes,
             .preAst = true,
@@ -175,9 +200,9 @@ pub const CompInfo = struct {
             pools.releaseFuncDec(context, f.*);
         }
 
-        var structsIt = self.structDecs.valueIterator();
+        var structsIt = self.hoistedDecs.structs.valueIterator();
         while (structsIt.next()) |dec| {
-            pools.releaseStructDec(context, dec.*);
+            pools.releaseStructDec(context, dec.*.?);
         }
 
         self.variableScopes.clear(context);
@@ -309,9 +334,10 @@ pub const CompInfo = struct {
         self.preAst = false;
 
         {
-            var structIt = self.structDecs.valueIterator();
+            var structIt = self.hoistedDecs.structs.valueIterator();
             while (structIt.next()) |s| {
-                const attributes = s.*.attributes;
+                const structPtr = s.*.?;
+                const attributes = structPtr.*.attributes;
                 var members = try ArrayList(ast.StructAttribute).initCapacity(
                     allocator,
                     attributes.len,
@@ -324,18 +350,19 @@ pub const CompInfo = struct {
 
                 const arr = try members.toOwnedSlice(allocator);
 
-                s.*.totalMemberList = arr;
+                structPtr.*.totalMemberList = arr;
             }
         }
 
         {
-            var structIt = self.structDecs.valueIterator();
+            var structIt = self.hoistedDecs.structs.valueIterator();
             while (structIt.next()) |s| {
-                const attributes = s.*.attributes;
+                const structPtr = s.*.?;
+                const attributes = structPtr.*.attributes;
                 try self.pushParsedGenericsScope(allocator, false);
                 defer self.popParsedGenericsScope(context);
 
-                for (s.*.generics) |g| {
+                for (structPtr.*.generics) |g| {
                     try self.addParsedGeneric(allocator, g.name);
                 }
 
@@ -373,19 +400,15 @@ pub const CompInfo = struct {
     }
 
     pub fn hasStruct(self: Self, name: []const u8) bool {
-        for (self.structNames) |structName| {
-            if (utils.compString(structName, name)) return true;
-        }
-
-        return false;
+        return self.hoistedDecs.structs.contains(name);
     }
 
     pub fn hasError(self: Self, name: []const u8) bool {
-        for (self.errorNames) |errorName| {
-            if (utils.compString(errorName, name)) return true;
-        }
+        return self.hoistedDecs.errors.contains(name);
+    }
 
-        return false;
+    pub fn hasEnum(self: Self, name: []const u8) bool {
+        return self.hoistedDecs.enums.contains(name);
     }
 
     pub fn pushGenScope(self: *Self, allocator: Allocator, leak: bool) !void {
@@ -669,28 +692,33 @@ pub const CompInfo = struct {
         return self.functions.get(name);
     }
 
-    pub fn setStructDec(self: *Self, name: []const u8, node: *ast.StructDecNode) !void {
-        try self.structDecs.put(name, node);
-    }
-
-    pub fn setStructDecs(self: *Self, nodes: []*ast.AstNode) !void {
-        for (nodes) |node| {
-            try self.setStructDec(node.variant.StructDec.name, node.variant.StructDec);
+    pub fn setHoistedNodes(self: *Self, hoistedNodes: ast.HoistedNodes) !void {
+        for (hoistedNodes.structs) |node| {
+            const structDec = node.variant.StructDec;
+            try self.hoistedDecs.structs.put(structDec.name, structDec);
         }
-    }
 
-    pub fn setErrorDecs(self: *Self, decs: []*ast.AstNode) !void {
-        for (decs) |dec| {
-            try self.errorDecs.put(dec.variant.ErrorDec.name, dec.variant.ErrorDec);
+        for (hoistedNodes.errors) |dec| {
+            const errorDec = dec.variant.ErrorDec;
+            try self.hoistedDecs.errors.put(errorDec.name, errorDec);
+        }
+
+        for (hoistedNodes.enums) |dec| {
+            const enumDec = dec.variant.EnumDec;
+            try self.hoistedDecs.enums.put(enumDec.name, enumDec);
         }
     }
 
     pub fn getStructDec(self: Self, name: []const u8) ?*const ast.StructDecNode {
-        return self.structDecs.get(name);
+        return self.hoistedDecs.structs.get(name) orelse null;
     }
 
-    pub fn getErrorDec(self: Self, name: []const u8) ?*const ast.ErrorDecNode {
-        return self.errorDecs.get(name);
+    pub fn getErrorDec(self: Self, name: []const u8) ?*const ast.ErrorOrEnumDecNode {
+        return self.hoistedDecs.errors.get(name) orelse null;
+    }
+
+    pub fn getEnumDec(self: Self, name: []const u8) ?*const ast.ErrorOrEnumDecNode {
+        return self.hoistedDecs.enums.get(name) orelse null;
     }
 
     pub fn inLoopScope(self: Self) bool {

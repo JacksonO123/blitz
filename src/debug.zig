@@ -150,7 +150,12 @@ pub fn printType(
                 try writer.writeByte(']');
             }
         },
-        .ErrorVariant => |err| {
+        .Enum => |enumName| {
+            try writer.writeAll("enum (");
+            try writer.writeAll(enumName);
+            try writer.writeByte(')');
+        },
+        .ErrorOrEnumVariant => |err| {
             try writer.writeAll("variant [");
             try writer.writeAll(err.variant);
             try writer.writeAll("] from (");
@@ -501,9 +506,15 @@ pub fn printNode(context: *Context, node: *ast.AstNode, writer: *Writer) anyerro
             try printNode(context, bang, writer);
         },
         .ErrorDec => |def| try printRegisteredError(def, writer),
+        .EnumDec => |def| try printRegisteredEnum(def, writer),
         .Error => |err| {
             try writer.writeAll("error type (");
             try writer.writeAll(err);
+            try writer.writeByte(')');
+        },
+        .Enum => |enumName| {
+            try writer.writeAll("enum (");
+            try writer.writeAll(enumName);
             try writer.writeByte(')');
         },
         .Group => |group| {
@@ -524,7 +535,7 @@ pub fn printNode(context: *Context, node: *ast.AstNode, writer: *Writer) anyerro
             try writer.writeAll(" with initializer ");
             try printNode(context, init.initNode, writer);
         },
-        .InferErrorVariant => |variant| {
+        .InferErrorOrEnumVariant => |variant| {
             try writer.writeAll("infer error from variant ");
             try writer.writeAll(variant);
         },
@@ -661,15 +672,25 @@ fn printNodes(context: *Context, nodes: []*ast.AstNode, writer: *Writer) anyerro
     }
 }
 
-pub fn printRegisteredError(err: *const ast.ErrorDecNode, writer: *Writer) !void {
-    try writer.writeAll("defining error: {s} with variants [ ");
-
-    for (err.variants, 0..) |variant, index| {
+pub fn printErrorOrEnumVariants(variants: [][]const u8, writer: *Writer) !void {
+    try writer.writeByte('[');
+    for (variants, 0..) |variant, index| {
         try writer.writeAll(variant);
-        if (index < err.variants.len - 1) {
+        if (index < variants.len - 1) {
             try writer.writeAll(", ");
         }
     }
+    try writer.writeByte(']');
+}
+
+pub fn printRegisteredError(err: *const ast.ErrorOrEnumDecNode, writer: *Writer) !void {
+    try writer.writeAll("defining error: {s} with variants ");
+    try printErrorOrEnumVariants(err.variants, writer);
+}
+
+pub fn printRegisteredEnum(enumNode: *const ast.ErrorOrEnumDecNode, writer: *Writer) !void {
+    try writer.writeAll("defining enum: {s} with variants ");
+    try printErrorOrEnumVariants(enumNode.variants, writer);
 }
 
 pub fn printRegisteredErrors(errors: []*ast.AstNode, writer: *Writer) !void {

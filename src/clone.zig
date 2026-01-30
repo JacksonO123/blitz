@@ -13,6 +13,7 @@ pub const CloneError = error{
     CannotCloneFunction,
     CannotCloneStructDec,
     CannotCloneErrorDec,
+    CannotCloneEnumDec,
 };
 
 pub fn cloneAstTypeInfo(
@@ -69,7 +70,17 @@ pub fn cloneAstTypes(
     withGenDef: bool,
 ) (Allocator.Error || CloneError)!ast.AstTypes {
     switch (types) {
-        .String, .Bool, .Char, .Void, .Number, .Null, .RawNumber, .Any, .Undef => return types,
+        .String,
+        .Bool,
+        .Char,
+        .Void,
+        .Number,
+        .Null,
+        .RawNumber,
+        .Any,
+        .Undef,
+        .Enum,
+        => return types,
 
         .VarInfo => |info| {
             const varInfo = try cloneAstTypeInfo(
@@ -151,9 +162,9 @@ pub fn cloneAstTypes(
                 },
             };
         },
-        .ErrorVariant => |err| {
+        .ErrorOrEnumVariant => |err| {
             return .{
-                .ErrorVariant = .{
+                .ErrorOrEnumVariant = .{
                     .from = if (err.from) |from| from else null,
                     .variant = err.variant,
                 },
@@ -181,7 +192,7 @@ pub fn cloneAstNodeUnion(
     withGenDef: bool,
 ) !ast.AstNodeUnion {
     switch (node) {
-        .NoOp, .StructPlaceholder, .Break, .Continue, .UndefValue => return node,
+        .NoOp, .StructPlaceholder, .Break, .Continue, .UndefValue, .Enum => return node,
         .IndexValue => |index| return .{
             .IndexValue = .{
                 .index = try cloneAstNodePtrMut(allocator, context, index.index, withGenDef),
@@ -492,8 +503,8 @@ pub fn cloneAstNodeUnion(
         .Error => |err| return .{
             .Error = err,
         },
-        .InferErrorVariant => |err| return .{
-            .InferErrorVariant = err,
+        .InferErrorOrEnumVariant => |err| return .{
+            .InferErrorOrEnumVariant = err,
         },
         .Group => |group| return .{
             .Group = try cloneAstNodePtrMut(allocator, context, group, withGenDef),
@@ -522,6 +533,7 @@ pub fn cloneAstNodeUnion(
         },
         .StructDec => return CloneError.CannotCloneStructDec,
         .ErrorDec => return CloneError.CannotCloneErrorDec,
+        .EnumDec => return CloneError.CannotCloneEnumDec,
     }
 }
 

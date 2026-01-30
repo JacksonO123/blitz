@@ -99,10 +99,10 @@ fn findSurroundingLines(
 
     var current = charIndex;
     while (current > 0 and code[current - 1] != '\n') : (current -= 1) {}
-    output.before.end = current - 1;
+    output.before.end = if (current > 0) current - 1 else current;
 
     var lineCount: u32 = 0;
-    current -= 1;
+    if (current > 0) current -= 1;
     while (current > 0) : (current -= 1) {
         if (code[current - 1] == '\n') lineCount += 1;
         if (lineCount == numSurroundingLines) break;
@@ -159,6 +159,8 @@ pub fn logParseError(context: *Context, err: ast.ParseError, writer: *Writer) vo
         error.UnexpectedToken => "unexpected token",
         error.SelfStructNameNotFound => "self struct name not found",
         error.UnexpectedSelfParamOnStaticFunction => "unexpected self parameter on static function",
+        error.EnumDefinedInLowerScope => "enum defined in lower scope",
+        error.ExpectedNameForEnum => "expected name for enum",
         else => @errorName(err),
     };
 

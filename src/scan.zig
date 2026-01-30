@@ -159,6 +159,9 @@ pub const ScanError = error{
     ExpectedUseOfErrorVariants,
     ErrorDoesNotHaveVariants,
     ErrorVariantDoesNotExist,
+
+    // enums
+    EnumVariantDoesNotExist,
 };
 
 const StructInitMemberInfo = struct {
@@ -188,7 +191,7 @@ pub fn scanNode(
     withGenDef: bool,
 ) ScanNodeError!TypeAndAllocInfo {
     switch (node.variant) {
-        .NoOp, .ErrorDec => {
+        .NoOp, .ErrorDec, .EnumDec => {
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
         .UndefValue => return context.staticPtrs.types.undefType.toAllocInfo(.Recycled),
@@ -682,13 +685,27 @@ pub fn scanNode(
                         return ScanError.ErrorDoesNotHaveVariants;
                     }
 
-                    const errType = try context.pools.newType(context, .{
-                        .ErrorVariant = .{
+                    const errOrEnumType = try context.pools.newType(context, .{
+                        .ErrorOrEnumVariant = .{
                             .from = err.name,
                             .variant = access.property,
                         },
                     });
-                    return errType.toAllocInfo(valueInfo.info.mutState, .Allocated);
+                    return errOrEnumType.toAllocInfo(valueInfo.info.mutState, .Allocated);
+                },
+                .Enum => |enumName| {
+                    const enumDec = context.compInfo.getEnumDec(enumName).?;
+                    if (!utils.inStringArr(enumDec.variants, access.property)) {
+                        return ScanError.EnumVariantDoesNotExist;
+                    }
+
+                    const errOrEnumType = try context.pools.newType(context, .{
+                        .ErrorOrEnumVariant = .{
+                            .from = enumName,
+                            .variant = access.property,
+                        },
+                    });
+                    return errOrEnumType.toAllocInfo(.Const, .Allocated);
                 },
                 else => false,
             };
@@ -1297,6 +1314,12 @@ pub fn scanNode(
             });
             return errorType.toAllocInfo(.Const, .Allocated);
         },
+        .Enum => |enumName| {
+            const enumType = try context.pools.newType(context, .{
+                .Enum = enumName,
+            });
+            return enumType.toAllocInfo(.Const, .Allocated);
+        },
         .Scope => |scope| {
             try context.compInfo.pushScope(allocator, true);
             defer context.compInfo.popScope(context);
@@ -1452,14 +1475,14 @@ pub fn scanNode(
 
             return arrayDecType.toAllocInfo(.Mut, .Allocated);
         },
-        .InferErrorVariant => |variant| {
-            const errorVariant = try context.pools.newType(context, .{
-                .ErrorVariant = .{
+        .InferErrorOrEnumVariant => |variant| {
+            const errorOrEnumVariant = try context.pools.newType(context, .{
+                .ErrorOrEnumVariant = .{
                     .from = null,
                     .variant = variant,
                 },
             });
-            return errorVariant.toAllocInfo(.Const, .Allocated);
+            return errorOrEnumVariant.toAllocInfo(.Const, .Allocated);
         },
         .Break, .Continue => {
             if (!context.compInfo.inLoopScope()) {
@@ -2312,14 +2335,27 @@ pub fn matchTypesUtil(
         .Char => type2 == .Char,
         .Void => type2 == .Void,
         .Null => type2 == .Nullable or type2 == .Null,
-        .Nullable => |inner| type2 == .Null or try matchTypesUtil(
-            allocator,
-            context,
-            inner,
-            fromType,
-            withGenDef,
-            mutMatchBehavior,
-        ),
+        .Nullable => |inner| {
+            if (type2 == .Nullable) {
+                return try matchTypesUtil(
+                    allocator,
+                    context,
+                    inner,
+                    type2.Nullable,
+                    withGenDef,
+                    mutMatchBehavior,
+                );
+            }
+
+            return type2 == .Null or try matchTypesUtil(
+                allocator,
+                context,
+                inner,
+                fromType,
+                withGenDef,
+                mutMatchBehavior,
+            );
+        },
         .RawNumber => return type2 == .Number or type2 == .RawNumber,
         .Number => |num| {
             if (type2 == .Number) {
@@ -2385,10 +2421,8 @@ pub fn matchTypesUtil(
             return try matchMutState(toType, fromType, true, mutMatchBehavior);
         },
         .Error => |err| switch (type2) {
-            .Error => |err2| a: {
-                break :a utils.compString(err.name, err2.name);
-            },
-            .ErrorVariant => |err2| {
+            .Error => |err2| return utils.compString(err.name, err2.name),
+            .ErrorOrEnumVariant => |err2| {
                 if (err2.from) |from| {
                     return utils.compString(err.name, from);
                 }
@@ -2416,7 +2450,7 @@ pub fn matchTypesUtil(
                 return false;
             },
         },
-        .ErrorVariant => |err| switch (type2) {
+        .ErrorOrEnumVariant => |err| switch (type2) {
             .Error => |err2| {
                 if (err.from) |from| {
                     return utils.compString(err2.name, from);
@@ -2429,14 +2463,38 @@ pub fn matchTypesUtil(
 
                 return false;
             },
-            .ErrorVariant => |err2| {
-                const variantsMatch = utils.compString(err.variant, err2.variant);
+            .Enum => |enum2Name| {
+                if (err.from) |from| {
+                    return utils.compString(enum2Name, from);
+                }
 
-                if (err.from != null and err2.from != null) {
-                    return utils.compString(err.from.?, err2.from.?) and variantsMatch;
+                const errDec = context.compInfo.getEnumDec(enum2Name);
+                if (errDec) |dec| {
+                    return utils.inStringArr(dec.variants, err.variant);
+                }
+
+                return false;
+            },
+            .ErrorOrEnumVariant => |errOrEnum2| {
+                const variantsMatch = utils.compString(err.variant, errOrEnum2.variant);
+
+                if (err.from != null and errOrEnum2.from != null) {
+                    return utils.compString(err.from.?, errOrEnum2.from.?) and variantsMatch;
                 }
 
                 return variantsMatch;
+            },
+            else => false,
+        },
+        .Enum => |enumName| switch (type2) {
+            .Enum => |enum2Name| return utils.compString(enumName, enum2Name),
+            .ErrorOrEnumVariant => |errOrEnum2| {
+                if (errOrEnum2.from) |fromEnumName| {
+                    return utils.compString(enumName, fromEnumName);
+                }
+
+                const enumDec = context.compInfo.getEnumDec(enumName).?;
+                return utils.inStringArr(enumDec.variants, errOrEnum2.variant);
             },
             else => false,
         },

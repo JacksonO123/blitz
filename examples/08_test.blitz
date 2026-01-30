@@ -1,7 +1,19 @@
-struct Box {
-    size: u32;
-
-    pub fn getSizePlusOne(self) u32 {
-        return self.size + 1;
-    }
+error Bad {
+    OneErr,
 }
+
+fn myFunc() Bad<?Thing> {
+    if (true) {
+        return .OneErr;
+    }
+
+    return .part1;
+}
+
+enum Thing {
+    part1,
+    part2
+}
+
+let mut val: ?Thing = Thing.part1;
+val = myFunc();

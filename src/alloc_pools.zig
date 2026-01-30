@@ -433,15 +433,19 @@ pub fn recursiveReleaseTypeUtil(
     }
 }
 
-pub fn releaseStructsAndErrors(
+pub fn releaseHoistedNodes(
     context: *Context,
-    structsAndErrors: ast.RegisterStructsAndErrorsResult,
+    hoistedNodes: ast.HoistedNodes,
 ) void {
-    for (structsAndErrors.structs) |def| {
+    for (hoistedNodes.structs) |def| {
         recursiveReleaseNodeAll(context, def);
     }
 
-    for (structsAndErrors.errors) |err| {
+    for (hoistedNodes.errors) |err| {
         recursiveReleaseNodeAll(context, err);
+    }
+
+    for (hoistedNodes.enums) |dec| {
+        recursiveReleaseNodeAll(context, dec);
     }
 }
