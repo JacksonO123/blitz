@@ -111,7 +111,6 @@ pub const ScanError = error{
     CannotCallNonFunctionNode,
     VariableIsUndefined,
     FunctionNotInScope,
-    FunctionReturnsHaveDifferentTypes,
     FunctionReturnIsNotExhaustive,
     FunctionMissingReturn,
     UnexpectedReturnStatement,
@@ -492,7 +491,7 @@ pub fn scanNode(
             return resType;
         },
         .ReturnNode => |ret| {
-            if (!context.compInfo.returnInfo.info.inFunction) {
+            if (context.compInfo.currentFuncReturn == null) {
                 return ScanError.UnexpectedReturnStatement;
             }
 
@@ -508,23 +507,20 @@ pub fn scanNode(
 
             releaseIfAllocated(context, valType);
 
-            if (context.compInfo.returnInfo.info.retType) |prevRetType| {
-                const matches = try matchTypes(
-                    allocator,
-                    context,
-                    prevRetType.info,
-                    valType.info,
-                    withGenDef,
-                );
-                if (!matches) {
-                    return ScanError.FunctionReturnsHaveDifferentTypes;
-                }
-
-                releaseIfAllocated(context, retType);
-            } else {
-                context.compInfo.returnInfo.info.retType = retType;
+            const matches = try matchTypes(
+                allocator,
+                context,
+                context.compInfo.currentFuncReturn.?,
+                retTypeInfo,
+                withGenDef,
+            );
+            if (!matches) {
+                return ScanError.FunctionReturnTypeMismatch;
             }
 
+            releaseIfAllocated(context, retType);
+
+            context.compInfo.returnInfo.info.hasType = true;
             context.compInfo.returnInfo.info.exhaustive = true;
             context.compInfo.returnInfo.info.lockExhaustive = true;
 
@@ -892,7 +888,7 @@ pub fn scanNode(
             try context.compInfo.pushScope(allocator, true);
             defer context.compInfo.popScope(context);
             try scanNodeForFunctions(allocator, context, statement.body);
-            const prev = try context.compInfo.returnInfo.newInfo(allocator, false);
+            const prev = try context.compInfo.returnInfo.newInfo(allocator);
 
             const origConditionType = try scanNode(
                 allocator,
@@ -909,15 +905,15 @@ pub fn scanNode(
             const bodyRes = try scanNode(allocator, context, statement.body, withGenDef);
             defer releaseIfAllocated(context, bodyRes);
 
-            try context.compInfo.returnInfo.collapse(allocator, context, prev, withGenDef);
+            try context.compInfo.returnInfo.collapse(prev);
 
             if (statement.fallback) |fallback| {
-                if (!context.compInfo.returnInfo.hasType()) {
+                if (!context.compInfo.returnInfo.info.hasType) {
                     context.compInfo.returnInfo.setExhaustive(false);
                 }
 
                 try scanIfFallback(allocator, context, fallback, withGenDef);
-            } else {
+            } else if (statement.condition.variant != .NoOp) {
                 context.compInfo.returnInfo.setExhaustive(false);
             }
 
@@ -926,7 +922,7 @@ pub fn scanNode(
         .ForLoop => |loop| {
             try context.compInfo.pushScopeWithType(allocator, true, .Loop);
             defer context.compInfo.popScope(context);
-            const prev = try context.compInfo.returnInfo.newInfo(allocator, false);
+            const prev = try context.compInfo.returnInfo.newInfo(allocator);
 
             if (loop.initNode) |init| {
                 const res = try scanNode(allocator, context, init, withGenDef);
@@ -945,8 +941,8 @@ pub fn scanNode(
             const bodyRes = try scanNode(allocator, context, loop.body, withGenDef);
             defer releaseIfAllocated(context, bodyRes);
 
-            try context.compInfo.returnInfo.collapse(allocator, context, prev, withGenDef);
-            if (context.compInfo.returnInfo.hasType()) {
+            try context.compInfo.returnInfo.collapse(prev);
+            if (context.compInfo.returnInfo.info.hasType) {
                 context.compInfo.returnInfo.setExhaustive(false);
             }
 
@@ -955,7 +951,7 @@ pub fn scanNode(
         .WhileLoop => |loop| {
             try context.compInfo.pushScopeWithType(allocator, true, .Loop);
             defer context.compInfo.popScope(context);
-            const prev = try context.compInfo.returnInfo.newInfo(allocator, false);
+            const prev = try context.compInfo.returnInfo.newInfo(allocator);
 
             const origConditionType = try scanNode(allocator, context, loop.condition, withGenDef);
             defer releaseIfAllocated(context, origConditionType);
@@ -967,8 +963,8 @@ pub fn scanNode(
             const bodyRes = try scanNode(allocator, context, loop.body, withGenDef);
             defer releaseIfAllocated(context, bodyRes);
 
-            try context.compInfo.returnInfo.collapse(allocator, context, prev, withGenDef);
-            if (context.compInfo.returnInfo.hasType()) {
+            try context.compInfo.returnInfo.collapse(prev);
+            if (context.compInfo.returnInfo.info.hasType) {
                 context.compInfo.returnInfo.setExhaustive(false);
             }
 
@@ -980,10 +976,8 @@ pub fn scanNode(
             try context.compInfo.pushGenScope(allocator, true);
             defer context.compInfo.popGenScope(context);
 
-            const prev = context.compInfo.returnInfo.setInFunction(true);
-            defer context.compInfo.returnInfo.revertInFunction(prev);
-            const lastRetInfo = try context.compInfo.returnInfo.newInfo(allocator, true);
-            defer context.compInfo.returnInfo.swapFree(allocator, context, lastRetInfo);
+            const lastRetInfo = try context.compInfo.returnInfo.newInfo(allocator);
+            defer context.compInfo.returnInfo.info = lastRetInfo;
 
             try context.compInfo.addCaptureScope(allocator);
             defer context.compInfo.popCaptureScope(context);
@@ -1009,11 +1003,8 @@ pub fn scanNode(
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
         .FuncCall => |call| {
-            const prev = context.compInfo.returnInfo.setInFunction(true);
-            defer context.compInfo.returnInfo.revertInFunction(prev);
-
-            const lastRetInfo = try context.compInfo.returnInfo.newInfo(allocator, true);
-            defer context.compInfo.returnInfo.swapFree(allocator, context, lastRetInfo);
+            const lastRetInfo = try context.compInfo.returnInfo.newInfo(allocator);
+            defer context.compInfo.returnInfo.info = lastRetInfo;
 
             const tempDec = try scanNode(allocator, context, call.func, withGenDef);
             defer releaseIfAllocated(context, tempDec);
@@ -1323,10 +1314,10 @@ pub fn scanNode(
         .Scope => |scope| {
             try context.compInfo.pushScope(allocator, true);
             defer context.compInfo.popScope(context);
-            const prev = try context.compInfo.returnInfo.newInfo(allocator, false);
+            const prev = try context.compInfo.returnInfo.newInfo(allocator);
 
             try scanNodeForFunctions(allocator, context, scope);
-            try context.compInfo.returnInfo.collapse(allocator, context, prev, withGenDef);
+            try context.compInfo.returnInfo.collapse(prev);
 
             return try scanNode(allocator, context, scope, withGenDef);
         },
@@ -1638,9 +1629,6 @@ fn checkUndefVars(context: *Context, node: *const ast.AstNode, allowSelf: bool) 
 }
 
 fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
-    _ = context.compInfo.returnInfo.setInFunction(true);
-    defer context.compInfo.returnInfo.revertInFunction(false);
-
     const functions = context.compInfo.functionsToScan;
     while (functions.items.len > 0) {
         const toScanItem = functions.pop().?;
@@ -1651,8 +1639,8 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
         try context.compInfo.pushScopeWithType(allocator, false, .Function);
         defer context.compInfo.popScope(context);
 
-        const lastRetInfo = try context.compInfo.returnInfo.newInfo(allocator, true);
-        defer context.compInfo.returnInfo.swapFree(allocator, context, lastRetInfo);
+        const lastRetInfo = try context.compInfo.returnInfo.newInfo(allocator);
+        defer context.compInfo.returnInfo.info = lastRetInfo;
 
         if (func.capturedTypes) |captured| {
             var captureIt = captured.iterator();
@@ -2000,6 +1988,10 @@ fn scanFuncBodyAndReturn(
     try context.compInfo.pushScopeWithType(allocator, true, .Function);
     defer context.compInfo.popScope(context);
 
+    const prevRetType = context.compInfo.currentFuncReturn;
+    context.compInfo.currentFuncReturn = func.returnType;
+    defer context.compInfo.currentFuncReturn = prevRetType;
+
     for (func.params.params) |param| {
         const typeClone = try clone.cloneAstTypeInfo(
             allocator,
@@ -2052,22 +2044,25 @@ fn scanFuncBodyAndReturn(
             return ScanError.FunctionReturnIsNotExhaustive;
         }
 
-        if (context.compInfo.returnInfo.info.retType) |retType| {
-            const matches = try matchTypes(
-                allocator,
-                context,
-                func.returnType,
-                retType.info,
-                withGenDef,
-            );
-            if (!matches) {
-                return ScanError.FunctionReturnTypeMismatch;
-            }
-        } else {
+        if (!context.compInfo.returnInfo.info.hasType) {
             return ScanError.FunctionMissingReturn;
         }
-    } else if (context.compInfo.returnInfo.info.retType != null) {
-        return ScanError.FunctionReturnTypeMismatch;
+
+        // TODO - condition for function return not found
+        // if (context.compInfo.returnInfo.info.retType) |retType| {
+        //     const matches = try matchTypes(
+        //         allocator,
+        //         context,
+        //         func.returnType,
+        //         retType.info,
+        //         withGenDef,
+        //     );
+        //     if (!matches) {
+        //         return ScanError.FunctionReturnTypeMismatch;
+        //     }
+        // } else {
+        //     return ScanError.FunctionMissingReturn;
+        // }
     }
 }
 
@@ -2423,13 +2418,26 @@ pub fn matchTypesUtil(
         .Error => |err| switch (type2) {
             .Error => |err2| return utils.compString(err.name, err2.name),
             .ErrorOrEnumVariant => |err2| {
-                if (err2.from) |from| {
-                    return utils.compString(err.name, from);
-                }
+                const matchesErr = a: {
+                    if (err2.from) |from| {
+                        break :a utils.compString(err.name, from);
+                    }
 
-                const errDec = context.compInfo.getErrorDec(err.name);
-                if (errDec) |dec| {
-                    return utils.inStringArr(dec.variants, err2.variant);
+                    const errDec = context.compInfo.getErrorDec(err.name).?;
+                    break :a utils.inStringArr(errDec.variants, err2.variant);
+                };
+
+                if (matchesErr) return true;
+
+                if (err.payload) |payload| {
+                    return matchTypesUtil(
+                        allocator,
+                        context,
+                        payload,
+                        fromType,
+                        withGenDef,
+                        mutMatchBehavior,
+                    );
                 }
 
                 return false;

@@ -1,19 +1,4 @@
-error Bad {
-    OneErr,
+fn myFunc(mut i: u32) bool {
 }
 
-fn myFunc() Bad<?Thing> {
-    if (true) {
-        return .OneErr;
-    }
-
-    return .part1;
-}
-
-enum Thing {
-    part1,
-    part2
-}
-
-let mut val: ?Thing = Thing.part1;
-val = myFunc();
+let a = myFunc(2);

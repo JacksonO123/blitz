@@ -86,6 +86,7 @@ pub const CompInfo = struct {
     functionsInScope: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
     functionsToScan: *ToScanStack,
     genericScopes: *ScopeUtil(*TypeScope, pools.releaseGenericScope),
+    currentFuncReturn: ?ast.AstTypeInfo,
     returnInfo: *ReturnInfo,
     builtins: builtins.BuiltinFuncMemo,
     stackSizeEstimate: vmInfo.StartStackType,
@@ -189,6 +190,7 @@ pub const CompInfo = struct {
             .genericScopes = genericScopes,
             .preAst = true,
             .returnInfo = returnInfo,
+            .currentFuncReturn = null,
             .builtins = .{},
             .stackSizeEstimate = 1024, // 1kb
         };
@@ -210,8 +212,6 @@ pub const CompInfo = struct {
         self.functionCaptures.clear(context);
         self.genericCaptures.clear(context);
         self.genericScopes.clear(context);
-
-        self.returnInfo.clear(context);
     }
 
     pub fn getScopeDepth(self: Self) usize {
@@ -391,7 +391,6 @@ pub const CompInfo = struct {
                     };
 
                     context.tokenUtil = prevTokenUtil;
-                    allocator.destroy(tempTokens);
                 }
             }
         }
@@ -736,6 +735,10 @@ pub const CompInfo = struct {
 
         return false;
     }
+
+    pub fn newReturnInfo(self: *Self, allocator: Allocator, isFunction: bool) !*ReturnInfoData {
+        return self.returnInfo.newInfo(allocator, isFunction);
+    }
 };
 
 fn ScopeInfo(comptime T: type) type {
@@ -860,10 +863,9 @@ fn ScopeUtil(comptime T: type, freeFn: ScopeDeinitFn(T)) type {
 }
 
 pub const ReturnInfoData = struct {
-    retType: ?scanner.TypeAndAllocInfo,
-    inFunction: bool,
     exhaustive: bool,
     lockExhaustive: bool,
+    hasType: bool,
 };
 
 pub const ReturnInfo = struct {
@@ -873,10 +875,9 @@ pub const ReturnInfo = struct {
 
     pub fn init(allocator: Allocator) !Self {
         const info = try utils.createMut(ReturnInfoData, allocator, .{
-            .retType = null,
-            .inFunction = false,
             .exhaustive = true,
             .lockExhaustive = false,
+            .hasType = false,
         });
 
         return .{
@@ -884,83 +885,29 @@ pub const ReturnInfo = struct {
         };
     }
 
-    pub fn clear(self: *Self, context: *Context) void {
-        if (self.info.retType) |retType| {
-            if (retType.allocState == .Allocated) {
-                pools.recursiveReleaseType(context, retType.info.astType);
-            }
-        }
-    }
-
-    pub fn newInfo(self: *Self, allocator: Allocator, isFunction: bool) !*ReturnInfoData {
+    pub fn newInfo(self: *Self, allocator: Allocator) !*ReturnInfoData {
         const oldRetInfo = self.info;
         self.info = try utils.createMut(ReturnInfoData, allocator, .{
-            .retType = null,
-            .inFunction = oldRetInfo.inFunction or isFunction,
             .exhaustive = true,
             .lockExhaustive = false,
+            .hasType = false,
         });
         return oldRetInfo;
     }
 
-    pub fn swapFree(self: *Self, allocator: Allocator, context: *Context, oldRetInfo: *ReturnInfoData) void {
-        if (self.info.retType) |retType| {
-            if (retType.allocState == .Allocated) {
-                pools.recursiveReleaseType(context, retType.info.astType);
-            }
-        }
-
-        allocator.destroy(self.info);
-        self.info = oldRetInfo;
-    }
-
-    /// IMPORTANT - invalidates prev
     pub fn collapse(
         self: *Self,
-        allocator: Allocator,
-        context: *Context,
         prev: *ReturnInfoData,
-        withGenDef: bool,
     ) !void {
-        if (prev.retType) |retType| {
-            if (self.info.retType) |firstRetType| {
-                const matches = try scanner.matchTypes(
-                    allocator,
-                    context,
-                    retType.info,
-                    firstRetType.info,
-                    withGenDef,
-                );
-                if (!matches) {
-                    return scanner.ScanError.FunctionReturnsHaveDifferentTypes;
-                }
-            } else {
-                self.info.retType = retType;
-            }
-        }
-
+        // TODO - idk if these are right
+        self.info.hasType = self.info.hasType or prev.hasType;
         self.info.exhaustive = self.info.exhaustive and prev.exhaustive;
         self.info.lockExhaustive = prev.lockExhaustive;
-        allocator.destroy(prev);
     }
 
     pub fn setExhaustive(self: *Self, exhaustive: bool) void {
         if (!self.info.lockExhaustive) {
             self.info.exhaustive = exhaustive;
         }
-    }
-
-    pub fn setInFunction(self: *Self, inFunction: bool) bool {
-        const prev = self.info.inFunction;
-        self.info.inFunction = inFunction;
-        return prev;
-    }
-
-    pub fn revertInFunction(self: *Self, inFunction: bool) void {
-        self.info.inFunction = inFunction;
-    }
-
-    pub fn hasType(self: Self) bool {
-        return self.info.retType != null;
     }
 };
