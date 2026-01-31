@@ -878,7 +878,6 @@ pub fn scanNode(
                 return res;
             }
 
-            std.debug.print("what :: {s}\n", .{name});
             return ScanError.VariableIsUndefined;
         },
         .StructPlaceholder => return context.staticPtrs.types.voidType.toAllocInfo(.Recycled),
@@ -1705,26 +1704,6 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
             }
         }
 
-        for (func.definedCaptures) |capture| {
-            const item = func.capturedVariables.?.get(capture.ident).?;
-            const captureType = try escapeVarInfo(item);
-
-            var clonedType = try clone.replaceGenericsOnTypeInfo(
-                allocator,
-                context,
-                captureType,
-                false,
-            );
-            clonedType.allocState = .Recycled;
-            try context.compInfo.setVariableType(
-                context,
-                capture.ident,
-                clonedType,
-                null,
-                item.info.mutState,
-            );
-        }
-
         for (toScanItem.genTypes) |rel| {
             const typeClone = try clone.cloneAstTypeInfo(
                 allocator,
@@ -2044,6 +2023,32 @@ fn scanFuncBodyAndReturn(
                 const innerType = t.info.astType.VarInfo.info.astType;
                 allocPools.recursiveReleaseType(context, innerType);
                 t.info.astType.VarInfo = context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
+            }
+        }
+    }
+
+    for (func.definedCaptures) |capture| {
+        const item = func.capturedVariables.?.get(capture.ident).?;
+        const captureType = try escapeVarInfo(item);
+
+        try context.compInfo.setVariableType(
+            context,
+            capture.ident,
+            captureType.info.toAllocInfo(.Recycled),
+            null,
+            item.info.mutState,
+        );
+    }
+
+    defer {
+        for (func.definedCaptures) |capture| {
+            const captureType = context.compInfo.getVariableTypeFixed(capture.ident);
+            if (captureType) |capType| {
+                const innerType = capType.info.astType.VarInfo.info.astType;
+                allocPools.recursiveReleaseType(context, innerType);
+                capType.info.astType.VarInfo = context.staticPtrs.types.voidType.toAllocInfo(
+                    .Recycled,
+                );
             }
         }
     }

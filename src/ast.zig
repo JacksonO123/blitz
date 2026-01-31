@@ -261,8 +261,6 @@ pub const AstTypes = union(Types) {
             .Custom => |custom| {
                 const dec = context.compInfo.getStructDec(custom.name).?;
 
-                // TODO - possibly setup generics
-
                 var maxAlignment: u8 = 0;
                 for (dec.totalMemberList) |member| {
                     if (member.attr != .Member) continue;
@@ -289,8 +287,6 @@ pub const AstTypes = union(Types) {
             .Nullable => |inner| return try inner.astType.getSize(context) + 1,
             .Custom => |custom| {
                 const dec = context.compInfo.getStructDec(custom.name).?;
-
-                // TODO - possibly setup generics
 
                 var size: u64 = 0;
                 for (dec.totalMemberList) |member| {

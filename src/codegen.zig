@@ -1544,7 +1544,7 @@ pub fn genBytecodeUtil(
 
             const buf: Instr = switch (expr.type) {
                 .Add, .Sub, .Mult => a: {
-                    // TODO - change if left and right byte sizes become different
+                    // NOTE - change if left and right byte sizes become different
                     outReg = leftReg.transferWithSize(
                         try context.genInfo.availableRegReplaceRelease(
                             allocator,
@@ -1576,7 +1576,7 @@ pub fn genBytecodeUtil(
                         Instr{ .Cmp = .{} };
 
                     if (context.genInfo.settings.outputCmpAsRegister) {
-                        // TODO - change if left and right byte sizes become different
+                        // NOTE - change if left and right byte sizes become different
                         outReg = leftReg.transferWithSize(
                             try context.genInfo.availableRegReplaceRelease(
                                 allocator,

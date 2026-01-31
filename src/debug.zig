@@ -599,19 +599,6 @@ pub fn printFuncDec(
     try writer.writeAll(" with params [");
     try printParams(context, func.params.params, writer);
 
-    // TODO
-    // if (func.capturedValues) |captured| {
-    //     try writer.writeAll("] capturing [");
-    //     var captureIt = captured.iterator();
-    //     while (captureIt.next()) |item| {
-    //         try writer.writeByte('(');
-    //         try writer.writeAll(item.key_ptr.*);
-    //         try writer.writeAll(": ");
-    //         try printTypeInfo(context, item.value_ptr.info, writer);
-    //         try writer.writeByte(')');
-    //     }
-    // }
-
     try writer.writeAll("] -- body --\n");
     try printNode(context, func.body, writer);
     try writer.writeAll(" -- body end --\n");

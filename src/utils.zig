@@ -51,15 +51,6 @@ pub fn inStringArr(arr: []const []const u8, str: []const u8) bool {
     return false;
 }
 
-// TODO - remove
-pub inline fn dbgWriter() *std.Io.Writer {
-    var stdout = std.fs.File.stdout().writer(&[_]u8{});
-    const writer = &stdout.interface;
-    return writer;
-}
-
-pub fn noOpFn() void {}
-
 pub fn calculatePadding(stackLocation: u64, alignment: u8) u8 {
     if (alignment == 0) return 0;
 

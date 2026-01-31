@@ -887,7 +887,6 @@ pub const ReturnInfo = struct {
         self: *Self,
         prev: *ReturnInfoData,
     ) !void {
-        // TODO - idk if these are right
         self.info.hasType = self.info.hasType or prev.hasType;
         self.info.exhaustive = self.info.exhaustive and prev.exhaustive;
         self.info.lockExhaustive = prev.lockExhaustive;
