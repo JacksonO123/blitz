@@ -121,6 +121,7 @@ pub const ScanError = error{
     ExpectedSelfParameterToBeFirst,
     ExpectedSelfParameter,
     CaptureVariableIsNotInScope,
+    CaptureVariableConstMismatch,
 
     // structs
     GenericCountMismatch,
@@ -1016,7 +1017,12 @@ pub fn scanNode(
                     capture.ident,
                     withGenDef,
                 ) orelse return ScanError.VariableIsUndefined;
-                const varType = try escapeVarInfo(origVarType);
+                var varType = try escapeVarInfo(origVarType);
+                const incomingMutState = origVarType.info.mutState.orConst(varType.info.mutState);
+                if (capture.isPtr and incomingMutState == .Const and capture.mutState == .Mut) {
+                    return ScanError.CaptureVariableConstMismatch;
+                }
+                varType.info.mutState = capture.mutState;
 
                 if (capture.isPtr and capture.mutState == .Mut and
                     varType.info.mutState == .Const)
@@ -1028,8 +1034,13 @@ pub fn scanNode(
                     const ptrType = try context.pools.newType(context, .{
                         .Pointer = varType,
                     });
-                    break :a ptrType.toAllocInfo(capture.mutState, .Allocated);
+                    break :a ptrType.toAllocInfo(
+                        capture.mutState,
+                        .Allocated,
+                    );
                 } else varType;
+
+                std.debug.print(":: {}\n", .{captureType.info});
 
                 try capturedVariables.put(capture.ident, captureType);
             }
