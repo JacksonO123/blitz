@@ -973,31 +973,10 @@ pub fn scanNode(
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
         .FuncDec => |name| {
-            try context.compInfo.pushScopeWithType(allocator, true, .Function);
-            defer context.compInfo.popScope(context);
-            try context.compInfo.pushGenScope(allocator, true);
-            defer context.compInfo.popGenScope(context);
-
-            const lastRetInfo = try context.compInfo.returnInfo.newInfo(allocator);
-            defer context.compInfo.returnInfo.info = lastRetInfo;
-
-            try context.compInfo.addCaptureScope(allocator);
-            defer context.compInfo.popCaptureScope(context);
-            try context.compInfo.addGenericCaptureScope(allocator);
-            defer context.compInfo.popGenericCaptureScope(context);
-
             const func = context.compInfo.getFunctionAsGlobal(name).?;
-
-            if (func.params.selfInfo != null) {
-                return ScanError.UnexpectedSelfParameter;
-            }
 
             if (func.visited) {
                 return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
-            }
-
-            if (func.generics == null) {
-                func.visited = true;
             }
 
             const capturedVariables = if (func.capturedVariables) |vars| vars else a: {
@@ -1040,9 +1019,28 @@ pub fn scanNode(
                     );
                 } else varType;
 
-                std.debug.print(":: {}\n", .{captureType.info});
-
                 try capturedVariables.put(capture.ident, captureType);
+            }
+
+            try context.compInfo.pushScopeWithTypeAndVarLeak(allocator, true, false, .Function);
+            defer context.compInfo.popScope(context);
+            try context.compInfo.pushGenScope(allocator, true);
+            defer context.compInfo.popGenScope(context);
+
+            const lastRetInfo = try context.compInfo.returnInfo.newInfo(allocator);
+            defer context.compInfo.returnInfo.info = lastRetInfo;
+
+            try context.compInfo.addCaptureScope(allocator);
+            defer context.compInfo.popCaptureScope(context);
+            try context.compInfo.addGenericCaptureScope(allocator);
+            defer context.compInfo.popGenericCaptureScope(context);
+
+            if (func.params.selfInfo != null) {
+                return ScanError.UnexpectedSelfParameter;
+            }
+
+            if (func.generics == null) {
+                func.visited = true;
             }
 
             try scanFuncBodyAndReturn(allocator, context, func, false);
@@ -1155,12 +1153,6 @@ pub fn scanNode(
                         null,
                         param.mutState,
                     );
-                }
-
-                const allowSelf = func.funcType == .StructMethod;
-                const usesUndefinedVars = checkUndefVars(context, func.body, allowSelf);
-                if (usesUndefinedVars) {
-                    return ScanError.VariableIsUndefined;
                 }
             }
 

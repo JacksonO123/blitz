@@ -1,0 +1,11 @@
+struct [T] SomeData {
+    data: T;
+
+    pub static fn create(initial: T) SomeData<T> {
+        return SomeData<T> {
+            data = initial,
+        };
+    }
+}
+
+let someData: SomeData<u32> = SomeData.create(4);

@@ -226,6 +226,19 @@ pub const CompInfo = struct {
         try self.scopeTypes.append(allocator, scopeType);
     }
 
+    pub fn pushScopeWithTypeAndVarLeak(
+        self: *Self,
+        allocator: Allocator,
+        leak: bool,
+        varLeak: bool,
+        scopeType: ScopeType,
+    ) !void {
+        const scope = try utils.initMutPtrT(VarScope, allocator);
+        try self.variableScopes.add(allocator, scope, varLeak);
+        try self.pushScopedFunctionScope(allocator, leak);
+        try self.scopeTypes.append(allocator, scopeType);
+    }
+
     pub fn popScope(self: *Self, context: *Context) void {
         self.variableScopes.pop(context);
         self.popScopedFunctionScope(context);
