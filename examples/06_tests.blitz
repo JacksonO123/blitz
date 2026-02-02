@@ -9,7 +9,7 @@ struct M {
 
 {
     let outer = Outer {
-        m = [
+        m = &[
             M { value = 1, small = 1u16 },
             M { value = 2, small = 2u16 },
             M { value = 3, small = 3u16 },

@@ -61,7 +61,7 @@ let numberU16 = cast(u16) 32;
 
 // array slices
 // unknown size array (eventually stored as struct with ptr and size)
-let slice: u32[] = [1, 2, 3, 4];
+let slice: u32[] = &[1, 2, 3, 4];
 // known length array
 let ab: u32[3] = [3, 2, 1];
 // if the size is known at compile time then the size is optimized out of the slice so

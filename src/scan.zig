@@ -53,7 +53,10 @@ const MutMatchBehavior = enum {
     Strict, // must match exactly
 };
 
-pub const ScanNodeError = Allocator.Error || ScanError || clone.CloneError;
+pub const ScanNodeError = Allocator.Error ||
+    ScanError ||
+    clone.CloneError ||
+    std.fmt.ParseIntError;
 
 pub const ScanError = error{
     // misc
@@ -82,9 +85,11 @@ pub const ScanError = error{
     ArrayTypeMismatch,
     ExpectedArrayForIndexTarget,
     ExpectedU64OrU32ForArrayDecSize,
-    ExpectedEqualArrayDecSizes,
-    SizedSliceSetToUnknownSizedSlice,
+    ArrayDecSizeMismatch,
     ArrayInitTypeInitializerMismatch,
+    ExpectedSliceFoundArray,
+    ExpectedArrayFoundSlice,
+    CanOnlyMakeSliceFromSizedArray,
 
     // loops
     ExpectedBooleanLoopCondition,
@@ -764,7 +769,10 @@ pub fn scanNode(
         .ValueSet => |set| {
             const origValType = try scanNode(allocator, context, set.value, withGenDef);
             defer releaseIfAllocated(context, origValType);
-            if (set.value.variant != .Dereference and origValType.info.astType.* != .VarInfo) {
+            if (set.value.variant != .Dereference and
+                set.value.variant != .IndexValue and
+                origValType.info.astType.* != .VarInfo)
+            {
                 return ScanError.InvalidSetValueTarget;
             }
             if (origValType.info.mutState == .Const) return ScanError.AssigningToConstVariable;
@@ -2374,36 +2382,102 @@ pub fn matchTypesUtil(
 
             return type2 == .RawNumber;
         },
-        .ArrayDec => |arr| {
-            const array: ast.AstArrayDecType = switch (type2) {
-                .ArrayDec => |arrayDec| arrayDec,
-                else => return false,
-            };
+        .ArrayDec => |array1| {
+            if (array1.size) |array1Size| {
+                const array2 = switch (type2) {
+                    .ArrayDec => |arrayDec| arrayDec,
+                    else => return false,
+                };
 
-            if (arr.size != null and array.size != null) {
-                const sizeType1 = try scanNode(allocator, context, arr.size.?, withGenDef);
-                defer releaseIfAllocated(context, sizeType1);
-                const sizeType2 = try scanNode(allocator, context, array.size.?, withGenDef);
-                defer releaseIfAllocated(context, sizeType2);
+                if (array2.size) |array2Size| {
+                    const array1size = switch (array1Size.variant) {
+                        .Value => |val| switch (val) {
+                            .RawNumber => |num| switch (num.numType) {
+                                .U32, .U64 => try std.fmt.parseInt(u64, num.digits, 10),
+                                else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
+                            },
+                            .Number => |num| switch (num) {
+                                .U32 => |u32Num| @as(u64, @intCast(u32Num)),
+                                .U64 => |u64Num| u64Num,
+                                else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
+                            },
+                            else => unreachable,
+                        },
+                        else => unreachable,
+                    };
 
-                if (!isInt(sizeType1.info.astType) or !isInt(sizeType2.info.astType)) {
-                    return false;
+                    const array2size = switch (array2Size.variant) {
+                        .Value => |val| switch (val) {
+                            .RawNumber => |num| switch (num.numType) {
+                                .U32, .U64 => try std.fmt.parseInt(u64, num.digits, 10),
+                                else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
+                            },
+                            .Number => |num| switch (num) {
+                                .U32 => |u32Num| @as(u64, @intCast(u32Num)),
+                                .U64 => |u64Num| u64Num,
+                                else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
+                            },
+                            else => unreachable,
+                        },
+                        else => unreachable,
+                    };
+
+                    if (array1size != array2size) {
+                        return ScanError.ArrayDecSizeMismatch;
+                    }
+                } else {
+                    return ScanError.ExpectedArrayFoundSlice;
+                }
+
+                const matches = try matchTypesUtil(
+                    allocator,
+                    context,
+                    array1.type.info,
+                    array2.type.info,
+                    withGenDef,
+                    mutMatchBehavior,
+                );
+                return try matchMutState(toType, fromType, matches, mutMatchBehavior);
+            } else {
+                switch (type2) {
+                    .ArrayDec => |dec| {
+                        if (dec.size != null) {
+                            return ScanError.ExpectedSliceFoundArray;
+                        }
+
+                        const matches = try matchTypesUtil(
+                            allocator,
+                            context,
+                            array1.type.info,
+                            dec.type.info,
+                            withGenDef,
+                            mutMatchBehavior,
+                        );
+                        return try matchMutState(toType, fromType, matches, mutMatchBehavior);
+                    },
+                    .Pointer => |inner| {
+                        const array2 = switch (inner.info.astType.*) {
+                            .ArrayDec => |dec| dec,
+                            else => return false,
+                        };
+
+                        if (array2.size == null) {
+                            return ScanError.CanOnlyMakeSliceFromSizedArray;
+                        }
+
+                        const matches = try matchTypesUtil(
+                            allocator,
+                            context,
+                            array1.type.info,
+                            array2.type.info,
+                            withGenDef,
+                            mutMatchBehavior,
+                        );
+                        return try matchMutState(toType, fromType, matches, mutMatchBehavior);
+                    },
+                    else => return false,
                 }
             }
-
-            if (arr.size != null and array.size == null) {
-                return ScanError.SizedSliceSetToUnknownSizedSlice;
-            }
-
-            const matches = try matchTypesUtil(
-                allocator,
-                context,
-                arr.type.info,
-                array.type.info,
-                withGenDef,
-                mutMatchBehavior,
-            );
-            return try matchMutState(toType, fromType, matches, mutMatchBehavior);
         },
         .Custom => |custom| {
             if (type2 == .StaticStructInstance and
