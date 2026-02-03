@@ -1005,16 +1005,6 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writeHexDecNumber(u16, instr.offset, writer);
             try writer.writeByte(']');
         },
-        .MovByteRange => |instr| {
-            try writer.writeAll(" r");
-            try writer.printInt(instr.dest, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(instr.src, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u8, instr.start, writer);
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u8, instr.end, writer);
-        },
         .MulReg16AddReg => |instr| {
             try writer.writeAll(" r");
             try writer.printInt(instr.dest, 10, .lower, .{});
@@ -1028,6 +1018,28 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
         .DbgReg => |reg| {
             try writer.writeAll(" r");
             try writer.printInt(reg, 10, .lower, .{});
+        },
+        .BitAnd, .BitOr => |instr| {
+            try writer.writeAll(" r");
+            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(instr.reg1, 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(instr.reg2, 10, .lower, .{});
+        },
+        .And, .Or => |instr| {
+            try writer.writeAll(" r");
+            try writer.printInt(instr.reg1, 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(instr.reg2, 10, .lower, .{});
+        },
+        .AndSetReg, .OrSetReg => |instr| {
+            try writer.writeAll(" r");
+            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(instr.reg1, 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(instr.reg2, 10, .lower, .{});
         },
     }
 

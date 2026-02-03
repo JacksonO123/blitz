@@ -277,16 +277,6 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writeHexDecNumberSlice(bytecode[3..5], writer);
             try writer.writeByte(']');
         },
-        .MovByteRange => {
-            try writer.writeAll(" r");
-            try writer.printInt(bytecode[1], 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(bytecode[2], 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumberSlice(bytecode[3..4], writer);
-            try writer.writeByte(' ');
-            try writeHexDecNumberSlice(bytecode[4..5], writer);
-        },
         .MulReg16AddReg => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
@@ -300,6 +290,28 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
         .DbgReg => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
+        },
+        .BitAnd, .BitOr => {
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[1], 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[2], 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[3], 10, .lower, .{});
+        },
+        .And, .Or => {
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[1], 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[2], 10, .lower, .{});
+        },
+        .AndSetReg, .OrSetReg => {
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[1], 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[2], 10, .lower, .{});
+            try writer.writeAll(" r");
+            try writer.printInt(bytecode[3], 10, .lower, .{});
         },
     }
 

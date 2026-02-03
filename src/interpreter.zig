@@ -124,6 +124,7 @@ fn interpretBytecode(
         const inst = @as(codegen.InstructionVariants, @enumFromInt(bytecode[current]));
         const instLen = inst.getInstrLen();
         switch (inst) {
+            .Label => unreachable,
             .Mov => {
                 runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.registers[bytecode[current + 2]];
             },
@@ -453,7 +454,6 @@ fn interpretBytecode(
                 );
                 runtimeInfo.registers[dest] = toAdd + (mulReg * data);
             },
-            .MovByteRange => utils.unimplemented(),
             .DbgReg => if (builtin.mode == .Debug) {
                 try writer.writeByte('r');
                 try writer.printInt(bytecode[current + 1], 10, .lower, .{});
@@ -461,7 +461,44 @@ fn interpretBytecode(
                 try writer.printInt(runtimeInfo.registers[bytecode[current + 1]], 10, .lower, .{});
                 try writer.writeAll(")\n");
             } else unreachable,
-            .Label => unreachable,
+            .BitAnd => {
+                const dest = bytecode[current + 1];
+                const reg1Value = runtimeInfo.registers[bytecode[current + 2]];
+                const reg2Value = runtimeInfo.registers[bytecode[current + 3]];
+                runtimeInfo.registers[dest] = reg1Value & reg2Value;
+            },
+            .BitOr => {
+                const dest = bytecode[current + 1];
+                const reg1Value = runtimeInfo.registers[bytecode[current + 2]];
+                const reg2Value = runtimeInfo.registers[bytecode[current + 3]];
+                runtimeInfo.registers[dest] = reg1Value | reg2Value;
+            },
+            .And => {
+                const reg1Value = runtimeInfo.registers[bytecode[current + 1]];
+                const reg2Value = runtimeInfo.registers[bytecode[current + 2]];
+                runtimeInfo.flags = .{
+                    .EQ = reg1Value == 1 and reg2Value == 1,
+                };
+            },
+            .Or => {
+                const reg1Value = runtimeInfo.registers[bytecode[current + 1]];
+                const reg2Value = runtimeInfo.registers[bytecode[current + 2]];
+                runtimeInfo.flags = .{
+                    .EQ = reg1Value == 1 or reg2Value == 1,
+                };
+            },
+            .AndSetReg => {
+                const dest = bytecode[current + 1];
+                const reg1Value = runtimeInfo.registers[bytecode[current + 2]];
+                const reg2Value = runtimeInfo.registers[bytecode[current + 3]];
+                runtimeInfo.registers[dest] = @intFromBool(reg1Value == 1 and reg2Value == 1);
+            },
+            .OrSetReg => {
+                const dest = bytecode[current + 1];
+                const reg1Value = runtimeInfo.registers[bytecode[current + 2]];
+                const reg2Value = runtimeInfo.registers[bytecode[current + 3]];
+                runtimeInfo.registers[dest] = @intFromBool(reg1Value == 1 or reg2Value == 1);
+            },
         }
 
         current += instLen;

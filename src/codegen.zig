@@ -138,11 +138,18 @@ pub const InstructionVariants = enum(u8) {
     Load16AtReg, // inst, dest reg, from reg (ptr)
     Load8AtReg, // inst, dest reg, from reg (ptr)
 
-    MovByteRange, // inst, dest reg, src reg, start 1B, end 1B
-
     MulReg16AddReg, // inst, dest, addReg, mulReg, data 2B ( dest = addReg + (mulReg1 * data) )
 
-    DbgReg,
+    DbgReg, // inst, reg
+
+    BitAnd, // inst, dest reg, reg1, reg2
+    BitOr, // inst, dest reg, reg1, reg2
+
+    And, // inst, reg1, reg2  ;  sets to flags
+    Or, // inst, reg1, reg2  ;  sets to flags
+
+    AndSetReg, // inst, dest reg, reg1, reg2
+    OrSetReg, // inst, dest reg, reg1, reg2
 
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
@@ -233,11 +240,14 @@ pub const InstructionVariants = enum(u8) {
             .Load8AtRegOffset16,
             => 5,
 
-            .MovByteRange => 5,
-
             .MulReg16AddReg => 6,
 
             .DbgReg => 2,
+
+            .BitAnd, .BitOr => 4,
+
+            .And, .Or => 3,
+            .AndSetReg, .OrSetReg => 4,
         };
     }
 
@@ -341,11 +351,18 @@ pub const InstructionVariants = enum(u8) {
             .Load16AtRegOffset16 => "load_16_at_reg_offset_16",
             .Load8AtRegOffset16 => "load_8_at_reg_offset_16",
 
-            .MovByteRange => "mov_byte_range",
-
             .MulReg16AddReg => "mul_reg_16_add_reg",
 
             .DbgReg => "dbg_reg",
+
+            .BitAnd => "bit_and",
+            .BitOr => "bit_or",
+
+            .And => "and",
+            .Or => "or",
+
+            .AndSetReg => "and_set_reg",
+            .OrSetReg => "or_set_reg",
         };
     }
 };
@@ -438,15 +455,6 @@ const LoadAtRegOffset16 = struct {
     fromRegPtr: TempRegister = 0,
     offset: u16 = 0,
 };
-
-fn MovByteRange(comptime T: type) type {
-    return struct {
-        reg: TempRegister = 0,
-        start: u8 = 0,
-        end: u8 = 0,
-        data: T = 0,
-    };
-}
 
 fn MulRegTAddReg(comptime T: type) type {
     return struct {
@@ -563,16 +571,18 @@ pub const Instr = union(InstructionVariants) {
     Load16AtReg: LoadAtReg,
     Load8AtReg: LoadAtReg,
 
-    MovByteRange: struct {
-        dest: TempRegister = 0,
-        src: TempRegister = 0,
-        start: u8 = 0,
-        end: u8 = 0,
-    },
-
     MulReg16AddReg: MulRegTAddReg(u16),
 
     DbgReg: TempRegister,
+
+    BitAnd: TwoOpResultInstr,
+    BitOr: TwoOpResultInstr,
+
+    And: CmpInstr,
+    Or: CmpInstr,
+
+    AndSetReg: TwoOpResultInstr,
+    OrSetReg: TwoOpResultInstr,
 
     pub fn getInstrLen(self: Self) u8 {
         const active = std.meta.activeTag(self);
@@ -735,7 +745,6 @@ const RegisterContents = union(RegisterContentVariants) {
             2 => .{ .Bytes2 = reg },
             3, 4 => .{ .Bytes4 = reg },
             5...8 => .{ .Bytes8 = reg },
-            9...16 => utils.unimplemented(),
             else => unreachable,
         };
     }
@@ -1364,10 +1373,16 @@ pub fn genBytecodeUtil(
                                 .data = try std.fmt.parseInt(u16, num.digits, 10),
                             },
                         },
-                        .U8, .Char => Instr{
+                        .U8 => Instr{
                             .SetReg8 = .{
                                 .reg = reg,
                                 .data = try std.fmt.parseInt(u8, num.digits, 10),
+                            },
+                        },
+                        .Char => Instr{
+                            .SetReg8 = .{
+                                .reg = reg,
+                                .data = num.digits[0],
                             },
                         },
                         else => utils.unimplemented(),
@@ -1570,6 +1585,7 @@ pub fn genBytecodeUtil(
                 .GreaterThanEq,
                 .LessThanEq,
                 .Equal,
+                .NotEqual,
                 => a: {
                     var instr = if (context.genInfo.settings.outputCmpAsRegister)
                         exprTypeToCmpSetReg(expr.type)
@@ -1621,6 +1637,96 @@ pub fn genBytecodeUtil(
                     }
 
                     break :a instr;
+                },
+                .BitAnd => a: {
+                    outReg = leftReg.transferWithSize(
+                        try context.genInfo.availableRegReplaceRelease(
+                            allocator,
+                            leftReg.getRegister(),
+                            rightReg.getRegister(),
+                        ),
+                    );
+
+                    const instr = Instr{
+                        .BitAnd = .{
+                            .dest = outReg.?.getRegister(),
+                            .reg1 = leftReg.getRegister(),
+                            .reg2 = rightReg.getRegister(),
+                        },
+                    };
+                    break :a instr;
+                },
+                .BitOr => a: {
+                    outReg = leftReg.transferWithSize(
+                        try context.genInfo.availableRegReplaceRelease(
+                            allocator,
+                            leftReg.getRegister(),
+                            rightReg.getRegister(),
+                        ),
+                    );
+
+                    const instr = Instr{
+                        .BitOr = .{
+                            .dest = outReg.?.getRegister(),
+                            .reg1 = leftReg.getRegister(),
+                            .reg2 = rightReg.getRegister(),
+                        },
+                    };
+                    break :a instr;
+                },
+                .And => if (context.genInfo.settings.outputCmpAsRegister) a: {
+                    outReg = leftReg.transferWithSize(
+                        try context.genInfo.availableRegReplaceRelease(
+                            allocator,
+                            leftReg.getRegister(),
+                            rightReg.getRegister(),
+                        ),
+                    );
+
+                    break :a Instr{
+                        .AndSetReg = .{
+                            .dest = outReg.?.getRegister(),
+                            .reg1 = leftReg.getRegister(),
+                            .reg2 = rightReg.getRegister(),
+                        },
+                    };
+                } else a: {
+                    context.genInfo.releaseIfPossible(leftReg.getRegister());
+                    context.genInfo.releaseIfPossible(rightReg.getRegister());
+
+                    break :a Instr{
+                        .And = .{
+                            .reg1 = leftReg.getRegister(),
+                            .reg2 = rightReg.getRegister(),
+                        },
+                    };
+                },
+                .Or => if (context.genInfo.settings.outputCmpAsRegister) a: {
+                    outReg = leftReg.transferWithSize(
+                        try context.genInfo.availableRegReplaceRelease(
+                            allocator,
+                            leftReg.getRegister(),
+                            rightReg.getRegister(),
+                        ),
+                    );
+
+                    break :a Instr{
+                        .OrSetReg = .{
+                            .dest = outReg.?.getRegister(),
+                            .reg1 = leftReg.getRegister(),
+                            .reg2 = rightReg.getRegister(),
+                        },
+                    };
+                } else a: {
+                    context.genInfo.releaseIfPossible(leftReg.getRegister());
+                    context.genInfo.releaseIfPossible(rightReg.getRegister());
+
+                    break :a Instr{
+                        .Or = .{
+                            .reg1 = leftReg.getRegister(),
+                            .reg2 = rightReg.getRegister(),
+                        },
+                    };
                 },
                 else => utils.unimplemented(),
             };
@@ -3068,12 +3174,6 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
             try writer.writeByte(@intCast(instr.fromRegPtr));
             try writer.writeInt(u16, instr.offset, .little);
         },
-        .MovByteRange => |instr| {
-            try writer.writeByte(@intCast(instr.dest));
-            try writer.writeByte(@intCast(instr.src));
-            try writer.writeByte(instr.start);
-            try writer.writeByte(instr.end);
-        },
         .MulReg16AddReg => |instr| {
             try writer.writeByte(@intCast(instr.dest));
             try writer.writeByte(@intCast(instr.addReg));
@@ -3082,6 +3182,20 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
         },
         .DbgReg => |reg| {
             try writer.writeByte(@intCast(reg));
+        },
+        .BitAnd, .BitOr => |instr| {
+            try writer.writeByte(@intCast(instr.dest));
+            try writer.writeByte(@intCast(instr.reg1));
+            try writer.writeByte(@intCast(instr.reg2));
+        },
+        .And, .Or => |instr| {
+            try writer.writeByte(@intCast(instr.reg1));
+            try writer.writeByte(@intCast(instr.reg2));
+        },
+        .AndSetReg, .OrSetReg => |instr| {
+            try writer.writeByte(@intCast(instr.dest));
+            try writer.writeByte(@intCast(instr.reg1));
+            try writer.writeByte(@intCast(instr.reg2));
         },
     }
 }

@@ -1,3 +1,6 @@
-let slice = &[4, 5, 6];
-let c = 3;
-let a = slice;
+let a = true;
+let b = true;
+
+if (a || b) {
+    let c = 3;
+}
