@@ -21,3 +21,17 @@ struct M {
     let thing = outer.m[1u64].value;
     let a = 3;
 }
+{
+    let outer = Outer {
+        m = &[
+            M { value = 1, small = 1u16 },
+            M { value = 2, small = 2u16 },
+            M { value = 3, small = 3u16 },
+            M { value = 4, small = 4u16 },
+            M { value = 5, small = 5u16 }
+        ]
+    };
+
+    let thing = outer.m[1u64].value;
+    let a = 3;
+}

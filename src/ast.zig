@@ -234,7 +234,7 @@ pub const AstTypes = union(Types) {
         };
     }
 
-    pub fn getAlignment(self: Self, context: *Context) !u8 {
+    pub fn getAlignment(self: Self, context: *Context) u8 {
         return switch (self) {
             .Null,
             .RawNumber,
@@ -255,9 +255,9 @@ pub const AstTypes = union(Types) {
 
             .ArrayDec, .String, .StaticStructInstance, .Pointer => 8,
 
-            .VarInfo => |inner| return try inner.info.astType.getAlignment(context),
+            .VarInfo => |inner| inner.info.astType.getAlignment(context),
 
-            .Nullable => |inner| try inner.astType.getAlignment(context),
+            .Nullable => |inner| inner.astType.getAlignment(context),
             .Custom => |custom| {
                 const dec = context.compInfo.getStructDec(custom.name).?;
 
@@ -265,7 +265,7 @@ pub const AstTypes = union(Types) {
                 for (dec.totalMemberList) |member| {
                     if (member.attr != .Member) continue;
 
-                    const itemAlignment = try member.attr.Member.astType.getAlignment(context);
+                    const itemAlignment = member.attr.Member.astType.getAlignment(context);
                     maxAlignment = @max(maxAlignment, itemAlignment);
                 }
 
@@ -280,11 +280,28 @@ pub const AstTypes = union(Types) {
             .Void, .Any, .Generic, .Function, .Error, .Enum => 0,
             .String => 16,
             .Bool, .Char, .ErrorOrEnumVariant => 1,
-            .Number => |num| return num.getSize(),
-            .ArrayDec => 16,
-            .Pointer, .StaticStructInstance => 8,
+            .Number => |num| num.getSize(),
+            .Pointer => |ptr| {
+                if (ptr.info.astType.* == .ArrayDec and ptr.info.astType.ArrayDec.size != null) {
+                    return 16;
+                }
+                return 8;
+            },
+            .StaticStructInstance => 8,
             // TODO - maybe optimize for unused states (0 for pointer etc)
-            .Nullable => |inner| return try inner.astType.getSize(context) + 1,
+            .Nullable => |inner| try inner.astType.getSize(context) + 1,
+            .ArrayDec => |dec| {
+                if (dec.size) |size| {
+                    const arrSize = scanner.indexNumberFromNode(size) catch {
+                        return AstTypeError.ExpectedU64OrU32ForArrayDecSize;
+                    };
+
+                    const itemSize = try dec.type.info.astType.getSize(context);
+                    return arrSize * itemSize;
+                }
+
+                return 16;
+            },
             .Custom => |custom| {
                 const dec = context.compInfo.getStructDec(custom.name).?;
 
@@ -292,7 +309,7 @@ pub const AstTypes = union(Types) {
                 for (dec.totalMemberList) |member| {
                     if (member.attr != .Member) continue;
 
-                    const itemAlignment = try member.attr.Member.astType.getAlignment(context);
+                    const itemAlignment = member.attr.Member.astType.getAlignment(context);
                     var prepadding = if (itemAlignment == 0)
                         0
                     else
@@ -305,14 +322,14 @@ pub const AstTypes = union(Types) {
 
                 return size;
             },
-            .VarInfo => |inner| return try inner.info.astType.getSize(context),
+            .VarInfo => |inner| try inner.info.astType.getSize(context),
         };
     }
 
     pub fn getNodeTypeInfo(self: Self, context: *Context) !AstNodeTypeInfo {
         return .{
             .size = try self.getSize(context),
-            .alignment = try self.getAlignment(context),
+            .alignment = self.getAlignment(context),
         };
     }
 };
@@ -427,7 +444,7 @@ pub const StructDecNode = struct {
         for (self.totalMemberList) |item| {
             if (item.attr != .Member) continue;
             const size = try item.attr.Member.astType.getSize(context);
-            const alignment = try item.attr.Member.astType.getAlignment(context);
+            const alignment = item.attr.Member.astType.getAlignment(context);
             const padding = utils.calculatePadding(
                 loc,
                 alignment,
@@ -730,6 +747,7 @@ const AstNodeTypeInfo = struct {
     alignment: u8 = 0,
     accessingFrom: ?[]const u8 = null, // name of struct
     lastVarUse: bool = false,
+    makesSliceWithLen: ?u64 = null,
 };
 
 pub const AstNode = struct {
@@ -778,6 +796,10 @@ pub const AstError = error{
 } || TokenError;
 
 pub const ParseError = AstError || Allocator.Error;
+
+pub const AstTypeError = error{
+    ExpectedU64OrU32ForArrayDecSize,
+};
 
 pub const HoistedNodes = struct {
     structs: []*AstNode,

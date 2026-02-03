@@ -56,7 +56,8 @@ const MutMatchBehavior = enum {
 pub const ScanNodeError = Allocator.Error ||
     ScanError ||
     clone.CloneError ||
-    std.fmt.ParseIntError;
+    std.fmt.ParseIntError ||
+    ast.AstTypeError;
 
 pub const ScanError = error{
     // misc
@@ -276,7 +277,7 @@ pub fn scanNode(
                     });
 
                     const inferredTypeSize = try inferredType.info.astType.getSize(context);
-                    node.typeInfo.alignment = try inferredType.info.astType.getAlignment(context);
+                    node.typeInfo.alignment = inferredType.info.astType.getAlignment(context);
                     const itemPadding = utils.calculatePadding(
                         inferredTypeSize,
                         node.typeInfo.alignment,
@@ -312,7 +313,7 @@ pub fn scanNode(
                     withGenDef,
                 );
                 node.typeInfo.size = try resType.info.astType.getSize(context);
-                node.typeInfo.alignment = try resType.info.astType.getAlignment(context);
+                node.typeInfo.alignment = resType.info.astType.getAlignment(context);
                 return resType;
             }
 
@@ -344,7 +345,7 @@ pub fn scanNode(
                         withGenDef,
                     );
                     node.typeInfo.size = try resType.info.astType.getSize(context);
-                    node.typeInfo.alignment = try resType.info.astType.getAlignment(context);
+                    node.typeInfo.alignment = resType.info.astType.getAlignment(context);
                     return resType;
                 },
                 .And, .Or => {
@@ -383,7 +384,7 @@ pub fn scanNode(
                             );
                             res.info.mutState = .Mut;
                             node.typeInfo.size = try res.info.astType.getSize(context);
-                            node.typeInfo.alignment = try res.info.astType.getAlignment(context);
+                            node.typeInfo.alignment = res.info.astType.getAlignment(context);
                             return res;
                         } else {
                             return ScanError.MathOpTypeMismatch;
@@ -409,7 +410,7 @@ pub fn scanNode(
                                 withGenDef,
                             );
                             node.typeInfo.size = try resType.info.astType.getSize(context);
-                            const alignment = try resType.info.astType.getAlignment(context);
+                            const alignment = resType.info.astType.getAlignment(context);
                             node.typeInfo.alignment = alignment;
                             return resType;
                         } else {
@@ -494,7 +495,7 @@ pub fn scanNode(
         => |val| {
             const resType = try scanNode(allocator, context, val, withGenDef);
             node.typeInfo.size = try resType.info.astType.getSize(context);
-            node.typeInfo.alignment = try resType.info.astType.getAlignment(context);
+            node.typeInfo.alignment = resType.info.astType.getAlignment(context);
             return resType;
         },
         .ReturnNode => |ret| {
@@ -572,7 +573,7 @@ pub fn scanNode(
                         access.property,
                     );
                     node.typeInfo.size = try propType.astType.getSize(context);
-                    node.typeInfo.alignment = try propType.astType.getAlignment(context);
+                    node.typeInfo.alignment = propType.astType.getAlignment(context);
                     return propType.toAllocInfo(.Recycled);
                 },
                 .String => {
@@ -581,7 +582,7 @@ pub fn scanNode(
                         access.property,
                     );
                     node.typeInfo.size = try propType.astType.getSize(context);
-                    node.typeInfo.alignment = try propType.astType.getAlignment(context);
+                    node.typeInfo.alignment = propType.astType.getAlignment(context);
                     return propType.toAllocInfo(.Recycled);
                 },
                 .Custom => |custom| a: {
@@ -606,7 +607,7 @@ pub fn scanNode(
                         try context.compInfo.setGeneric(genDef.name, clonedGenType);
                     }
 
-                    const propType = try validateCustomProps(
+                    const propTypeOrNull = try validateCustomProps(
                         allocator,
                         context,
                         custom,
@@ -614,9 +615,9 @@ pub fn scanNode(
                         withGenDef,
                     );
 
-                    if (propType) |t| {
-                        if (t.info.astType.* == .Function) {
-                            const func = t.info.astType.Function;
+                    if (propTypeOrNull) |propType| {
+                        if (propType.info.astType.* == .Function) {
+                            const func = propType.info.astType.Function;
                             const strictMutState = valueInfo.info.mutState.orConst(
                                 origValueInfo.info.mutState,
                             );
@@ -627,10 +628,10 @@ pub fn scanNode(
                             }
                         }
 
-                        node.typeInfo.size = try t.info.astType.getSize(context);
-                        node.typeInfo.alignment = try t.info.astType.getAlignment(context);
+                        node.typeInfo.size = try propType.info.astType.getSize(context);
+                        node.typeInfo.alignment = propType.info.astType.getAlignment(context);
 
-                        var copy = t;
+                        var copy = propType;
                         copy.info.mutState = valueInfo.info.mutState;
                         const varInfo = try context.pools.newType(context, .{
                             .VarInfo = copy,
@@ -880,7 +881,7 @@ pub fn scanNode(
                     withGenDef,
                 );
                 node.typeInfo.size = try info.info.astType.getSize(context);
-                node.typeInfo.alignment = try info.info.astType.getAlignment(context);
+                node.typeInfo.alignment = info.info.astType.getAlignment(context);
 
                 try context.compInfo.setVariableLastUsedNode(name, node);
 
@@ -1192,7 +1193,7 @@ pub fn scanNode(
                 withGenDef,
             );
             node.typeInfo.size = try resType.info.astType.getSize(context);
-            node.typeInfo.alignment = try resType.info.astType.getAlignment(context);
+            node.typeInfo.alignment = resType.info.astType.getAlignment(context);
             return resType;
         },
         .StructInit => |init| {
@@ -1306,7 +1307,7 @@ pub fn scanNode(
                 }
 
                 const attrType = attrRel.initInfo.info.astType;
-                const attrAlignment = try attrType.getAlignment(context);
+                const attrAlignment = attrType.getAlignment(context);
 
                 const padding = utils.calculatePadding(node.typeInfo.size, attrAlignment);
                 node.typeInfo.size += try attrType.getSize(context) + padding;
@@ -1393,8 +1394,22 @@ pub fn scanNode(
 
             const ptrTypeInfo = try escapeVarInfoAndRelease(context, ptrType);
 
-            node.typeInfo.size = vmInfo.POINTER_SIZE;
-            node.typeInfo.alignment = vmInfo.POINTER_SIZE;
+            var makesSlice = false;
+            if (ptrTypeInfo.info.astType.* == .ArrayDec) {
+                if (ptrTypeInfo.info.astType.ArrayDec.size) |arrSizeNode| {
+                    const arrSize = try indexNumberFromNode(arrSizeNode);
+                    node.typeInfo.makesSliceWithLen = arrSize;
+                    makesSlice = true;
+                }
+            }
+
+            if (makesSlice) {
+                node.typeInfo.size = vmInfo.POINTER_SIZE * 2;
+                node.typeInfo.alignment = vmInfo.POINTER_SIZE;
+            } else {
+                node.typeInfo.size = vmInfo.POINTER_SIZE;
+                node.typeInfo.alignment = vmInfo.POINTER_SIZE;
+            }
 
             const res = try context.pools.newType(context, .{
                 .Pointer = ptrTypeInfo,
@@ -1410,7 +1425,7 @@ pub fn scanNode(
 
             const pointer = ptrType.info.astType.Pointer;
             node.typeInfo.size = try pointer.info.astType.getSize(context);
-            node.typeInfo.alignment = try pointer.info.astType.getAlignment(context);
+            node.typeInfo.alignment = pointer.info.astType.getAlignment(context);
 
             if (ptrType.allocState == .Allocated) {
                 const res = ptrType.info.astType.Pointer;
@@ -1515,7 +1530,7 @@ pub fn scanNode(
                 return ScanError.InvalidNumber;
             const initTypeSize = try initTypeClone.info.astType.getSize(context);
             node.typeInfo.size = initTypeSize * arrSize;
-            node.typeInfo.alignment = try initTypeClone.info.astType.getAlignment(context);
+            node.typeInfo.alignment = initTypeClone.info.astType.getAlignment(context);
 
             return arrayDecType.toAllocInfo(.Mut, .Allocated);
         },
@@ -2390,37 +2405,8 @@ pub fn matchTypesUtil(
                 };
 
                 if (array2.size) |array2Size| {
-                    const array1size = switch (array1Size.variant) {
-                        .Value => |val| switch (val) {
-                            .RawNumber => |num| switch (num.numType) {
-                                .U32, .U64 => try std.fmt.parseInt(u64, num.digits, 10),
-                                else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
-                            },
-                            .Number => |num| switch (num) {
-                                .U32 => |u32Num| @as(u64, @intCast(u32Num)),
-                                .U64 => |u64Num| u64Num,
-                                else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
-                            },
-                            else => unreachable,
-                        },
-                        else => unreachable,
-                    };
-
-                    const array2size = switch (array2Size.variant) {
-                        .Value => |val| switch (val) {
-                            .RawNumber => |num| switch (num.numType) {
-                                .U32, .U64 => try std.fmt.parseInt(u64, num.digits, 10),
-                                else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
-                            },
-                            .Number => |num| switch (num) {
-                                .U32 => |u32Num| @as(u64, @intCast(u32Num)),
-                                .U64 => |u64Num| u64Num,
-                                else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
-                            },
-                            else => unreachable,
-                        },
-                        else => unreachable,
-                    };
+                    const array1size = try indexNumberFromNode(array1Size);
+                    const array2size = try indexNumberFromNode(array2Size);
 
                     if (array1size != array2size) {
                         return ScanError.ArrayDecSizeMismatch;
@@ -2439,23 +2425,15 @@ pub fn matchTypesUtil(
                 );
                 return try matchMutState(toType, fromType, matches, mutMatchBehavior);
             } else {
-                switch (type2) {
-                    .ArrayDec => |dec| {
+                const array2 = switch (type2) {
+                    .ArrayDec => |dec| a: {
                         if (dec.size != null) {
                             return ScanError.ExpectedSliceFoundArray;
                         }
 
-                        const matches = try matchTypesUtil(
-                            allocator,
-                            context,
-                            array1.type.info,
-                            dec.type.info,
-                            withGenDef,
-                            mutMatchBehavior,
-                        );
-                        return try matchMutState(toType, fromType, matches, mutMatchBehavior);
+                        break :a dec;
                     },
-                    .Pointer => |inner| {
+                    .Pointer => |inner| a: {
                         const array2 = switch (inner.info.astType.*) {
                             .ArrayDec => |dec| dec,
                             else => return false,
@@ -2465,18 +2443,20 @@ pub fn matchTypesUtil(
                             return ScanError.CanOnlyMakeSliceFromSizedArray;
                         }
 
-                        const matches = try matchTypesUtil(
-                            allocator,
-                            context,
-                            array1.type.info,
-                            array2.type.info,
-                            withGenDef,
-                            mutMatchBehavior,
-                        );
-                        return try matchMutState(toType, fromType, matches, mutMatchBehavior);
+                        break :a array2;
                     },
                     else => return false,
-                }
+                };
+
+                const matches = try matchTypesUtil(
+                    allocator,
+                    context,
+                    array1.type.info,
+                    array2.type.info,
+                    withGenDef,
+                    mutMatchBehavior,
+                );
+                return try matchMutState(toType, fromType, matches, mutMatchBehavior);
             }
         },
         .Custom => |custom| {
@@ -2643,6 +2623,24 @@ fn matchMutState(
     }
 
     return true;
+}
+
+pub fn indexNumberFromNode(node: *ast.AstNode) !u64 {
+    return switch (node.variant) {
+        .Value => |val| switch (val) {
+            .RawNumber => |num| switch (num.numType) {
+                .U32, .U64 => try std.fmt.parseInt(u64, num.digits, 10),
+                else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
+            },
+            .Number => |num| switch (num) {
+                .U32 => |u32Num| @as(u64, @intCast(u32Num)),
+                .U64 => |u64Num| u64Num,
+                else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
+            },
+            else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
+        },
+        else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
+    };
 }
 
 pub fn isPrimitive(astType: *const ast.AstTypes) bool {
