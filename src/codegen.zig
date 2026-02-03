@@ -2884,18 +2884,19 @@ fn initArraySliceBytecode(
     context.genInfo.procInfo.stackFrameSize += node.typeInfo.size;
     _ = try genBytecodeUtil(allocator, context, node, writeLocInfo);
 
-    if (writeLoc) |wLoc| {
+    if (writeLoc != null) {
         context.genInfo.releaseRegister(writeLocInfo.reg);
-
+        return null;
+    } else {
         const movSpInstr = Instr{
             .MovSpNegOffsetAny = .{
-                .reg = wLoc.reg,
+                .reg = writeLocInfo.reg,
                 .offset = preGenSpLoc - vmInfo.POINTER_SIZE * 2,
             },
         };
         _ = try context.genInfo.appendChunk(movSpInstr);
 
-        return wLoc.reg;
+        return writeLocInfo.reg;
     }
 
     return null;

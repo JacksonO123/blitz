@@ -1,6 +1,1 @@
-let a = true;
-let b = true;
-
-if (a || b) {
-    let c = 3;
-}
+let val = &[1, 2, 3];
