@@ -1,1 +1,2 @@
-let val = &[1, 2, 3];
+let mut val = &[1, 2, 3];
+val[2u64] = 6;

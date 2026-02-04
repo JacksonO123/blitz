@@ -748,6 +748,7 @@ const AstNodeTypeInfo = struct {
     accessingFrom: ?[]const u8 = null, // name of struct
     lastVarUse: bool = false,
     makesSliceWithLen: ?u64 = null,
+    isSlice: bool = false,
 };
 
 pub const AstNode = struct {

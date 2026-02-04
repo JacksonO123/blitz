@@ -977,6 +977,7 @@ pub const GenInfo = struct {
             return res;
         }
 
+        self.reserveRegister(reg);
         return reg;
     }
 
@@ -1874,18 +1875,24 @@ pub fn genBytecodeUtil(
         .IncOne => |inc| {
             const reg = try genBytecode(allocator, context, inc) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
-            var instr = Instr{ .IncConst8 = .{} };
-            instr.IncConst8.reg = reg.getRegister();
-            instr.IncConst8.data = 1;
+            const instr = Instr{
+                .IncConst8 = .{
+                    .reg = reg.getRegister(),
+                    .data = 1,
+                },
+            };
 
             _ = try context.genInfo.appendChunk(instr);
         },
         .DecOne => |dec| {
             const reg = try genBytecode(allocator, context, dec) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
-            var instr = Instr{ .DecConst8 = .{} };
-            instr.DecConst8.reg = reg.getRegister();
-            instr.DecConst8.data = 1;
+            const instr = Instr{
+                .DecConst8 = .{
+                    .reg = reg.getRegister(),
+                    .data = 1,
+                },
+            };
 
             _ = try context.genInfo.appendChunk(instr);
         },
@@ -1899,15 +1906,25 @@ pub fn genBytecodeUtil(
             else
                 set.value;
 
+            const prevOutput = context.genInfo.settings.propertyAccessReturnsPointer;
+            context.genInfo.settings.propertyAccessReturnsPointer = true;
             const destReg = try genBytecode(allocator, context, targetNode) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
+            context.genInfo.settings.propertyAccessReturnsPointer = prevOutput;
             const srcReg = try genBytecode(allocator, context, set.setNode) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
             const destRegValue = destReg.getRegister();
             const srcRegValue = srcReg.getRegister();
             defer context.genInfo.releaseIfPossible(srcRegValue);
 
-            const instr = if (isDeref)
+            const dbgInstr = Instr{
+                .DbgReg = destRegValue,
+            };
+            _ = try context.genInfo.appendChunk(dbgInstr);
+
+            const instr = if (isDeref or
+                set.value.variant == .IndexValue or
+                set.value.variant == .PropertyAccess)
                 storeRegAtRegWithSize(
                     srcReg,
                     destRegValue,
@@ -2367,24 +2384,24 @@ pub fn genBytecodeUtil(
 
             context.genInfo.releaseIfPossible(indexValue);
 
+            const itemPadding = utils.calculatePadding(
+                node.typeInfo.size,
+                node.typeInfo.alignment,
+            );
+
+            const mulAdd = Instr{
+                .MulReg16AddReg = .{
+                    .dest = regValue,
+                    .addReg = regValue,
+                    .mulReg = indexValue,
+                    .data = @intCast(node.typeInfo.size + itemPadding),
+                },
+            };
+            _ = try context.genInfo.appendChunk(mulAdd);
+
             if (context.genInfo.settings.propertyAccessReturnsPointer) {
                 return reg;
             } else {
-                const itemPadding = utils.calculatePadding(
-                    node.typeInfo.size,
-                    node.typeInfo.alignment,
-                );
-
-                const mulAdd = Instr{
-                    .MulReg16AddReg = .{
-                        .dest = regValue,
-                        .addReg = regValue,
-                        .mulReg = indexValue,
-                        .data = @intCast(node.typeInfo.size + itemPadding),
-                    },
-                };
-                _ = try context.genInfo.appendChunk(mulAdd);
-
                 const outReg = try context.genInfo.availableRegReplaceRelease(
                     allocator,
                     indexValue,
@@ -2533,6 +2550,16 @@ fn calculateAccessOffset(
 
             const isVar = context.genInfo.isRegVariable(regValue);
             const outReg = try context.genInfo.availableRegReplaceReserve(allocator, regValue);
+
+            if (node.typeInfo.isSlice) {
+                const derefInstr = Instr{
+                    .Load64AtReg = .{
+                        .dest = outReg,
+                        .fromRegPtr = outReg,
+                    },
+                };
+                _ = try context.genInfo.appendChunk(derefInstr);
+            }
 
             if (offset > 0) {
                 const instr = Instr{

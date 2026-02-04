@@ -304,8 +304,19 @@ pub fn scanNode(
                 return ScanError.ExpectedU64ForIndex;
             }
 
-            if (targetType.info.astType.* == .ArrayDec) {
-                const arr = targetType.info.astType.*.ArrayDec;
+            const arrOrNull = switch (targetType.info.astType.*) {
+                .ArrayDec => |dec| dec,
+                .Pointer => |inner| switch (inner.info.astType.*) {
+                    .ArrayDec => |dec| a: {
+                        indexInfo.target.typeInfo.isSlice = true;
+                        break :a dec;
+                    },
+                    else => null,
+                },
+                else => null,
+            };
+
+            if (arrOrNull) |arr| {
                 const resType = try clone.replaceGenericsOnTypeInfo(
                     allocator,
                     context,
