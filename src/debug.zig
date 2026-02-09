@@ -969,12 +969,6 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumber(u16, instr.inc, writer);
         },
-        .StoreSpSub16AtSpNegOffset16 => |instr| {
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u16, instr.subTo, writer);
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u16, instr.offset, writer);
-        },
         .Store64AtSpNegOffset16,
         .Store32AtSpNegOffset16,
         .Store16AtSpNegOffset16,

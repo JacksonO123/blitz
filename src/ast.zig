@@ -310,14 +310,14 @@ pub const AstTypes = union(Types) {
                     if (member.attr != .Member) continue;
 
                     const itemAlignment = member.attr.Member.astType.getAlignment(context);
-                    var prepadding = if (itemAlignment == 0)
+                    var prePadding = if (itemAlignment == 0)
                         0
                     else
                         itemAlignment - (size % itemAlignment);
-                    if (prepadding == itemAlignment) prepadding = 0;
+                    if (prePadding == itemAlignment) prePadding = 0;
 
                     const memberSize = try member.attr.Member.astType.getSize(context);
-                    size += prepadding + memberSize;
+                    size += prePadding + memberSize;
                 }
 
                 return size;

@@ -238,12 +238,6 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[3..5], writer);
         },
-        .StoreSpSub16AtSpNegOffset16 => {
-            try writer.writeByte(' ');
-            try writeHexDecNumberSlice(bytecode[1..3], writer);
-            try writer.writeByte(' ');
-            try writeHexDecNumberSlice(bytecode[3..5], writer);
-        },
         .Store64AtSpNegOffset16,
         .Store32AtSpNegOffset16,
         .Store16AtSpNegOffset16,

@@ -121,8 +121,6 @@ pub const InstructionVariants = enum(u8) {
     Store16AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
     Store8AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
 
-    StoreSpSub16AtSpNegOffset16, // inst, sub 2B data, offset 2B
-
     Store64AtSpNegOffset16, // inst, reg, offset 2B
     Store32AtSpNegOffset16, // inst, reg, offset 2B
     Store16AtSpNegOffset16, // inst, reg, offset 2B
@@ -219,8 +217,6 @@ pub const InstructionVariants = enum(u8) {
             .Store16AtRegPostInc16,
             .Store8AtRegPostInc16,
             => 5,
-
-            .StoreSpSub16AtSpNegOffset16 => 5,
 
             .Store64AtSpNegOffset16,
             .Store32AtSpNegOffset16,
@@ -333,8 +329,6 @@ pub const InstructionVariants = enum(u8) {
             .Store32AtRegPostInc16 => "store_32_at_reg_post_inc_16",
             .Store16AtRegPostInc16 => "store_16_at_reg_post_inc_16",
             .Store8AtRegPostInc16 => "store_8_at_reg_post_inc_16",
-
-            .StoreSpSub16AtSpNegOffset16 => "store_sp_sub_16_at_sp_neg_offset_16",
 
             .Store64AtSpNegOffset16 => "store_64_at_sp_neg_offset_16",
             .Store32AtSpNegOffset16 => "store_32_at_sp_neg_offset_16",
@@ -550,11 +544,6 @@ pub const Instr = union(InstructionVariants) {
     Store32AtRegPostInc16: StoreAtRegIncInstr(u16),
     Store16AtRegPostInc16: StoreAtRegIncInstr(u16),
     Store8AtRegPostInc16: StoreAtRegIncInstr(u16),
-
-    StoreSpSub16AtSpNegOffset16: struct {
-        subTo: u16 = 0,
-        offset: u16 = 0,
-    },
 
     Store64AtSpNegOffset16: StoreOffsetSpInstr(u16),
     Store32AtSpNegOffset16: StoreOffsetSpInstr(u16),
@@ -1180,10 +1169,6 @@ fn adjustInstruction(
         => |*instr| {
             instr.offset = @intCast(frameSize - instr.offset);
         },
-        .StoreSpSub16AtSpNegOffset16 => |*instr| {
-            instr.subTo = @intCast(frameSize - instr.subTo);
-            instr.offset = @intCast(frameSize - instr.offset);
-        },
         .MovSpNegOffsetAny => |*instr| {
             const newInstr = try movSpNegOffset(instr.reg, frameSize - instr.offset);
             chunk.data = newInstr;
@@ -1290,8 +1275,7 @@ pub fn genBytecodeUtil(
     writeLoc: ?WriteLocInfo,
 ) GenBytecodeError!?RegisterContents {
     switch (node.variant) {
-        .StructPlaceholder => {},
-        .NoOp => {},
+        .StructPlaceholder, .StructDec, .UndefValue, .NoOp, .FuncDec => {},
         .Seq => |seq| {
             for (seq) |seqNode| {
                 _ = try genBytecode(allocator, context, seqNode);
@@ -1729,7 +1713,7 @@ pub fn genBytecodeUtil(
                         },
                     };
                 },
-                else => utils.unimplemented(),
+                .Div => utils.unimplemented(),
             };
 
             _ = try context.genInfo.appendChunk(buf);
@@ -2621,7 +2605,7 @@ fn loadAtRegWithOffset(reg: TempRegister, outReg: TempRegister, readOffset: u64,
                 .offset = offset,
             },
         },
-        else => utils.unimplemented(),
+        else => unreachable,
     };
 }
 
@@ -2651,7 +2635,7 @@ fn loadAtReg(regPtr: TempRegister, outReg: TempRegister, size: u64) Instr {
                 .fromRegPtr = regPtr,
             },
         },
-        else => utils.unimplemented(),
+        else => unreachable,
     };
 }
 
@@ -2712,7 +2696,7 @@ fn storeRegAtSpNegOffsetAndSize(regContents: RegisterContents, loc: u64, size: u
                 .offset = @intCast(loc),
             },
         },
-        else => utils.unimplemented(),
+        else => unreachable,
     };
 }
 
@@ -2744,7 +2728,7 @@ fn storeRegAtRegWithSize(regContents: RegisterContents, ptrReg: TempRegister, si
                 .toRegPtr = ptrReg,
             },
         },
-        else => utils.unimplemented(),
+        else => unreachable,
     };
 }
 
@@ -3165,10 +3149,6 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
             try writer.writeByte(@intCast(instr.fromReg));
             try writer.writeByte(@intCast(instr.toRegPtr));
             try writer.writeInt(u16, instr.inc, .little);
-        },
-        .StoreSpSub16AtSpNegOffset16 => |instr| {
-            try writer.writeInt(u16, instr.subTo, .little);
-            try writer.writeInt(u16, instr.offset, .little);
         },
         .Store64AtSpNegOffset16,
         .Store32AtSpNegOffset16,
