@@ -45,6 +45,13 @@ pub fn main() !void {
 
     const flagMap = std.StaticStringMap(usize).initComptime(formatFlagStructure(flagStructure));
 
+    if (scanUnknownFlags(args, &flagMap)) |unknownFlag| {
+        try writer.writeAll("Unknown flag :: ");
+        try writer.writeAll(unknownFlag);
+        try writer.writeByte('\n');
+        return;
+    }
+
     const hasHelp = strArrContains(args, "--help", &flagMap) != null;
     if (hasHelp) {
         if (args.len > 2) {
@@ -67,6 +74,18 @@ pub fn main() !void {
     }
 
     try diffBytecode(allocator, recordPath, args[1], saveNew, fromObjDump);
+}
+
+// returns flag if flag is unknown
+pub fn scanUnknownFlags(
+    flags: [][:0]u8,
+    flagMap: *const std.StaticStringMap(usize),
+) ?[]const u8 {
+    for (flags[2..]) |flag| {
+        if (!flagMap.has(flag)) return flag;
+    }
+
+    return null;
 }
 
 pub fn diffBytecode(

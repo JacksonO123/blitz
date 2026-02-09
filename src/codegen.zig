@@ -2788,7 +2788,10 @@ fn initArraySliceBytecode(
     len: u64,
     writeLoc: ?WriteLocInfo,
 ) !?TempRegister {
-    const writeLocInfo = if (writeLoc) |loc| a: {
+    var paddedSpLoc: u64 = 0;
+    var arrayStartLoc: u64 = 0;
+
+    const writeLocInfo = if (writeLoc != null) a: {
         const scratchReg = try context.genInfo.getAvailableReg(allocator);
         context.genInfo.reserveRegister(scratchReg);
 
@@ -2797,53 +2800,19 @@ fn initArraySliceBytecode(
             node.typeInfo.alignment,
         );
         context.genInfo.procInfo.stackFrameSize += padding;
-        const postPaddingSpLoc = context.genInfo.procInfo.stackFrameSize;
-
-        const addInstr = Instr{
-            .MovSpNegOffsetAny = .{
-                .reg = scratchReg,
-                .offset = postPaddingSpLoc,
-            },
-        };
-        _ = try context.genInfo.appendChunk(addInstr);
-
-        const writePtrInstr = Instr{
-            .Store64AtRegPostInc16 = .{
-                .toRegPtr = loc.reg,
-                .fromReg = scratchReg,
-                .inc = vmInfo.POINTER_SIZE,
-            },
-        };
-        _ = try context.genInfo.appendChunk(writePtrInstr);
-
-        const movLenInstr = Instr{
-            .SetReg64 = .{
-                .reg = scratchReg,
-                .data = len,
-            },
-        };
-        _ = try context.genInfo.appendChunk(movLenInstr);
-
-        const storeLenInstr = Instr{
-            .Store64AtRegPostInc16 = .{
-                .toRegPtr = loc.reg,
-                .fromReg = scratchReg,
-                .inc = vmInfo.POINTER_SIZE,
-            },
-        };
-        _ = try context.genInfo.appendChunk(storeLenInstr);
+        arrayStartLoc = context.genInfo.procInfo.stackFrameSize;
 
         const movSpInstr2 = Instr{
             .MovSpNegOffsetAny = .{
                 .reg = scratchReg,
-                .offset = postPaddingSpLoc,
+                .offset = arrayStartLoc,
             },
         };
         _ = try context.genInfo.appendChunk(movSpInstr2);
 
         break :a WriteLocInfo{
             .reg = scratchReg,
-            .value = postPaddingSpLoc,
+            .value = paddedSpLoc,
         };
     } else a: {
         const writeReg = try context.genInfo.getAvailableReg(allocator);
@@ -2854,74 +2823,98 @@ fn initArraySliceBytecode(
             vmInfo.POINTER_SIZE,
         );
         context.genInfo.procInfo.stackFrameSize += padding;
-        const paddedSpLoc = context.genInfo.procInfo.stackFrameSize;
-
-        const writeSpInstr = Instr{
-            .MovSpNegOffsetAny = .{
-                .offset = paddedSpLoc + vmInfo.POINTER_SIZE * 2,
-                .reg = writeReg,
-            },
-        };
-        _ = try context.genInfo.appendChunk(writeSpInstr);
-
-        const writePtrInstr = Instr{
-            .Store64AtSpNegOffset16 = .{
-                .reg = writeReg,
-                .offset = @intCast(paddedSpLoc),
-            },
-        };
-        _ = try context.genInfo.appendChunk(writePtrInstr);
-
-        context.genInfo.procInfo.stackFrameSize += vmInfo.POINTER_SIZE;
-
-        const movLenInstr = Instr{
-            .SetReg64 = .{
-                .reg = writeReg,
-                .data = len,
-            },
-        };
-        _ = try context.genInfo.appendChunk(movLenInstr);
-
-        const storeLenInstr = Instr{
-            .Store64AtSpNegOffset16 = .{
-                .reg = writeReg,
-                .offset = @intCast(context.genInfo.procInfo.stackFrameSize),
-            },
-        };
-        _ = try context.genInfo.appendChunk(storeLenInstr);
-
-        context.genInfo.procInfo.stackFrameSize += vmInfo.POINTER_SIZE;
+        paddedSpLoc = context.genInfo.procInfo.stackFrameSize;
+        context.genInfo.procInfo.stackFrameSize += vmInfo.POINTER_SIZE * 2;
+        arrayStartLoc = context.genInfo.procInfo.stackFrameSize;
 
         const movSpInstr2 = Instr{
             .MovSpNegOffsetAny = .{
                 .reg = writeReg,
-                .offset = context.genInfo.procInfo.stackFrameSize,
+                .offset = arrayStartLoc,
             },
         };
         _ = try context.genInfo.appendChunk(movSpInstr2);
 
         break :a WriteLocInfo{
             .reg = writeReg,
-            .value = paddedSpLoc,
+            .value = context.genInfo.procInfo.stackFrameSize,
         };
     };
 
-    const preGenSpLoc = context.genInfo.procInfo.stackFrameSize;
+    const arrRegOrNull = try genBytecodeUtil(allocator, context, node, writeLocInfo);
 
-    context.genInfo.procInfo.stackFrameSize += node.typeInfo.size;
-    _ = try genBytecodeUtil(allocator, context, node, writeLocInfo);
+    const sliceStartPtr = if (writeLoc) |loc| loc.reg else a: {
+        const movInstr = Instr{
+            .MovSpNegOffsetAny = .{
+                .reg = writeLocInfo.reg,
+                .offset = paddedSpLoc,
+            },
+        };
+        _ = try context.genInfo.appendChunk(movInstr);
+        break :a writeLocInfo.reg;
+    };
+
+    const tempReg = try context.genInfo.getAvailableReg(allocator);
+    const regInfoOrNull = if (arrRegOrNull) |arrReg|
+        context.genInfo.getRegInfo(arrReg.getRegister())
+    else
+        null;
+    const regLocationOrNull = (if (regInfoOrNull) |regInfo|
+        if (regInfo.varInfo) |info| info.stackLocation else null
+    else
+        null);
+    const regLocation = regLocationOrNull orelse arrayStartLoc;
+
+    const setReg = Instr{
+        .SetReg64 = .{
+            .reg = tempReg,
+            .data = regLocation,
+        },
+    };
+    _ = try context.genInfo.appendChunk(setReg);
+
+    const storeInstr = Instr{
+        .Store64AtRegPostInc16 = .{
+            .toRegPtr = sliceStartPtr,
+            .fromReg = tempReg,
+            .inc = vmInfo.POINTER_SIZE,
+        },
+    };
+    _ = try context.genInfo.appendChunk(storeInstr);
+
+    if (regLocationOrNull == null) {
+        context.genInfo.procInfo.stackFrameSize += node.typeInfo.size;
+    }
+
+    const setLenReg = Instr{
+        .SetReg64 = .{
+            .reg = tempReg,
+            .data = len,
+        },
+    };
+    _ = try context.genInfo.appendChunk(setLenReg);
+
+    const storeLenInstr = Instr{
+        .Store64AtRegPostInc16 = .{
+            .toRegPtr = sliceStartPtr,
+            .fromReg = tempReg,
+            .inc = vmInfo.POINTER_SIZE,
+        },
+    };
+    _ = try context.genInfo.appendChunk(storeLenInstr);
 
     if (writeLoc != null) {
         context.genInfo.releaseRegister(writeLocInfo.reg);
         return null;
     } else {
-        const movSpInstr = Instr{
-            .MovSpNegOffsetAny = .{
+        const subInstr = Instr{
+            .Sub8 = .{
+                .dest = writeLocInfo.reg,
                 .reg = writeLocInfo.reg,
-                .offset = preGenSpLoc - vmInfo.POINTER_SIZE * 2,
+                .data = vmInfo.POINTER_SIZE * 2,
             },
         };
-        _ = try context.genInfo.appendChunk(movSpInstr);
+        _ = try context.genInfo.appendChunk(subInstr);
 
         return writeLocInfo.reg;
     }

@@ -1,2 +1,9 @@
-let mut val = &[1, 2, 3];
-val[2u64] = 6;
+struct M { 
+    slice: u32[];
+}
+
+let mut val = M {
+    slice = &[1, 2, 3],
+};
+let a = 4u64;
+let pa = &a;
