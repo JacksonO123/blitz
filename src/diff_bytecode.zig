@@ -43,7 +43,7 @@ pub fn main() !void {
         .{ "--record-path", "Path to record directory" },
     };
 
-    const flagMap = utils.createFlagMap(args, flagStructure, writer, 1) catch return;
+    const flagMap = try utils.createFlagMap(args, flagStructure, writer, 1);
 
     const hasHelp = utils.searchFlagMap(args, "--help", &flagMap) != null;
     if (hasHelp) {

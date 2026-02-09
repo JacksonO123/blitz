@@ -20,7 +20,7 @@ pub fn main() !void {
         .{"--from-objdump"},
     };
 
-    const flagMap = utils.createFlagMap(args, flagStructure, writer, 0) catch return;
+    const flagMap = try utils.createFlagMap(args, flagStructure, writer, 0);
     const fromObjDump = utils.searchFlagMap(args, "--from-objdump", &flagMap) != null;
 
     const recordDirectory = try std.fs.cwd().openDir(diffBytecode.RECORDS_DIR, .{});
