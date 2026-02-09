@@ -43,16 +43,9 @@ pub fn main() !void {
         .{ "--record-path", "Path to record directory" },
     };
 
-    const flagMap = std.StaticStringMap(usize).initComptime(formatFlagStructure(flagStructure));
+    const flagMap = utils.createFlagMap(args, flagStructure, writer, 1) catch return;
 
-    if (scanUnknownFlags(args, &flagMap)) |unknownFlag| {
-        try writer.writeAll("Unknown flag :: ");
-        try writer.writeAll(unknownFlag);
-        try writer.writeByte('\n');
-        return;
-    }
-
-    const hasHelp = strArrContains(args, "--help", &flagMap) != null;
+    const hasHelp = utils.searchFlagMap(args, "--help", &flagMap) != null;
     if (hasHelp) {
         if (args.len > 2) {
             return error.TooManyArguments;
@@ -62,9 +55,9 @@ pub fn main() !void {
         return;
     }
 
-    const saveNew = strArrContains(args, "--save", &flagMap) != null;
-    const fromObjDump = strArrContains(args, "--from-objdump", &flagMap) != null;
-    const recordPath = if (strArrContains(args, "--record-path", &flagMap)) |index|
+    const saveNew = utils.searchFlagMap(args, "--save", &flagMap) != null;
+    const fromObjDump = utils.searchFlagMap(args, "--from-objdump", &flagMap) != null;
+    const recordPath = if (utils.searchFlagMap(args, "--record-path", &flagMap)) |index|
         args[index + 1]
     else
         RECORDS_DIR;
@@ -74,18 +67,6 @@ pub fn main() !void {
     }
 
     try diffBytecode(allocator, recordPath, args[1], saveNew, fromObjDump);
-}
-
-// returns flag if flag is unknown
-pub fn scanUnknownFlags(
-    flags: [][:0]u8,
-    flagMap: *const std.StaticStringMap(usize),
-) ?[]const u8 {
-    for (flags[2..]) |flag| {
-        if (!flagMap.has(flag)) return flag;
-    }
-
-    return null;
 }
 
 pub fn diffBytecode(
@@ -170,24 +151,24 @@ pub fn getRefName(allocator: Allocator, path: []const u8, printWriter: *Writer) 
 }
 
 fn writeDiff(newContents: []u8, origContents: []u8, printWriter: *Writer) !void {
-    var missmatchStart: ?usize = null;
+    var mismatchStart: ?usize = null;
     for (newContents, 0..) |char, index| {
         if (index == origContents.len) {
             try writeDiffOverflow(newContents[index..], printWriter);
             break;
         }
 
-        const missmatch = char != origContents[index];
+        const mismatch = char != origContents[index];
 
-        if (!missmatch) a: {
-            const start = missmatchStart orelse break :a;
+        if (!mismatch) a: {
+            const start = mismatchStart orelse break :a;
             try writeDiffActual(origContents, start, index, printWriter);
-            missmatchStart = null;
-        } else if (missmatchStart == null) {
-            missmatchStart = index;
+            mismatchStart = null;
+        } else if (mismatchStart == null) {
+            mismatchStart = index;
         }
 
-        if (missmatch) {
+        if (mismatch) {
             try printWriter.writeAll(TERMINAL_COLORS.red);
             if (char == '\n') {
                 try printWriter.writeAll("↵");
@@ -246,31 +227,6 @@ fn lastIndexOf(text: []const u8, char: u8) ?usize {
     }
     if (text[0] == char) return 0;
     return null;
-}
-
-fn strArrContains(
-    arr: [][:0]u8,
-    value: []const u8,
-    flagMap: *const std.StaticStringMap(usize),
-) ?usize {
-    var i: usize = 0;
-    while (i < arr.len) : (i += 1) {
-        if (std.mem.eql(u8, arr[i], value)) return i;
-        if (flagMap.get(arr[i])) |width| i += width;
-    }
-    return null;
-}
-
-const FlagInfo = struct { []const u8, usize };
-
-fn formatFlagStructure(comptime structure: anytype) [structure.len]FlagInfo {
-    var thing: [structure.len]FlagInfo = undefined;
-
-    inline for (structure, 0..) |tuple, index| {
-        thing[index] = .{ tuple[0], tuple.len - 1 };
-    }
-
-    return thing;
 }
 
 fn printStructure(comptime structure: anytype, writer: *Writer) !void {

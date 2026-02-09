@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Writer = std.Io.Writer;
 
 pub const BUFFERED_WRITER_SIZE = 1024 * 32;
 
@@ -75,4 +76,62 @@ test "Calculate padding" {
 
     const p4 = calculatePadding(2, 2);
     try std.testing.expectEqual(0, p4.padding);
+}
+
+const FlagInfo = struct { []const u8, usize };
+
+fn formatFlagStructure(comptime structure: anytype) [structure.len]FlagInfo {
+    var thing: [structure.len]FlagInfo = undefined;
+
+    inline for (structure, 0..) |tuple, index| {
+        thing[index] = .{ tuple[0], tuple.len - 1 };
+    }
+
+    return thing;
+}
+
+/// returns flag if flag is unknown
+pub fn scanUnknownFlags(
+    flags: [][:0]u8,
+    flagMap: *const std.StaticStringMap(usize),
+    baseFlagStart: u32,
+) ?[]const u8 {
+    if (flags.len < 1 + baseFlagStart) return null;
+
+    for (flags[1 + baseFlagStart ..]) |flag| {
+        if (!flagMap.has(flag)) return flag;
+    }
+
+    return null;
+}
+
+pub inline fn createFlagMap(
+    args: [][:0]u8,
+    comptime flagStructure: anytype,
+    writer: *Writer,
+    baseFlagStart: u32,
+) !std.StaticStringMap(usize) {
+    const flagMap = std.StaticStringMap(usize).initComptime(formatFlagStructure(flagStructure));
+
+    if (scanUnknownFlags(args, &flagMap, baseFlagStart)) |unknownFlag| {
+        try writer.writeAll("Unknown flag :: ");
+        try writer.writeAll(unknownFlag);
+        try writer.writeByte('\n');
+        return error.UnknownFlag;
+    }
+
+    return flagMap;
+}
+
+pub fn searchFlagMap(
+    arr: [][:0]u8,
+    value: []const u8,
+    flagMap: *const std.StaticStringMap(usize),
+) ?usize {
+    var i: usize = 0;
+    while (i < arr.len) : (i += 1) {
+        if (std.mem.eql(u8, arr[i], value)) return i;
+        if (flagMap.get(arr[i])) |width| i += width;
+    }
+    return null;
 }

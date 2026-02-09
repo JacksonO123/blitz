@@ -14,6 +14,15 @@ pub fn main() !void {
     defer stdout.end() catch {};
     const writer = &stdout.interface;
 
+    const args = try std.process.argsAlloc(allocator);
+
+    const flagStructure = .{
+        .{"--from-objdump"},
+    };
+
+    const flagMap = utils.createFlagMap(args, flagStructure, writer, 0) catch return;
+    const fromObjDump = utils.searchFlagMap(args, "--from-objdump", &flagMap) != null;
+
     const recordDirectory = try std.fs.cwd().openDir(diffBytecode.RECORDS_DIR, .{});
     const featureDirectory = try std.fs.cwd().openDir(diffBytecode.FEATURE_DIR, .{
         .iterate = true,
@@ -36,7 +45,7 @@ pub fn main() !void {
             diffBytecode.RECORDS_DIR,
             sourceFileName,
             !fileExists,
-            false,
+            fromObjDump,
         );
     }
 }

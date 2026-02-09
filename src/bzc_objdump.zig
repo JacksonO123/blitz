@@ -38,6 +38,7 @@ pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
 
     const byteCountFloat: f64 = @floatFromInt(bytecode.len);
     const numDigits: u64 = @intFromFloat(@floor(@log10(byteCountFloat)) + 1);
+    const numInstrLenDigits = utils.getNumberDigitCount(u8, codegen.Instr.maxInstrSize());
 
     while (current < bytecode.len) {
         const instr = @as(codegen.InstructionVariants, @enumFromInt(bytecode[current]));
@@ -46,7 +47,7 @@ pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
         try writer.writeByte('[');
         try writer.printInt(current, 10, .lower, .{ .width = numDigits, .fill = '.' });
         try writer.writeAll("] (");
-        try writer.printInt(size, 10, .lower, .{ .width = numDigits, .fill = '.' });
+        try writer.printInt(size, 10, .lower, .{ .width = numInstrLenDigits, .fill = '.' });
         try writer.writeAll(") ");
 
         try printBytecodeSlice(bytecode[current .. current + size], writer);
