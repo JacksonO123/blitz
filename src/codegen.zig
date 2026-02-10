@@ -1124,6 +1124,14 @@ pub const GenInfo = struct {
         return self.varNameReg.get(name);
     }
 
+    fn isNotInRegRange(reg: TempRegister, start: u64, end: u64) bool {
+        return reg < start or reg >= end;
+    }
+
+    pub fn isNotPreserveReg(reg: TempRegister) bool {
+        return isNotInRegRange(reg, vmInfo.PRESERVE_REGISTER_START, vmInfo.PRESERVE_REGISTER_END);
+    }
+
     pub fn finishProc(self: *Self, allocator: Allocator, context: *Context) !void {
         const listStart = self.chunks.listStart orelse return;
         const start = self.procInfo.startInstr orelse return;
@@ -1324,7 +1332,7 @@ pub fn genBytecodeUtil(
             }
 
             const varReg = if (context.genInfo.isRegVariable(reg)) a: {
-                const newReg = try context.genInfo.getAvailableTempReg();
+                const newReg = try context.genInfo.getAvailablePreserveReg(allocator);
                 if (saveVarReg) {
                     context.genInfo.reserveRegister(newReg);
                 }
@@ -1343,11 +1351,30 @@ pub fn genBytecodeUtil(
                     node.typeInfo.lastVarUse)
                 {
                     context.genInfo.releaseIfPossible(reg);
+                }
+
+                var outReg = reg;
+
+                if (GenInfo.isNotPreserveReg(reg)) {
+                    if (context.genInfo.isRegActive(reg)) {
+                        context.genInfo.releaseIfPossible(reg);
+                    }
+
+                    outReg = try context.genInfo.getAvailablePreserveReg(allocator);
+                    context.genInfo.reserveRegister(outReg);
+
+                    const movInstr = Instr{
+                        .Mov = .{
+                            .dest = outReg,
+                            .src = reg,
+                        },
+                    };
+                    _ = try context.genInfo.appendChunk(movInstr);
                 } else if (!context.genInfo.isRegActive(reg)) {
                     context.genInfo.reserveRegister(reg);
                 }
 
-                break :a reg;
+                break :a outReg;
             };
 
             if (saveVarReg) {
@@ -1554,7 +1581,7 @@ pub fn genBytecodeUtil(
 
             const leftDepth = ast.getExprDepth(expr.left);
             const rightDepth = ast.getExprDepth(expr.right);
-            const leftExprDeeper = leftDepth > rightDepth;
+            const leftExprDeeper = leftDepth >= rightDepth;
             if (leftExprDeeper) {
                 leftReg = try genBytecode(allocator, context, expr.left) orelse
                     return CodeGenError.ReturnedRegisterNotFound;
@@ -2412,6 +2439,11 @@ pub fn genBytecodeUtil(
 
                 return RegisterContents.initWithSize(outReg, @intCast(node.typeInfo.size));
             }
+        },
+        .FuncCall => |call| {
+            _ = call;
+
+            return RegisterContents{ .Bytes1 = 170 };
         },
         else => {},
     }

@@ -1,3 +1,7 @@
+fn thing() {}
+
 let a = 2;
-let b = 3;
-let c = 4;
+let b = a + 1;
+let c = b + 1;
+
+let d = 1 + thing();
