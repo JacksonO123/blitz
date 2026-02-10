@@ -1311,59 +1311,50 @@ pub fn genBytecodeUtil(
             const regContents = try genBytecode(allocator, context, dec.setNode) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
 
-            if (!context.settings.behavior.optimizeVarRegisters and node.typeInfo.lastVarUse) {
-                const reg = regContents.getRegister();
+            const reg = regContents.getRegister();
+            const saveVarReg = !context.settings.behavior.optimizeVarRegisters or
+                !node.typeInfo.lastVarUse;
+
+            if (context.settings.behavior.optimizeVarRegisters and node.typeInfo.lastVarUse) {
                 if (!context.genInfo.isRegVariable(reg)) {
-                    context.genInfo.releaseIfPossible(reg);
+                    context.genInfo.releaseRegister(reg);
                 }
 
                 return null;
             }
 
-            switch (regContents) {
-                .Bytes1,
-                .Bytes2,
-                .Bytes4,
-                .Bytes8,
-                .Pointer,
-                => |reg| {
-                    const saveVarReg = !context.settings.behavior.optimizeVarRegisters or
-                        !node.typeInfo.lastVarUse;
+            const varReg = if (context.genInfo.isRegVariable(reg)) a: {
+                const newReg = try context.genInfo.getAvailableTempReg();
+                if (saveVarReg) {
+                    context.genInfo.reserveRegister(newReg);
+                }
 
-                    const varReg = if (context.genInfo.isRegVariable(reg)) a: {
-                        const newReg = try context.genInfo.getAvailableTempReg();
-                        if (saveVarReg) {
-                            context.genInfo.reserveRegister(newReg);
-                        }
+                const instr = Instr{
+                    .Mov = .{
+                        .dest = newReg,
+                        .src = reg,
+                    },
+                };
+                _ = try context.genInfo.appendChunk(instr);
 
-                        const instr = Instr{
-                            .Mov = .{
-                                .dest = newReg,
-                                .src = reg,
-                            },
-                        };
-                        _ = try context.genInfo.appendChunk(instr);
+                break :a newReg;
+            } else a: {
+                if (context.settings.behavior.optimizeVarRegisters and
+                    node.typeInfo.lastVarUse)
+                {
+                    context.genInfo.releaseIfPossible(reg);
+                } else if (!context.genInfo.isRegActive(reg)) {
+                    context.genInfo.reserveRegister(reg);
+                }
 
-                        break :a newReg;
-                    } else a: {
-                        if (context.settings.behavior.optimizeVarRegisters and
-                            node.typeInfo.lastVarUse)
-                        {
-                            context.genInfo.releaseIfPossible(reg);
-                        } else if (!context.genInfo.isRegActive(reg)) {
-                            context.genInfo.reserveRegister(reg);
-                        }
+                break :a reg;
+            };
 
-                        break :a reg;
-                    };
-
-                    if (saveVarReg) {
-                        try context.genInfo.setVariableRegister(
-                            dec.name,
-                            regContents.transferWithSize(varReg),
-                        );
-                    }
-                },
+            if (saveVarReg) {
+                try context.genInfo.setVariableRegister(
+                    dec.name,
+                    regContents.transferWithSize(varReg),
+                );
             }
         },
         .Value => |value| {
