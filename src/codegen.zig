@@ -678,6 +678,7 @@ const VarGenInfo = struct {
 const ProcInfo = struct {
     stackFrameSize: u64,
     startInstr: ?*InstrChunk,
+    maxPreserveReg: ?TempRegister,
 };
 
 const VAR_GEN_INFO_POOL_SIZE = 1024;
@@ -900,6 +901,7 @@ pub const GenInfo = struct {
             .procInfo = .{
                 .stackFrameSize = 0,
                 .startInstr = null,
+                .maxPreserveReg = null,
             },
             .currentLabelId = 0,
             .labelByteInfo = labelByteInfoPtr,
@@ -1021,6 +1023,8 @@ pub const GenInfo = struct {
     }
 
     pub fn reserveRegister(self: *Self, reg: TempRegister) void {
+        const prevMax = if (self.procInfo.maxPreserveReg) |maxReg| maxReg else 0;
+        self.procInfo.maxPreserveReg = @max(prevMax, reg);
         self.registers.infos.items[reg].active = true;
     }
 
@@ -1446,9 +1450,12 @@ pub fn genBytecodeUtil(
                     const reg = try context.genInfo.getAvailableTempReg();
                     context.genInfo.reserveRegister(reg);
 
-                    var instr = Instr{ .SetReg8 = .{} };
-                    instr.SetReg8.reg = reg;
-                    instr.SetReg8.data = ch;
+                    const instr = Instr{
+                        .SetReg8 = .{
+                            .reg = reg,
+                            .data = ch,
+                        },
+                    };
 
                     _ = try context.genInfo.appendChunk(instr);
                     return .{ .Bytes1 = reg };
@@ -1974,10 +1981,13 @@ pub fn genBytecodeUtil(
                 return CodeGenError.NoAvailableRegisters;
             const setReg = try context.genInfo.availableRegReplaceReserve(reg.getRegister());
 
-            var instr = Instr{ .XorConst8 = .{} };
-            instr.XorConst8.dest = setReg;
-            instr.XorConst8.reg = reg.getRegister();
-            instr.XorConst8.byte = 1;
+            const instr = Instr{
+                .XorConst8 = .{
+                    .dest = setReg,
+                    .reg = reg.getRegister(),
+                    .byte = 1,
+                },
+            };
             _ = try context.genInfo.appendChunk(instr);
 
             return .{ .Bytes1 = setReg };
@@ -3046,9 +3056,12 @@ fn generateFallback(
         const condReg = try genBytecode(allocator, context, statement.condition) orelse
             return CodeGenError.ReturnedRegisterNotFound;
 
-        var instr = Instr{ .CmpConst8 = .{} };
-        instr.CmpConst8.reg = condReg.getRegister();
-        instr.CmpConst8.data = 1;
+        const instr = Instr{
+            .CmpConst8 = .{
+                .reg = condReg.getRegister(),
+                .data = 1,
+            },
+        };
         _ = try context.genInfo.appendChunk(instr);
 
         context.genInfo.releaseIfPossible(condReg.getRegister());
