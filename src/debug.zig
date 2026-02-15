@@ -1035,18 +1035,18 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(instr.reg2, 10, .lower, .{});
         },
-        .PushRegNegOffsetAny, .PopRegNegOffsetAny => unreachable,
-        .PushRegNegOffset8,
-        .PopRegNegOffset8,
+        .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
+        .PrePushRegNegOffset8,
+        .PostPopRegNegOffset8,
         => |instr| try printPushOrPopNRegNegOffset(instr, writer),
-        .PushRegNegOffset16,
-        .PopRegNegOffset16,
+        .PrePushRegNegOffset16,
+        .PostPopRegNegOffset16,
         => |instr| try printPushOrPopNRegNegOffset(instr, writer),
-        .PushRegNegOffset32,
-        .PopRegNegOffset32,
+        .PrePushRegNegOffset32,
+        .PostPopRegNegOffset32,
         => |instr| try printPushOrPopNRegNegOffset(instr, writer),
-        .PushRegNegOffset64,
-        .PopRegNegOffset64,
+        .PrePushRegNegOffset64,
+        .PostPopRegNegOffset64,
         => |instr| try printPushOrPopNRegNegOffset(instr, writer),
     }
 

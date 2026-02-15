@@ -149,17 +149,17 @@ pub const InstructionVariants = enum(u8) {
     AndSetReg, // inst, dest reg, reg1, reg2
     OrSetReg, // inst, dest reg, reg1, reg2
 
-    PushRegNegOffsetAny, // inst, top reg, offset (TBD by compiler)B
-    PushRegNegOffset8, // inst, top reg, offset 1B
-    PushRegNegOffset16, // inst, top reg, offset 2B
-    PushRegNegOffset32, // inst, top reg, offset 4B
-    PushRegNegOffset64, // inst, top reg, offset 8B
+    PrePushRegNegOffsetAny, // inst, top reg, offset (TBD by compiler)B
+    PrePushRegNegOffset8, // inst, top reg, offset 1B
+    PrePushRegNegOffset16, // inst, top reg, offset 2B
+    PrePushRegNegOffset32, // inst, top reg, offset 4B
+    PrePushRegNegOffset64, // inst, top reg, offset 8B
 
-    PopRegNegOffsetAny, // inst, top reg, offset (TBD by compiler)B
-    PopRegNegOffset8, // inst, top reg, offset 1B
-    PopRegNegOffset16, // inst, top reg, offset 2B
-    PopRegNegOffset32, // inst, top reg, offset 4B
-    PopRegNegOffset64, // inst, top reg, offset 8B
+    PostPopRegNegOffsetAny, // inst, top reg, offset (TBD by compiler)B
+    PostPopRegNegOffset8, // inst, top reg, offset 1B
+    PostPopRegNegOffset16, // inst, top reg, offset 2B
+    PostPopRegNegOffset32, // inst, top reg, offset 4B
+    PostPopRegNegOffset64, // inst, top reg, offset 8B
 
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
@@ -257,11 +257,11 @@ pub const InstructionVariants = enum(u8) {
             .And, .Or => 3,
             .AndSetReg, .OrSetReg => 4,
 
-            .PushRegNegOffsetAny, .PopRegNegOffsetAny => unreachable, // SHOULD NOT EXIST FOR WRITER
-            .PushRegNegOffset8, .PopRegNegOffset8 => 3,
-            .PushRegNegOffset16, .PopRegNegOffset16 => 4,
-            .PushRegNegOffset32, .PopRegNegOffset32 => 6,
-            .PushRegNegOffset64, .PopRegNegOffset64 => 10,
+            .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable, // SHOULD NOT EXIST FOR WRITER
+            .PrePushRegNegOffset8, .PostPopRegNegOffset8 => 3,
+            .PrePushRegNegOffset16, .PostPopRegNegOffset16 => 4,
+            .PrePushRegNegOffset32, .PostPopRegNegOffset32 => 6,
+            .PrePushRegNegOffset64, .PostPopRegNegOffset64 => 10,
         };
     }
 
@@ -273,8 +273,8 @@ pub const InstructionVariants = enum(u8) {
             // place holders, not actual instructions
             switch (val) {
                 .MovSpNegOffsetAny,
-                .PushRegNegOffsetAny,
-                .PopRegNegOffsetAny,
+                .PrePushRegNegOffsetAny,
+                .PostPopRegNegOffsetAny,
                 => continue,
                 else => {},
             }
@@ -382,17 +382,17 @@ pub const InstructionVariants = enum(u8) {
             .AndSetReg => "and_set_reg",
             .OrSetReg => "or_set_reg",
 
-            .PushRegNegOffsetAny => "push_reg_neg_offset_ANY",
-            .PushRegNegOffset8 => "push_reg_neg_offset_8",
-            .PushRegNegOffset16 => "push_reg_neg_offset_16",
-            .PushRegNegOffset32 => "push_reg_neg_offset_32",
-            .PushRegNegOffset64 => "push_reg_neg_offset_64",
+            .PrePushRegNegOffsetAny => "push_reg_neg_offset_ANY",
+            .PrePushRegNegOffset8 => "push_reg_neg_offset_8",
+            .PrePushRegNegOffset16 => "push_reg_neg_offset_16",
+            .PrePushRegNegOffset32 => "push_reg_neg_offset_32",
+            .PrePushRegNegOffset64 => "push_reg_neg_offset_64",
 
-            .PopRegNegOffsetAny => "pop_reg_neg_offset_ANY",
-            .PopRegNegOffset8 => "pop_reg_neg_offset_8",
-            .PopRegNegOffset16 => "pop_reg_neg_offset_16",
-            .PopRegNegOffset32 => "pop_reg_neg_offset_32",
-            .PopRegNegOffset64 => "pop_reg_neg_offset_64",
+            .PostPopRegNegOffsetAny => "pop_reg_neg_offset_ANY",
+            .PostPopRegNegOffset8 => "pop_reg_neg_offset_8",
+            .PostPopRegNegOffset16 => "pop_reg_neg_offset_16",
+            .PostPopRegNegOffset32 => "pop_reg_neg_offset_32",
+            .PostPopRegNegOffset64 => "pop_reg_neg_offset_64",
         };
     }
 };
@@ -616,17 +616,17 @@ pub const Instr = union(InstructionVariants) {
     AndSetReg: TwoOpResultInstr,
     OrSetReg: TwoOpResultInstr,
 
-    PushRegNegOffsetAny: PushOrPopRegNegOffset(u64),
-    PushRegNegOffset8: PushOrPopRegNegOffset(u8),
-    PushRegNegOffset16: PushOrPopRegNegOffset(u16),
-    PushRegNegOffset32: PushOrPopRegNegOffset(u32),
-    PushRegNegOffset64: PushOrPopRegNegOffset(u64),
+    PrePushRegNegOffsetAny: PushOrPopRegNegOffset(u64),
+    PrePushRegNegOffset8: PushOrPopRegNegOffset(u8),
+    PrePushRegNegOffset16: PushOrPopRegNegOffset(u16),
+    PrePushRegNegOffset32: PushOrPopRegNegOffset(u32),
+    PrePushRegNegOffset64: PushOrPopRegNegOffset(u64),
 
-    PopRegNegOffsetAny: PushOrPopRegNegOffset(u64),
-    PopRegNegOffset8: PushOrPopRegNegOffset(u8),
-    PopRegNegOffset16: PushOrPopRegNegOffset(u16),
-    PopRegNegOffset32: PushOrPopRegNegOffset(u32),
-    PopRegNegOffset64: PushOrPopRegNegOffset(u64),
+    PostPopRegNegOffsetAny: PushOrPopRegNegOffset(u64),
+    PostPopRegNegOffset8: PushOrPopRegNegOffset(u8),
+    PostPopRegNegOffset16: PushOrPopRegNegOffset(u16),
+    PostPopRegNegOffset32: PushOrPopRegNegOffset(u32),
+    PostPopRegNegOffset64: PushOrPopRegNegOffset(u64),
 
     pub fn getInstrLen(self: Self) u8 {
         const active = std.meta.activeTag(self);
@@ -1226,11 +1226,12 @@ pub const GenInfo = struct {
         _ = root;
         // if (!root) {
         if (self.procInfo.maxPreserveReg) |maxPreserve| {
-            const numRegs = maxPreserve - vmInfo.PRESERVE_REGISTER_START;
+            const numRegs = maxPreserve - vmInfo.PRESERVE_REGISTER_START + 1;
             stackOffset = numRegs * vmInfo.POINTER_SIZE;
+            self.procInfo.stackFrameSize += stackOffset;
 
             const pushRegInstr = Instr{
-                .PushRegNegOffsetAny = .{
+                .PrePushRegNegOffsetAny = .{
                     .offset = 0,
                     .reg = maxPreserve,
                 },
@@ -1246,7 +1247,7 @@ pub const GenInfo = struct {
             self.procInfo.startInstr = pushInstrChunk;
 
             const popRegInstr = Instr{
-                .PopRegNegOffsetAny = .{
+                .PostPopRegNegOffsetAny = .{
                     .offset = 0,
                     .reg = maxPreserve,
                 },
@@ -1378,17 +1379,20 @@ fn adjustInstruction(
                 try context.genInfo.labelByteInfo.waitForLabel(allocator, @intCast(labelId), data);
             }
         },
-        .PushRegNegOffsetAny => |instr| {
+        // not changed by stackOffset
+        .PrePushRegNegOffsetAny => |instr| {
+            std.debug.print(":: {d} - {d}\n", .{ frameSize, instr.offset });
             const newInstr = try adjustPushRegNegOffsetAnyInstr(
                 instr.reg,
-                stackOffset + frameSize - instr.offset,
+                frameSize - instr.offset,
             );
             chunk.data = newInstr;
         },
-        .PopRegNegOffsetAny => |instr| {
+        // not changed by stackOffset
+        .PostPopRegNegOffsetAny => |instr| {
             const newInstr = try adjustPopRegNegOffsetAnyInstr(
                 instr.reg,
-                stackOffset + frameSize - instr.offset,
+                frameSize - instr.offset,
             );
             chunk.data = newInstr;
         },
@@ -1401,25 +1405,25 @@ fn adjustPopRegNegOffsetAnyInstr(reg: TempRegister, offset: u64) !Instr {
 
     return switch (spOpSize) {
         .U8 => Instr{
-            .PopRegNegOffset8 = .{
+            .PostPopRegNegOffset8 = .{
                 .reg = reg,
                 .offset = @intCast(offset),
             },
         },
         .U16 => Instr{
-            .PopRegNegOffset16 = .{
+            .PostPopRegNegOffset16 = .{
                 .reg = reg,
                 .offset = @intCast(offset),
             },
         },
         .U32 => Instr{
-            .PopRegNegOffset32 = .{
+            .PostPopRegNegOffset32 = .{
                 .reg = reg,
                 .offset = @intCast(offset),
             },
         },
         .U64 => Instr{
-            .PopRegNegOffset64 = .{
+            .PostPopRegNegOffset64 = .{
                 .reg = reg,
                 .offset = offset,
             },
@@ -1432,25 +1436,25 @@ fn adjustPushRegNegOffsetAnyInstr(reg: TempRegister, offset: u64) !Instr {
 
     return switch (spOpSize) {
         .U8 => Instr{
-            .PushRegNegOffset8 = .{
+            .PrePushRegNegOffset8 = .{
                 .reg = reg,
                 .offset = @intCast(offset),
             },
         },
         .U16 => Instr{
-            .PushRegNegOffset16 = .{
+            .PrePushRegNegOffset16 = .{
                 .reg = reg,
                 .offset = @intCast(offset),
             },
         },
         .U32 => Instr{
-            .PushRegNegOffset32 = .{
+            .PrePushRegNegOffset32 = .{
                 .reg = reg,
                 .offset = @intCast(offset),
             },
         },
         .U64 => Instr{
-            .PushRegNegOffset64 = .{
+            .PrePushRegNegOffset64 = .{
                 .reg = reg,
                 .offset = offset,
             },
@@ -3465,20 +3469,20 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
             try writer.writeByte(@intCast(instr.reg1));
             try writer.writeByte(@intCast(instr.reg2));
         },
-        .PushRegNegOffsetAny, .PopRegNegOffsetAny => unreachable,
-        .PushRegNegOffset8, .PopRegNegOffset8 => |instr| {
+        .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
+        .PrePushRegNegOffset8, .PostPopRegNegOffset8 => |instr| {
             try writer.writeByte(@intCast(instr.reg));
             try writer.writeByte(instr.offset);
         },
-        .PushRegNegOffset16, .PopRegNegOffset16 => |instr| {
+        .PrePushRegNegOffset16, .PostPopRegNegOffset16 => |instr| {
             try writer.writeByte(@intCast(instr.reg));
             try writer.writeInt(u16, instr.offset, .little);
         },
-        .PushRegNegOffset32, .PopRegNegOffset32 => |instr| {
+        .PrePushRegNegOffset32, .PostPopRegNegOffset32 => |instr| {
             try writer.writeByte(@intCast(instr.reg));
             try writer.writeInt(u32, instr.offset, .little);
         },
-        .PushRegNegOffset64, .PopRegNegOffset64 => |instr| {
+        .PrePushRegNegOffset64, .PostPopRegNegOffset64 => |instr| {
             try writer.writeByte(@intCast(instr.reg));
             try writer.writeInt(u64, instr.offset, .little);
         },

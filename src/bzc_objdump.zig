@@ -308,18 +308,18 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[3], 10, .lower, .{});
         },
-        .PushRegNegOffsetAny, .PopRegNegOffsetAny => unreachable,
-        .PushRegNegOffset8,
-        .PopRegNegOffset8,
+        .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
+        .PrePushRegNegOffset8,
+        .PostPopRegNegOffset8,
         => try printPushOrPopRegNegOffset(u8, bytecode, writer),
-        .PushRegNegOffset16,
-        .PopRegNegOffset16,
+        .PrePushRegNegOffset16,
+        .PostPopRegNegOffset16,
         => try printPushOrPopRegNegOffset(u16, bytecode, writer),
-        .PushRegNegOffset32,
-        .PopRegNegOffset32,
+        .PrePushRegNegOffset32,
+        .PostPopRegNegOffset32,
         => try printPushOrPopRegNegOffset(u32, bytecode, writer),
-        .PushRegNegOffset64,
-        .PopRegNegOffset64,
+        .PrePushRegNegOffset64,
+        .PostPopRegNegOffset64,
         => try printPushOrPopRegNegOffset(u64, bytecode, writer),
     }
 
