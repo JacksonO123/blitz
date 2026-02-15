@@ -1,4 +1,4 @@
-fn thing() {}
+fn thing() { }
 
 let a = 2;
 let b = a + 1;

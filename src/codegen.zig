@@ -149,6 +149,12 @@ pub const InstructionVariants = enum(u8) {
     AndSetReg, // inst, dest reg, reg1, reg2
     OrSetReg, // inst, dest reg, reg1, reg2
 
+    PushNRegNegOffsetAny, // inst, count 1B, reg, offset (TBD by compiler)B
+    PushNRegNegOffset8, // inst, count 1B, reg, offset 1B
+    PushNRegNegOffset16, // inst, count 1B, reg, offset 2B
+    PushNRegNegOffset32, // inst, count 1B, reg, offset 4B
+    PushNRegNegOffset64, // inst, count 1B, reg, offset 8B
+
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
     }
@@ -244,6 +250,12 @@ pub const InstructionVariants = enum(u8) {
 
             .And, .Or => 3,
             .AndSetReg, .OrSetReg => 4,
+
+            .PushNRegNegOffsetAny => unreachable, // SHOULD NOT EXIST FOR WRITER
+            .PushNRegNegOffset8 => 4,
+            .PushNRegNegOffset16 => 5,
+            .PushNRegNegOffset32 => 7,
+            .PushNRegNegOffset64 => 11,
         };
     }
 
@@ -253,7 +265,7 @@ pub const InstructionVariants = enum(u8) {
             const val: Self = @enumFromInt(field.value);
 
             // place holders, not actual instructions
-            if (val == .MovSpNegOffsetAny) continue;
+            if (val == .MovSpNegOffsetAny or val == .PushNRegNegOffsetAny) continue;
 
             max = @max(val.getInstrLen(), max);
         }
@@ -357,6 +369,12 @@ pub const InstructionVariants = enum(u8) {
 
             .AndSetReg => "and_set_reg",
             .OrSetReg => "or_set_reg",
+
+            .PushNRegNegOffsetAny => "push_n_reg_neg_offset_ANY",
+            .PushNRegNegOffset8 => "push_n_reg_neg_offset_8",
+            .PushNRegNegOffset16 => "push_n_reg_neg_offset_16",
+            .PushNRegNegOffset32 => "push_n_reg_neg_offset_32",
+            .PushNRegNegOffset64 => "push_n_reg_neg_offset_64",
         };
     }
 };
@@ -452,9 +470,9 @@ const LoadAtRegOffset16 = struct {
 
 fn MulRegTAddReg(comptime T: type) type {
     return struct {
-        dest: TempRegister,
-        addReg: TempRegister,
-        mulReg: TempRegister,
+        dest: TempRegister = 0,
+        addReg: TempRegister = 0,
+        mulReg: TempRegister = 0,
         data: T,
     };
 }
@@ -462,6 +480,13 @@ fn MulRegTAddReg(comptime T: type) type {
 fn MovSpNegOffset(comptime T: type) type {
     return struct {
         reg: TempRegister = 0,
+        offset: T = 0,
+    };
+}
+
+fn PushNRegNegOffset(comptime T: type) type {
+    return struct {
+        registers: []TempRegister = &.{},
         offset: T = 0,
     };
 }
@@ -572,6 +597,12 @@ pub const Instr = union(InstructionVariants) {
 
     AndSetReg: TwoOpResultInstr,
     OrSetReg: TwoOpResultInstr,
+
+    PushNRegNegOffsetAny: PushNRegNegOffset(u64),
+    PushNRegNegOffset8: PushNRegNegOffset(u8),
+    PushNRegNegOffset16: PushNRegNegOffset(u16),
+    PushNRegNegOffset32: PushNRegNegOffset(u32),
+    PushNRegNegOffset64: PushNRegNegOffset(u64),
 
     pub fn getInstrLen(self: Self) u8 {
         const active = std.meta.activeTag(self);
@@ -1023,8 +1054,10 @@ pub const GenInfo = struct {
     }
 
     pub fn reserveRegister(self: *Self, reg: TempRegister) void {
-        const prevMax = if (self.procInfo.maxPreserveReg) |maxReg| maxReg else 0;
-        self.procInfo.maxPreserveReg = @max(prevMax, reg);
+        if (reg >= vmInfo.PRESERVE_REGISTER_START) {
+            const prevMax = if (self.procInfo.maxPreserveReg) |maxReg| maxReg else 0;
+            self.procInfo.maxPreserveReg = @max(prevMax, reg);
+        }
         self.registers.infos.items[reg].active = true;
     }
 
@@ -1145,31 +1178,43 @@ pub const GenInfo = struct {
 
         const spInstructions = try getSpIncInstructions(self.procInfo.stackFrameSize);
 
+        const numRegs = self.procInfo.maxPreserveReg - vmInfo.PRESERVE_REGISTER_START;
+        if (numRegs > 0) {
+            // const pushRegInstr = Instr {
+            //     .PushNRegNegOffsetAny = .{ .offset =  }
+            // }
+
+            var i: usize = 0;
+            while (i < numRegs) : (i += 1) {
+                // do smth
+            }
+        }
+
         self.byteCounter = vmInfo.VM_INFO_BYTECODE_LEN;
         try adjustInstructions(allocator, context, start, self.procInfo.stackFrameSize);
 
-        if (self.procInfo.stackFrameSize == 0) return;
+        if (self.procInfo.stackFrameSize > 0) {
+            self.byteCounter += spInstructions.add.getInstrLen() + spInstructions.sub.getInstrLen();
 
-        self.byteCounter += spInstructions.add.getInstrLen() + spInstructions.sub.getInstrLen();
+            const addChunk = try self.chunks.newChunk(spInstructions.add);
+            const subChunk = try self.chunks.newChunk(spInstructions.sub);
 
-        const addChunk = try self.chunks.newChunk(spInstructions.add);
-        const subChunk = try self.chunks.newChunk(spInstructions.sub);
+            if (start.prev) |prev| {
+                prev.next = addChunk;
+                addChunk.prev = prev;
+            }
 
-        if (start.prev) |prev| {
-            prev.next = addChunk;
-            addChunk.prev = prev;
+            start.prev = addChunk;
+            addChunk.next = start;
+
+            if (start == listStart) {
+                self.chunks.listStart = addChunk;
+            }
+
+            end.next = subChunk;
+            subChunk.prev = end;
+            self.chunks.listEnd = subChunk;
         }
-
-        start.prev = addChunk;
-        addChunk.next = start;
-
-        if (start == listStart) {
-            self.chunks.listStart = addChunk;
-        }
-
-        end.next = subChunk;
-        subChunk.prev = end;
-        self.chunks.listEnd = subChunk;
     }
 };
 
@@ -1207,11 +1252,10 @@ fn adjustInstruction(
         => |*instr| {
             instr.offset = @intCast(frameSize - instr.offset);
         },
-        .MovSpNegOffsetAny => |*instr| {
+        .MovSpNegOffsetAny => |instr| {
             const newInstr = try movSpNegOffset(instr.reg, frameSize - instr.offset);
             chunk.data = newInstr;
         },
-        .MovSpNegOffset16, .MovSpNegOffset32, .MovSpNegOffset64 => {},
         .Jump,
         .JumpEQ,
         .JumpNE,
@@ -1248,8 +1292,46 @@ fn adjustInstruction(
                 try context.genInfo.labelByteInfo.waitForLabel(allocator, @intCast(labelId), data);
             }
         },
+        .PushNRegNegOffsetAny => |instr| {
+            const newInstr = try adjustPushNRegNegOffsetAnyInstr(
+                instr.registers,
+                frameSize - instr.offset,
+            );
+            chunk.data = newInstr;
+        },
         else => {},
     }
+}
+
+fn adjustPushNRegNegOffsetAnyInstr(registers: []TempRegister, offset: u64) !Instr {
+    const spOpSize = try getOpSizeFromNum(offset);
+
+    return switch (spOpSize) {
+        .U8 => Instr{
+            .PushNRegNegOffset8 = .{
+                .registers = registers,
+                .offset = @intCast(offset),
+            },
+        },
+        .U16 => Instr{
+            .PushNRegNegOffset16 = .{
+                .registers = registers,
+                .offset = @intCast(offset),
+            },
+        },
+        .U32 => Instr{
+            .PushNRegNegOffset32 = .{
+                .registers = registers,
+                .offset = @intCast(offset),
+            },
+        },
+        .U64 => Instr{
+            .PushNRegNegOffset64 = .{
+                .registers = registers,
+                .offset = offset,
+            },
+        },
+    };
 }
 
 fn movSpNegOffset(reg: TempRegister, offset: u64) !Instr {
@@ -3257,6 +3339,35 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
             try writer.writeByte(@intCast(instr.dest));
             try writer.writeByte(@intCast(instr.reg1));
             try writer.writeByte(@intCast(instr.reg2));
+        },
+        .PushNRegNegOffsetAny => unreachable,
+        .PushNRegNegOffset8 => |instr| {
+            try writer.writeByte(@intCast(instr.registers.len));
+            for (instr.registers) |reg| {
+                try writer.writeByte(@intCast(reg));
+            }
+            try writer.writeByte(instr.offset);
+        },
+        .PushNRegNegOffset16 => |instr| {
+            try writer.writeByte(@intCast(instr.registers.len));
+            for (instr.registers) |reg| {
+                try writer.writeByte(@intCast(reg));
+            }
+            try writer.writeInt(u16, instr.offset, .little);
+        },
+        .PushNRegNegOffset32 => |instr| {
+            try writer.writeByte(@intCast(instr.registers.len));
+            for (instr.registers) |reg| {
+                try writer.writeByte(@intCast(reg));
+            }
+            try writer.writeInt(u32, instr.offset, .little);
+        },
+        .PushNRegNegOffset64 => |instr| {
+            try writer.writeByte(@intCast(instr.registers.len));
+            for (instr.registers) |reg| {
+                try writer.writeByte(@intCast(reg));
+            }
+            try writer.writeInt(u64, instr.offset, .little);
         },
     }
 }

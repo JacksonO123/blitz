@@ -479,9 +479,51 @@ fn interpretBytecode(
                 const reg2Value = runtimeInfo.registers[bytecode[current + 3]];
                 runtimeInfo.registers[dest] = @intFromBool(reg1Value == 1 or reg2Value == 1);
             },
+            .PushNRegNegOffsetAny => unreachable,
+            .PushNRegNegOffset8 => {
+                const count = bytecode[current + 1];
+                const offset = bytecode[1 + count];
+
+                var i: usize = 0;
+                while (i < count) : (i += 1) {
+                    const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[2 + i]]);
+                    @memcpy(runtimeInfo.stack.items[offset .. offset + 8], &byteData);
+                }
+            },
+            .PushNRegNegOffset16 => {
+                pushNRegNegOffset(u16, runtimeInfo, bytecode, current);
+            },
+            .PushNRegNegOffset32 => {
+                pushNRegNegOffset(u32, runtimeInfo, bytecode, current);
+            },
+            .PushNRegNegOffset64 => {
+                pushNRegNegOffset(u64, runtimeInfo, bytecode, current);
+            },
         }
 
         current += instLen;
+    }
+}
+
+fn pushNRegNegOffset(
+    comptime T: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const byteLen = @sizeOf(T);
+
+    const count = bytecode[current + 1];
+    const offset = std.mem.readInt(
+        T,
+        @ptrCast(bytecode[1 + count .. 1 + count + byteLen]),
+        .little,
+    );
+
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[2 + i]]);
+        @memcpy(runtimeInfo.stack.items[offset .. offset + 8], &byteData);
     }
 }
 

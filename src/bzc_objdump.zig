@@ -308,9 +308,29 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[3], 10, .lower, .{});
         },
+        .PushNRegNegOffsetAny => unreachable,
+        .PushNRegNegOffset8 => try printPushNRegNegOffset(u8, bytecode, writer),
+        .PushNRegNegOffset16 => try printPushNRegNegOffset(u16, bytecode, writer),
+        .PushNRegNegOffset32 => try printPushNRegNegOffset(u32, bytecode, writer),
+        .PushNRegNegOffset64 => try printPushNRegNegOffset(u64, bytecode, writer),
     }
 
     try writer.writeByte('\n');
+}
+
+fn printPushNRegNegOffset(comptime T: type, bytecode: []const u8, writer: *Writer) !void {
+    const byteLen = @sizeOf(T);
+
+    try writer.writeAll(" #");
+    const count = bytecode[1];
+    try writer.printInt(count, 10, .lower, .{});
+    var i: usize = count;
+    while (i < count) : (i += 1) {
+        try writer.writeAll(" r");
+        try writer.printInt(bytecode[2 + i], 10, .lower, .{});
+    }
+    try writer.writeByte(' ');
+    try writeHexDecNumberSlice(bytecode[1 + count .. 1 + count + byteLen], writer);
 }
 
 fn writeHexDecNumberSlice(constStr: []const u8, writer: *Writer) !void {
