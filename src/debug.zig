@@ -1035,9 +1035,29 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(instr.reg2, 10, .lower, .{});
         },
+        .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
+        .PrePushRegNegOffset8,
+        .PostPopRegNegOffset8,
+        => |instr| try printPushOrPopNRegNegOffset(instr, writer),
+        .PrePushRegNegOffset16,
+        .PostPopRegNegOffset16,
+        => |instr| try printPushOrPopNRegNegOffset(instr, writer),
+        .PrePushRegNegOffset32,
+        .PostPopRegNegOffset32,
+        => |instr| try printPushOrPopNRegNegOffset(instr, writer),
+        .PrePushRegNegOffset64,
+        .PostPopRegNegOffset64,
+        => |instr| try printPushOrPopNRegNegOffset(instr, writer),
     }
 
     try writer.writeByte('\n');
+}
+
+fn printPushOrPopNRegNegOffset(instr: anytype, writer: *Writer) !void {
+    try writer.writeAll(" to #");
+    try writer.printInt(instr.reg, 10, .lower, .{});
+    try writer.writeByte(' ');
+    try writer.printInt(instr.offset, 10, .lower, .{});
 }
 
 fn printInstName(inst: u8, writer: *Writer) !void {

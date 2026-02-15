@@ -1,9 +1,7 @@
-struct M { 
-    slice: u32[];
-}
+fn thing() { }
 
-let mut val = M {
-    slice = &[1, 2, 3],
-};
-let a = 4u64;
-let pa = &a;
+let a = 2;
+let b = a + 1;
+let c = b + a + 1;
+
+let d = 1 + thing();

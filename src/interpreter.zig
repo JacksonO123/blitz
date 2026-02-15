@@ -479,6 +479,8 @@ fn interpretBytecode(
                 const reg2Value = runtimeInfo.registers[bytecode[current + 3]];
                 runtimeInfo.registers[dest] = @intFromBool(reg1Value == 1 or reg2Value == 1);
             },
+            .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
+            else => {},
         }
 
         current += instLen;
