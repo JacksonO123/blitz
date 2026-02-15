@@ -149,11 +149,17 @@ pub const InstructionVariants = enum(u8) {
     AndSetReg, // inst, dest reg, reg1, reg2
     OrSetReg, // inst, dest reg, reg1, reg2
 
-    PushNRegNegOffsetAny, // inst, count 1B, reg, offset (TBD by compiler)B
-    PushNRegNegOffset8, // inst, count 1B, reg, offset 1B
-    PushNRegNegOffset16, // inst, count 1B, reg, offset 2B
-    PushNRegNegOffset32, // inst, count 1B, reg, offset 4B
-    PushNRegNegOffset64, // inst, count 1B, reg, offset 8B
+    PushRegNegOffsetAny, // inst, top reg, offset (TBD by compiler)B
+    PushRegNegOffset8, // inst, top reg, offset 1B
+    PushRegNegOffset16, // inst, top reg, offset 2B
+    PushRegNegOffset32, // inst, top reg, offset 4B
+    PushRegNegOffset64, // inst, top reg, offset 8B
+
+    PopRegNegOffsetAny, // inst, top reg, offset (TBD by compiler)B
+    PopRegNegOffset8, // inst, top reg, offset 1B
+    PopRegNegOffset16, // inst, top reg, offset 2B
+    PopRegNegOffset32, // inst, top reg, offset 4B
+    PopRegNegOffset64, // inst, top reg, offset 8B
 
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
@@ -251,11 +257,11 @@ pub const InstructionVariants = enum(u8) {
             .And, .Or => 3,
             .AndSetReg, .OrSetReg => 4,
 
-            .PushNRegNegOffsetAny => unreachable, // SHOULD NOT EXIST FOR WRITER
-            .PushNRegNegOffset8 => 4,
-            .PushNRegNegOffset16 => 5,
-            .PushNRegNegOffset32 => 7,
-            .PushNRegNegOffset64 => 11,
+            .PushRegNegOffsetAny, .PopRegNegOffsetAny => unreachable, // SHOULD NOT EXIST FOR WRITER
+            .PushRegNegOffset8, .PopRegNegOffset8 => 3,
+            .PushRegNegOffset16, .PopRegNegOffset16 => 4,
+            .PushRegNegOffset32, .PopRegNegOffset32 => 6,
+            .PushRegNegOffset64, .PopRegNegOffset64 => 10,
         };
     }
 
@@ -265,7 +271,13 @@ pub const InstructionVariants = enum(u8) {
             const val: Self = @enumFromInt(field.value);
 
             // place holders, not actual instructions
-            if (val == .MovSpNegOffsetAny or val == .PushNRegNegOffsetAny) continue;
+            switch (val) {
+                .MovSpNegOffsetAny,
+                .PushRegNegOffsetAny,
+                .PopRegNegOffsetAny,
+                => continue,
+                else => {},
+            }
 
             max = @max(val.getInstrLen(), max);
         }
@@ -370,11 +382,17 @@ pub const InstructionVariants = enum(u8) {
             .AndSetReg => "and_set_reg",
             .OrSetReg => "or_set_reg",
 
-            .PushNRegNegOffsetAny => "push_n_reg_neg_offset_ANY",
-            .PushNRegNegOffset8 => "push_n_reg_neg_offset_8",
-            .PushNRegNegOffset16 => "push_n_reg_neg_offset_16",
-            .PushNRegNegOffset32 => "push_n_reg_neg_offset_32",
-            .PushNRegNegOffset64 => "push_n_reg_neg_offset_64",
+            .PushRegNegOffsetAny => "push_reg_neg_offset_ANY",
+            .PushRegNegOffset8 => "push_reg_neg_offset_8",
+            .PushRegNegOffset16 => "push_reg_neg_offset_16",
+            .PushRegNegOffset32 => "push_reg_neg_offset_32",
+            .PushRegNegOffset64 => "push_reg_neg_offset_64",
+
+            .PopRegNegOffsetAny => "pop_reg_neg_offset_ANY",
+            .PopRegNegOffset8 => "pop_reg_neg_offset_8",
+            .PopRegNegOffset16 => "pop_reg_neg_offset_16",
+            .PopRegNegOffset32 => "pop_reg_neg_offset_32",
+            .PopRegNegOffset64 => "pop_reg_neg_offset_64",
         };
     }
 };
@@ -484,9 +502,9 @@ fn MovSpNegOffset(comptime T: type) type {
     };
 }
 
-fn PushNRegNegOffset(comptime T: type) type {
+fn PushOrPopRegNegOffset(comptime T: type) type {
     return struct {
-        registers: []TempRegister = &.{},
+        reg: TempRegister,
         offset: T = 0,
     };
 }
@@ -598,11 +616,17 @@ pub const Instr = union(InstructionVariants) {
     AndSetReg: TwoOpResultInstr,
     OrSetReg: TwoOpResultInstr,
 
-    PushNRegNegOffsetAny: PushNRegNegOffset(u64),
-    PushNRegNegOffset8: PushNRegNegOffset(u8),
-    PushNRegNegOffset16: PushNRegNegOffset(u16),
-    PushNRegNegOffset32: PushNRegNegOffset(u32),
-    PushNRegNegOffset64: PushNRegNegOffset(u64),
+    PushRegNegOffsetAny: PushOrPopRegNegOffset(u64),
+    PushRegNegOffset8: PushOrPopRegNegOffset(u8),
+    PushRegNegOffset16: PushOrPopRegNegOffset(u16),
+    PushRegNegOffset32: PushOrPopRegNegOffset(u32),
+    PushRegNegOffset64: PushOrPopRegNegOffset(u64),
+
+    PopRegNegOffsetAny: PushOrPopRegNegOffset(u64),
+    PopRegNegOffset8: PushOrPopRegNegOffset(u8),
+    PopRegNegOffset16: PushOrPopRegNegOffset(u16),
+    PopRegNegOffset32: PushOrPopRegNegOffset(u32),
+    PopRegNegOffset64: PushOrPopRegNegOffset(u64),
 
     pub fn getInstrLen(self: Self) u8 {
         const active = std.meta.activeTag(self);
@@ -668,14 +692,24 @@ const LoopInfo = struct {
         };
     }
 
-    pub fn appendBreak(self: *Self, allocator: Allocator, instr: *InstrChunk, label: vmInfo.LabelType) !void {
+    pub fn appendBreak(
+        self: *Self,
+        allocator: Allocator,
+        instr: *InstrChunk,
+        label: vmInfo.LabelType,
+    ) !void {
         try self.breaks.append(allocator, .{
             .chunk = instr,
             .label = label,
         });
     }
 
-    pub fn appendContinue(self: *Self, allocator: Allocator, instr: *InstrChunk, label: vmInfo.LabelType) !void {
+    pub fn appendContinue(
+        self: *Self,
+        allocator: Allocator,
+        instr: *InstrChunk,
+        label: vmInfo.LabelType,
+    ) !void {
         try self.continues.append(allocator, .{
             .chunk = instr,
             .label = label,
@@ -706,12 +740,6 @@ const VarGenInfo = struct {
     reg: RegisterContents,
 };
 
-const ProcInfo = struct {
-    stackFrameSize: u64,
-    startInstr: ?*InstrChunk,
-    maxPreserveReg: ?TempRegister,
-};
-
 const VAR_GEN_INFO_POOL_SIZE = 1024;
 const VarGenInfoPool = MemoryPool(VarGenInfo);
 
@@ -722,6 +750,7 @@ const GenInfoChunks = struct {
     const Self = @This();
 
     pool: *ChunkPool,
+    // for whole program instructions
     listStart: ?*InstrChunk,
     listEnd: ?*InstrChunk,
 
@@ -877,7 +906,13 @@ pub const WriteLocInfo = struct {
 pub const GenInfo = struct {
     const Self = @This();
 
-    procInfo: ProcInfo,
+    procInfo: struct {
+        stackFrameSize: u64,
+        // specifically for proc local instructions
+        startInstr: ?*InstrChunk,
+        endInstr: ?*InstrChunk,
+        maxPreserveReg: ?TempRegister,
+    },
     chunks: *GenInfoChunks,
     vmInfo: struct {
         stackStartSize: u32,
@@ -932,6 +967,7 @@ pub const GenInfo = struct {
             .procInfo = .{
                 .stackFrameSize = 0,
                 .startInstr = null,
+                .endInstr = null,
                 .maxPreserveReg = null,
             },
             .currentLabelId = 0,
@@ -955,16 +991,23 @@ pub const GenInfo = struct {
         const newChunk = try self.chunks.pool.create();
         newChunk.* = InstrChunk.init(data);
 
-        if (self.procInfo.startInstr == null) {
+        if (self.chunks.listStart == null) {
+            self.chunks.listStart = newChunk;
+            self.chunks.listEnd = newChunk;
+
             self.procInfo.startInstr = newChunk;
+            self.procInfo.endInstr = newChunk;
         }
 
-        if (self.chunks.listEnd) |last| {
-            last.next = newChunk;
-            newChunk.prev = last;
+        if (self.procInfo.endInstr) |endInstr| {
+            endInstr.next = newChunk;
+            newChunk.prev = endInstr;
+            self.procInfo.endInstr = newChunk;
             self.chunks.listEnd = newChunk;
         } else {
-            self.chunks.listStart = newChunk;
+            self.procInfo.startInstr = newChunk;
+            self.procInfo.endInstr = newChunk;
+            self.chunks.listEnd.?.next = newChunk;
             self.chunks.listEnd = newChunk;
         }
 
@@ -1169,35 +1212,76 @@ pub const GenInfo = struct {
         return isNotInRegRange(reg, vmInfo.PRESERVE_REGISTER_START, vmInfo.PRESERVE_REGISTER_END);
     }
 
-    pub fn finishProc(self: *Self, allocator: Allocator, context: *Context) !void {
+    pub fn newProc(self: *Self) void {
+        self.procInfo.startInstr = null;
+        self.procInfo.endInstr = null;
+    }
+
+    pub fn finishProc(self: *Self, allocator: Allocator, context: *Context, root: bool) !void {
+        try self.labelByteInfo.reserveLabelCount(allocator, self.currentLabelId);
+
+        const spInstrs = try getSpIncInstructions(self.procInfo.stackFrameSize);
+
+        var stackOffset: u64 = 0;
+        _ = root;
+        // if (!root) {
+        if (self.procInfo.maxPreserveReg) |maxPreserve| {
+            const numRegs = maxPreserve - vmInfo.PRESERVE_REGISTER_START;
+            stackOffset = numRegs * vmInfo.POINTER_SIZE;
+
+            const pushRegInstr = Instr{
+                .PushRegNegOffsetAny = .{
+                    .offset = 0,
+                    .reg = maxPreserve,
+                },
+            };
+            var pushInstrChunk = try self.chunks.newChunk(pushRegInstr);
+            pushInstrChunk.next = self.procInfo.startInstr;
+            self.procInfo.startInstr.?.prev = pushInstrChunk;
+
+            if (self.procInfo.startInstr == self.chunks.listStart) {
+                self.chunks.listStart = pushInstrChunk;
+            }
+
+            self.procInfo.startInstr = pushInstrChunk;
+
+            const popRegInstr = Instr{
+                .PopRegNegOffsetAny = .{
+                    .offset = 0,
+                    .reg = maxPreserve,
+                },
+            };
+            var popInstrChunk = try self.chunks.newChunk(popRegInstr);
+            popInstrChunk.prev = self.procInfo.endInstr;
+            self.procInfo.endInstr.?.next = popInstrChunk;
+            self.procInfo.endInstr = popInstrChunk;
+
+            if (self.procInfo.endInstr == self.chunks.listEnd) {
+                self.chunks.listStart = pushInstrChunk;
+            }
+
+            self.chunks.listEnd = popInstrChunk;
+        }
+        // }
+
         const listStart = self.chunks.listStart orelse return;
         const start = self.procInfo.startInstr orelse return;
         const end = self.chunks.listEnd orelse return;
 
-        try self.labelByteInfo.reserveLabelCount(allocator, self.currentLabelId);
-
-        const spInstructions = try getSpIncInstructions(self.procInfo.stackFrameSize);
-
-        const numRegs = self.procInfo.maxPreserveReg - vmInfo.PRESERVE_REGISTER_START;
-        if (numRegs > 0) {
-            // const pushRegInstr = Instr {
-            //     .PushNRegNegOffsetAny = .{ .offset =  }
-            // }
-
-            var i: usize = 0;
-            while (i < numRegs) : (i += 1) {
-                // do smth
-            }
-        }
-
         self.byteCounter = vmInfo.VM_INFO_BYTECODE_LEN;
-        try adjustInstructions(allocator, context, start, self.procInfo.stackFrameSize);
+        try adjustInstructions(
+            allocator,
+            context,
+            start,
+            self.procInfo.stackFrameSize,
+            stackOffset,
+        );
 
         if (self.procInfo.stackFrameSize > 0) {
-            self.byteCounter += spInstructions.add.getInstrLen() + spInstructions.sub.getInstrLen();
+            self.byteCounter += spInstrs.add.getInstrLen() + spInstrs.sub.getInstrLen();
 
-            const addChunk = try self.chunks.newChunk(spInstructions.add);
-            const subChunk = try self.chunks.newChunk(spInstructions.sub);
+            const addChunk = try self.chunks.newChunk(spInstrs.add);
+            const subChunk = try self.chunks.newChunk(spInstrs.sub);
 
             if (start.prev) |prev| {
                 prev.next = addChunk;
@@ -1223,10 +1307,11 @@ fn adjustInstructions(
     context: *Context,
     chunk: *InstrChunk,
     frameSize: u64,
+    stackOffset: u64,
 ) !void {
     var current: ?*InstrChunk = chunk;
     while (current) |instr| : (current = current.?.next) {
-        try adjustInstruction(allocator, context, instr, frameSize);
+        try adjustInstruction(allocator, context, instr, frameSize, stackOffset);
         context.genInfo.byteCounter += instr.data.getInstrLen();
     }
 }
@@ -1237,6 +1322,7 @@ fn adjustInstruction(
     context: *Context,
     chunk: *InstrChunk,
     frameSize: u64,
+    stackOffset: u64,
 ) !void {
     switch (chunk.data) {
         .Label => |label| {
@@ -1250,10 +1336,10 @@ fn adjustInstruction(
         .Store32AtSpNegOffset16,
         .Store64AtSpNegOffset16,
         => |*instr| {
-            instr.offset = @intCast(frameSize - instr.offset);
+            instr.offset = @intCast(stackOffset + frameSize - instr.offset);
         },
         .MovSpNegOffsetAny => |instr| {
-            const newInstr = try movSpNegOffset(instr.reg, frameSize - instr.offset);
+            const newInstr = try movSpNegOffset(instr.reg, stackOffset + frameSize - instr.offset);
             chunk.data = newInstr;
         },
         .Jump,
@@ -1292,10 +1378,17 @@ fn adjustInstruction(
                 try context.genInfo.labelByteInfo.waitForLabel(allocator, @intCast(labelId), data);
             }
         },
-        .PushNRegNegOffsetAny => |instr| {
-            const newInstr = try adjustPushNRegNegOffsetAnyInstr(
-                instr.registers,
-                frameSize - instr.offset,
+        .PushRegNegOffsetAny => |instr| {
+            const newInstr = try adjustPushRegNegOffsetAnyInstr(
+                instr.reg,
+                stackOffset + frameSize - instr.offset,
+            );
+            chunk.data = newInstr;
+        },
+        .PopRegNegOffsetAny => |instr| {
+            const newInstr = try adjustPopRegNegOffsetAnyInstr(
+                instr.reg,
+                stackOffset + frameSize - instr.offset,
             );
             chunk.data = newInstr;
         },
@@ -1303,31 +1396,62 @@ fn adjustInstruction(
     }
 }
 
-fn adjustPushNRegNegOffsetAnyInstr(registers: []TempRegister, offset: u64) !Instr {
+fn adjustPopRegNegOffsetAnyInstr(reg: TempRegister, offset: u64) !Instr {
     const spOpSize = try getOpSizeFromNum(offset);
 
     return switch (spOpSize) {
         .U8 => Instr{
-            .PushNRegNegOffset8 = .{
-                .registers = registers,
+            .PopRegNegOffset8 = .{
+                .reg = reg,
                 .offset = @intCast(offset),
             },
         },
         .U16 => Instr{
-            .PushNRegNegOffset16 = .{
-                .registers = registers,
+            .PopRegNegOffset16 = .{
+                .reg = reg,
                 .offset = @intCast(offset),
             },
         },
         .U32 => Instr{
-            .PushNRegNegOffset32 = .{
-                .registers = registers,
+            .PopRegNegOffset32 = .{
+                .reg = reg,
                 .offset = @intCast(offset),
             },
         },
         .U64 => Instr{
-            .PushNRegNegOffset64 = .{
-                .registers = registers,
+            .PopRegNegOffset64 = .{
+                .reg = reg,
+                .offset = offset,
+            },
+        },
+    };
+}
+
+fn adjustPushRegNegOffsetAnyInstr(reg: TempRegister, offset: u64) !Instr {
+    const spOpSize = try getOpSizeFromNum(offset);
+
+    return switch (spOpSize) {
+        .U8 => Instr{
+            .PushRegNegOffset8 = .{
+                .reg = reg,
+                .offset = @intCast(offset),
+            },
+        },
+        .U16 => Instr{
+            .PushRegNegOffset16 = .{
+                .reg = reg,
+                .offset = @intCast(offset),
+            },
+        },
+        .U32 => Instr{
+            .PushRegNegOffset32 = .{
+                .reg = reg,
+                .offset = @intCast(offset),
+            },
+        },
+        .U64 => Instr{
+            .PushRegNegOffset64 = .{
+                .reg = reg,
                 .offset = offset,
             },
         },
@@ -1361,8 +1485,9 @@ fn movSpNegOffset(reg: TempRegister, offset: u64) !Instr {
 
 pub fn codegenAst(allocator: Allocator, context: *Context, tree: ast.Ast) !void {
     context.genInfo.vmInfo.version = version.VERSION;
+    context.genInfo.newProc();
     _ = try genBytecode(allocator, context, tree.root);
-    try context.genInfo.finishProc(allocator, context);
+    try context.genInfo.finishProc(allocator, context, true);
 }
 
 fn writeIntSliceToInstr(
@@ -3340,33 +3465,21 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
             try writer.writeByte(@intCast(instr.reg1));
             try writer.writeByte(@intCast(instr.reg2));
         },
-        .PushNRegNegOffsetAny => unreachable,
-        .PushNRegNegOffset8 => |instr| {
-            try writer.writeByte(@intCast(instr.registers.len));
-            for (instr.registers) |reg| {
-                try writer.writeByte(@intCast(reg));
-            }
+        .PushRegNegOffsetAny, .PopRegNegOffsetAny => unreachable,
+        .PushRegNegOffset8, .PopRegNegOffset8 => |instr| {
+            try writer.writeByte(@intCast(instr.reg));
             try writer.writeByte(instr.offset);
         },
-        .PushNRegNegOffset16 => |instr| {
-            try writer.writeByte(@intCast(instr.registers.len));
-            for (instr.registers) |reg| {
-                try writer.writeByte(@intCast(reg));
-            }
+        .PushRegNegOffset16, .PopRegNegOffset16 => |instr| {
+            try writer.writeByte(@intCast(instr.reg));
             try writer.writeInt(u16, instr.offset, .little);
         },
-        .PushNRegNegOffset32 => |instr| {
-            try writer.writeByte(@intCast(instr.registers.len));
-            for (instr.registers) |reg| {
-                try writer.writeByte(@intCast(reg));
-            }
+        .PushRegNegOffset32, .PopRegNegOffset32 => |instr| {
+            try writer.writeByte(@intCast(instr.reg));
             try writer.writeInt(u32, instr.offset, .little);
         },
-        .PushNRegNegOffset64 => |instr| {
-            try writer.writeByte(@intCast(instr.registers.len));
-            for (instr.registers) |reg| {
-                try writer.writeByte(@intCast(reg));
-            }
+        .PushRegNegOffset64, .PopRegNegOffset64 => |instr| {
+            try writer.writeByte(@intCast(instr.reg));
             try writer.writeInt(u64, instr.offset, .little);
         },
     }

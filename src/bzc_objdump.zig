@@ -308,17 +308,25 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[3], 10, .lower, .{});
         },
-        .PushNRegNegOffsetAny => unreachable,
-        .PushNRegNegOffset8 => try printPushNRegNegOffset(u8, bytecode, writer),
-        .PushNRegNegOffset16 => try printPushNRegNegOffset(u16, bytecode, writer),
-        .PushNRegNegOffset32 => try printPushNRegNegOffset(u32, bytecode, writer),
-        .PushNRegNegOffset64 => try printPushNRegNegOffset(u64, bytecode, writer),
+        .PushRegNegOffsetAny, .PopRegNegOffsetAny => unreachable,
+        .PushRegNegOffset8,
+        .PopRegNegOffset8,
+        => try printPushOrPopRegNegOffset(u8, bytecode, writer),
+        .PushRegNegOffset16,
+        .PopRegNegOffset16,
+        => try printPushOrPopRegNegOffset(u16, bytecode, writer),
+        .PushRegNegOffset32,
+        .PopRegNegOffset32,
+        => try printPushOrPopRegNegOffset(u32, bytecode, writer),
+        .PushRegNegOffset64,
+        .PopRegNegOffset64,
+        => try printPushOrPopRegNegOffset(u64, bytecode, writer),
     }
 
     try writer.writeByte('\n');
 }
 
-fn printPushNRegNegOffset(comptime T: type, bytecode: []const u8, writer: *Writer) !void {
+fn printPushOrPopRegNegOffset(comptime T: type, bytecode: []const u8, writer: *Writer) !void {
     const byteLen = @sizeOf(T);
 
     try writer.writeAll(" #");
