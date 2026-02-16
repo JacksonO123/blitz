@@ -125,6 +125,8 @@ fn interpretBytecode(
         const instLen = inst.getInstrLen();
         switch (inst) {
             .Label => unreachable,
+            .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
+            .MovSpNegOffsetAny => unreachable,
             .Mov => {
                 runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.registers[bytecode[current + 2]];
             },
@@ -311,7 +313,6 @@ fn interpretBytecode(
             .SubSp64 => {
                 subSp(u64, runtimeInfo, bytecode, current);
             },
-            .MovSpNegOffsetAny => unreachable,
             .MovSpNegOffset16 => {
                 movSpNegOffset(u16, runtimeInfo, bytecode, current);
             },
@@ -479,11 +480,101 @@ fn interpretBytecode(
                 const reg2Value = runtimeInfo.registers[bytecode[current + 3]];
                 runtimeInfo.registers[dest] = @intFromBool(reg1Value == 1 or reg2Value == 1);
             },
-            .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
-            else => {},
+            .PrePushRegNegOffset8 => {
+                const topReg = bytecode[current + 1];
+                const offset = bytecode[current + 2];
+                const sp = runtimeInfo.ptrs.sp;
+
+                var i: u8 = vmInfo.PRESERVE_REGISTER_START;
+                while (i <= topReg) : (i += 1) {
+                    const byteValue: [8]u8 = @bitCast(runtimeInfo.registers[i]);
+                    @memcpy(
+                        runtimeInfo.stack.items[sp + offset + (8 * i) .. sp + offset + (8 * i) + 8],
+                        &byteValue,
+                    );
+                }
+            },
+            .PrePushRegNegOffset16 => {
+                prePushRegNegOffset(u16, runtimeInfo, bytecode, current);
+            },
+            .PrePushRegNegOffset32 => {
+                prePushRegNegOffset(u32, runtimeInfo, bytecode, current);
+            },
+            .PrePushRegNegOffset64 => {
+                prePushRegNegOffset(u64, runtimeInfo, bytecode, current);
+            },
+            .PostPopRegNegOffset8 => {
+                const topReg = bytecode[current + 1];
+                const offset = bytecode[current + 2];
+                const sp = runtimeInfo.ptrs.sp;
+
+                var i: u8 = vmInfo.PRESERVE_REGISTER_START;
+                while (i <= topReg) : (i += 1) {
+                    const byteValue = runtimeInfo.stack.items[sp + offset + (8 * i) .. sp + offset + (8 * i) + 8];
+                    const intValue = std.mem.readInt(u64, @ptrCast(byteValue), .little);
+                    runtimeInfo.registers[i] = intValue;
+                }
+            },
+            .PostPopRegNegOffset16 => {
+                postPushRegNegOffset(u16, runtimeInfo, bytecode, current);
+            },
+            .PostPopRegNegOffset32 => {
+                postPushRegNegOffset(u32, runtimeInfo, bytecode, current);
+            },
+            .PostPopRegNegOffset64 => {
+                postPushRegNegOffset(u32, runtimeInfo, bytecode, current);
+            },
         }
 
         current += instLen;
+    }
+}
+
+fn postPushRegNegOffset(
+    comptime T: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const byteLen = @sizeOf(T);
+    const topReg = bytecode[current + 1];
+    const offset = std.mem.readInt(
+        T,
+        @ptrCast(bytecode[current + 2 .. current + byteLen + 2]),
+        .little,
+    );
+    const sp = runtimeInfo.ptrs.sp;
+
+    var i: u8 = vmInfo.PRESERVE_REGISTER_START;
+    while (i <= topReg) : (i += 1) {
+        const byteValue = runtimeInfo.stack.items[sp + offset + (8 * i) .. sp + offset + (8 * i) + 8];
+        const intValue = std.mem.readInt(u64, @ptrCast(byteValue), .little);
+        runtimeInfo.registers[i] = intValue;
+    }
+}
+
+fn prePushRegNegOffset(
+    comptime T: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const byteLen = @sizeOf(T);
+    const topReg = bytecode[current + 1];
+    const offset = std.mem.readInt(
+        T,
+        @ptrCast(bytecode[current + 2 .. current + byteLen + 2]),
+        .little,
+    );
+    const sp = runtimeInfo.ptrs.sp;
+
+    var i: u8 = vmInfo.PRESERVE_REGISTER_START;
+    while (i <= topReg) : (i += 1) {
+        const byteValue: [8]u8 = @bitCast(runtimeInfo.registers[i]);
+        @memcpy(
+            runtimeInfo.stack.items[sp + offset + (8 * i) .. sp + offset + (8 * i) + 8],
+            &byteValue,
+        );
     }
 }
 
@@ -493,10 +584,10 @@ fn movSpNegOffset(
     bytecode: []const u8,
     current: u64,
 ) void {
-    const tBytes = @sizeOf(T);
+    const byteLen = @sizeOf(T);
     const offset = std.mem.readInt(
         T,
-        @ptrCast(bytecode[current + 2 .. current + 2 + tBytes]),
+        @ptrCast(bytecode[current + 2 .. current + 2 + byteLen]),
         .little,
     );
     runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.ptrs.sp - offset;

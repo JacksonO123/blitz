@@ -1,7 +1,8 @@
-fn thing() { }
+fn thing() u32 {
+    let a = 2;
+    let b = a + 1;
+    let c = b + a + 1;
+    return c;
+}
 
-let a = 2;
-let b = a + 1;
-let c = b + a + 1;
-
-let d = 1 + thing();
+let d = thing();
