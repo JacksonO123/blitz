@@ -156,8 +156,13 @@ pub const CustomType = struct {
     allowPrivateReads: bool,
 };
 
-const ErrorVariantType = struct {
+const EnumVariantType = struct {
     from: ?[]const u8,
+    variant: []const u8,
+};
+
+const ErrorVariantType = struct {
+    from: []const u8,
     variant: []const u8,
 };
 
@@ -184,7 +189,8 @@ const Types = enum {
     Function,
     StaticStructInstance,
     Error,
-    ErrorOrEnumVariant,
+    EnumVariant,
+    ErrorVariant,
     Enum,
     VarInfo,
 };
@@ -209,7 +215,8 @@ pub const AstTypes = union(Types) {
     Function: *FuncDecNode,
     StaticStructInstance: []const u8,
     Error: ErrorAstType,
-    ErrorOrEnumVariant: ErrorVariantType,
+    EnumVariant: EnumVariantType,
+    ErrorVariant: ErrorVariantType,
     Enum: []const u8,
     VarInfo: scanner.TypeAndAllocInfo,
 
@@ -243,7 +250,7 @@ pub const AstTypes = union(Types) {
 
             .Number => |num| return num.getAlignment(),
 
-            .Bool, .Char, .ErrorOrEnumVariant => 1,
+            .Bool, .Char, .EnumVariant, .ErrorVariant => 1,
 
             .Void,
             .Any,
@@ -279,7 +286,7 @@ pub const AstTypes = union(Types) {
             .Null, .RawNumber, .Undef => unreachable,
             .Void, .Any, .Generic, .Function, .Error, .Enum => 0,
             .String => 16,
-            .Bool, .Char, .ErrorOrEnumVariant => 1,
+            .Bool, .Char, .EnumVariant, .ErrorVariant => 1,
             .Number => |num| num.getSize(),
             .Pointer => |ptr| {
                 if (ptr.info.astType.* == .ArrayDec and ptr.info.astType.ArrayDec.size != null) {
@@ -674,7 +681,7 @@ const AstNodeVariants = enum {
     IndexValue,
     ErrorDec,
     Error,
-    InferErrorOrEnumVariant,
+    InferEnumVariant,
     EnumDec,
     Enum,
     Group,
@@ -719,7 +726,7 @@ pub const AstNodeUnion = union(AstNodeVariants) {
     IndexValue: IndexValueNode,
     ErrorDec: *const ErrorOrEnumDecNode,
     Error: []const u8,
-    InferErrorOrEnumVariant: []const u8,
+    InferEnumVariant: []const u8,
     EnumDec: *const ErrorOrEnumDecNode,
     Enum: []const u8,
     Group: *AstNode,
@@ -1539,7 +1546,7 @@ fn parseExpressionUtil(
             }
 
             const errOrEnumVariant = AstNodeUnion{
-                .InferErrorOrEnumVariant = context.getTokString(next),
+                .InferEnumVariant = context.getTokString(next),
             };
             return try context.pools.newNode(context, errOrEnumVariant.toAstNode());
         },

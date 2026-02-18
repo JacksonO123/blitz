@@ -155,11 +155,18 @@ pub fn printType(
             try writer.writeAll(enumName);
             try writer.writeByte(')');
         },
-        .ErrorOrEnumVariant => |err| {
+        .EnumVariant => |enumVariant| {
+            try writer.writeAll("variant [");
+            try writer.writeAll(enumVariant.variant);
+            try writer.writeAll("] from (");
+            try writer.writeAll(if (enumVariant.from) |from| from else "unknown");
+            try writer.writeByte(')');
+        },
+        .ErrorVariant => |err| {
             try writer.writeAll("variant [");
             try writer.writeAll(err.variant);
             try writer.writeAll("] from (");
-            try writer.writeAll(if (err.from) |from| from else "unknown");
+            try writer.writeAll(err.from);
             try writer.writeByte(')');
         },
         .Undef => {
@@ -535,7 +542,7 @@ pub fn printNode(context: *Context, node: *ast.AstNode, writer: *Writer) anyerro
             try writer.writeAll(" with initializer ");
             try printNode(context, init.initNode, writer);
         },
-        .InferErrorOrEnumVariant => |variant| {
+        .InferEnumVariant => |variant| {
             try writer.writeAll("infer error from variant ");
             try writer.writeAll(variant);
         },

@@ -109,9 +109,9 @@ pub fn compile(
             try debug.printAst(&context, tree, printWriter);
         }
 
+        try scanner.typeScan(allocator, tree, &context);
         // _ = format;
         // _ = fileWriter;
-        try scanner.typeScan(allocator, tree, &context);
         try codegen.codegenAst(allocator, &context, tree);
 
         if (printState == .All) {

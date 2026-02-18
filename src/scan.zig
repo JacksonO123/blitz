@@ -701,7 +701,7 @@ pub fn scanNode(
                     }
 
                     const errOrEnumType = try context.pools.newType(context, .{
-                        .ErrorOrEnumVariant = .{
+                        .ErrorVariant = .{
                             .from = err.name,
                             .variant = access.property,
                         },
@@ -715,7 +715,7 @@ pub fn scanNode(
                     }
 
                     const errOrEnumType = try context.pools.newType(context, .{
-                        .ErrorOrEnumVariant = .{
+                        .EnumVariant = .{
                             .from = enumName,
                             .variant = access.property,
                         },
@@ -1545,14 +1545,14 @@ pub fn scanNode(
 
             return arrayDecType.toAllocInfo(.Mut, .Allocated);
         },
-        .InferErrorOrEnumVariant => |variant| {
-            const errorOrEnumVariant = try context.pools.newType(context, .{
-                .ErrorOrEnumVariant = .{
+        .InferEnumVariant => |variant| {
+            const enumVariant = try context.pools.newType(context, .{
+                .EnumVariant = .{
                     .from = null,
                     .variant = variant,
                 },
             });
-            return errorOrEnumVariant.toAllocInfo(.Const, .Allocated);
+            return enumVariant.toAllocInfo(.Const, .Allocated);
         },
         .Break, .Continue => {
             if (!context.compInfo.inLoopScope()) {
@@ -2497,17 +2497,8 @@ pub fn matchTypesUtil(
         },
         .Error => |err| switch (type2) {
             .Error => |err2| return utils.compString(err.name, err2.name),
-            .ErrorOrEnumVariant => |err2| {
-                const matchesErr = a: {
-                    if (err2.from) |from| {
-                        break :a utils.compString(err.name, from);
-                    }
-
-                    const errDec = context.compInfo.getErrorDec(err.name).?;
-                    break :a utils.inStringArr(errDec.variants, err2.variant);
-                };
-
-                if (matchesErr) return true;
+            .ErrorVariant => |err2| {
+                if (utils.compString(err.name, err2.from)) return true;
 
                 if (err.payload) |payload| {
                     return matchTypesUtil(
@@ -2538,45 +2529,43 @@ pub fn matchTypesUtil(
                 return false;
             },
         },
-        .ErrorOrEnumVariant => |err| switch (type2) {
-            .Error => |err2| {
-                if (err.from) |from| {
-                    return utils.compString(err2.name, from);
-                }
-
-                const errDec = context.compInfo.getErrorDec(err2.name);
-                if (errDec) |dec| {
-                    return utils.inStringArr(dec.variants, err.variant);
-                }
-
-                return false;
-            },
+        .EnumVariant => |enumVariant| switch (type2) {
             .Enum => |enum2Name| {
-                if (err.from) |from| {
+                if (enumVariant.from) |from| {
                     return utils.compString(enum2Name, from);
                 }
 
                 const errDec = context.compInfo.getEnumDec(enum2Name);
                 if (errDec) |dec| {
-                    return utils.inStringArr(dec.variants, err.variant);
+                    return utils.inStringArr(dec.variants, enumVariant.variant);
                 }
 
                 return false;
             },
-            .ErrorOrEnumVariant => |errOrEnum2| {
-                const variantsMatch = utils.compString(err.variant, errOrEnum2.variant);
+            .EnumVariant => |enumVariant2| {
+                const variantsMatch = utils.compString(enumVariant.variant, enumVariant2.variant);
 
-                if (err.from != null and errOrEnum2.from != null) {
-                    return utils.compString(err.from.?, errOrEnum2.from.?) and variantsMatch;
+                if (enumVariant.from != null and enumVariant2.from != null) {
+                    const sourcesMatch = utils.compString(enumVariant.from.?, enumVariant2.from.?);
+                    return sourcesMatch and variantsMatch;
                 }
 
                 return variantsMatch;
             },
             else => false,
         },
+        .ErrorVariant => |err| switch (type2) {
+            .Error => |err2| utils.compString(err2.name, err.from),
+            .ErrorVariant => |variant| {
+                if (!utils.compString(err.from, variant.from)) return false;
+                if (!utils.compString(err.variant, variant.variant)) return false;
+                return true;
+            },
+            else => false,
+        },
         .Enum => |enumName| switch (type2) {
             .Enum => |enum2Name| return utils.compString(enumName, enum2Name),
-            .ErrorOrEnumVariant => |errOrEnum2| {
+            .EnumVariant => |errOrEnum2| {
                 if (errOrEnum2.from) |fromEnumName| {
                     return utils.compString(enumName, fromEnumName);
                 }

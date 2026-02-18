@@ -162,10 +162,18 @@ pub fn cloneAstTypes(
                 },
             };
         },
-        .ErrorOrEnumVariant => |err| {
+        .EnumVariant => |enumVariant| {
             return .{
-                .ErrorOrEnumVariant = .{
-                    .from = if (err.from) |from| from else null,
+                .EnumVariant = .{
+                    .from = enumVariant.from,
+                    .variant = enumVariant.variant,
+                },
+            };
+        },
+        .ErrorVariant => |err| {
+            return .{
+                .ErrorVariant = .{
+                    .from = err.from,
                     .variant = err.variant,
                 },
             };
@@ -503,8 +511,8 @@ pub fn cloneAstNodeUnion(
         .Error => |err| return .{
             .Error = err,
         },
-        .InferErrorOrEnumVariant => |err| return .{
-            .InferErrorOrEnumVariant = err,
+        .InferEnumVariant => |err| return .{
+            .InferEnumVariant = err,
         },
         .Group => |group| return .{
             .Group = try cloneAstNodePtrMut(allocator, context, group, withGenDef),
