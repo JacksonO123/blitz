@@ -1002,7 +1002,10 @@ fn parseStatement(
                     const valueSetVariant = AstNodeUnion{
                         .ValueSet = .{
                             .setNode = setNode,
-                            .value = try context.pools.newNode(context, variableVariant.toAstNode()),
+                            .value = try context.pools.newNode(
+                                context,
+                                variableVariant.toAstNode(),
+                            ),
                         },
                     };
                     return try context.pools.newNode(context, valueSetVariant.toAstNode());
@@ -1027,7 +1030,10 @@ fn parseStatement(
                         .VarEqOp = .{
                             .opType = tokenTypeToOpType(next.type),
                             .value = incNode,
-                            .variable = try context.pools.newNode(context, variableVariant.toAstNode()),
+                            .variable = try context.pools.newNode(
+                                context,
+                                variableVariant.toAstNode(),
+                            ),
                         },
                     };
                     return try context.pools.newNode(context, varEqOpVariant.toAstNode());
@@ -1050,7 +1056,10 @@ fn parseStatement(
                     const variableVariant = AstNodeUnion{
                         .Variable = context.getTokString(first),
                     };
-                    const variableNode = try context.pools.newNode(context, variableVariant.toAstNode());
+                    const variableNode = try context.pools.newNode(
+                        context,
+                        variableVariant.toAstNode(),
+                    );
                     return parsePropertyAccess(allocator, context, variableNode, .Statement);
                 },
                 .LParen => {

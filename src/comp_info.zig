@@ -328,7 +328,12 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn prepareForAst(self: *Self, allocator: Allocator, context: *Context, writer: *Writer) !void {
+    pub fn prepareForAst(
+        self: *Self,
+        allocator: Allocator,
+        context: *Context,
+        writer: *Writer,
+    ) !void {
         self.preAst = false;
 
         {
@@ -429,7 +434,12 @@ pub const CompInfo = struct {
         }
     }
 
-    pub fn getGeneric(self: *Self, allocator: Allocator, context: *Context, name: []const u8) !?scanner.TypeAndAllocInfo {
+    pub fn getGeneric(
+        self: *Self,
+        allocator: Allocator,
+        context: *Context,
+        name: []const u8,
+    ) !?scanner.TypeAndAllocInfo {
         var genScope: ?*TypeScope = self.genericScopes.getCurrentScope();
         defer self.genericScopes.resetLeakIndex();
         var capture = false;

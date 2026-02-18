@@ -1020,7 +1020,11 @@ pub const GenInfo = struct {
         return res;
     }
 
-    fn getAvailableRegisterRange(self: *Self, comptime start: u64, comptime end: u64) !TempRegister {
+    fn getAvailableRegisterRange(
+        self: *Self,
+        comptime start: u64,
+        comptime end: u64,
+    ) !TempRegister {
         // searches linearly to ensure lowest register numbers are used for
         // (slightly) better caching in vm, also makes the bytecode prettier
         const tempItems = self.registers.infos.items[start..];
