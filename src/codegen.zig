@@ -977,7 +977,7 @@ pub const GenInfo = struct {
 
     pub fn writeChunks(self: *Self, writer: *Writer) !void {
         try writer.writeByte(self.vmInfo.version);
-        var buf: [vmInfo.START_STACK_SIZE]u8 = undefined;
+        var buf: [vmInfo.START_STACK_TYPE_SIZE]u8 = undefined;
         std.mem.writeInt(vmInfo.StartStackType, &buf, self.vmInfo.stackStartSize, .little);
         try writer.writeAll(&buf);
 
