@@ -10,7 +10,7 @@ pub const NUM_REGISTERS = std.math.maxInt(RuntimeRegister);
 
 pub const StartStackType = u32;
 pub const START_STACK_TYPE_SIZE = @sizeOf(StartStackType);
-pub const VM_INFO_BYTECODE_LEN = @sizeOf(version) + START_STACK_TYPE_SIZE;
+pub const VM_INFO_BYTECODE_LEN = @sizeOf(@TypeOf(version)) + START_STACK_TYPE_SIZE;
 pub const TempRegister = u32;
 pub const LabelType = u32;
 

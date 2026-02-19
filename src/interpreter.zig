@@ -295,6 +295,15 @@ fn interpretBytecode(
                 const byte = bytecode[current + 3];
                 runtimeInfo.registers[bytecode[current + 1]] = reg1Val ^ byte;
             },
+            .AddSp8 => {
+                const amount = bytecode[current + 1];
+                runtimeInfo.ptrs.sp += amount;
+                try ensureStackCapacityAndLength(
+                    allocator,
+                    runtimeInfo.stack,
+                    runtimeInfo.ptrs.sp,
+                );
+            },
             .AddSp16 => {
                 try addSp(u16, allocator, runtimeInfo, bytecode, current);
             },
@@ -303,6 +312,10 @@ fn interpretBytecode(
             },
             .AddSp64 => {
                 try addSp(u64, allocator, runtimeInfo, bytecode, current);
+            },
+            .SubSp8 => {
+                const amount = bytecode[current + 1];
+                runtimeInfo.ptrs.sp -= amount;
             },
             .SubSp16 => {
                 subSp(u16, runtimeInfo, bytecode, current);

@@ -204,6 +204,10 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
             try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[3..4], writer);
         },
+        .AddSp8, .SubSp8 => {
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[1..2], writer);
+        },
         .AddSp16, .SubSp16 => {
             try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[1..3], writer);

@@ -766,7 +766,7 @@ pub fn printTokens(tokens: []const tokenizer.Token, code: []u8, writer: *Writer)
 }
 
 pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
-    const chunk = context.genInfo.chunks.listStart orelse return;
+    const procList = context.genInfo.procList orelse return;
 
     try writer.writeAll("blitz bytecode version ");
     try writer.printInt(context.genInfo.vmInfo.version, 10, .lower, .{});
@@ -780,19 +780,22 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     const numInstrLenDigits = utils.getNumberDigitCount(u8, codegen.Instr.maxInstrSize());
 
     var byteCounter: usize = vmInfo.VM_INFO_BYTECODE_LEN;
-    var next: ?*codegen.InstrChunk = chunk;
-    while (next) |nextChunk| : (next = nextChunk.next) {
-        if (nextChunk.data == .Label) continue;
+    var procOrNull: ?*codegen.ProcChunk = procList;
+    while (procOrNull) |proc| : (procOrNull = proc.next) {
+        var instrOrNull = proc.startInstr;
+        while (instrOrNull) |instr| : (instrOrNull = instr.next) {
+            if (instr.data == .Label) continue;
 
-        const chunkLen = nextChunk.data.getInstrLen();
-        try writer.writeByte('[');
-        try writer.printInt(byteCounter, 10, .lower, .{ .width = numDigits, .fill = '.' });
-        try writer.writeAll("] (");
-        try writer.printInt(chunkLen, 10, .lower, .{ .width = numInstrLenDigits, .fill = '.' });
-        try writer.writeAll(") ");
+            const chunkLen = instr.data.getInstrLen();
+            try writer.writeByte('[');
+            try writer.printInt(byteCounter, 10, .lower, .{ .width = numDigits, .fill = '.' });
+            try writer.writeAll("] (");
+            try writer.printInt(chunkLen, 10, .lower, .{ .width = numInstrLenDigits, .fill = '.' });
+            try writer.writeAll(") ");
 
-        try printChunk(nextChunk, writer);
-        byteCounter += chunkLen;
+            try printChunk(instr, writer);
+            byteCounter += chunkLen;
+        }
     }
 
     try writer.print("total bytes: {d} ({d} vm info)\n", .{
@@ -941,6 +944,10 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
             try writer.printInt(instr.reg, 10, .lower, .{});
             try writer.writeByte(' ');
             try writeHexDecNumber(u8, instr.byte, writer);
+        },
+        .AddSp8, .SubSp8 => |instr| {
+            try writer.writeByte(' ');
+            try writeHexDecNumber(u8, instr, writer);
         },
         .AddSp16, .SubSp16 => |instr| {
             try writer.writeByte(' ');
