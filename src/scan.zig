@@ -176,7 +176,7 @@ const StructInitMemberInfo = struct {
     defInfo: ast.AstTypeInfo,
 };
 
-pub fn typeScan(allocator: Allocator, tree: ast.Ast, context: *Context) !void {
+pub fn typeScan(allocator: Allocator, context: *Context, tree: ast.Ast) !void {
     while (context.compInfo.variableScopes.scopes.items.len > 1) {
         return ScanError.ScanStartedInLowerScope;
     }

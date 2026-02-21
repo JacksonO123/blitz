@@ -109,7 +109,7 @@ pub fn compile(
             try debug.printAst(&context, tree, printWriter);
         }
 
-        try scanner.typeScan(allocator, tree, &context);
+        try scanner.typeScan(allocator, &context, tree);
         // _ = format;
         // _ = fileWriter;
         try codegen.codegenAst(allocator, &context, tree);

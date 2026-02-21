@@ -80,6 +80,7 @@ pub const CompInfo = struct {
     genericCaptures: *ScopeUtil(*TypeScope, pools.releaseGenericCaptures),
     functionCaptures: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
     parsedGenerics: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
+    attributeSet: *StringHashMap(void),
     scopeTypes: *ArrayList(ScopeType),
     functions: *StringHashMap(*ast.FuncDecNode),
     functionsInScope: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
@@ -166,6 +167,12 @@ pub const CompInfo = struct {
             try hoistedEnumNames.put(name, null);
         }
 
+        const attributeSetPtr = try utils.createMut(
+            StringHashMap(void),
+            allocator,
+            StringHashMap(void).init(allocator),
+        );
+
         return Self{
             .hoistedDecs = .{
                 .structs = hoistedStructNames,
@@ -176,6 +183,7 @@ pub const CompInfo = struct {
             .functionCaptures = functionCaptures,
             .genericCaptures = genericCaptures,
             .parsedGenerics = parsedGenerics,
+            .attributeSet = attributeSetPtr,
             .scopeTypes = scopeTypesPtr,
             .functions = functions,
             .functionsInScope = functionsInScope,

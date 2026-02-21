@@ -161,6 +161,7 @@ pub fn logParseError(context: *Context, err: ast.ParseError, writer: *Writer) vo
         error.UnexpectedSelfParamOnStaticFunction => "unexpected self parameter on static function",
         error.EnumDefinedInLowerScope => "enum defined in lower scope",
         error.ExpectedNameForEnum => "expected name for enum",
+        error.ExpectedUniqueStructDecAttribute => "expected unique struct dec attribute",
         else => @errorName(err),
     };
 

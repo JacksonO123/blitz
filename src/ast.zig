@@ -801,6 +801,7 @@ pub const AstError = error{
     ExpectedNameForEnum,
     StructMethodsCannotDefineCaptureGroups,
     EmptyFunctionCaptures,
+    ExpectedUniqueStructDecAttribute,
 } || TokenError;
 
 pub const ParseError = AstError || Allocator.Error;
@@ -1258,6 +1259,7 @@ fn parseStructDec(allocator: Allocator, context: *Context) !?*AstNode {
     }
 
     const attributes = try parseStructAttributes(allocator, context, structName);
+    context.compInfo.attributeSet.clearRetainingCapacity();
 
     const structDecVariant = AstNodeUnion{
         .StructDec = try utils.createMut(StructDecNode, allocator, .{
@@ -1280,8 +1282,20 @@ fn parseStructAttributes(
 
     var current = try context.tokenUtil.peak();
     while (current.type != .RBrace) {
+        const prePos = context.tokenUtil.pos;
         const attr = try parseStructAttribute(allocator, context, structName);
         try attributes.append(allocator, attr);
+
+        if (context.compInfo.attributeSet.contains(attr.name)) {
+            context.tokenUtil.pos = prePos;
+            const next = try context.tokenUtil.take();
+            if (next.type == .Pub or next.type == .Prot) {
+                _ = try context.tokenUtil.take();
+            }
+            return AstError.ExpectedUniqueStructDecAttribute;
+        }
+
+        try context.compInfo.attributeSet.put(attr.name, {});
 
         if (attr.attr == .Member) {
             try context.tokenUtil.expectToken(.Semicolon);
