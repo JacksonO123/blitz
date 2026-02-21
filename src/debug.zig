@@ -766,8 +766,6 @@ pub fn printTokens(tokens: []const tokenizer.Token, code: []u8, writer: *Writer)
 }
 
 pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
-    const procList = context.genInfo.procList orelse return;
-
     try writer.writeAll("blitz bytecode version ");
     try writer.printInt(context.genInfo.vmInfo.version, 10, .lower, .{});
     try writer.writeByte('\n');
@@ -780,21 +778,18 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     const numInstrLenDigits = utils.getNumberDigitCount(u8, codegen.Instr.maxInstrSize());
 
     var byteCounter: usize = vmInfo.VM_INFO_BYTECODE_LEN;
-    var procOrNull: ?*codegen.ProcChunk = procList;
-    while (procOrNull) |proc| : (procOrNull = proc.next) {
-        for (proc.instrs.items) |instr| {
-            if (instr == .Label) continue;
+    for (context.genInfo.instrList.items) |instr| {
+        if (instr == .Label or instr == .Label) continue;
 
-            const chunkLen = instr.getInstrLen();
-            try writer.writeByte('[');
-            try writer.printInt(byteCounter, 10, .lower, .{ .width = numDigits, .fill = '.' });
-            try writer.writeAll("] (");
-            try writer.printInt(chunkLen, 10, .lower, .{ .width = numInstrLenDigits, .fill = '.' });
-            try writer.writeAll(") ");
+        const chunkLen = instr.getInstrLen();
+        try writer.writeByte('[');
+        try writer.printInt(byteCounter, 10, .lower, .{ .width = numDigits, .fill = '.' });
+        try writer.writeAll("] (");
+        try writer.printInt(chunkLen, 10, .lower, .{ .width = numInstrLenDigits, .fill = '.' });
+        try writer.writeAll(") ");
 
-            try printChunk(instr, writer);
-            byteCounter += chunkLen;
-        }
+        try printChunk(instr, writer);
+        byteCounter += chunkLen;
     }
 
     try writer.print("total bytes: {d} ({d} vm info)\n", .{
@@ -806,7 +801,7 @@ fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
     try writer.writeAll(instr.toString());
 
     switch (instr) {
-        .Label => {},
+        .Label, .NoOp, .Ret => {},
         .SetReg64 => |inner| {
             try writer.writeAll(" r");
             try writer.printInt(inner.reg, 10, .lower, .{});

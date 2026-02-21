@@ -53,6 +53,7 @@ const sizeToOpSizeTuple = .{
 pub const InstructionVariants = enum(u8) {
     const Self = @This();
 
+    NoOp, // OB (not in output)
     Label, // 0B (not in output)
 
     SetReg64, // inst, reg, 8B data
@@ -163,12 +164,15 @@ pub const InstructionVariants = enum(u8) {
     PostPopRegNegOffset32, // inst, top reg, offset 4B
     PostPopRegNegOffset64, // inst, top reg, offset 8B
 
+    Ret,
+
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
     }
 
     pub fn getInstrLen(self: Self) u8 {
         return switch (self) {
+            .NoOp => 0,
             .Label => 0,
 
             .SetReg64 => 10,
@@ -265,6 +269,8 @@ pub const InstructionVariants = enum(u8) {
             .PrePushRegNegOffset16, .PostPopRegNegOffset16 => 4,
             .PrePushRegNegOffset32, .PostPopRegNegOffset32 => 6,
             .PrePushRegNegOffset64, .PostPopRegNegOffset64 => 10,
+
+            .Ret => 1,
         };
     }
 
@@ -289,6 +295,7 @@ pub const InstructionVariants = enum(u8) {
 
     pub fn toString(self: Self) []const u8 {
         return switch (self) {
+            .NoOp => "noop",
             .Label => "(label)",
 
             .SetReg64 => "set_reg_64",
@@ -398,6 +405,8 @@ pub const InstructionVariants = enum(u8) {
             .PostPopRegNegOffset16 => "pop_reg_neg_offset_16",
             .PostPopRegNegOffset32 => "pop_reg_neg_offset_32",
             .PostPopRegNegOffset64 => "pop_reg_neg_offset_64",
+
+            .Ret => "ret",
         };
     }
 };
@@ -517,6 +526,7 @@ fn PushOrPopRegNegOffset(comptime T: type) type {
 pub const Instr = union(InstructionVariants) {
     const Self = @This();
 
+    NoOp: void,
     Label: vmInfo.LabelType,
 
     SetReg64: SetRegInstr(u64),
@@ -634,6 +644,8 @@ pub const Instr = union(InstructionVariants) {
     PostPopRegNegOffset16: PushOrPopRegNegOffset(u16),
     PostPopRegNegOffset32: PushOrPopRegNegOffset(u32),
     PostPopRegNegOffset64: PushOrPopRegNegOffset(u64),
+
+    Ret: void,
 
     pub fn getInstrLen(self: Self) u8 {
         const active = std.meta.activeTag(self);
@@ -865,26 +877,17 @@ pub const WriteLocInfo = struct {
     value: u64,
 };
 
-pub const ProcChunk = struct {
-    const Self = @This();
-
-    next: ?*ProcChunk = null,
+pub const Proc = struct {
     stackFrameSize: u64 = 0,
-    // specifically for proc local instructions
-    instrs: *ArrayList(Instr),
+    startIndex: usize,
     maxPreserveReg: ?TempRegister = null,
-
-    pub fn init(allocator: Allocator) !Self {
-        const instrsPtr = try utils.createMut(ArrayList(Instr), allocator, .empty);
-        return .{ .instrs = instrsPtr };
-    }
 };
 
 pub const GenInfo = struct {
     const Self = @This();
 
-    procList: ?*ProcChunk = null,
-    currentProc: ProcChunk,
+    instrList: *ArrayList(Instr),
+    currentProc: Proc,
     vmInfo: struct {
         stackStartSize: u32,
         version: u8,
@@ -918,7 +921,13 @@ pub const GenInfo = struct {
         const labelByteInfo = try LabelByteInfo.init(allocator);
         const labelByteInfoPtr = try utils.createMut(LabelByteInfo, allocator, labelByteInfo);
 
+        const instrListPtr = try utils.createMut(ArrayList(Instr), allocator, .empty);
+
         return .{
+            .instrList = instrListPtr,
+            .currentProc = .{
+                .startIndex = 0,
+            },
             .vmInfo = .{
                 .stackStartSize = 0,
                 .version = 0,
@@ -926,7 +935,6 @@ pub const GenInfo = struct {
             .varGenInfoPool = varGenInfoPool,
             .varNameReg = varNameReg,
             .byteCounter = 0,
-            .currentProc = try ProcChunk.init(allocator),
             .settings = .{},
             .loopInfo = loopInfoPtr,
             .registers = .{
@@ -943,11 +951,8 @@ pub const GenInfo = struct {
         std.mem.writeInt(vmInfo.StartStackType, &buf, self.vmInfo.stackStartSize, .little);
         try writer.writeAll(&buf);
 
-        var currentProc = self.procList;
-        while (currentProc) |procChunk| : (currentProc = procChunk.next) {
-            for (procChunk.instrs.items) |instr| {
-                try writeChunk(instr, writer);
-            }
+        for (self.instrList.items) |instr| {
+            try writeChunk(instr, writer);
         }
     }
 
@@ -956,8 +961,8 @@ pub const GenInfo = struct {
     }
 
     pub fn appendChunkAndReturn(self: *Self, allocator: Allocator, instr: Instr) !*Instr {
-        try self.currentProc.instrs.append(allocator, instr);
-        return &self.currentProc.instrs.items[self.currentProc.instrs.items.len - 1];
+        try self.instrList.append(allocator, instr);
+        return &self.instrList.items[self.instrList.items.len - 1];
     }
 
     pub fn takeLabelId(self: *Self) vmInfo.LabelType {
@@ -1162,39 +1167,27 @@ pub const GenInfo = struct {
         return isNotInRegRange(reg, vmInfo.PRESERVE_REGISTER_START, vmInfo.PRESERVE_REGISTER_END);
     }
 
-    pub fn appendAndCreateNewProc(self: *Self, allocator: Allocator) !void {
-        const currentProcPtr = try utils.createMut(ProcChunk, allocator, self.currentProc);
+    pub fn newProc(self: *Self, allocator: Allocator) !void {
+        // noop for possible sp add instr
+        try self.instrList.append(allocator, .{ .NoOp = {} });
+        const startIndex = self.instrList.items.len - 1;
+        // noop or possible register push instr
+        try self.instrList.append(allocator, .{ .NoOp = {} });
 
-        if (self.procList) |list| {
-            self.currentProc.next = list;
-        }
-
-        self.procList = currentProcPtr;
-        self.currentProc = try ProcChunk.init(allocator);
+        self.currentProc = .{
+            .startIndex = startIndex,
+        };
     }
 
-    pub fn finishAllProc(self: *Self, allocator: Allocator, context: *Context, root: bool) !void {
+    pub fn finishProc(self: *Self, allocator: Allocator, context: *Context, root: bool) !void {
         try self.labelByteInfo.reserveLabelCount(allocator, self.currentLabelId);
 
-        var current = self.procList;
-        while (current) |proc| : (current = proc.next) {
-            try self.finishProc(allocator, context, proc, root);
-        }
-    }
-
-    fn finishProc(
-        self: *Self,
-        allocator: Allocator,
-        context: *Context,
-        proc: *ProcChunk,
-        root: bool,
-    ) !void {
         var stackOffset: u64 = 0;
         if (!root) {
-            if (proc.maxPreserveReg) |maxPreserve| {
+            if (self.currentProc.maxPreserveReg) |maxPreserve| {
                 const numRegs = maxPreserve - vmInfo.PRESERVE_REGISTER_START + 1;
                 stackOffset = numRegs * vmInfo.POINTER_SIZE;
-                proc.stackFrameSize += stackOffset;
+                self.currentProc.stackFrameSize += stackOffset;
 
                 const pushRegInstr = Instr{
                     .PrePushRegNegOffsetAny = .{
@@ -1202,7 +1195,7 @@ pub const GenInfo = struct {
                         .reg = maxPreserve,
                     },
                 };
-                _ = pushRegInstr;
+                self.instrList.items[self.currentProc.startIndex] = pushRegInstr;
 
                 const popRegInstr = Instr{
                     .PostPopRegNegOffsetAny = .{
@@ -1210,26 +1203,30 @@ pub const GenInfo = struct {
                         .reg = maxPreserve,
                     },
                 };
-                _ = popRegInstr;
+                try self.instrList.append(allocator, popRegInstr);
             }
         }
 
-        const spInstrs = try getSpIncInstructions(proc.stackFrameSize);
+        const spInstrs = try getSpIncInstructions(self.currentProc.stackFrameSize);
+        const procInstrs = self.instrList.items[self.currentProc.startIndex..];
 
         self.byteCounter = vmInfo.VM_INFO_BYTECODE_LEN;
         try adjustInstructions(
             allocator,
             context,
-            proc.instrs.items,
-            proc.stackFrameSize,
+            procInstrs,
+            self.currentProc.stackFrameSize,
             stackOffset,
         );
 
-        if (proc.stackFrameSize + stackOffset > 0) {
+        if (self.currentProc.stackFrameSize + stackOffset > 0) {
             self.byteCounter += spInstrs.add.getInstrLen() + spInstrs.sub.getInstrLen();
 
-            // TODO - add and sub instrs here
+            self.instrList.items[self.currentProc.startIndex + 1] = spInstrs.add;
+            try self.instrList.append(allocator, spInstrs.sub);
         }
+
+        try self.instrList.append(allocator, .{ .Ret = {} });
     }
 };
 
@@ -1421,8 +1418,8 @@ fn movSpNegOffset(reg: TempRegister, offset: u64) !Instr {
 pub fn codegenAst(allocator: Allocator, context: *Context, tree: ast.Ast) !void {
     context.genInfo.vmInfo.version = version.VERSION;
     _ = try genBytecode(allocator, context, tree.root);
-    try context.genInfo.appendAndCreateNewProc(allocator);
-    try context.genInfo.finishAllProc(allocator, context, true);
+    try context.genInfo.finishProc(allocator, context, true);
+    try codegenFunctions(allocator, context);
 }
 
 fn writeIntSliceToInstr(
@@ -2603,6 +2600,15 @@ pub fn genBytecodeUtil(
     return null;
 }
 
+fn codegenFunctions(allocator: Allocator, context: *Context) !void {
+    var funcIter = context.compInfo.functions.valueIterator();
+    while (funcIter.next()) |func| {
+        try context.genInfo.newProc(allocator);
+        _ = try genBytecode(allocator, context, func.*.body);
+        try context.genInfo.finishProc(allocator, context, false);
+    }
+}
+
 fn nodeIsPrimitive(node: *ast.AstNode) bool {
     return switch (node.variant) {
         .StructInit, .ArrayInit => false,
@@ -3236,12 +3242,13 @@ fn generateFallback(
 }
 
 fn writeChunk(instr: Instr, writer: *Writer) !void {
-    if (instr == .Label) return;
+    if (instr == .Label or instr == .NoOp) return;
 
     try writer.writeByte(instr.getInstrByte());
 
     switch (instr) {
-        .Label => unreachable,
+        .Label, .NoOp => unreachable,
+        .Ret => {},
         .SetReg64 => |inner| {
             try writer.writeByte(@intCast(inner.reg));
             try writeNumber(u64, inner.data, writer);

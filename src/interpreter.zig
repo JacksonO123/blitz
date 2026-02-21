@@ -64,6 +64,8 @@ const Flags = struct {
 
 const RuntimePtrs = struct {
     sp: u64,
+    // 0 for lr means no location lr should never be 1
+    lr: u64,
 };
 
 const RuntimeInfo = struct {
@@ -84,6 +86,7 @@ const RuntimeInfo = struct {
             .stack = stack,
             .ptrs = .{
                 .sp = 0,
+                .lr = 0,
             },
         };
     }
@@ -124,7 +127,7 @@ fn interpretBytecode(
         const inst = @as(codegen.InstructionVariants, @enumFromInt(bytecode[current]));
         const instLen = inst.getInstrLen();
         switch (inst) {
-            .Label => unreachable,
+            .Label, .NoOp => unreachable,
             .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
             .MovSpNegOffsetAny => unreachable,
             .Mov => {
@@ -536,6 +539,10 @@ fn interpretBytecode(
             },
             .PostPopRegNegOffset64 => {
                 postPushRegNegOffset(u32, runtimeInfo, bytecode, current);
+            },
+            .Ret => {
+                if (runtimeInfo.ptrs.lr == 0) return;
+                current = runtimeInfo.ptrs.lr;
             },
         }
 

@@ -69,7 +69,7 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
     try writer.writeAll(inst.toString());
 
     switch (inst) {
-        .Label => {},
+        .Label, .NoOp, .Ret => {},
         .SetReg64 => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
