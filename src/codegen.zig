@@ -660,24 +660,8 @@ const SliceBytecodeInfo = struct {
     reg: TempRegister,
 };
 
-pub const InstrChunk = struct {
-    const Self = @This();
-
-    next: ?*InstrChunk,
-    prev: ?*InstrChunk,
-    data: Instr,
-
-    pub fn init(data: Instr) Self {
-        return .{
-            .next = null,
-            .prev = null,
-            .data = data,
-        };
-    }
-};
-
 const InstrInfo = struct {
-    chunk: *InstrChunk,
+    chunk: *Instr,
     label: vmInfo.LabelType,
 };
 
@@ -702,7 +686,7 @@ const LoopInfo = struct {
     pub fn appendBreak(
         self: *Self,
         allocator: Allocator,
-        instr: *InstrChunk,
+        instr: *Instr,
         label: vmInfo.LabelType,
     ) !void {
         try self.breaks.append(allocator, .{
@@ -714,7 +698,7 @@ const LoopInfo = struct {
     pub fn appendContinue(
         self: *Self,
         allocator: Allocator,
-        instr: *InstrChunk,
+        instr: *Instr,
         label: vmInfo.LabelType,
     ) !void {
         try self.continues.append(allocator, .{
@@ -882,19 +866,25 @@ pub const WriteLocInfo = struct {
 };
 
 pub const ProcChunk = struct {
+    const Self = @This();
+
     next: ?*ProcChunk = null,
     stackFrameSize: u64 = 0,
     // specifically for proc local instructions
-    startInstr: ?*InstrChunk = null,
-    endInstr: ?*InstrChunk = null,
+    instrs: *ArrayList(Instr),
     maxPreserveReg: ?TempRegister = null,
+
+    pub fn init(allocator: Allocator) !Self {
+        const instrsPtr = try utils.createMut(ArrayList(Instr), allocator, .empty);
+        return .{ .instrs = instrsPtr };
+    }
 };
 
 pub const GenInfo = struct {
     const Self = @This();
 
     procList: ?*ProcChunk = null,
-    currentProc: ProcChunk = .{},
+    currentProc: ProcChunk,
     vmInfo: struct {
         stackStartSize: u32,
         version: u8,
@@ -936,16 +926,11 @@ pub const GenInfo = struct {
             .varGenInfoPool = varGenInfoPool,
             .varNameReg = varNameReg,
             .byteCounter = 0,
+            .currentProc = try ProcChunk.init(allocator),
             .settings = .{},
             .loopInfo = loopInfoPtr,
             .registers = .{
                 .infos = registersPtr,
-            },
-            .currentProc = .{
-                .stackFrameSize = 0,
-                .startInstr = null,
-                .endInstr = null,
-                .maxPreserveReg = null,
             },
             .currentLabelId = 0,
             .labelByteInfo = labelByteInfoPtr,
@@ -960,26 +945,19 @@ pub const GenInfo = struct {
 
         var currentProc = self.procList;
         while (currentProc) |procChunk| : (currentProc = procChunk.next) {
-            var procInstr = procChunk.startInstr;
-            while (procInstr) |instr| : (procInstr = instr.next) {
+            for (procChunk.instrs.items) |instr| {
                 try writeChunk(instr, writer);
             }
         }
     }
 
-    pub fn appendChunk(self: *Self, allocator: Allocator, data: Instr) !*InstrChunk {
-        const newChunk = try utils.createMut(InstrChunk, allocator, InstrChunk.init(data));
+    pub fn appendChunk(self: *Self, allocator: Allocator, instr: Instr) !void {
+        _ = try self.appendChunkAndReturn(allocator, instr);
+    }
 
-        if (self.currentProc.endInstr) |endInstr| {
-            endInstr.next = newChunk;
-            newChunk.prev = endInstr;
-            self.currentProc.endInstr = newChunk;
-        } else {
-            self.currentProc.startInstr = newChunk;
-            self.currentProc.endInstr = newChunk;
-        }
-
-        return newChunk;
+    pub fn appendChunkAndReturn(self: *Self, allocator: Allocator, instr: Instr) !*Instr {
+        try self.currentProc.instrs.append(allocator, instr);
+        return &self.currentProc.instrs.items[self.currentProc.instrs.items.len - 1];
     }
 
     pub fn takeLabelId(self: *Self) vmInfo.LabelType {
@@ -1189,12 +1167,10 @@ pub const GenInfo = struct {
 
         if (self.procList) |list| {
             self.currentProc.next = list;
-            self.procList = currentProcPtr;
-        } else {
-            self.procList = currentProcPtr;
         }
 
-        self.currentProc = .{};
+        self.procList = currentProcPtr;
+        self.currentProc = try ProcChunk.init(allocator);
     }
 
     pub fn finishAllProc(self: *Self, allocator: Allocator, context: *Context, root: bool) !void {
@@ -1226,14 +1202,7 @@ pub const GenInfo = struct {
                         .reg = maxPreserve,
                     },
                 };
-                var pushInstrChunk = try utils.createMut(
-                    InstrChunk,
-                    allocator,
-                    InstrChunk.init(pushRegInstr),
-                );
-                pushInstrChunk.next = proc.startInstr;
-                proc.startInstr.?.prev = pushInstrChunk;
-                proc.startInstr = pushInstrChunk;
+                _ = pushRegInstr;
 
                 const popRegInstr = Instr{
                     .PostPopRegNegOffsetAny = .{
@@ -1241,19 +1210,9 @@ pub const GenInfo = struct {
                         .reg = maxPreserve,
                     },
                 };
-                var popInstrChunk = try utils.createMut(
-                    InstrChunk,
-                    allocator,
-                    InstrChunk.init(popRegInstr),
-                );
-                popInstrChunk.prev = proc.endInstr;
-                proc.endInstr.?.next = popInstrChunk;
-                proc.endInstr = popInstrChunk;
+                _ = popRegInstr;
             }
         }
-
-        const start = proc.startInstr orelse return;
-        const end = proc.endInstr orelse return;
 
         const spInstrs = try getSpIncInstructions(proc.stackFrameSize);
 
@@ -1261,7 +1220,7 @@ pub const GenInfo = struct {
         try adjustInstructions(
             allocator,
             context,
-            start,
+            proc.instrs.items,
             proc.stackFrameSize,
             stackOffset,
         );
@@ -1269,24 +1228,7 @@ pub const GenInfo = struct {
         if (proc.stackFrameSize + stackOffset > 0) {
             self.byteCounter += spInstrs.add.getInstrLen() + spInstrs.sub.getInstrLen();
 
-            const addChunk = try utils.createMut(
-                InstrChunk,
-                allocator,
-                InstrChunk.init(spInstrs.add),
-            );
-            const subChunk = try utils.createMut(
-                InstrChunk,
-                allocator,
-                InstrChunk.init(spInstrs.sub),
-            );
-
-            start.prev = addChunk;
-            addChunk.next = start;
-            proc.startInstr = addChunk;
-
-            end.next = subChunk;
-            subChunk.prev = end;
-            proc.endInstr = subChunk;
+            // TODO - add and sub instrs here
         }
     }
 };
@@ -1294,14 +1236,13 @@ pub const GenInfo = struct {
 fn adjustInstructions(
     allocator: Allocator,
     context: *Context,
-    chunk: *InstrChunk,
+    instrs: []Instr,
     frameSize: u64,
     stackOffset: u64,
 ) !void {
-    var current: ?*InstrChunk = chunk;
-    while (current) |instr| : (current = current.?.next) {
+    for (instrs) |*instr| {
         try adjustInstruction(allocator, context, instr, frameSize, stackOffset);
-        context.genInfo.byteCounter += instr.data.getInstrLen();
+        context.genInfo.byteCounter += instr.getInstrLen();
     }
 }
 
@@ -1309,11 +1250,11 @@ fn adjustInstructions(
 fn adjustInstruction(
     allocator: Allocator,
     context: *Context,
-    chunk: *InstrChunk,
+    instr: *Instr,
     frameSize: u64,
     stackOffset: u64,
 ) !void {
-    switch (chunk.data) {
+    switch (instr.*) {
         .Label => |label| {
             context.genInfo.labelByteInfo.setLabelLocation(
                 label,
@@ -1324,12 +1265,15 @@ fn adjustInstruction(
         .Store16AtSpNegOffset16,
         .Store32AtSpNegOffset16,
         .Store64AtSpNegOffset16,
-        => |*instr| {
-            instr.offset = @intCast(stackOffset + frameSize - instr.offset);
+        => |*storeInstr| {
+            storeInstr.offset = @intCast(stackOffset + frameSize - storeInstr.offset);
         },
-        .MovSpNegOffsetAny => |instr| {
-            const newInstr = try movSpNegOffset(instr.reg, stackOffset + frameSize - instr.offset);
-            chunk.data = newInstr;
+        .MovSpNegOffsetAny => |movInstr| {
+            const newInstr = try movSpNegOffset(
+                movInstr.reg,
+                stackOffset + frameSize - movInstr.offset,
+            );
+            instr.* = newInstr;
         },
         .Jump,
         .JumpEQ,
@@ -1351,7 +1295,7 @@ fn adjustInstruction(
             if (try context.genInfo.labelByteInfo.getLabelLocation(@intCast(labelId))) |offset| {
                 data.* = context.genInfo.byteCounter - offset;
             } else {
-                const byteOffset = switch (chunk.data) {
+                const byteOffset = switch (instr.*) {
                     .JumpBack,
                     .JumpBackEQ,
                     .JumpBackNE,
@@ -1360,7 +1304,7 @@ fn adjustInstruction(
                     .JumpBackGTE,
                     .JumpBackLTE,
                     => 0,
-                    else => chunk.data.getInstrLen(),
+                    else => instr.getInstrLen(),
                 };
                 data.* = context.genInfo.byteCounter + byteOffset;
 
@@ -1368,20 +1312,20 @@ fn adjustInstruction(
             }
         },
         // not changed by stackOffset
-        .PrePushRegNegOffsetAny => |instr| {
+        .PrePushRegNegOffsetAny => |pushInstr| {
             const newInstr = try adjustPushRegNegOffsetAnyInstr(
-                instr.reg,
-                frameSize - instr.offset,
+                pushInstr.reg,
+                frameSize - pushInstr.offset,
             );
-            chunk.data = newInstr;
+            instr.* = newInstr;
         },
         // not changed by stackOffset
-        .PostPopRegNegOffsetAny => |instr| {
+        .PostPopRegNegOffsetAny => |popInstr| {
             const newInstr = try adjustPopRegNegOffsetAnyInstr(
-                instr.reg,
-                frameSize - instr.offset,
+                popInstr.reg,
+                frameSize - popInstr.offset,
             );
-            chunk.data = newInstr;
+            instr.* = newInstr;
         },
         else => {},
     }
@@ -1545,7 +1489,7 @@ pub fn genBytecodeUtil(
                         .src = reg,
                     },
                 };
-                _ = try context.genInfo.appendChunk(allocator, instr);
+                try context.genInfo.appendChunk(allocator, instr);
 
                 break :a newReg;
             } else a: {
@@ -1571,7 +1515,7 @@ pub fn genBytecodeUtil(
                             .src = reg,
                         },
                     };
-                    _ = try context.genInfo.appendChunk(allocator, movInstr);
+                    try context.genInfo.appendChunk(allocator, movInstr);
                 } else if (!context.genInfo.isRegActive(reg)) {
                     context.genInfo.reserveRegister(reg);
                 }
@@ -1627,7 +1571,7 @@ pub fn genBytecodeUtil(
                         else => utils.unimplemented(),
                     };
 
-                    _ = try context.genInfo.appendChunk(allocator, instr);
+                    try context.genInfo.appendChunk(allocator, instr);
                     return RegisterContents.initWithSize(reg, num.numType.getSize());
                 },
                 .Bool => |b| {
@@ -1641,7 +1585,7 @@ pub fn genBytecodeUtil(
                         },
                     };
 
-                    _ = try context.genInfo.appendChunk(allocator, instr);
+                    try context.genInfo.appendChunk(allocator, instr);
                     return .{ .Bytes1 = reg };
                 },
                 .Char => |ch| {
@@ -1655,7 +1599,7 @@ pub fn genBytecodeUtil(
                         },
                     };
 
-                    _ = try context.genInfo.appendChunk(allocator, instr);
+                    try context.genInfo.appendChunk(allocator, instr);
                     return .{ .Bytes1 = reg };
                 },
                 .Number => |num| {
@@ -1690,7 +1634,7 @@ pub fn genBytecodeUtil(
                         else => utils.unimplemented(),
                     };
 
-                    _ = try context.genInfo.appendChunk(allocator, instr);
+                    try context.genInfo.appendChunk(allocator, instr);
                     return RegisterContents.initWithSize(reg, num.toAstNumberVariant().getSize());
                 },
                 .ArrayDec => |items| {
@@ -1714,7 +1658,7 @@ pub fn genBytecodeUtil(
                                 .offset = context.genInfo.currentProc.stackFrameSize,
                             },
                         };
-                        _ = try context.genInfo.appendChunk(allocator, movSpInstr);
+                        try context.genInfo.appendChunk(allocator, movSpInstr);
 
                         const newWriteLoc = WriteLocInfo{
                             .reg = ptrReg,
@@ -1757,7 +1701,7 @@ pub fn genBytecodeUtil(
                                 writeLocInfo.reg,
                                 itemSize + @as(u16, @intCast(itemPadding)),
                             );
-                            _ = try context.genInfo.appendChunk(allocator, storeInstr);
+                            try context.genInfo.appendChunk(allocator, storeInstr);
                         } else if (itemPadding > 0) {
                             const addInstr = Instr{
                                 .Add16 = .{
@@ -1766,7 +1710,7 @@ pub fn genBytecodeUtil(
                                     .data = itemPadding,
                                 },
                             };
-                            _ = try context.genInfo.appendChunk(allocator, addInstr);
+                            try context.genInfo.appendChunk(allocator, addInstr);
                         }
 
                         writeLocInfo.value += itemSize + @as(u16, @intCast(itemPadding));
@@ -1774,7 +1718,7 @@ pub fn genBytecodeUtil(
                     context.genInfo.settings.propertyAccessReturnsPointer = prevAccessReturn;
 
                     if (writeLoc == null) {
-                        _ = try context.genInfo.appendChunk(allocator, movSpInstr);
+                        try context.genInfo.appendChunk(allocator, movSpInstr);
                         return .{ .Pointer = writeLocInfo.reg };
                     }
                 },
@@ -1967,7 +1911,7 @@ pub fn genBytecodeUtil(
                 .Div => utils.unimplemented(),
             };
 
-            _ = try context.genInfo.appendChunk(allocator, buf);
+            try context.genInfo.appendChunk(allocator, buf);
 
             return outReg;
         },
@@ -1989,28 +1933,28 @@ pub fn genBytecodeUtil(
                     .data = 1,
                 },
             };
-            _ = try context.genInfo.appendChunk(allocator, buf);
+            try context.genInfo.appendChunk(allocator, buf);
 
             context.genInfo.releaseIfPossible(condReg.getRegister());
 
             const jumpLabelId = context.genInfo.takeLabelId();
             const jumpLabel = Instr{ .Label = jumpLabelId };
             const jumpBuf = Instr{ .JumpNE = jumpLabelId };
-            _ = try context.genInfo.appendChunk(allocator, jumpBuf);
+            try context.genInfo.appendChunk(allocator, jumpBuf);
 
             _ = try genBytecode(allocator, context, statement.body);
 
             if (statement.fallback) |fallback| {
                 const jumpEndLabelId = context.genInfo.takeLabelId();
                 const jumpEndInstr = Instr{ .Jump = jumpEndLabelId };
-                _ = try context.genInfo.appendChunk(allocator, jumpEndInstr);
+                try context.genInfo.appendChunk(allocator, jumpEndInstr);
 
-                _ = try context.genInfo.appendChunk(allocator, jumpLabel);
+                try context.genInfo.appendChunk(allocator, jumpLabel);
                 try generateFallback(allocator, context, fallback);
                 const jumpEndLabel = Instr{ .Label = jumpEndLabelId };
-                _ = try context.genInfo.appendChunk(allocator, jumpEndLabel);
+                try context.genInfo.appendChunk(allocator, jumpEndLabel);
             } else {
-                _ = try context.genInfo.appendChunk(allocator, jumpLabel);
+                try context.genInfo.appendChunk(allocator, jumpLabel);
             }
         },
         .ForLoop => |loop| {
@@ -2025,7 +1969,7 @@ pub fn genBytecodeUtil(
 
             const preConditionLabelId = context.genInfo.takeLabelId();
             const preConditionLabel = Instr{ .Label = preConditionLabelId };
-            _ = try context.genInfo.appendChunk(allocator, preConditionLabel);
+            try context.genInfo.appendChunk(allocator, preConditionLabel);
 
             const condReg = try genBytecode(allocator, context, loop.condition);
             context.genInfo.settings.outputCmpAsRegister = condInfo.prevCmpAsReg;
@@ -2045,25 +1989,25 @@ pub fn genBytecodeUtil(
                         .data = 1,
                     },
                 };
-                _ = try context.genInfo.appendChunk(allocator, cmpInstr);
+                try context.genInfo.appendChunk(allocator, cmpInstr);
             }
 
-            _ = try context.genInfo.appendChunk(allocator, jumpEndInstr);
+            try context.genInfo.appendChunk(allocator, jumpEndInstr);
 
             _ = try genBytecode(allocator, context, loop.body);
 
             const continueLabelId = context.genInfo.takeLabelId();
             const continueLabel = Instr{ .Label = continueLabelId };
-            _ = try context.genInfo.appendChunk(allocator, continueLabel);
+            try context.genInfo.appendChunk(allocator, continueLabel);
             context.genInfo.setContinueLabel(continueLabelId);
 
             _ = try genBytecode(allocator, context, loop.incNode);
 
             const jumpStartInstr = Instr{ .JumpBack = preConditionLabelId };
-            _ = try context.genInfo.appendChunk(allocator, jumpStartInstr);
+            try context.genInfo.appendChunk(allocator, jumpStartInstr);
 
             const loopEndLabel = Instr{ .Label = loopEndLabelId };
-            _ = try context.genInfo.appendChunk(allocator, loopEndLabel);
+            try context.genInfo.appendChunk(allocator, loopEndLabel);
         },
         .WhileLoop => |loop| {
             try context.genInfo.pushLoopInfo(allocator);
@@ -2073,7 +2017,7 @@ pub fn genBytecodeUtil(
 
             const preConditionLabelId = context.genInfo.takeLabelId();
             const preConditionLabel = Instr{ .Label = preConditionLabelId };
-            _ = try context.genInfo.appendChunk(allocator, preConditionLabel);
+            try context.genInfo.appendChunk(allocator, preConditionLabel);
 
             context.genInfo.setContinueLabel(preConditionLabelId);
 
@@ -2094,18 +2038,18 @@ pub fn genBytecodeUtil(
                         .data = 1,
                     },
                 };
-                _ = try context.genInfo.appendChunk(allocator, cmpInstr);
+                try context.genInfo.appendChunk(allocator, cmpInstr);
             }
 
-            _ = try context.genInfo.appendChunk(allocator, jumpEndInstr);
+            try context.genInfo.appendChunk(allocator, jumpEndInstr);
 
             _ = try genBytecode(allocator, context, loop.body);
 
             const jumpStartInstr = Instr{ .JumpBack = preConditionLabelId };
-            _ = try context.genInfo.appendChunk(allocator, jumpStartInstr);
+            try context.genInfo.appendChunk(allocator, jumpStartInstr);
 
             const preBodyLabel = Instr{ .Label = loopEndLabelId };
-            _ = try context.genInfo.appendChunk(allocator, preBodyLabel);
+            try context.genInfo.appendChunk(allocator, preBodyLabel);
         },
         .IncOne => |inc| {
             const reg = try genBytecode(allocator, context, inc) orelse
@@ -2117,7 +2061,7 @@ pub fn genBytecodeUtil(
                 },
             };
 
-            _ = try context.genInfo.appendChunk(allocator, instr);
+            try context.genInfo.appendChunk(allocator, instr);
         },
         .DecOne => |dec| {
             const reg = try genBytecode(allocator, context, dec) orelse
@@ -2129,7 +2073,7 @@ pub fn genBytecodeUtil(
                 },
             };
 
-            _ = try context.genInfo.appendChunk(allocator, instr);
+            try context.genInfo.appendChunk(allocator, instr);
         },
         .Group => |group| {
             return genBytecode(allocator, context, group);
@@ -2155,7 +2099,7 @@ pub fn genBytecodeUtil(
             const dbgInstr = Instr{
                 .DbgReg = destRegValue,
             };
-            _ = try context.genInfo.appendChunk(allocator, dbgInstr);
+            try context.genInfo.appendChunk(allocator, dbgInstr);
 
             const instr = if (isDeref or
                 set.value.variant == .IndexValue or
@@ -2172,7 +2116,7 @@ pub fn genBytecodeUtil(
                         .src = srcRegValue,
                     },
                 };
-            _ = try context.genInfo.appendChunk(allocator, instr);
+            try context.genInfo.appendChunk(allocator, instr);
         },
         .Bang => |expr| {
             const reg = try genBytecode(allocator, context, expr) orelse
@@ -2186,7 +2130,7 @@ pub fn genBytecodeUtil(
                     .byte = 1,
                 },
             };
-            _ = try context.genInfo.appendChunk(allocator, instr);
+            try context.genInfo.appendChunk(allocator, instr);
 
             return .{ .Bytes1 = setReg };
         },
@@ -2199,7 +2143,7 @@ pub fn genBytecodeUtil(
 
             const breakLabelId = context.genInfo.takeLabelId();
             const buf = Instr{ .Jump = breakLabelId };
-            const chunk = try context.genInfo.appendChunk(allocator, buf);
+            const chunk = try context.genInfo.appendChunkAndReturn(allocator, buf);
             try loopInfo.appendBreak(allocator, chunk, breakLabelId);
         },
         .Continue => {
@@ -2208,7 +2152,7 @@ pub fn genBytecodeUtil(
 
             const continueLabelId = context.genInfo.takeLabelId();
             const instr = Instr{ .Jump = continueLabelId };
-            const chunk = try context.genInfo.appendChunk(allocator, instr);
+            const chunk = try context.genInfo.appendChunkAndReturn(allocator, instr);
             try loopInfo.appendContinue(allocator, chunk, continueLabelId);
         },
         .ArrayInit => |init| {
@@ -2234,7 +2178,7 @@ pub fn genBytecodeUtil(
                         .offset = context.genInfo.currentProc.stackFrameSize,
                     },
                 };
-                _ = try context.genInfo.appendChunk(allocator, movSpInstr);
+                try context.genInfo.appendChunk(allocator, movSpInstr);
 
                 const newWriteLoc = WriteLocInfo{
                     .reg = writeReg,
@@ -2256,7 +2200,7 @@ pub fn genBytecodeUtil(
                     .data = initLen,
                 },
             };
-            _ = try context.genInfo.appendChunk(allocator, movLen);
+            try context.genInfo.appendChunk(allocator, movLen);
 
             var indexReg: ?TempRegister = null;
             var ptrReg: ?TempRegister = null;
@@ -2281,7 +2225,7 @@ pub fn genBytecodeUtil(
                         .data = 0,
                     },
                 };
-                _ = try context.genInfo.appendChunk(allocator, setZeroInstr);
+                try context.genInfo.appendChunk(allocator, setZeroInstr);
             }
 
             if (init.ptrIdent) |ident| {
@@ -2298,11 +2242,11 @@ pub fn genBytecodeUtil(
                         .src = writeLocInfo.reg,
                     },
                 };
-                _ = try context.genInfo.appendChunk(allocator, movWriteReg);
+                try context.genInfo.appendChunk(allocator, movWriteReg);
             }
             const preCmpLabelId = context.genInfo.takeLabelId();
             const preCmpLabel = Instr{ .Label = preCmpLabelId };
-            _ = try context.genInfo.appendChunk(allocator, preCmpLabel);
+            try context.genInfo.appendChunk(allocator, preCmpLabel);
 
             const cmpLen = Instr{
                 .CmpConst8 = .{
@@ -2310,11 +2254,11 @@ pub fn genBytecodeUtil(
                     .data = 0,
                 },
             };
-            _ = try context.genInfo.appendChunk(allocator, cmpLen);
+            try context.genInfo.appendChunk(allocator, cmpLen);
 
             const jumpInstrLabelId = context.genInfo.takeLabelId();
             const jumpInstr = Instr{ .JumpEQ = jumpInstrLabelId };
-            _ = try context.genInfo.appendChunk(allocator, jumpInstr);
+            try context.genInfo.appendChunk(allocator, jumpInstr);
 
             const resRegOrNull = try genBytecodeUtil(
                 allocator,
@@ -2334,7 +2278,7 @@ pub fn genBytecodeUtil(
                     writeLocInfo.reg,
                     @intCast(itemSize + itemPadding),
                 );
-                _ = try context.genInfo.appendChunk(allocator, writeInstr);
+                try context.genInfo.appendChunk(allocator, writeInstr);
             }
 
             const subLen = Instr{
@@ -2344,7 +2288,7 @@ pub fn genBytecodeUtil(
                     .data = 1,
                 },
             };
-            _ = try context.genInfo.appendChunk(allocator, subLen);
+            try context.genInfo.appendChunk(allocator, subLen);
 
             if (indexReg) |reg| {
                 const addInstr = Instr{
@@ -2354,7 +2298,7 @@ pub fn genBytecodeUtil(
                         .data = 1,
                     },
                 };
-                _ = try context.genInfo.appendChunk(allocator, addInstr);
+                try context.genInfo.appendChunk(allocator, addInstr);
             }
 
             if (ptrReg) |reg| {
@@ -2365,17 +2309,17 @@ pub fn genBytecodeUtil(
                         .data = @intCast(itemSize + itemPadding),
                     },
                 };
-                _ = try context.genInfo.appendChunk(allocator, addInstr);
+                try context.genInfo.appendChunk(allocator, addInstr);
             }
 
             const jumpStart = Instr{ .JumpBack = preCmpLabelId };
-            _ = try context.genInfo.appendChunk(allocator, jumpStart);
+            try context.genInfo.appendChunk(allocator, jumpStart);
 
             const jumpInstrLabel = Instr{ .Label = jumpInstrLabelId };
-            _ = try context.genInfo.appendChunk(allocator, jumpInstrLabel);
+            try context.genInfo.appendChunk(allocator, jumpInstrLabel);
 
             if (writeLoc == null) {
-                _ = try context.genInfo.appendChunk(allocator, movSpInstr);
+                try context.genInfo.appendChunk(allocator, movSpInstr);
                 return .{ .Pointer = writeLocInfo.reg };
             }
         },
@@ -2394,7 +2338,7 @@ pub fn genBytecodeUtil(
                 destReg,
                 node.typeInfo.size,
             );
-            _ = try context.genInfo.appendChunk(allocator, loadInstr);
+            try context.genInfo.appendChunk(allocator, loadInstr);
 
             return resReg.transferWithSize(destReg);
         },
@@ -2443,7 +2387,7 @@ pub fn genBytecodeUtil(
                     resReg,
                     context.genInfo.currentProc.stackFrameSize,
                 );
-                _ = try context.genInfo.appendChunk(allocator, storeInstr);
+                try context.genInfo.appendChunk(allocator, storeInstr);
 
                 context.genInfo.currentProc.stackFrameSize += itemSize;
 
@@ -2462,7 +2406,7 @@ pub fn genBytecodeUtil(
                     .offset = location,
                 },
             };
-            _ = try context.genInfo.appendChunk(allocator, setLocInstr);
+            try context.genInfo.appendChunk(allocator, setLocInstr);
 
             return .{ .Pointer = ptrReg };
         },
@@ -2500,7 +2444,7 @@ pub fn genBytecodeUtil(
                 else => utils.unimplemented(),
             };
 
-            _ = try context.genInfo.appendChunk(allocator, instr);
+            try context.genInfo.appendChunk(allocator, instr);
         },
         .StructInit => |init| {
             var startLoc = context.genInfo.currentProc.stackFrameSize;
@@ -2525,7 +2469,7 @@ pub fn genBytecodeUtil(
                         .offset = context.genInfo.currentProc.stackFrameSize,
                     },
                 };
-                _ = try context.genInfo.appendChunk(allocator, writeSp);
+                try context.genInfo.appendChunk(allocator, writeSp);
 
                 context.genInfo.currentProc.stackFrameSize += node.typeInfo.size;
 
@@ -2569,7 +2513,7 @@ pub fn genBytecodeUtil(
                         writeLocInfo.reg,
                         @intCast(itemSize),
                     );
-                    _ = try context.genInfo.appendChunk(allocator, instr);
+                    try context.genInfo.appendChunk(allocator, instr);
                 }
             }
 
@@ -2580,7 +2524,7 @@ pub fn genBytecodeUtil(
                         .offset = startLoc,
                     },
                 };
-                _ = try context.genInfo.appendChunk(allocator, writeSpInstr);
+                try context.genInfo.appendChunk(allocator, writeSpInstr);
                 return .{ .Pointer = writeLocInfo.reg };
             }
         },
@@ -2600,7 +2544,7 @@ pub fn genBytecodeUtil(
             const outReg = try context.genInfo.availableRegReplaceReserve(regValue);
 
             const instr = loadAtReg(regValue, outReg, node.typeInfo.size);
-            _ = try context.genInfo.appendChunk(allocator, instr);
+            try context.genInfo.appendChunk(allocator, instr);
 
             return RegisterContents.initWithSize(outReg, @intCast(node.typeInfo.size));
         },
@@ -2632,7 +2576,7 @@ pub fn genBytecodeUtil(
                     .data = @intCast(node.typeInfo.size + itemPadding),
                 },
             };
-            _ = try context.genInfo.appendChunk(allocator, mulAdd);
+            try context.genInfo.appendChunk(allocator, mulAdd);
 
             if (context.genInfo.settings.propertyAccessReturnsPointer) {
                 return reg;
@@ -2643,7 +2587,7 @@ pub fn genBytecodeUtil(
                 );
 
                 const loadInstr = loadAtReg(regValue, outReg, @intCast(node.typeInfo.size));
-                _ = try context.genInfo.appendChunk(allocator, loadInstr);
+                try context.genInfo.appendChunk(allocator, loadInstr);
 
                 return RegisterContents.initWithSize(outReg, @intCast(node.typeInfo.size));
             }
@@ -2782,7 +2726,7 @@ fn calculateAccessOffset(
                     .data = @intCast(itemSize + itemPadding),
                 },
             };
-            _ = try context.genInfo.appendChunk(allocator, offsetInstr);
+            try context.genInfo.appendChunk(allocator, offsetInstr);
 
             return offsetReg;
         },
@@ -2801,7 +2745,7 @@ fn calculateAccessOffset(
                         .fromRegPtr = outReg,
                     },
                 };
-                _ = try context.genInfo.appendChunk(allocator, derefInstr);
+                try context.genInfo.appendChunk(allocator, derefInstr);
             }
 
             if (offset > 0) {
@@ -2812,7 +2756,7 @@ fn calculateAccessOffset(
                         .data = @intCast(offset),
                     },
                 };
-                _ = try context.genInfo.appendChunk(allocator, instr);
+                try context.genInfo.appendChunk(allocator, instr);
             } else if (isVar) {
                 // if the returned register is associated with a variable, outReg will be a
                 // new register with unknown contents, so we set it in this case
@@ -2822,7 +2766,7 @@ fn calculateAccessOffset(
                         .src = regValue,
                     },
                 };
-                _ = try context.genInfo.appendChunk(allocator, instr);
+                try context.genInfo.appendChunk(allocator, instr);
             }
 
             return reg.transferWithSize(outReg);
@@ -3051,7 +2995,7 @@ fn initArraySliceBytecode(
                 .offset = arrayStartLoc,
             },
         };
-        _ = try context.genInfo.appendChunk(allocator, movSpInstr2);
+        try context.genInfo.appendChunk(allocator, movSpInstr2);
 
         break :a WriteLocInfo{
             .reg = scratchReg,
@@ -3076,7 +3020,7 @@ fn initArraySliceBytecode(
                 .offset = arrayStartLoc,
             },
         };
-        _ = try context.genInfo.appendChunk(allocator, movSpInstr2);
+        try context.genInfo.appendChunk(allocator, movSpInstr2);
 
         break :a WriteLocInfo{
             .reg = writeReg,
@@ -3093,7 +3037,7 @@ fn initArraySliceBytecode(
                 .offset = paddedSpLoc,
             },
         };
-        _ = try context.genInfo.appendChunk(allocator, movInstr);
+        try context.genInfo.appendChunk(allocator, movInstr);
         break :a writeLocInfo.reg;
     };
 
@@ -3114,7 +3058,7 @@ fn initArraySliceBytecode(
             .data = regLocation,
         },
     };
-    _ = try context.genInfo.appendChunk(allocator, setReg);
+    try context.genInfo.appendChunk(allocator, setReg);
 
     const storeInstr = Instr{
         .Store64AtRegPostInc16 = .{
@@ -3123,7 +3067,7 @@ fn initArraySliceBytecode(
             .inc = vmInfo.POINTER_SIZE,
         },
     };
-    _ = try context.genInfo.appendChunk(allocator, storeInstr);
+    try context.genInfo.appendChunk(allocator, storeInstr);
 
     if (regLocationOrNull == null) {
         context.genInfo.currentProc.stackFrameSize += node.typeInfo.size;
@@ -3135,7 +3079,7 @@ fn initArraySliceBytecode(
             .data = len,
         },
     };
-    _ = try context.genInfo.appendChunk(allocator, setLenReg);
+    try context.genInfo.appendChunk(allocator, setLenReg);
 
     const storeLenInstr = Instr{
         .Store64AtRegPostInc16 = .{
@@ -3144,7 +3088,7 @@ fn initArraySliceBytecode(
             .inc = vmInfo.POINTER_SIZE,
         },
     };
-    _ = try context.genInfo.appendChunk(allocator, storeLenInstr);
+    try context.genInfo.appendChunk(allocator, storeLenInstr);
 
     if (writeLoc != null) {
         context.genInfo.releaseRegister(writeLocInfo.reg);
@@ -3157,7 +3101,7 @@ fn initArraySliceBytecode(
                 .data = vmInfo.POINTER_SIZE * 2,
             },
         };
-        _ = try context.genInfo.appendChunk(allocator, subInstr);
+        try context.genInfo.appendChunk(allocator, subInstr);
 
         return writeLocInfo.reg;
     }
@@ -3190,8 +3134,8 @@ fn prepForLoopCondition(context: *Context, condition: *ast.AstNode) LoopCondInfo
     };
 }
 
-fn setJumpAmount(chunk: *InstrChunk, label: vmInfo.LabelType) void {
-    switch (chunk.data) {
+fn setJumpAmount(instr: *Instr, label: vmInfo.LabelType) void {
+    switch (instr.*) {
         .Jump,
         .JumpEQ,
         .JumpNE,
@@ -3206,8 +3150,8 @@ fn setJumpAmount(chunk: *InstrChunk, label: vmInfo.LabelType) void {
         .JumpBackLT,
         .JumpBackGTE,
         .JumpBackLTE,
-        => |*instr| {
-            instr.* = label;
+        => |*labelId| {
+            labelId.* = label;
         },
         else => unreachable,
     }
@@ -3264,13 +3208,13 @@ fn generateFallback(
                 .data = 1,
             },
         };
-        _ = try context.genInfo.appendChunk(allocator, instr);
+        try context.genInfo.appendChunk(allocator, instr);
 
         context.genInfo.releaseIfPossible(condReg.getRegister());
 
         jumpLabelId = context.genInfo.takeLabelId();
         const jumpInstr = Instr{ .JumpNE = jumpLabelId.? };
-        _ = try context.genInfo.appendChunk(allocator, jumpInstr);
+        try context.genInfo.appendChunk(allocator, jumpInstr);
     }
 
     _ = try genBytecode(allocator, context, statement.body);
@@ -3278,41 +3222,41 @@ fn generateFallback(
     if (statement.fallback) |newFallback| {
         const jumpEndLabelId = context.genInfo.takeLabelId();
         const jumpEndInstr = Instr{ .Jump = jumpEndLabelId };
-        _ = try context.genInfo.appendChunk(allocator, jumpEndInstr);
+        try context.genInfo.appendChunk(allocator, jumpEndInstr);
 
         if (jumpLabelId) |labelId| {
             const jumpLabel = Instr{ .Label = labelId };
-            _ = try context.genInfo.appendChunk(allocator, jumpLabel);
+            try context.genInfo.appendChunk(allocator, jumpLabel);
         }
 
         try generateFallback(allocator, context, newFallback);
         const jumpEndLabel = Instr{ .Label = jumpEndLabelId };
-        _ = try context.genInfo.appendChunk(allocator, jumpEndLabel);
+        try context.genInfo.appendChunk(allocator, jumpEndLabel);
     }
 }
 
-fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
-    if (chunk.data == .Label) return;
+fn writeChunk(instr: Instr, writer: *Writer) !void {
+    if (instr == .Label) return;
 
-    try writer.writeByte(chunk.data.getInstrByte());
+    try writer.writeByte(instr.getInstrByte());
 
-    switch (chunk.data) {
+    switch (instr) {
         .Label => unreachable,
-        .SetReg64 => |instr| {
-            try writer.writeByte(@intCast(instr.reg));
-            try writeNumber(u64, instr.data, writer);
+        .SetReg64 => |inner| {
+            try writer.writeByte(@intCast(inner.reg));
+            try writeNumber(u64, inner.data, writer);
         },
-        .SetReg32 => |instr| {
-            try writer.writeByte(@intCast(instr.reg));
-            try writeNumber(u32, instr.data, writer);
+        .SetReg32 => |inner| {
+            try writer.writeByte(@intCast(inner.reg));
+            try writeNumber(u32, inner.data, writer);
         },
-        .SetReg16 => |instr| {
-            try writer.writeByte(@intCast(instr.reg));
-            try writeNumber(u16, instr.data, writer);
+        .SetReg16 => |inner| {
+            try writer.writeByte(@intCast(inner.reg));
+            try writeNumber(u16, inner.data, writer);
         },
-        .SetReg8 => |instr| {
-            try writer.writeByte(@intCast(instr.reg));
-            try writeNumber(u8, instr.data, writer);
+        .SetReg8 => |inner| {
+            try writer.writeByte(@intCast(inner.reg));
+            try writeNumber(u8, inner.data, writer);
         },
         .Add,
         .Sub,
@@ -3324,20 +3268,20 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
         .CmpSetRegGTE,
         .CmpSetRegLTE,
         .Xor,
-        => |instr| {
-            try writer.writeByte(@intCast(instr.dest));
-            try writer.writeByte(@intCast(instr.reg1));
-            try writer.writeByte(@intCast(instr.reg2));
+        => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.reg1));
+            try writer.writeByte(@intCast(inner.reg2));
         },
-        .Add8, .Sub8 => |instr| {
-            try writer.writeByte(@intCast(instr.dest));
-            try writer.writeByte(@intCast(instr.reg));
-            try writer.writeByte(@intCast(instr.data));
+        .Add8, .Sub8 => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeByte(@intCast(inner.data));
         },
-        .Add16, .Sub16 => |instr| {
-            try writer.writeByte(@intCast(instr.dest));
-            try writer.writeByte(@intCast(instr.reg));
-            try writer.writeInt(u16, @intCast(instr.data), .little);
+        .Add16, .Sub16 => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeInt(u16, @intCast(inner.data), .little);
         },
         .Jump,
         .JumpEQ,
@@ -3353,132 +3297,132 @@ fn writeChunk(chunk: *InstrChunk, writer: *Writer) !void {
         .JumpBackLT,
         .JumpBackGTE,
         .JumpBackLTE,
-        => |instr| {
-            try writer.writeInt(u32, @intCast(instr), .little);
+        => |inner| {
+            try writer.writeInt(u32, @intCast(inner), .little);
         },
-        .Cmp => |instr| {
-            try writer.writeByte(@intCast(instr.reg1));
-            try writer.writeByte(@intCast(instr.reg2));
+        .Cmp => |inner| {
+            try writer.writeByte(@intCast(inner.reg1));
+            try writer.writeByte(@intCast(inner.reg2));
         },
-        .CmpConst8, .IncConst8, .DecConst8 => |instr| {
-            try writer.writeByte(@intCast(instr.reg));
-            try writer.writeByte(instr.data);
+        .CmpConst8, .IncConst8, .DecConst8 => |inner| {
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeByte(inner.data);
         },
-        .Mov => |instr| {
-            try writer.writeByte(@intCast(instr.dest));
-            try writer.writeByte(@intCast(instr.src));
+        .Mov => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.src));
         },
         .MovSpNegOffsetAny => unreachable,
-        .MovSpNegOffset16 => |instr| {
-            try writer.writeByte(@intCast(instr.reg));
-            try writer.writeInt(u16, instr.offset, .little);
+        .MovSpNegOffset16 => |inner| {
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeInt(u16, inner.offset, .little);
         },
-        .MovSpNegOffset32 => |instr| {
-            try writer.writeByte(@intCast(instr.reg));
-            try writer.writeInt(u32, instr.offset, .little);
+        .MovSpNegOffset32 => |inner| {
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeInt(u32, inner.offset, .little);
         },
-        .MovSpNegOffset64 => |instr| {
-            try writer.writeByte(@intCast(instr.reg));
-            try writer.writeInt(u64, instr.offset, .little);
+        .MovSpNegOffset64 => |inner| {
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeInt(u64, inner.offset, .little);
         },
-        .XorConst8 => |instr| {
-            try writer.writeByte(@intCast(instr.dest));
-            try writer.writeByte(@intCast(instr.reg));
-            try writer.writeByte(instr.byte);
+        .XorConst8 => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeByte(inner.byte);
         },
-        .AddSp8, .SubSp8 => |instr| {
-            try writer.writeByte(instr);
+        .AddSp8, .SubSp8 => |inner| {
+            try writer.writeByte(inner);
         },
-        .AddSp16, .SubSp16 => |instr| {
-            try writer.writeInt(u16, instr, .little);
+        .AddSp16, .SubSp16 => |inner| {
+            try writer.writeInt(u16, inner, .little);
         },
-        .AddSp32, .SubSp32 => |instr| {
-            try writer.writeInt(u32, instr, .little);
+        .AddSp32, .SubSp32 => |inner| {
+            try writer.writeInt(u32, inner, .little);
         },
-        .AddSp64, .SubSp64 => |instr| {
-            try writer.writeInt(u64, instr, .little);
+        .AddSp64, .SubSp64 => |inner| {
+            try writer.writeInt(u64, inner, .little);
         },
         .Store64AtReg,
         .Store32AtReg,
         .Store16AtReg,
         .Store8AtReg,
-        => |instr| {
-            try writer.writeByte(@intCast(instr.fromReg));
-            try writer.writeByte(@intCast(instr.toRegPtr));
+        => |inner| {
+            try writer.writeByte(@intCast(inner.fromReg));
+            try writer.writeByte(@intCast(inner.toRegPtr));
         },
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,
         .Store16AtRegPostInc16,
         .Store8AtRegPostInc16,
-        => |instr| {
-            try writer.writeByte(@intCast(instr.fromReg));
-            try writer.writeByte(@intCast(instr.toRegPtr));
-            try writer.writeInt(u16, instr.inc, .little);
+        => |inner| {
+            try writer.writeByte(@intCast(inner.fromReg));
+            try writer.writeByte(@intCast(inner.toRegPtr));
+            try writer.writeInt(u16, inner.inc, .little);
         },
         .Store64AtSpNegOffset16,
         .Store32AtSpNegOffset16,
         .Store16AtSpNegOffset16,
         .Store8AtSpNegOffset16,
-        => |instr| {
-            try writer.writeByte(@intCast(instr.reg));
-            try writer.writeInt(u16, instr.offset, .little);
+        => |inner| {
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeInt(u16, inner.offset, .little);
         },
         .Load64AtReg,
         .Load32AtReg,
         .Load16AtReg,
         .Load8AtReg,
-        => |instr| {
-            try writer.writeByte(@intCast(instr.dest));
-            try writer.writeByte(@intCast(instr.fromRegPtr));
+        => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.fromRegPtr));
         },
         .Load64AtRegOffset16,
         .Load32AtRegOffset16,
         .Load16AtRegOffset16,
         .Load8AtRegOffset16,
-        => |instr| {
-            try writer.writeByte(@intCast(instr.dest));
-            try writer.writeByte(@intCast(instr.fromRegPtr));
-            try writer.writeInt(u16, instr.offset, .little);
+        => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.fromRegPtr));
+            try writer.writeInt(u16, inner.offset, .little);
         },
-        .MulReg16AddReg => |instr| {
-            try writer.writeByte(@intCast(instr.dest));
-            try writer.writeByte(@intCast(instr.addReg));
-            try writer.writeByte(@intCast(instr.mulReg));
-            try writer.writeInt(u16, instr.data, .little);
+        .MulReg16AddReg => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.addReg));
+            try writer.writeByte(@intCast(inner.mulReg));
+            try writer.writeInt(u16, inner.data, .little);
         },
         .DbgReg => |reg| {
             try writer.writeByte(@intCast(reg));
         },
-        .BitAnd, .BitOr => |instr| {
-            try writer.writeByte(@intCast(instr.dest));
-            try writer.writeByte(@intCast(instr.reg1));
-            try writer.writeByte(@intCast(instr.reg2));
+        .BitAnd, .BitOr => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.reg1));
+            try writer.writeByte(@intCast(inner.reg2));
         },
-        .And, .Or => |instr| {
-            try writer.writeByte(@intCast(instr.reg1));
-            try writer.writeByte(@intCast(instr.reg2));
+        .And, .Or => |inner| {
+            try writer.writeByte(@intCast(inner.reg1));
+            try writer.writeByte(@intCast(inner.reg2));
         },
-        .AndSetReg, .OrSetReg => |instr| {
-            try writer.writeByte(@intCast(instr.dest));
-            try writer.writeByte(@intCast(instr.reg1));
-            try writer.writeByte(@intCast(instr.reg2));
+        .AndSetReg, .OrSetReg => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.reg1));
+            try writer.writeByte(@intCast(inner.reg2));
         },
         .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
-        .PrePushRegNegOffset8, .PostPopRegNegOffset8 => |instr| {
-            try writer.writeByte(@intCast(instr.reg));
-            try writer.writeByte(instr.offset);
+        .PrePushRegNegOffset8, .PostPopRegNegOffset8 => |inner| {
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeByte(inner.offset);
         },
-        .PrePushRegNegOffset16, .PostPopRegNegOffset16 => |instr| {
-            try writer.writeByte(@intCast(instr.reg));
-            try writer.writeInt(u16, instr.offset, .little);
+        .PrePushRegNegOffset16, .PostPopRegNegOffset16 => |inner| {
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeInt(u16, inner.offset, .little);
         },
-        .PrePushRegNegOffset32, .PostPopRegNegOffset32 => |instr| {
-            try writer.writeByte(@intCast(instr.reg));
-            try writer.writeInt(u32, instr.offset, .little);
+        .PrePushRegNegOffset32, .PostPopRegNegOffset32 => |inner| {
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeInt(u32, inner.offset, .little);
         },
-        .PrePushRegNegOffset64, .PostPopRegNegOffset64 => |instr| {
-            try writer.writeByte(@intCast(instr.reg));
-            try writer.writeInt(u64, instr.offset, .little);
+        .PrePushRegNegOffset64, .PostPopRegNegOffset64 => |inner| {
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeInt(u64, inner.offset, .little);
         },
     }
 }

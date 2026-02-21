@@ -782,11 +782,10 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     var byteCounter: usize = vmInfo.VM_INFO_BYTECODE_LEN;
     var procOrNull: ?*codegen.ProcChunk = procList;
     while (procOrNull) |proc| : (procOrNull = proc.next) {
-        var instrOrNull = proc.startInstr;
-        while (instrOrNull) |instr| : (instrOrNull = instr.next) {
-            if (instr.data == .Label) continue;
+        for (proc.instrs.items) |instr| {
+            if (instr == .Label) continue;
 
-            const chunkLen = instr.data.getInstrLen();
+            const chunkLen = instr.getInstrLen();
             try writer.writeByte('[');
             try writer.printInt(byteCounter, 10, .lower, .{ .width = numDigits, .fill = '.' });
             try writer.writeAll("] (");
@@ -803,46 +802,46 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     });
 }
 
-fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
-    try writer.writeAll(chunk.data.toString());
+fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
+    try writer.writeAll(instr.toString());
 
-    switch (chunk.data) {
+    switch (instr) {
         .Label => {},
-        .SetReg64 => |instr| {
+        .SetReg64 => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.printInt(inner.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u64, instr.data, writer);
+            try writeHexDecNumber(u64, inner.data, writer);
         },
-        .SetReg32 => |instr| {
+        .SetReg32 => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.printInt(inner.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u32, instr.data, writer);
+            try writeHexDecNumber(u32, inner.data, writer);
         },
-        .SetReg16 => |instr| {
+        .SetReg16 => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.printInt(inner.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u16, instr.data, writer);
+            try writeHexDecNumber(u16, inner.data, writer);
         },
-        .SetReg8 => |instr| {
+        .SetReg8 => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.printInt(inner.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u8, instr.data, writer);
+            try writeHexDecNumber(u8, inner.data, writer);
         },
-        .CmpConst8 => |instr| {
+        .CmpConst8 => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.printInt(inner.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u8, instr.data, writer);
+            try writeHexDecNumber(u8, inner.data, writer);
         },
-        .Cmp => |instr| {
+        .Cmp => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg1, 10, .lower, .{});
+            try writer.printInt(inner.reg1, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg2, 10, .lower, .{});
+            try writer.printInt(inner.reg2, 10, .lower, .{});
         },
         .CmpSetRegEQ,
         .CmpSetRegNE,
@@ -851,40 +850,40 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
         .CmpSetRegGTE,
         .CmpSetRegLTE,
         .Xor,
-        => |instr| {
+        => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.printInt(inner.dest, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg1, 10, .lower, .{});
+            try writer.printInt(inner.reg1, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg2, 10, .lower, .{});
+            try writer.printInt(inner.reg2, 10, .lower, .{});
         },
         .Add,
         .Sub,
         .Mult,
-        => |instr| {
+        => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.printInt(inner.dest, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg1, 10, .lower, .{});
+            try writer.printInt(inner.reg1, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg2, 10, .lower, .{});
+            try writer.printInt(inner.reg2, 10, .lower, .{});
         },
-        .Add8, .Sub8 => |instr| {
+        .Add8, .Sub8 => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.printInt(inner.dest, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.printInt(inner.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u8, instr.data, writer);
+            try writeHexDecNumber(u8, inner.data, writer);
         },
-        .Add16, .Sub16 => |instr| {
+        .Add16, .Sub16 => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.printInt(inner.dest, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.printInt(inner.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u16, instr.data, writer);
+            try writeHexDecNumber(u16, inner.data, writer);
         },
         .Jump,
         .JumpEQ,
@@ -900,168 +899,168 @@ fn printChunk(chunk: *codegen.InstrChunk, writer: *Writer) !void {
         .JumpBackLT,
         .JumpBackGTE,
         .JumpBackLTE,
-        => |instr| {
+        => |inner| {
             try writer.writeByte(' ');
-            try writeHexDecNumber(u32, @intCast(instr), writer);
+            try writeHexDecNumber(u32, @intCast(inner), writer);
         },
         .IncConst8,
         .DecConst8,
-        => |instr| {
+        => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.printInt(inner.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u8, instr.data, writer);
+            try writeHexDecNumber(u8, inner.data, writer);
         },
-        .Mov => |instr| {
+        .Mov => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.printInt(inner.dest, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.src, 10, .lower, .{});
+            try writer.printInt(inner.src, 10, .lower, .{});
         },
         .MovSpNegOffsetAny => unreachable,
-        .MovSpNegOffset16 => |instr| {
+        .MovSpNegOffset16 => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.printInt(inner.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u16, instr.offset, writer);
+            try writeHexDecNumber(u16, inner.offset, writer);
         },
-        .MovSpNegOffset32 => |instr| {
+        .MovSpNegOffset32 => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.printInt(inner.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u32, instr.offset, writer);
+            try writeHexDecNumber(u32, inner.offset, writer);
         },
-        .MovSpNegOffset64 => |instr| {
+        .MovSpNegOffset64 => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.printInt(inner.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u64, instr.offset, writer);
+            try writeHexDecNumber(u64, inner.offset, writer);
         },
-        .XorConst8 => |instr| {
+        .XorConst8 => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.printInt(inner.dest, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.printInt(inner.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u8, instr.byte, writer);
+            try writeHexDecNumber(u8, inner.byte, writer);
         },
-        .AddSp8, .SubSp8 => |instr| {
+        .AddSp8, .SubSp8 => |inner| {
             try writer.writeByte(' ');
-            try writeHexDecNumber(u8, instr, writer);
+            try writeHexDecNumber(u8, inner, writer);
         },
-        .AddSp16, .SubSp16 => |instr| {
+        .AddSp16, .SubSp16 => |inner| {
             try writer.writeByte(' ');
-            try writeHexDecNumber(u16, instr, writer);
+            try writeHexDecNumber(u16, inner, writer);
         },
-        .AddSp32, .SubSp32 => |instr| {
+        .AddSp32, .SubSp32 => |inner| {
             try writer.writeByte(' ');
-            try writeHexDecNumber(u32, instr, writer);
+            try writeHexDecNumber(u32, inner, writer);
         },
-        .AddSp64, .SubSp64 => |instr| {
+        .AddSp64, .SubSp64 => |inner| {
             try writer.writeByte(' ');
-            try writeHexDecNumber(u64, instr, writer);
+            try writeHexDecNumber(u64, inner, writer);
         },
         .Store64AtReg,
         .Store32AtReg,
         .Store16AtReg,
         .Store8AtReg,
-        => |instr| {
+        => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.fromReg, 10, .lower, .{});
+            try writer.printInt(inner.fromReg, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.toRegPtr, 10, .lower, .{});
+            try writer.printInt(inner.toRegPtr, 10, .lower, .{});
         },
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,
         .Store16AtRegPostInc16,
         .Store8AtRegPostInc16,
-        => |instr| {
+        => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.fromReg, 10, .lower, .{});
+            try writer.printInt(inner.fromReg, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.toRegPtr, 10, .lower, .{});
+            try writer.printInt(inner.toRegPtr, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u16, instr.inc, writer);
+            try writeHexDecNumber(u16, inner.inc, writer);
         },
         .Store64AtSpNegOffset16,
         .Store32AtSpNegOffset16,
         .Store16AtSpNegOffset16,
         .Store8AtSpNegOffset16,
-        => |instr| {
+        => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg, 10, .lower, .{});
+            try writer.printInt(inner.reg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u16, instr.offset, writer);
+            try writeHexDecNumber(u16, inner.offset, writer);
         },
-        .Load64AtReg, .Load32AtReg, .Load16AtReg, .Load8AtReg => |instr| {
+        .Load64AtReg, .Load32AtReg, .Load16AtReg, .Load8AtReg => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.printInt(inner.dest, 10, .lower, .{});
             try writer.writeAll(" [r");
-            try writer.printInt(instr.fromRegPtr, 10, .lower, .{});
+            try writer.printInt(inner.fromRegPtr, 10, .lower, .{});
             try writer.writeByte(']');
         },
         .Load64AtRegOffset16,
         .Load32AtRegOffset16,
         .Load16AtRegOffset16,
         .Load8AtRegOffset16,
-        => |instr| {
+        => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.printInt(inner.dest, 10, .lower, .{});
             try writer.writeAll(" [r");
-            try writer.printInt(instr.fromRegPtr, 10, .lower, .{});
+            try writer.printInt(inner.fromRegPtr, 10, .lower, .{});
             try writer.writeAll(", ");
-            try writeHexDecNumber(u16, instr.offset, writer);
+            try writeHexDecNumber(u16, inner.offset, writer);
             try writer.writeByte(']');
         },
-        .MulReg16AddReg => |instr| {
+        .MulReg16AddReg => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.printInt(inner.dest, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.addReg, 10, .lower, .{});
+            try writer.printInt(inner.addReg, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.mulReg, 10, .lower, .{});
+            try writer.printInt(inner.mulReg, 10, .lower, .{});
             try writer.writeByte(' ');
-            try writeHexDecNumber(u16, instr.data, writer);
+            try writeHexDecNumber(u16, inner.data, writer);
         },
         .DbgReg => |reg| {
             try writer.writeAll(" r");
             try writer.printInt(reg, 10, .lower, .{});
         },
-        .BitAnd, .BitOr => |instr| {
+        .BitAnd, .BitOr => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.printInt(inner.dest, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg1, 10, .lower, .{});
+            try writer.printInt(inner.reg1, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg2, 10, .lower, .{});
+            try writer.printInt(inner.reg2, 10, .lower, .{});
         },
-        .And, .Or => |instr| {
+        .And, .Or => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg1, 10, .lower, .{});
+            try writer.printInt(inner.reg1, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg2, 10, .lower, .{});
+            try writer.printInt(inner.reg2, 10, .lower, .{});
         },
-        .AndSetReg, .OrSetReg => |instr| {
+        .AndSetReg, .OrSetReg => |inner| {
             try writer.writeAll(" r");
-            try writer.printInt(instr.dest, 10, .lower, .{});
+            try writer.printInt(inner.dest, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg1, 10, .lower, .{});
+            try writer.printInt(inner.reg1, 10, .lower, .{});
             try writer.writeAll(" r");
-            try writer.printInt(instr.reg2, 10, .lower, .{});
+            try writer.printInt(inner.reg2, 10, .lower, .{});
         },
         .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
         .PrePushRegNegOffset8,
         .PostPopRegNegOffset8,
-        => |instr| try printPushOrPopNRegNegOffset(instr, writer),
+        => |inner| try printPushOrPopNRegNegOffset(inner, writer),
         .PrePushRegNegOffset16,
         .PostPopRegNegOffset16,
-        => |instr| try printPushOrPopNRegNegOffset(instr, writer),
+        => |inner| try printPushOrPopNRegNegOffset(inner, writer),
         .PrePushRegNegOffset32,
         .PostPopRegNegOffset32,
-        => |instr| try printPushOrPopNRegNegOffset(instr, writer),
+        => |inner| try printPushOrPopNRegNegOffset(inner, writer),
         .PrePushRegNegOffset64,
         .PostPopRegNegOffset64,
-        => |instr| try printPushOrPopNRegNegOffset(instr, writer),
+        => |inner| try printPushOrPopNRegNegOffset(inner, writer),
     }
 
     try writer.writeByte('\n');
