@@ -50,7 +50,7 @@ pub fn main() !void {
         try writer.writeByte('\n');
     };
 
-    try runtimeInfo.writeMemDebug(12, 64, writer);
+    try runtimeInfo.writeMemDebug(16, 64, writer);
 }
 
 const Flags = struct {

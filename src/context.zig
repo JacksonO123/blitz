@@ -19,9 +19,6 @@ const ContextSettings = struct {
         printAddresses: bool = false,
         trackPoolMem: bool = builtin.mode == .Debug,
     } = .{},
-    behavior: struct {
-        optimizeVarRegisters: bool = true,
-    } = .{},
 };
 
 pub const Context = struct {

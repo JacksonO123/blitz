@@ -29,6 +29,9 @@ const BytecodeFormat = enum {
     PlainText,
 };
 
+const compilerPrintState: DebugPrintState = .All;
+// const compilerPrintState: DebugPrintState = .None;
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -59,7 +62,7 @@ pub fn main() !void {
     try writer.writeAll("\n");
 
     const code = try utils.readRelativeFile(allocator, path);
-    try compile(allocator, code, writer, fileWriter, .All, .Binary);
+    try compile(allocator, code, writer, fileWriter, compilerPrintState, .Binary);
 }
 
 pub fn compile(

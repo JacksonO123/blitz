@@ -1,15 +1,4 @@
-struct M {
-    pub data: u32;
-
-    pub fn getAddOne(mut self) u32 {
-        return self.data + 1;
-    }
-}
-
-let mut val = new M { data = 10 };
-
-fn thing() [val] u32 {
-    return val.*.getAddOne();
-}
-
-thing();
+let a = 2;
+let b = a + 1;
+let c = a + b;
+let d = a;
