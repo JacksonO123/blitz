@@ -38,6 +38,7 @@ const CodegenBackend = enum {
 
 const RegisterUsage = enum {
     Param,
+    Return,
     Preserved,
     Temporary,
 };
@@ -1083,7 +1084,15 @@ pub const GenInfo = struct {
     }
 
     pub fn getNextRegister(self: *Self, allocator: Allocator) !TempRegister {
-        const regInfoPtr = try utils.createMut(RegInfo, allocator, .{});
+        return try self.getNextRegisterUtil(allocator, .Temporary);
+    }
+
+    pub fn getNextRegisterUtil(
+        self: *Self,
+        allocator: Allocator,
+        usage: RegisterUsage,
+    ) !TempRegister {
+        const regInfoPtr = try utils.createMut(RegInfo, allocator, .{ .usage = usage });
         try self.registers.append(allocator, regInfoPtr);
         return @intCast(self.registers.items.len - 1);
     }
@@ -2563,8 +2572,6 @@ pub fn genBytecodeUtil(
             }
         },
         .FuncCall => |call| {
-            _ = call;
-
             const func = node.typeInfo.resolvesToFunc.?;
             const branchInstr = if (func.labelId) |labelId| Instr{
                 .BranchLinkBack = labelId,
@@ -2577,8 +2584,34 @@ pub fn genBytecodeUtil(
             };
             try context.genInfo.appendChunk(allocator, branchInstr);
 
+            for (call.params) |param| {
+                const reg = try genBytecode(allocator, context, param) orelse
+                    return CodeGenError.ReturnedRegisterNotFound;
+                const resReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
+                const movInstr = Instr{
+                    .Mov = .{
+                        .src = reg,
+                        .dest = resReg,
+                    },
+                };
+                try context.genInfo.appendChunk(allocator, movInstr);
+            }
+
             // TODO - fill this temp value in
             return 170;
+        },
+        .ReturnNode => |inner| {
+            const reg = try genBytecode(allocator, context, inner) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
+            const resReg = try context.genInfo.getNextRegisterUtil(allocator, .Return);
+
+            const movInstr = Instr{
+                .Mov = .{
+                    .src = reg,
+                    .dest = resReg,
+                },
+            };
+            try context.genInfo.appendChunk(allocator, movInstr);
         },
         else => {},
     }
@@ -2588,8 +2621,14 @@ pub fn genBytecodeUtil(
 
 fn codegenFunctions(allocator: Allocator, context: *Context) !void {
     var funcIter = context.compInfo.functions.valueIterator();
-    while (funcIter.next()) |func| {
-        const labelId = func.*.labelId orelse context.genInfo.takeLabelId();
+    while (funcIter.next()) |funcPtr| {
+        const func = funcPtr.*;
+
+        const labelId = func.labelId orelse a: {
+            const labelId = context.genInfo.takeLabelId();
+            func.labelId = labelId;
+            break :a labelId;
+        };
         try context.genInfo.labelByteInfo.appendLabelCount(
             allocator,
             context.genInfo.currentLabelId,
@@ -2598,11 +2637,20 @@ fn codegenFunctions(allocator: Allocator, context: *Context) !void {
             .Label = labelId,
         };
         try context.genInfo.appendChunk(allocator, label);
-
         context.genInfo.setLabelLocation(labelId, context.genInfo.byteCounter);
 
+        for (func.params.params) |param| {
+            const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
+            try context.genInfo.setVariableRegister(allocator, param.name, paramReg);
+        }
+
+        if (func.params.selfInfo != null) {
+            const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
+            try context.genInfo.setVariableRegister(allocator, "self", paramReg);
+        }
+
         try context.genInfo.newProc(allocator);
-        _ = try genBytecode(allocator, context, func.*.body);
+        _ = try genBytecode(allocator, context, func.body);
         try context.genInfo.finishProc(allocator, context, false);
     }
 }
