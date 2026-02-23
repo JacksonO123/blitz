@@ -1056,6 +1056,10 @@ fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
         .PrePushRegNegOffset64,
         .PostPopRegNegOffset64,
         => |inner| try printPushOrPopNRegNegOffset(inner, writer),
+        .BranchLink, .BranchLinkBack => |inner| {
+            try writer.writeByte(' ');
+            try writeHexDecNumber(u32, @intCast(inner), writer);
+        },
     }
 
     try writer.writeByte('\n');

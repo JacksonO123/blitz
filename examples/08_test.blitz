@@ -1,3 +1,7 @@
+fn preThing() u32 {
+    return 2;
+}
+
 fn thing() u32 {
     let a = 2;
     let b = a + 1;

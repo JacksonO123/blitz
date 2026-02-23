@@ -523,6 +523,11 @@ const FuncType = enum {
 };
 
 pub const FuncDecNode = struct {
+    labelId: ?u32 = null,
+    capturedTypes: ?*compInfo.TypeScope = null,
+    capturedFuncs: ?*compInfo.StringListScope = null,
+    capturedVariables: ?*compInfo.CaptureScope = null,
+    visited: bool = false,
     name: []const u8,
     generics: ?[]GenericType,
     params: ParseParamsResult,
@@ -530,12 +535,8 @@ pub const FuncDecNode = struct {
     bodyTokens: []tokenizer.Token,
     returnType: AstTypeInfo,
     definedCaptures: []FuncCaptures,
-    capturedVariables: ?*compInfo.CaptureScope,
-    capturedTypes: ?*compInfo.TypeScope,
-    capturedFuncs: ?*compInfo.StringListScope,
     toScanTypes: *ToScanTypesList,
     funcType: FuncType,
-    visited: bool,
     globallyDefined: bool,
 };
 
@@ -756,6 +757,7 @@ const AstNodeTypeInfo = struct {
     lastVarUse: bool = false,
     makesSliceWithLen: ?u64 = null,
     isSlice: bool = false,
+    resolvesToFunc: ?*FuncDecNode = null,
 };
 
 pub const AstNode = struct {
@@ -2179,12 +2181,8 @@ fn parseFuncDef(
         .bodyTokens = bodyTokens,
         .returnType = returnType,
         .definedCaptures = captures,
-        .capturedVariables = null,
-        .capturedTypes = null,
-        .capturedFuncs = null,
         .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
         .funcType = if (structInfoOrNull == null) .Normal else .StructMethod,
-        .visited = false,
         .globallyDefined = context.compInfo.getScopeDepth() == 1,
     });
 }

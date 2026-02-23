@@ -1076,6 +1076,7 @@ pub fn scanNode(
             const dec = try escapeVarInfo(tempDec);
             if (dec.info.astType.* != .Function) return ScanError.CannotCallNonFunctionNode;
             const func = dec.info.astType.Function;
+            node.typeInfo.resolvesToFunc = func;
 
             try context.compInfo.pushGenScope(allocator, true);
             defer context.compInfo.popGenScope(context);
