@@ -1281,7 +1281,6 @@ pub const GenInfo = struct {
             .BranchLink,
             .BranchLinkBack,
             => |*inner| {
-                std.debug.print("HERE :: {d} - {d}\n", .{ location, inner.* });
                 const data = location - inner.*;
                 inner.* = data;
             },
@@ -2600,7 +2599,6 @@ fn codegenFunctions(allocator: Allocator, context: *Context) !void {
         };
         try context.genInfo.appendChunk(allocator, label);
 
-        std.debug.print("before :: {d}\n", .{context.genInfo.byteCounter});
         context.genInfo.setLabelLocation(labelId, context.genInfo.byteCounter);
 
         try context.genInfo.newProc(allocator);
