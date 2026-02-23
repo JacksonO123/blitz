@@ -12,3 +12,6 @@ pub const debug = @import("debug.zig");
 pub const vmInfo = @import("vm_info.zig");
 pub const allocPools = @import("alloc_pools.zig");
 pub const context = @import("context.zig");
+pub const backends = .{
+    .bytecode = @import("backends/bytecode.zig"),
+};
