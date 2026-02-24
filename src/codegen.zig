@@ -794,7 +794,7 @@ const LabelByteInfo = struct {
         };
     }
 
-    pub fn appendLabelCount(
+    pub fn ensureLabelCount(
         self: *Self,
         allocator: Allocator,
         lastLabel: vmInfo.LabelType,
@@ -1205,34 +1205,10 @@ pub const GenInfo = struct {
         };
     }
 
-    pub fn finishProc(self: *Self, allocator: Allocator, context: *Context, root: bool) !void {
-        try self.labelByteInfo.appendLabelCount(allocator, self.currentLabelId);
+    pub fn finishProc(self: *Self, allocator: Allocator, context: *Context) !void {
+        try self.labelByteInfo.ensureLabelCount(allocator, self.currentLabelId);
 
-        var stackOffset: u64 = 0;
-        if (!root) {
-            if (self.currentProc.maxPreserveReg) |maxPreserve| {
-                const numRegs = maxPreserve - vmInfo.PRESERVE_REGISTER_START + 1;
-                stackOffset = numRegs * vmInfo.POINTER_SIZE;
-                self.currentProc.stackFrameSize += stackOffset;
-
-                const pushRegInstr = Instr{
-                    .PrePushRegNegOffsetAny = .{
-                        .offset = 0,
-                        .reg = maxPreserve,
-                    },
-                };
-                self.instrList.items[self.currentProc.startIndex] = pushRegInstr;
-
-                const popRegInstr = Instr{
-                    .PostPopRegNegOffsetAny = .{
-                        .offset = 0,
-                        .reg = maxPreserve,
-                    },
-                };
-                try self.instrList.append(allocator, popRegInstr);
-            }
-        }
-
+        const stackOffset: u64 = 0;
         const spInstrs = try getSpIncInstructions(self.currentProc.stackFrameSize);
 
         try adjustInstructions(
@@ -1522,7 +1498,7 @@ pub fn codegenAst(
     context.genInfo.vmInfo.version = version.VERSION;
     try context.genInfo.newProc(allocator);
     _ = try genBytecode(allocator, context, tree.root);
-    try context.genInfo.finishProc(allocator, context, true);
+    try context.genInfo.finishProc(allocator, context);
     try codegenFunctions(allocator, context);
 
     if (backend == .Bytecode) {
@@ -2636,7 +2612,7 @@ fn codegenFunctions(allocator: Allocator, context: *Context) !void {
             func.labelInfo.id = labelId;
             break :a labelId;
         };
-        try context.genInfo.labelByteInfo.appendLabelCount(
+        try context.genInfo.labelByteInfo.ensureLabelCount(
             allocator,
             context.genInfo.currentLabelId,
         );
@@ -2658,7 +2634,7 @@ fn codegenFunctions(allocator: Allocator, context: *Context) !void {
 
         try context.genInfo.newProc(allocator);
         _ = try genBytecode(allocator, context, func.body);
-        try context.genInfo.finishProc(allocator, context, false);
+        try context.genInfo.finishProc(allocator, context);
     }
 }
 
