@@ -1,9 +1,10 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
 const scanner = blitz.scanner;
-const Allocator = std.mem.Allocator;
 const ScanError = scanner.ScanError;
 const Context = blitz.context.Context;
 

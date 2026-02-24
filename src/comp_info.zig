@@ -1,4 +1,9 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const StringHashMap = std.StringHashMap;
+const ArrayList = std.ArrayList;
+const Writer = std.Io.Writer;
+
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
@@ -9,11 +14,7 @@ const clone = blitz.clone;
 const scanner = blitz.scanner;
 const vmInfo = blitz.vmInfo;
 const pools = blitz.allocPools;
-const Allocator = std.mem.Allocator;
-const StringHashMap = std.StringHashMap;
-const ArrayList = std.ArrayList;
 const Context = blitz.context.Context;
-const Writer = std.Io.Writer;
 
 fn ScopeDeinitFn(comptime T: type) type {
     return fn (*Context, T, pools.ReleaseType) void;

@@ -1,4 +1,6 @@
 const std = @import("std");
+const Writer = std.Io.Writer;
+
 const blitz = @import("blitz.zig");
 const utils = blitz.utils;
 const ast = blitz.ast;
@@ -6,7 +8,6 @@ const tokenizer = blitz.tokenizer;
 const blitzContext = blitz.context;
 const TokenUtil = tokenizer.TokenUtil;
 const AstError = ast.AstError;
-const Writer = std.Io.Writer;
 const Context = blitzContext.Context;
 const TokenError = tokenizer.TokenError;
 

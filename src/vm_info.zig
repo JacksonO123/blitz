@@ -1,5 +1,7 @@
 const std = @import("std");
+
 const version = @import("version.zig").VERSION;
+
 // semantic representation for locations on stack
 // in interpreter runtime, for other cases just use u64
 pub const RegisterType = u64;

@@ -1,18 +1,20 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const StringHashMap = std.StringHashMap;
+const AutoHashMap = std.AutoHashMap;
+const ArrayList = std.ArrayList;
+const Writer = std.Io.Writer;
+const MemoryPool = std.heap.MemoryPool;
 const builtin = @import("builtin");
+
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
 const vmInfo = blitz.vmInfo;
 const version = blitz.version;
-const Allocator = std.mem.Allocator;
-const StringHashMap = std.StringHashMap;
-const AutoHashMap = std.AutoHashMap;
-const ArrayList = std.ArrayList;
+const bytecodeBackend = blitz.backends.bytecode;
 const TempRegister = vmInfo.TempRegister;
-const Writer = std.Io.Writer;
 const Context = blitz.context.Context;
-const MemoryPool = std.heap.MemoryPool;
 
 const CodeGenError = error{
     RawNumberIsTooBig,
@@ -30,6 +32,19 @@ const GenBytecodeError = CodeGenError ||
     Allocator.Error ||
     std.fmt.ParseIntError ||
     ast.AstTypeError;
+
+const CodegenBackend = enum {
+    Bytecode,
+};
+
+const RegisterUsage = enum {
+    Param,
+    ParamNext,
+    Return,
+    ReturnNext,
+    Preserved,
+    Temporary,
+};
 
 const LoopCondInfo = struct {
     prevCmpAsReg: bool,
@@ -166,6 +181,9 @@ pub const InstructionVariants = enum(u8) {
 
     Ret,
 
+    BranchLink, // inst, 4B data
+    BranchLinkBack, // inst, 4B data
+
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
     }
@@ -271,6 +289,9 @@ pub const InstructionVariants = enum(u8) {
             .PrePushRegNegOffset64, .PostPopRegNegOffset64 => 10,
 
             .Ret => 1,
+
+            .BranchLink => 5,
+            .BranchLinkBack => 5,
         };
     }
 
@@ -407,6 +428,9 @@ pub const InstructionVariants = enum(u8) {
             .PostPopRegNegOffset64 => "pop_reg_neg_offset_64",
 
             .Ret => "ret",
+
+            .BranchLink => "branch_link",
+            .BranchLinkBack => "branch_link_back",
         };
     }
 };
@@ -647,6 +671,9 @@ pub const Instr = union(InstructionVariants) {
 
     Ret: void,
 
+    BranchLink: u64,
+    BranchLinkBack: u64,
+
     pub fn getInstrLen(self: Self) u8 {
         const active = std.meta.activeTag(self);
         return active.getInstrLen();
@@ -724,11 +751,6 @@ const LoopInfo = struct {
     }
 };
 
-const RegInfo = struct {
-    varInfo: ?*VarGenInfo = null,
-    active: bool = false,
-};
-
 const GenInfoSettings = struct {
     // respected for one expr node, then set to default
     outputCmpAsRegister: bool = true,
@@ -736,34 +758,43 @@ const GenInfoSettings = struct {
     propertyAccessReturnsPointer: bool = false,
 };
 
-const VarGenInfo = struct {
+const RegInfoVarInfo = struct {
     stackLocation: ?u64 = null,
-    prevInfo: ?*VarGenInfo = null,
+    prevInfo: ?*RegInfoVarInfo = null,
 };
 
-const VAR_GEN_INFO_POOL_SIZE = 1024;
-const VarGenInfoPool = MemoryPool(VarGenInfo);
+const RegInfo = struct {
+    varInfo: ?RegInfoVarInfo = null,
+    usage: RegisterUsage = .Temporary,
+    lastUsedInstrIndex: ?u32 = null,
+};
+
+const LabelInfo = struct {
+    byte: u64 = 0,
+    exists: bool = false,
+};
 
 const LabelByteInfo = struct {
     const Self = @This();
-    const WaitingLabels = std.AutoHashMap(vmInfo.LabelType, *ArrayList(*u64));
+    const WaitingLabelsList = ArrayList(u32);
+    const WaitingLabels = std.AutoHashMap(vmInfo.LabelType, *WaitingLabelsList);
 
-    labelBytes: []u64,
-    labelExists: []bool,
+    labelInfo: *ArrayList(LabelInfo),
     waitingLabels: *WaitingLabels,
 
     pub fn init(allocator: Allocator) !Self {
         const waitingLabels = WaitingLabels.init(allocator);
         const waitingLabelsPtr = try utils.createMut(WaitingLabels, allocator, waitingLabels);
 
+        const labelInfoPtr = try utils.createMut(ArrayList(LabelInfo), allocator, .empty);
+
         return .{
-            .labelBytes = &[_]u64{},
-            .labelExists = &[_]bool{},
+            .labelInfo = labelInfoPtr,
             .waitingLabels = waitingLabelsPtr,
         };
     }
 
-    pub fn reserveLabelCount(
+    pub fn appendLabelCount(
         self: *Self,
         allocator: Allocator,
         lastLabel: vmInfo.LabelType,
@@ -771,36 +802,22 @@ const LabelByteInfo = struct {
         // if label id is 0, no labels have been used
         if (lastLabel == 0) return;
 
-        self.labelBytes = try allocator.alloc(u64, lastLabel);
-        self.labelExists = try allocator.alloc(bool, lastLabel);
-        @memset(self.labelExists, false);
-    }
+        const prev = self.labelInfo.items.len;
+        if (lastLabel <= prev) return;
 
-    pub fn setLabelLocation(
-        self: *Self,
-        label: vmInfo.LabelType,
-        location: u64,
-    ) void {
-        self.labelExists[label] = true;
-        self.labelBytes[label] = location;
-
-        if (self.waitingLabels.get(label)) |arrList| {
-            for (arrList.items) |ptr| {
-                const newVal: u32 = @intCast(location - ptr.*);
-                ptr.* = newVal;
-            }
-
-            _ = self.waitingLabels.remove(label);
-        }
+        try self.labelInfo.ensureTotalCapacity(allocator, lastLabel);
+        self.labelInfo.items.len = lastLabel;
+        @memset(self.labelInfo.items[prev..], .{});
     }
 
     pub fn getLabelLocation(self: *Self, labelId: vmInfo.LabelType) !?u64 {
-        if (labelId >= self.labelExists.len) {
+        if (labelId >= self.labelInfo.items.len) {
             return CodeGenError.LabelDoesNotExist;
         }
 
-        if (!self.labelExists[labelId]) return null;
-        return self.labelBytes[labelId];
+        const info = self.labelInfo.items[labelId];
+        if (!info.exists) return null;
+        return info.byte;
     }
 
     /// labelPtr must point to the label to watch for, and be the memory
@@ -809,13 +826,13 @@ const LabelByteInfo = struct {
         self: *Self,
         allocator: Allocator,
         labelId: vmInfo.LabelType,
-        labelPtr: *u64,
+        instrIndex: u32,
     ) !void {
         if (self.waitingLabels.get(labelId)) |arrList| {
-            try arrList.append(allocator, labelPtr);
+            try arrList.append(allocator, instrIndex);
         } else {
-            const arrList = try utils.createMut(ArrayList(*u64), allocator, .empty);
-            try arrList.append(allocator, labelPtr);
+            const arrList = try utils.createMut(WaitingLabelsList, allocator, .empty);
+            try arrList.append(allocator, instrIndex);
             try self.waitingLabels.put(labelId, arrList);
         }
     }
@@ -828,8 +845,19 @@ pub const WriteLocInfo = struct {
 
 pub const Proc = struct {
     stackFrameSize: u64 = 0,
-    startIndex: usize,
+    startIndex: u32,
     maxPreserveReg: ?TempRegister = null,
+};
+
+pub const RegisterRange = struct {
+    // u16 in case there is a backend that wants more than 256 registers
+    start: u16 = 0,
+    // exclusive
+    end: u16 = 0,
+};
+
+const ActiveInfo = struct {
+    active: bool = false,
 };
 
 pub const GenInfo = struct {
@@ -841,28 +869,30 @@ pub const GenInfo = struct {
         stackStartSize: u32,
         version: u8,
     },
-    varGenInfoPool: *VarGenInfoPool,
     varNameToReg: *StringHashMap(TempRegister),
     settings: GenInfoSettings,
     loopInfo: *ArrayList(*LoopInfo),
     byteCounter: u64,
     currentLabelId: vmInfo.LabelType,
-    registers: *ArrayList(?*VarGenInfo),
+    registers: *ArrayList(*RegInfo),
+    activeRegisters: *ArrayList(ActiveInfo),
+    registerLimits: struct {
+        params: RegisterRange = .{},
+        temporary: RegisterRange = .{},
+        preserved: RegisterRange = .{},
+    } = .{},
     labelByteInfo: *LabelByteInfo,
 
     pub fn init(allocator: Allocator) !Self {
         const varNameReg = try utils.initMutPtrT(StringHashMap(TempRegister), allocator);
         const loopInfoPtr = try utils.createMut(ArrayList(*LoopInfo), allocator, .empty);
 
-        const tempPool = try VarGenInfoPool.initPreheated(allocator, VAR_GEN_INFO_POOL_SIZE);
-        const varGenInfoPool = try utils.createMut(VarGenInfoPool, allocator, tempPool);
-
         const labelByteInfo = try LabelByteInfo.init(allocator);
         const labelByteInfoPtr = try utils.createMut(LabelByteInfo, allocator, labelByteInfo);
 
         const instrListPtr = try utils.createMut(ArrayList(Instr), allocator, .empty);
-
-        const registersPtr = try utils.createMut(ArrayList(?*VarGenInfo), allocator, .empty);
+        const registersPtr = try utils.createMut(ArrayList(*RegInfo), allocator, .empty);
+        const activeRegistersPtr = try utils.createMut(ArrayList(ActiveInfo), allocator, .empty);
 
         return .{
             .instrList = instrListPtr,
@@ -873,13 +903,13 @@ pub const GenInfo = struct {
                 .stackStartSize = 0,
                 .version = 0,
             },
-            .varGenInfoPool = varGenInfoPool,
             .varNameToReg = varNameReg,
-            .byteCounter = 0,
+            .byteCounter = vmInfo.VM_INFO_BYTECODE_LEN,
             .settings = .{},
             .loopInfo = loopInfoPtr,
             .currentLabelId = 0,
             .registers = registersPtr,
+            .activeRegisters = activeRegistersPtr,
             .labelByteInfo = labelByteInfoPtr,
         };
     }
@@ -901,7 +931,153 @@ pub const GenInfo = struct {
 
     pub fn appendChunkAndReturn(self: *Self, allocator: Allocator, instr: Instr) !*Instr {
         try self.instrList.append(allocator, instr);
-        return &self.instrList.items[self.instrList.items.len - 1];
+        const instrIndex = self.instrList.items.len - 1;
+        self.setInstrRegLastUsedIndices(instr, @intCast(instrIndex));
+        return &self.instrList.items[instrIndex];
+    }
+
+    fn setInstrRegLastUsedIndices(self: *Self, instr: Instr, instrIndex: u32) void {
+        switch (instr) {
+            .NoOp,
+            .Label,
+            .Jump,
+            .JumpEQ,
+            .JumpNE,
+            .JumpGT,
+            .JumpLT,
+            .JumpGTE,
+            .JumpLTE,
+            .JumpBack,
+            .JumpBackEQ,
+            .JumpBackNE,
+            .JumpBackGT,
+            .JumpBackLT,
+            .JumpBackGTE,
+            .JumpBackLTE,
+            .AddSp8,
+            .SubSp8,
+            .AddSp16,
+            .SubSp16,
+            .AddSp32,
+            .SubSp32,
+            .AddSp64,
+            .SubSp64,
+            .DbgReg,
+            .Ret,
+            .BranchLink,
+            .BranchLinkBack,
+            => {},
+
+            .SetReg64 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
+            .SetReg32 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
+            .SetReg16 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
+            .SetReg8 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
+            .Add, .Sub, .Mult => |inner| {
+                self.setRegLastUsedIndex(inner.reg1, instrIndex);
+                self.setRegLastUsedIndex(inner.reg2, instrIndex);
+                self.setRegLastUsedIndex(inner.dest, instrIndex);
+            },
+            .Add8, .Sub8 => |inner| {
+                self.setRegLastUsedIndex(inner.reg, instrIndex);
+                self.setRegLastUsedIndex(inner.dest, instrIndex);
+            },
+            .Add16, .Sub16 => |inner| {
+                self.setRegLastUsedIndex(inner.reg, instrIndex);
+                self.setRegLastUsedIndex(inner.dest, instrIndex);
+            },
+            .Cmp => |inner| {
+                self.setRegLastUsedIndex(inner.reg1, instrIndex);
+                self.setRegLastUsedIndex(inner.reg2, instrIndex);
+            },
+            .CmpSetRegEQ,
+            .CmpSetRegNE,
+            .CmpSetRegGT,
+            .CmpSetRegLT,
+            .CmpSetRegGTE,
+            .CmpSetRegLTE,
+            => |inner| {
+                self.setRegLastUsedIndex(inner.reg1, instrIndex);
+                self.setRegLastUsedIndex(inner.reg2, instrIndex);
+                self.setRegLastUsedIndex(inner.dest, instrIndex);
+            },
+            .CmpConst8, .IncConst8, .DecConst8 => |inner| {
+                self.setRegLastUsedIndex(inner.reg, instrIndex);
+            },
+            .Mov => |inner| {
+                self.setRegLastUsedIndex(inner.src, instrIndex);
+                self.setRegLastUsedIndex(inner.dest, instrIndex);
+            },
+            .MovSpNegOffset16 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
+            .MovSpNegOffset32 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
+            .MovSpNegOffset64 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
+            .Xor, .BitAnd, .BitOr, .AndSetReg, .OrSetReg => |inner| {
+                self.setRegLastUsedIndex(inner.reg1, instrIndex);
+                self.setRegLastUsedIndex(inner.reg2, instrIndex);
+                self.setRegLastUsedIndex(inner.dest, instrIndex);
+            },
+            .XorConst8 => |inner| {
+                self.setRegLastUsedIndex(inner.reg, instrIndex);
+                self.setRegLastUsedIndex(inner.dest, instrIndex);
+            },
+            .Store64AtReg, .Store32AtReg, .Store16AtReg, .Store8AtReg => |inner| {
+                self.setRegLastUsedIndex(inner.fromReg, instrIndex);
+                self.setRegLastUsedIndex(inner.toRegPtr, instrIndex);
+            },
+            .Store64AtRegPostInc16,
+            .Store32AtRegPostInc16,
+            .Store16AtRegPostInc16,
+            .Store8AtRegPostInc16,
+            => |inner| {
+                self.setRegLastUsedIndex(inner.fromReg, instrIndex);
+                self.setRegLastUsedIndex(inner.toRegPtr, instrIndex);
+            },
+            .Store64AtSpNegOffset16,
+            .Store32AtSpNegOffset16,
+            .Store16AtSpNegOffset16,
+            .Store8AtSpNegOffset16,
+            => |inner| {
+                self.setRegLastUsedIndex(inner.reg, instrIndex);
+            },
+            .Load64AtRegOffset16,
+            .Load32AtRegOffset16,
+            .Load16AtRegOffset16,
+            .Load8AtRegOffset16,
+            => |inner| {
+                self.setRegLastUsedIndex(inner.fromRegPtr, instrIndex);
+                self.setRegLastUsedIndex(inner.dest, instrIndex);
+            },
+            .Load64AtReg, .Load32AtReg, .Load16AtReg, .Load8AtReg => |inner| {
+                self.setRegLastUsedIndex(inner.fromRegPtr, instrIndex);
+                self.setRegLastUsedIndex(inner.dest, instrIndex);
+            },
+            .MulReg16AddReg => |inner| {
+                self.setRegLastUsedIndex(inner.addReg, instrIndex);
+                self.setRegLastUsedIndex(inner.mulReg, instrIndex);
+                self.setRegLastUsedIndex(inner.dest, instrIndex);
+            },
+            .And, .Or => |inner| {
+                self.setRegLastUsedIndex(inner.reg1, instrIndex);
+                self.setRegLastUsedIndex(inner.reg2, instrIndex);
+            },
+            .PrePushRegNegOffset8, .PostPopRegNegOffset8 => |inner| {
+                self.setRegLastUsedIndex(inner.reg, instrIndex);
+            },
+            .PrePushRegNegOffset16, .PostPopRegNegOffset16 => |inner| {
+                self.setRegLastUsedIndex(inner.reg, instrIndex);
+            },
+            .PrePushRegNegOffset32, .PostPopRegNegOffset32 => |inner| {
+                self.setRegLastUsedIndex(inner.reg, instrIndex);
+            },
+            .PrePushRegNegOffset64, .PostPopRegNegOffset64 => |inner| {
+                self.setRegLastUsedIndex(inner.reg, instrIndex);
+            },
+
+            .PostPopRegNegOffsetAny, .PrePushRegNegOffsetAny, .MovSpNegOffsetAny => unreachable,
+        }
+    }
+
+    fn setRegLastUsedIndex(self: *Self, reg: TempRegister, instrIndex: u32) void {
+        self.registers.items[reg].lastUsedInstrIndex = instrIndex;
     }
 
     pub fn takeLabelId(self: *Self) vmInfo.LabelType {
@@ -911,7 +1087,16 @@ pub const GenInfo = struct {
     }
 
     pub fn getNextRegister(self: *Self, allocator: Allocator) !TempRegister {
-        try self.registers.append(allocator, null);
+        return try self.getNextRegisterUtil(allocator, .Temporary);
+    }
+
+    pub fn getNextRegisterUtil(
+        self: *Self,
+        allocator: Allocator,
+        usage: RegisterUsage,
+    ) !TempRegister {
+        const regInfoPtr = try utils.createMut(RegInfo, allocator, .{ .usage = usage });
+        try self.registers.append(allocator, regInfoPtr);
         return @intCast(self.registers.items.len - 1);
     }
 
@@ -921,28 +1106,29 @@ pub const GenInfo = struct {
 
     pub fn setVariableRegister(
         self: *Self,
+        allocator: Allocator,
         name: []const u8,
         reg: TempRegister,
     ) !void {
-        var varGenInfo = try self.varGenInfoPool.create();
-        varGenInfo.* = .{};
+        const regInfo = try utils.createMut(RegInfo, allocator, .{});
 
         try self.varNameToReg.put(name, reg);
-        if (self.registers.items[reg]) |*varInfo| {
-            varGenInfo.prevInfo = varInfo.*;
-            varInfo.* = varGenInfo;
+        if (self.registers.items[reg].varInfo) |*varInfo| {
+            varInfo.prevInfo = varInfo;
+            self.registers.items[reg] = regInfo;
         }
     }
 
     // deactivates register and removes variable info
     pub fn removeVariableRegister(self: *Self, name: []const u8) void {
         if (self.varNameToReg.get(name)) |reg| {
-            const varInfo = self.registers.items[reg];
+            const varInfo = self.registers.items[reg].varInfo;
 
             if (varInfo) |info| {
-                const prevInfo = info.prevInfo;
-                self.registers.items[reg] = prevInfo;
-                if (prevInfo == null) {
+                const prevInfoOrNull = info.prevInfo;
+                if (prevInfoOrNull) |prevInfo| {
+                    self.registers.items[reg].varInfo = prevInfo.*;
+                } else {
                     _ = self.varNameToReg.remove(name);
                 }
             } else {
@@ -952,7 +1138,7 @@ pub const GenInfo = struct {
     }
 
     pub fn isRegVariable(self: Self, reg: TempRegister) bool {
-        return self.registers.items[reg] != null;
+        return self.registers.items[reg].varInfo != null;
     }
 
     pub fn pushLoopInfo(self: *Self, allocator: Allocator) !void {
@@ -986,12 +1172,12 @@ pub const GenInfo = struct {
         }
     }
 
-    pub fn getRegInfo(self: Self, reg: TempRegister) ?*VarGenInfo {
+    pub fn getRegInfo(self: Self, reg: TempRegister) ?*RegInfo {
         return self.registers.items[reg];
     }
 
     pub fn getVarGenInfoFromName(self: Self, name: []const u8) ?struct {
-        varInfo: *VarGenInfo,
+        varInfo: *RegInfo,
         reg: TempRegister,
     } {
         if (self.varNameToReg.get(name)) |reg| {
@@ -1015,12 +1201,12 @@ pub const GenInfo = struct {
         try self.instrList.append(allocator, .{ .NoOp = {} });
 
         self.currentProc = .{
-            .startIndex = startIndex,
+            .startIndex = @intCast(startIndex),
         };
     }
 
     pub fn finishProc(self: *Self, allocator: Allocator, context: *Context, root: bool) !void {
-        try self.labelByteInfo.reserveLabelCount(allocator, self.currentLabelId);
+        try self.labelByteInfo.appendLabelCount(allocator, self.currentLabelId);
 
         var stackOffset: u64 = 0;
         if (!root) {
@@ -1048,13 +1234,11 @@ pub const GenInfo = struct {
         }
 
         const spInstrs = try getSpIncInstructions(self.currentProc.stackFrameSize);
-        const procInstrs = self.instrList.items[self.currentProc.startIndex..];
 
-        self.byteCounter = vmInfo.VM_INFO_BYTECODE_LEN;
         try adjustInstructions(
             allocator,
             context,
-            procInstrs,
+            self.currentProc.startIndex,
             self.currentProc.stackFrameSize,
             stackOffset,
         );
@@ -1067,19 +1251,74 @@ pub const GenInfo = struct {
         }
 
         try self.instrList.append(allocator, .{ .Ret = {} });
+        self.byteCounter += 1;
+    }
+
+    pub fn setLabelLocation(
+        self: *Self,
+        label: vmInfo.LabelType,
+        location: u64,
+    ) void {
+        self.labelByteInfo.labelInfo.items[label] = .{
+            .byte = location,
+            .exists = true,
+        };
+
+        if (self.labelByteInfo.waitingLabels.get(label)) |arrList| {
+            for (arrList.items) |instrIndex| {
+                self.updateInstrLabelLocation(instrIndex, location);
+            }
+
+            _ = self.labelByteInfo.waitingLabels.remove(label);
+        }
+    }
+
+    fn updateInstrLabelLocation(self: *Self, instrIndex: u32, location: u64) void {
+        const instr = &self.instrList.items[instrIndex];
+        switch (instr.*) {
+            .Jump,
+            .JumpEQ,
+            .JumpNE,
+            .JumpGT,
+            .JumpLT,
+            .JumpGTE,
+            .JumpLTE,
+            .JumpBack,
+            .JumpBackEQ,
+            .JumpBackNE,
+            .JumpBackGT,
+            .JumpBackLT,
+            .JumpBackGTE,
+            .JumpBackLTE,
+            .BranchLink,
+            .BranchLinkBack,
+            => |*inner| {
+                const data = location - inner.*;
+                inner.* = data;
+            },
+            else => {},
+        }
     }
 };
 
 fn adjustInstructions(
     allocator: Allocator,
     context: *Context,
-    instrs: []Instr,
+    instrStartIndex: u32,
     frameSize: u64,
     stackOffset: u64,
 ) !void {
-    for (instrs) |*instr| {
-        try adjustInstruction(allocator, context, instr, frameSize, stackOffset);
-        context.genInfo.byteCounter += instr.getInstrLen();
+    const registersLen = context.genInfo.registers.items.len;
+    const beforeLen = context.genInfo.activeRegisters.items.len;
+    try context.genInfo.activeRegisters.ensureTotalCapacity(allocator, registersLen);
+    context.genInfo.activeRegisters.items.len = registersLen;
+    @memset(context.genInfo.activeRegisters.items[beforeLen..], .{});
+
+    var i: u32 = instrStartIndex;
+    while (i < context.genInfo.instrList.items.len) : (i += 1) {
+        // TODO - if the instr is a branch to function, record all active registers and do smth
+        try adjustInstruction(allocator, context, i, frameSize, stackOffset);
+        context.genInfo.byteCounter += context.genInfo.instrList.items[i].getInstrLen();
     }
 }
 
@@ -1087,13 +1326,14 @@ fn adjustInstructions(
 fn adjustInstruction(
     allocator: Allocator,
     context: *Context,
-    instr: *Instr,
+    instrIndex: u32,
     frameSize: u64,
     stackOffset: u64,
 ) !void {
+    var instr = &context.genInfo.instrList.items[instrIndex];
     switch (instr.*) {
         .Label => |label| {
-            context.genInfo.labelByteInfo.setLabelLocation(
+            context.genInfo.setLabelLocation(
                 label,
                 context.genInfo.byteCounter,
             );
@@ -1145,8 +1385,26 @@ fn adjustInstruction(
                 };
                 data.* = context.genInfo.byteCounter + byteOffset;
 
-                try context.genInfo.labelByteInfo.waitForLabel(allocator, @intCast(labelId), data);
+                try context.genInfo.labelByteInfo.waitForLabel(
+                    allocator,
+                    @intCast(labelId),
+                    instrIndex,
+                );
             }
+        },
+        .BranchLink => |*data| {
+            const labelId = data.*;
+            data.* = context.genInfo.byteCounter;
+            try context.genInfo.labelByteInfo.waitForLabel(
+                allocator,
+                @intCast(labelId),
+                instrIndex,
+            );
+        },
+        .BranchLinkBack => |*labelId| {
+            const loc = try context.genInfo.labelByteInfo.getLabelLocation(@intCast(labelId.*));
+            _ = loc;
+            // labelId.* = loc.?;
         },
         // not changed by stackOffset
         .PrePushRegNegOffsetAny => |pushInstr| {
@@ -1255,12 +1513,21 @@ fn movSpNegOffset(reg: TempRegister, offset: u64) !Instr {
     };
 }
 
-pub fn codegenAst(allocator: Allocator, context: *Context, tree: ast.Ast) !void {
+pub fn codegenAst(
+    allocator: Allocator,
+    context: *Context,
+    tree: ast.Ast,
+    backend: CodegenBackend,
+) !void {
     context.genInfo.vmInfo.version = version.VERSION;
     try context.genInfo.newProc(allocator);
     _ = try genBytecode(allocator, context, tree.root);
     try context.genInfo.finishProc(allocator, context, true);
     try codegenFunctions(allocator, context);
+
+    if (backend == .Bytecode) {
+        try bytecodeBackend.begin(allocator, context);
+    }
 }
 
 fn writeIntSliceToInstr(
@@ -1336,10 +1603,7 @@ pub fn genBytecodeUtil(
             };
 
             if (!node.typeInfo.lastVarUse) {
-                try context.genInfo.setVariableRegister(
-                    dec.name,
-                    varReg,
-                );
+                try context.genInfo.setVariableRegister(allocator, dec.name, varReg);
             }
         },
         .Value => |value| {
@@ -1957,7 +2221,7 @@ pub fn genBytecodeUtil(
 
             if (init.indexIdent) |ident| {
                 indexReg = try context.genInfo.getNextRegister(allocator);
-                try context.genInfo.setVariableRegister(ident, indexReg.?);
+                try context.genInfo.setVariableRegister(allocator, ident, indexReg.?);
 
                 const setZeroInstr = Instr{
                     .SetReg8 = .{
@@ -1970,7 +2234,7 @@ pub fn genBytecodeUtil(
 
             if (init.ptrIdent) |ident| {
                 ptrReg = try context.genInfo.getNextRegister(allocator);
-                try context.genInfo.setVariableRegister(ident, ptrReg.?);
+                try context.genInfo.setVariableRegister(allocator, ident, ptrReg.?);
 
                 const movWriteReg = Instr{
                     .Mov = .{
@@ -2094,13 +2358,11 @@ pub fn genBytecodeUtil(
                 return CodeGenError.ReturnedRegisterNotFound;
 
             const varGenInfo = context.genInfo.getRegInfo(resReg);
-            const varStackLocation = if (varGenInfo) |info|
-                if (info.stackLocation) |location|
-                    location
-                else
-                    null
-            else
-                null;
+            const varStackLocation = a: {
+                const info = varGenInfo orelse break :a null;
+                const varInfo = info.varInfo orelse break :a null;
+                break :a varInfo.stackLocation;
+            };
 
             const location = varStackLocation orelse a: {
                 const itemSize = inner.node.typeInfo.size;
@@ -2126,8 +2388,10 @@ pub fn genBytecodeUtil(
             };
 
             if (varGenInfo) |info| {
-                if (info.stackLocation == null) {
-                    info.stackLocation = location;
+                if (info.varInfo) |*varInfo| {
+                    if (varInfo.stackLocation == null) {
+                        varInfo.stackLocation = location;
+                    }
                 }
             }
 
@@ -2312,10 +2576,49 @@ pub fn genBytecodeUtil(
             }
         },
         .FuncCall => |call| {
-            _ = call;
+            const func = node.typeInfo.resolvesToFunc.?;
+            const branchLabelId = if (func.labelInfo.id) |labelId|
+                labelId
+            else a: {
+                const labelId = context.genInfo.takeLabelId();
+                node.typeInfo.resolvesToFunc.?.labelInfo.id = labelId;
+                break :a labelId;
+            };
 
-            // TODO - fill this temp value in
-            return 170;
+            for (call.params) |param| {
+                const reg = try genBytecode(allocator, context, param) orelse
+                    return CodeGenError.ReturnedRegisterNotFound;
+                const resReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
+                const movInstr = Instr{
+                    .Mov = .{
+                        .src = reg,
+                        .dest = resReg,
+                    },
+                };
+                try context.genInfo.appendChunk(allocator, movInstr);
+            }
+
+            const branchInstr = if (func.labelInfo.generated) Instr{
+                .BranchLinkBack = branchLabelId,
+            } else Instr{
+                .BranchLink = branchLabelId,
+            };
+            try context.genInfo.appendChunk(allocator, branchInstr);
+
+            return try context.genInfo.getNextRegisterUtil(allocator, .Return);
+        },
+        .ReturnNode => |inner| {
+            const reg = try genBytecode(allocator, context, inner) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
+            const resReg = try context.genInfo.getNextRegisterUtil(allocator, .Return);
+
+            const movInstr = Instr{
+                .Mov = .{
+                    .src = reg,
+                    .dest = resReg,
+                },
+            };
+            try context.genInfo.appendChunk(allocator, movInstr);
         },
         else => {},
     }
@@ -2325,9 +2628,36 @@ pub fn genBytecodeUtil(
 
 fn codegenFunctions(allocator: Allocator, context: *Context) !void {
     var funcIter = context.compInfo.functions.valueIterator();
-    while (funcIter.next()) |func| {
+    while (funcIter.next()) |funcPtr| {
+        const func = funcPtr.*;
+
+        const labelId = func.labelInfo.id orelse a: {
+            const labelId = context.genInfo.takeLabelId();
+            func.labelInfo.id = labelId;
+            break :a labelId;
+        };
+        try context.genInfo.labelByteInfo.appendLabelCount(
+            allocator,
+            context.genInfo.currentLabelId,
+        );
+        const label = Instr{
+            .Label = labelId,
+        };
+        try context.genInfo.appendChunk(allocator, label);
+        context.genInfo.setLabelLocation(labelId, context.genInfo.byteCounter);
+
+        for (func.params.params) |param| {
+            const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
+            try context.genInfo.setVariableRegister(allocator, param.name, paramReg);
+        }
+
+        if (func.params.selfInfo != null) {
+            const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
+            try context.genInfo.setVariableRegister(allocator, "self", paramReg);
+        }
+
         try context.genInfo.newProc(allocator);
-        _ = try genBytecode(allocator, context, func.*.body);
+        _ = try genBytecode(allocator, context, func.body);
         try context.genInfo.finishProc(allocator, context, false);
     }
 }
@@ -2772,14 +3102,13 @@ fn initArraySliceBytecode(
     };
 
     const tempReg = try context.genInfo.getNextRegister(allocator);
-    const regInfoOrNull = if (arrRegOrNull) |arrReg|
-        context.genInfo.getRegInfo(arrReg)
-    else
-        null;
-    const regLocationOrNull = if (regInfoOrNull) |info|
-        info.stackLocation
-    else
-        null;
+    const regLocationOrNull = a: {
+        const arrReg = arrRegOrNull orelse break :a null;
+        const regInfoOrNull = context.genInfo.getRegInfo(arrReg);
+        const info = regInfoOrNull orelse break :a null;
+        const varInfo = info.varInfo orelse break :a null;
+        break :a varInfo.stackLocation;
+    };
     const regLocation = regLocationOrNull orelse arrayStartLoc;
 
     const setReg = Instr{
@@ -3151,6 +3480,9 @@ fn writeChunk(instr: Instr, writer: *Writer) !void {
         .PrePushRegNegOffset64, .PostPopRegNegOffset64 => |inner| {
             try writer.writeByte(@intCast(inner.reg));
             try writer.writeInt(u64, inner.offset, .little);
+        },
+        .BranchLink, .BranchLinkBack => |inner| {
+            try writer.writeInt(u32, @intCast(inner), .little);
         },
     }
 }

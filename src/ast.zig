@@ -1,4 +1,8 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+const Writer = std.Io.Writer;
+
 const blitz = @import("blitz.zig");
 const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
@@ -6,11 +10,8 @@ const scanner = blitz.scanner;
 const compInfo = blitz.compInfo;
 const logger = blitz.logger;
 const pools = blitz.allocPools;
-const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 const TokenError = tokenizer.TokenError;
 const Context = blitz.context.Context;
-const Writer = std.Io.Writer;
 
 const AstNumberVariantsStrRel = struct {
     str: []const u8,
@@ -523,6 +524,14 @@ const FuncType = enum {
 };
 
 pub const FuncDecNode = struct {
+    labelInfo: struct {
+        id: ?u32 = null,
+        generated: bool = false,
+    } = .{},
+    capturedTypes: ?*compInfo.TypeScope = null,
+    capturedFuncs: ?*compInfo.StringListScope = null,
+    capturedVariables: ?*compInfo.CaptureScope = null,
+    visited: bool = false,
     name: []const u8,
     generics: ?[]GenericType,
     params: ParseParamsResult,
@@ -530,12 +539,8 @@ pub const FuncDecNode = struct {
     bodyTokens: []tokenizer.Token,
     returnType: AstTypeInfo,
     definedCaptures: []FuncCaptures,
-    capturedVariables: ?*compInfo.CaptureScope,
-    capturedTypes: ?*compInfo.TypeScope,
-    capturedFuncs: ?*compInfo.StringListScope,
     toScanTypes: *ToScanTypesList,
     funcType: FuncType,
-    visited: bool,
     globallyDefined: bool,
 };
 
@@ -756,6 +761,7 @@ const AstNodeTypeInfo = struct {
     lastVarUse: bool = false,
     makesSliceWithLen: ?u64 = null,
     isSlice: bool = false,
+    resolvesToFunc: ?*FuncDecNode = null,
 };
 
 pub const AstNode = struct {
@@ -2179,12 +2185,8 @@ fn parseFuncDef(
         .bodyTokens = bodyTokens,
         .returnType = returnType,
         .definedCaptures = captures,
-        .capturedVariables = null,
-        .capturedTypes = null,
-        .capturedFuncs = null,
         .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
         .funcType = if (structInfoOrNull == null) .Normal else .StructMethod,
-        .visited = false,
         .globallyDefined = context.compInfo.getScopeDepth() == 1,
     });
 }

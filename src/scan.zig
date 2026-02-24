@@ -1,4 +1,7 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
@@ -7,8 +10,6 @@ const clone = blitz.clone;
 const compInfo = blitz.compInfo;
 const vmInfo = blitz.vmInfo;
 const allocPools = blitz.allocPools;
-const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 const Context = blitz.context.Context;
 
 pub const ScanInfo = struct {
@@ -1076,6 +1077,7 @@ pub fn scanNode(
             const dec = try escapeVarInfo(tempDec);
             if (dec.info.astType.* != .Function) return ScanError.CannotCallNonFunctionNode;
             const func = dec.info.astType.Function;
+            node.typeInfo.resolvesToFunc = func;
 
             try context.compInfo.pushGenScope(allocator, true);
             defer context.compInfo.popGenScope(context);

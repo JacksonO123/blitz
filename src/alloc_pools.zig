@@ -1,14 +1,15 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Writer = std.Io.Writer;
+const MemPool = std.heap.MemoryPool;
+
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
 const blitzContext = blitz.context;
 const debug = blitz.debug;
 const compInfo = blitz.compInfo;
-const Allocator = std.mem.Allocator;
 const Context = blitzContext.Context;
-const Writer = std.Io.Writer;
-const MemPool = std.heap.MemoryPool;
 
 const POOL_SIZE = 1024 * 64;
 

@@ -1,13 +1,14 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Writer = std.Io.Writer;
 const builtin = @import("builtin");
+
 const blitz = @import("blitz.zig");
 const utils = blitz.utils;
 const vmInfo = blitz.vmInfo;
 const codegen = blitz.codegen;
 const version = blitz.version;
-const Allocator = std.mem.Allocator;
 const RegisterType = vmInfo.RegisterType;
-const Writer = std.Io.Writer;
 
 const InterpreterError = error{
     NoInputFile,

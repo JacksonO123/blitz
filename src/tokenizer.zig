@@ -1,10 +1,11 @@
 const std = @import("std");
-const blitz = @import("blitz.zig");
-const ast = blitz.ast;
-const utils = blitz.utils;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
+
+const blitz = @import("blitz.zig");
+const ast = blitz.ast;
+const utils = blitz.utils;
 
 const INIT_TOK_CAPACITY = 1024 * 10;
 
