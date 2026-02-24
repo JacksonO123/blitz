@@ -1,19 +1,20 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const StringHashMap = std.StringHashMap;
+const AutoHashMap = std.AutoHashMap;
+const ArrayList = std.ArrayList;
+const Writer = std.Io.Writer;
+const MemoryPool = std.heap.MemoryPool;
 const builtin = @import("builtin");
+
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
 const vmInfo = blitz.vmInfo;
 const version = blitz.version;
 const bytecodeBackend = blitz.backends.bytecode;
-const Allocator = std.mem.Allocator;
-const StringHashMap = std.StringHashMap;
-const AutoHashMap = std.AutoHashMap;
-const ArrayList = std.ArrayList;
 const TempRegister = vmInfo.TempRegister;
-const Writer = std.Io.Writer;
 const Context = blitz.context.Context;
-const MemoryPool = std.heap.MemoryPool;
 
 const CodeGenError = error{
     RawNumberIsTooBig,
@@ -38,7 +39,9 @@ const CodegenBackend = enum {
 
 const RegisterUsage = enum {
     Param,
+    ParamNext,
     Return,
+    ReturnNext,
     Preserved,
     Temporary,
 };
@@ -1400,7 +1403,8 @@ fn adjustInstruction(
         },
         .BranchLinkBack => |*labelId| {
             const loc = try context.genInfo.labelByteInfo.getLabelLocation(@intCast(labelId.*));
-            labelId.* = loc.?;
+            _ = loc;
+            // labelId.* = loc.?;
         },
         // not changed by stackOffset
         .PrePushRegNegOffsetAny => |pushInstr| {
@@ -2573,16 +2577,13 @@ pub fn genBytecodeUtil(
         },
         .FuncCall => |call| {
             const func = node.typeInfo.resolvesToFunc.?;
-            const branchInstr = if (func.labelId) |labelId| Instr{
-                .BranchLinkBack = labelId,
-            } else a: {
+            const branchLabelId = if (func.labelInfo.id) |labelId|
+                labelId
+            else a: {
                 const labelId = context.genInfo.takeLabelId();
-                node.typeInfo.resolvesToFunc.?.labelId = labelId;
-                break :a Instr{
-                    .BranchLink = labelId,
-                };
+                node.typeInfo.resolvesToFunc.?.labelInfo.id = labelId;
+                break :a labelId;
             };
-            try context.genInfo.appendChunk(allocator, branchInstr);
 
             for (call.params) |param| {
                 const reg = try genBytecode(allocator, context, param) orelse
@@ -2597,8 +2598,14 @@ pub fn genBytecodeUtil(
                 try context.genInfo.appendChunk(allocator, movInstr);
             }
 
-            // TODO - fill this temp value in
-            return 170;
+            const branchInstr = if (func.labelInfo.generated) Instr{
+                .BranchLinkBack = branchLabelId,
+            } else Instr{
+                .BranchLink = branchLabelId,
+            };
+            try context.genInfo.appendChunk(allocator, branchInstr);
+
+            return try context.genInfo.getNextRegisterUtil(allocator, .Return);
         },
         .ReturnNode => |inner| {
             const reg = try genBytecode(allocator, context, inner) orelse
@@ -2624,9 +2631,9 @@ fn codegenFunctions(allocator: Allocator, context: *Context) !void {
     while (funcIter.next()) |funcPtr| {
         const func = funcPtr.*;
 
-        const labelId = func.labelId orelse a: {
+        const labelId = func.labelInfo.id orelse a: {
             const labelId = context.genInfo.takeLabelId();
-            func.labelId = labelId;
+            func.labelInfo.id = labelId;
             break :a labelId;
         };
         try context.genInfo.labelByteInfo.appendLabelCount(

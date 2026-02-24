@@ -1,4 +1,7 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Writer = std.Io.Writer;
+
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
@@ -7,8 +10,6 @@ const codegen = blitz.codegen;
 const blitzCompInfo = blitz.compInfo;
 const vmInfo = blitz.vmInfo;
 const GenInfo = codegen.GenInfo;
-const Allocator = std.mem.Allocator;
-const Writer = std.Io.Writer;
 const Context = blitz.context.Context;
 
 pub fn printAst(context: *Context, tree: ast.Ast, writer: *Writer) !void {
@@ -779,7 +780,8 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
 
     var byteCounter: usize = vmInfo.VM_INFO_BYTECODE_LEN;
     for (context.genInfo.instrList.items) |instr| {
-        if (instr == .Label or instr == .Label) continue;
+        if (instr == .Label and !context.settings.debug.printLabels) continue;
+        if (instr == .NoOp and !context.settings.debug.printNoOps) continue;
 
         const chunkLen = instr.getInstrLen();
         try writer.writeByte('[');

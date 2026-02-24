@@ -1,5 +1,9 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+const Writer = std.Io.Writer;
 const builtin = @import("builtin");
+
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const logger = blitz.logger;
@@ -10,14 +14,16 @@ const codegen = blitz.codegen;
 const allocPools = blitz.allocPools;
 const utils = blitz.utils;
 const debug = blitz.debug;
-const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
-const Writer = std.Io.Writer;
 
 const ContextSettings = struct {
     debug: struct {
         printAddresses: bool = false,
         trackPoolMem: bool = builtin.mode == .Debug,
+
+        printLabels: bool = false,
+        printNoOps: bool = false,
+        // printLabels: bool = true,
+        // printNoOps: bool = true,
     } = .{},
 };
 

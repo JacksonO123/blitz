@@ -1,5 +1,10 @@
 const std = @import("std");
+const ArrayList = std.ArrayList;
+const StringHashMap = std.StringHashMap;
+const Allocator = std.mem.Allocator;
+const Writer = std.Io.Writer;
 const builtin = @import("builtin");
+
 const blitz = @import("blitz.zig");
 const tokenizer = blitz.tokenizer;
 const ast = blitz.ast;
@@ -10,14 +15,10 @@ const blitzCompInfo = blitz.compInfo;
 const debug = blitz.debug;
 const logger = blitz.logger;
 const allocPools = blitz.allocPools;
-const ArrayList = std.ArrayList;
-const StringHashMap = std.StringHashMap;
-const Allocator = std.mem.Allocator;
 const CompInfo = blitzCompInfo.CompInfo;
 const TokenUtil = tokenizer.TokenUtil;
 const GenInfo = codegen.GenInfo;
 const Context = blitz.context.Context;
-const Writer = std.Io.Writer;
 
 const DebugPrintState = enum {
     All,

@@ -1,17 +1,18 @@
+pub const allocPools = @import("alloc_pools.zig");
 pub const ast = @import("ast.zig");
+pub const builtins = @import("builtins.zig");
+pub const clone = @import("clone.zig");
+pub const codegen = @import("codegen.zig");
+pub const compInfo = @import("comp_info.zig");
+pub const context = @import("context.zig");
+pub const debug = @import("debug.zig");
+pub const logger = @import("logger.zig");
 pub const scanner = @import("scan.zig");
 pub const tokenizer = @import("tokenizer.zig");
-pub const clone = @import("clone.zig");
 pub const utils = @import("utils.zig");
-pub const logger = @import("logger.zig");
-pub const builtins = @import("builtins.zig");
-pub const codegen = @import("codegen.zig");
 pub const version = @import("version.zig");
-pub const compInfo = @import("comp_info.zig");
-pub const debug = @import("debug.zig");
 pub const vmInfo = @import("vm_info.zig");
-pub const allocPools = @import("alloc_pools.zig");
-pub const context = @import("context.zig");
+
 pub const backends = .{
     .bytecode = @import("backends/bytecode.zig"),
 };

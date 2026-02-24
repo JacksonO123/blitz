@@ -1,3 +1,7 @@
+fn otherThing() u32 {
+    return thing(4);
+}
+
 fn thing(a: u32) u32 {
     return a + 1;
 }

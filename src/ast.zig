@@ -1,4 +1,8 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+const Writer = std.Io.Writer;
+
 const blitz = @import("blitz.zig");
 const tokenizer = blitz.tokenizer;
 const utils = blitz.utils;
@@ -6,11 +10,8 @@ const scanner = blitz.scanner;
 const compInfo = blitz.compInfo;
 const logger = blitz.logger;
 const pools = blitz.allocPools;
-const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 const TokenError = tokenizer.TokenError;
 const Context = blitz.context.Context;
-const Writer = std.Io.Writer;
 
 const AstNumberVariantsStrRel = struct {
     str: []const u8,
@@ -523,7 +524,10 @@ const FuncType = enum {
 };
 
 pub const FuncDecNode = struct {
-    labelId: ?u32 = null,
+    labelInfo: struct {
+        id: ?u32 = null,
+        generated: bool = false,
+    } = .{},
     capturedTypes: ?*compInfo.TypeScope = null,
     capturedFuncs: ?*compInfo.StringListScope = null,
     capturedVariables: ?*compInfo.CaptureScope = null,

@@ -1,10 +1,11 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const debug = blitz.debug;
 const scanner = blitz.scanner;
 const pools = blitz.allocPools;
-const Allocator = std.mem.Allocator;
 const Context = blitz.context.Context;
 
 pub const CloneError = error{
