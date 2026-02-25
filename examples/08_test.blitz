@@ -1,11 +1,10 @@
-fn otherThing() u32 {
-    return thing(4);
+fn main() {
+    let c = 3;
+    let h = c + 1;
+    let d = thing(h);
+    let e = c + 2;
 }
 
 fn thing(a: u32) u32 {
     return a + 1;
 }
-
-let c = 3;
-let h = c + 1;
-let d = thing(h);
