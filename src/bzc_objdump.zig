@@ -160,6 +160,8 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
         .JumpBackLT,
         .JumpBackGTE,
         .JumpBackLTE,
+        .BranchLink,
+        .BranchLinkBack,
         => {
             try writer.writeByte(' ');
             try writeHexDecNumberSlice(bytecode[1..], writer);

@@ -779,9 +779,17 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     const numInstrLenDigits = utils.getNumberDigitCount(u8, codegen.Instr.maxInstrSize());
 
     var byteCounter: usize = vmInfo.VM_INFO_BYTECODE_LEN;
-    for (context.genInfo.instrList.items) |instr| {
+    for (context.genInfo.instrList.items, 0..) |instr, index| {
         if (instr == .Label and !context.settings.debug.printLabels) continue;
         if (instr == .NoOp and !context.settings.debug.printNoOps) continue;
+
+        const currentSkip = context.genInfo.skipInstrInfo.current;
+        if (currentSkip < context.genInfo.skipInstrInfo.skip.items.len and
+            context.genInfo.skipInstrInfo.skip.items[currentSkip] == index)
+        {
+            try writer.writeAll("(SKIPPING) ");
+            context.genInfo.skipInstrInfo.current += 1;
+        }
 
         const chunkLen = instr.getInstrLen();
         try writer.writeByte('[');
@@ -797,6 +805,8 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     try writer.print("total bytes: {d} ({d} vm info)\n", .{
         context.genInfo.byteCounter, vmInfo.VM_INFO_BYTECODE_LEN,
     });
+
+    context.genInfo.skipInstrInfo.current = 0;
 }
 
 fn printChunk(instr: codegen.Instr, writer: *Writer) !void {

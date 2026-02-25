@@ -545,6 +545,7 @@ fn interpretBytecode(
                 if (runtimeInfo.ptrs.lr == 0) return;
                 current = runtimeInfo.ptrs.lr;
             },
+            .BranchLink, .BranchLinkBack => utils.unimplemented(),
         }
 
         current += instLen;

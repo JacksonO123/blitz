@@ -763,10 +763,11 @@ const RegInfoVarInfo = struct {
     prevInfo: ?*RegInfoVarInfo = null,
 };
 
-const RegInfo = struct {
+pub const RegInfo = struct {
     varInfo: ?RegInfoVarInfo = null,
     usage: RegisterUsage = .Temporary,
     lastUsedInstrIndex: ?u32 = null,
+    regRemap: ?TempRegister = null,
 };
 
 const LabelInfo = struct {
@@ -794,7 +795,7 @@ const LabelByteInfo = struct {
         };
     }
 
-    pub fn appendLabelCount(
+    pub fn ensureLabelCount(
         self: *Self,
         allocator: Allocator,
         lastLabel: vmInfo.LabelType,
@@ -826,13 +827,13 @@ const LabelByteInfo = struct {
         self: *Self,
         allocator: Allocator,
         labelId: vmInfo.LabelType,
-        instrIndex: u32,
+        instrIndex: usize,
     ) !void {
         if (self.waitingLabels.get(labelId)) |arrList| {
-            try arrList.append(allocator, instrIndex);
+            try arrList.append(allocator, @intCast(instrIndex));
         } else {
             const arrList = try utils.createMut(WaitingLabelsList, allocator, .empty);
-            try arrList.append(allocator, instrIndex);
+            try arrList.append(allocator, @intCast(instrIndex));
             try self.waitingLabels.put(labelId, arrList);
         }
     }
@@ -856,10 +857,6 @@ pub const RegisterRange = struct {
     end: u16 = 0,
 };
 
-const ActiveInfo = struct {
-    active: bool = false,
-};
-
 pub const GenInfo = struct {
     const Self = @This();
 
@@ -875,13 +872,17 @@ pub const GenInfo = struct {
     byteCounter: u64,
     currentLabelId: vmInfo.LabelType,
     registers: *ArrayList(*RegInfo),
-    activeRegisters: *ArrayList(ActiveInfo),
+    activeRegisters: *ArrayList(bool),
     registerLimits: struct {
         params: RegisterRange = .{},
         temporary: RegisterRange = .{},
         preserved: RegisterRange = .{},
     } = .{},
     labelByteInfo: *LabelByteInfo,
+    skipInstrInfo: struct {
+        skip: *ArrayList(u32),
+        current: usize,
+    },
 
     pub fn init(allocator: Allocator) !Self {
         const varNameReg = try utils.initMutPtrT(StringHashMap(TempRegister), allocator);
@@ -892,7 +893,9 @@ pub const GenInfo = struct {
 
         const instrListPtr = try utils.createMut(ArrayList(Instr), allocator, .empty);
         const registersPtr = try utils.createMut(ArrayList(*RegInfo), allocator, .empty);
-        const activeRegistersPtr = try utils.createMut(ArrayList(ActiveInfo), allocator, .empty);
+        const activeRegistersPtr = try utils.createMut(ArrayList(bool), allocator, .empty);
+
+        const skipInstrInfoPtr = try utils.createMut(ArrayList(u32), allocator, .empty);
 
         return .{
             .instrList = instrListPtr,
@@ -911,6 +914,10 @@ pub const GenInfo = struct {
             .registers = registersPtr,
             .activeRegisters = activeRegistersPtr,
             .labelByteInfo = labelByteInfoPtr,
+            .skipInstrInfo = .{
+                .skip = skipInstrInfoPtr,
+                .current = 0,
+            },
         };
     }
 
@@ -920,8 +927,216 @@ pub const GenInfo = struct {
         std.mem.writeInt(vmInfo.StartStackType, &buf, self.vmInfo.stackStartSize, .little);
         try writer.writeAll(&buf);
 
-        for (self.instrList.items) |instr| {
-            try writeChunk(instr, writer);
+        var i: usize = 0;
+        while (i < self.instrList.items.len) : (i += 1) {
+            try self.writeChunk(i, writer);
+        }
+
+        self.skipInstrInfo.current = 0;
+    }
+
+    fn writeChunk(self: *Self, instrIndex: usize, writer: *Writer) !void {
+        const instr = self.instrList.items[instrIndex];
+        if (instr == .Label or instr == .NoOp) return;
+
+        const currentSkip = self.skipInstrInfo.current;
+        if (currentSkip < self.skipInstrInfo.skip.items.len and
+            self.skipInstrInfo.skip.items[currentSkip] == instrIndex)
+        {
+            self.skipInstrInfo.current += 1;
+            return;
+        }
+
+        try writer.writeByte(instr.getInstrByte());
+
+        switch (instr) {
+            .Label, .NoOp => unreachable,
+            .Ret => {},
+            .SetReg64 => |inner| {
+                try writer.writeByte(@intCast(inner.reg));
+                try writeNumber(u64, inner.data, writer);
+            },
+            .SetReg32 => |inner| {
+                try writer.writeByte(@intCast(inner.reg));
+                try writeNumber(u32, inner.data, writer);
+            },
+            .SetReg16 => |inner| {
+                try writer.writeByte(@intCast(inner.reg));
+                try writeNumber(u16, inner.data, writer);
+            },
+            .SetReg8 => |inner| {
+                try writer.writeByte(@intCast(inner.reg));
+                try writeNumber(u8, inner.data, writer);
+            },
+            .Add,
+            .Sub,
+            .Mult,
+            .CmpSetRegEQ,
+            .CmpSetRegNE,
+            .CmpSetRegGT,
+            .CmpSetRegLT,
+            .CmpSetRegGTE,
+            .CmpSetRegLTE,
+            .Xor,
+            => |inner| {
+                try writer.writeByte(@intCast(inner.dest));
+                try writer.writeByte(@intCast(inner.reg1));
+                try writer.writeByte(@intCast(inner.reg2));
+            },
+            .Add8, .Sub8 => |inner| {
+                try writer.writeByte(@intCast(inner.dest));
+                try writer.writeByte(@intCast(inner.reg));
+                try writer.writeByte(@intCast(inner.data));
+            },
+            .Add16, .Sub16 => |inner| {
+                try writer.writeByte(@intCast(inner.dest));
+                try writer.writeByte(@intCast(inner.reg));
+                try writer.writeInt(u16, @intCast(inner.data), .little);
+            },
+            .Jump,
+            .JumpEQ,
+            .JumpNE,
+            .JumpGT,
+            .JumpLT,
+            .JumpGTE,
+            .JumpLTE,
+            .JumpBack,
+            .JumpBackEQ,
+            .JumpBackNE,
+            .JumpBackGT,
+            .JumpBackLT,
+            .JumpBackGTE,
+            .JumpBackLTE,
+            => |inner| {
+                try writer.writeInt(u32, @intCast(inner), .little);
+            },
+            .Cmp => |inner| {
+                try writer.writeByte(@intCast(inner.reg1));
+                try writer.writeByte(@intCast(inner.reg2));
+            },
+            .CmpConst8, .IncConst8, .DecConst8 => |inner| {
+                try writer.writeByte(@intCast(inner.reg));
+                try writer.writeByte(inner.data);
+            },
+            .Mov => |inner| {
+                try writer.writeByte(@intCast(inner.dest));
+                try writer.writeByte(@intCast(inner.src));
+            },
+            .MovSpNegOffsetAny => unreachable,
+            .MovSpNegOffset16 => |inner| {
+                try writer.writeByte(@intCast(inner.reg));
+                try writer.writeInt(u16, inner.offset, .little);
+            },
+            .MovSpNegOffset32 => |inner| {
+                try writer.writeByte(@intCast(inner.reg));
+                try writer.writeInt(u32, inner.offset, .little);
+            },
+            .MovSpNegOffset64 => |inner| {
+                try writer.writeByte(@intCast(inner.reg));
+                try writer.writeInt(u64, inner.offset, .little);
+            },
+            .XorConst8 => |inner| {
+                try writer.writeByte(@intCast(inner.dest));
+                try writer.writeByte(@intCast(inner.reg));
+                try writer.writeByte(inner.byte);
+            },
+            .AddSp8, .SubSp8 => |inner| {
+                try writer.writeByte(inner);
+            },
+            .AddSp16, .SubSp16 => |inner| {
+                try writer.writeInt(u16, inner, .little);
+            },
+            .AddSp32, .SubSp32 => |inner| {
+                try writer.writeInt(u32, inner, .little);
+            },
+            .AddSp64, .SubSp64 => |inner| {
+                try writer.writeInt(u64, inner, .little);
+            },
+            .Store64AtReg,
+            .Store32AtReg,
+            .Store16AtReg,
+            .Store8AtReg,
+            => |inner| {
+                try writer.writeByte(@intCast(inner.fromReg));
+                try writer.writeByte(@intCast(inner.toRegPtr));
+            },
+            .Store64AtRegPostInc16,
+            .Store32AtRegPostInc16,
+            .Store16AtRegPostInc16,
+            .Store8AtRegPostInc16,
+            => |inner| {
+                try writer.writeByte(@intCast(inner.fromReg));
+                try writer.writeByte(@intCast(inner.toRegPtr));
+                try writer.writeInt(u16, inner.inc, .little);
+            },
+            .Store64AtSpNegOffset16,
+            .Store32AtSpNegOffset16,
+            .Store16AtSpNegOffset16,
+            .Store8AtSpNegOffset16,
+            => |inner| {
+                try writer.writeByte(@intCast(inner.reg));
+                try writer.writeInt(u16, inner.offset, .little);
+            },
+            .Load64AtReg,
+            .Load32AtReg,
+            .Load16AtReg,
+            .Load8AtReg,
+            => |inner| {
+                try writer.writeByte(@intCast(inner.dest));
+                try writer.writeByte(@intCast(inner.fromRegPtr));
+            },
+            .Load64AtRegOffset16,
+            .Load32AtRegOffset16,
+            .Load16AtRegOffset16,
+            .Load8AtRegOffset16,
+            => |inner| {
+                try writer.writeByte(@intCast(inner.dest));
+                try writer.writeByte(@intCast(inner.fromRegPtr));
+                try writer.writeInt(u16, inner.offset, .little);
+            },
+            .MulReg16AddReg => |inner| {
+                try writer.writeByte(@intCast(inner.dest));
+                try writer.writeByte(@intCast(inner.addReg));
+                try writer.writeByte(@intCast(inner.mulReg));
+                try writer.writeInt(u16, inner.data, .little);
+            },
+            .DbgReg => |reg| {
+                try writer.writeByte(@intCast(reg));
+            },
+            .BitAnd, .BitOr => |inner| {
+                try writer.writeByte(@intCast(inner.dest));
+                try writer.writeByte(@intCast(inner.reg1));
+                try writer.writeByte(@intCast(inner.reg2));
+            },
+            .And, .Or => |inner| {
+                try writer.writeByte(@intCast(inner.reg1));
+                try writer.writeByte(@intCast(inner.reg2));
+            },
+            .AndSetReg, .OrSetReg => |inner| {
+                try writer.writeByte(@intCast(inner.dest));
+                try writer.writeByte(@intCast(inner.reg1));
+                try writer.writeByte(@intCast(inner.reg2));
+            },
+            .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
+            .PrePushRegNegOffset8, .PostPopRegNegOffset8 => |inner| {
+                try writer.writeByte(@intCast(inner.reg));
+                try writer.writeByte(inner.offset);
+            },
+            .PrePushRegNegOffset16, .PostPopRegNegOffset16 => |inner| {
+                try writer.writeByte(@intCast(inner.reg));
+                try writer.writeInt(u16, inner.offset, .little);
+            },
+            .PrePushRegNegOffset32, .PostPopRegNegOffset32 => |inner| {
+                try writer.writeByte(@intCast(inner.reg));
+                try writer.writeInt(u32, inner.offset, .little);
+            },
+            .PrePushRegNegOffset64, .PostPopRegNegOffset64 => |inner| {
+                try writer.writeByte(@intCast(inner.reg));
+                try writer.writeInt(u64, inner.offset, .little);
+            },
+            .BranchLink, .BranchLinkBack => |inner| {
+                try writer.writeInt(u32, @intCast(inner), .little);
+            },
         }
     }
 
@@ -932,11 +1147,39 @@ pub const GenInfo = struct {
     pub fn appendChunkAndReturn(self: *Self, allocator: Allocator, instr: Instr) !*Instr {
         try self.instrList.append(allocator, instr);
         const instrIndex = self.instrList.items.len - 1;
-        self.setInstrRegLastUsedIndices(instr, @intCast(instrIndex));
+        self.setInstrRegLastUsedIndices(@intCast(instrIndex));
         return &self.instrList.items[instrIndex];
     }
 
-    fn setInstrRegLastUsedIndices(self: *Self, instr: Instr, instrIndex: u32) void {
+    fn setInstrRegActiveStatus(self: *Self, instrIndex: usize) void {
+        self.applyRegIndexFnToInstr(instrIndex, setRegActiveStatusIndex);
+    }
+
+    fn setRegActiveStatusIndex(self: *Self, reg: TempRegister, instrIndex: usize) void {
+        if (self.registers.items[reg].lastUsedInstrIndex) |lastIndex| {
+            if (lastIndex == instrIndex) {
+                self.activeRegisters.items[reg] = false;
+                return;
+            }
+        }
+
+        self.activeRegisters.items[reg] = true;
+    }
+
+    fn setInstrRegLastUsedIndices(self: *Self, instrIndex: usize) void {
+        self.applyRegIndexFnToInstr(instrIndex, setRegLastUsedIndex);
+    }
+
+    fn setRegLastUsedIndex(self: *Self, reg: TempRegister, instrIndex: usize) void {
+        self.registers.items[reg].lastUsedInstrIndex = @intCast(instrIndex);
+    }
+
+    fn applyRegIndexFnToInstr(
+        self: *Self,
+        instrIndex: usize,
+        comptime func: fn (*Self, TempRegister, usize) void,
+    ) void {
+        const instr = self.instrList.items[instrIndex];
         switch (instr) {
             .NoOp,
             .Label,
@@ -968,26 +1211,26 @@ pub const GenInfo = struct {
             .BranchLinkBack,
             => {},
 
-            .SetReg64 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
-            .SetReg32 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
-            .SetReg16 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
-            .SetReg8 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
+            .SetReg64 => |inner| func(self, inner.reg, instrIndex),
+            .SetReg32 => |inner| func(self, inner.reg, instrIndex),
+            .SetReg16 => |inner| func(self, inner.reg, instrIndex),
+            .SetReg8 => |inner| func(self, inner.reg, instrIndex),
             .Add, .Sub, .Mult => |inner| {
-                self.setRegLastUsedIndex(inner.reg1, instrIndex);
-                self.setRegLastUsedIndex(inner.reg2, instrIndex);
-                self.setRegLastUsedIndex(inner.dest, instrIndex);
+                func(self, inner.reg1, instrIndex);
+                func(self, inner.reg2, instrIndex);
+                func(self, inner.dest, instrIndex);
             },
             .Add8, .Sub8 => |inner| {
-                self.setRegLastUsedIndex(inner.reg, instrIndex);
-                self.setRegLastUsedIndex(inner.dest, instrIndex);
+                func(self, inner.reg, instrIndex);
+                func(self, inner.dest, instrIndex);
             },
             .Add16, .Sub16 => |inner| {
-                self.setRegLastUsedIndex(inner.reg, instrIndex);
-                self.setRegLastUsedIndex(inner.dest, instrIndex);
+                func(self, inner.reg, instrIndex);
+                func(self, inner.dest, instrIndex);
             },
             .Cmp => |inner| {
-                self.setRegLastUsedIndex(inner.reg1, instrIndex);
-                self.setRegLastUsedIndex(inner.reg2, instrIndex);
+                func(self, inner.reg1, instrIndex);
+                func(self, inner.reg2, instrIndex);
             },
             .CmpSetRegEQ,
             .CmpSetRegNE,
@@ -996,88 +1239,86 @@ pub const GenInfo = struct {
             .CmpSetRegGTE,
             .CmpSetRegLTE,
             => |inner| {
-                self.setRegLastUsedIndex(inner.reg1, instrIndex);
-                self.setRegLastUsedIndex(inner.reg2, instrIndex);
-                self.setRegLastUsedIndex(inner.dest, instrIndex);
+                func(self, inner.reg1, instrIndex);
+                func(self, inner.reg2, instrIndex);
+                func(self, inner.dest, instrIndex);
             },
             .CmpConst8, .IncConst8, .DecConst8 => |inner| {
-                self.setRegLastUsedIndex(inner.reg, instrIndex);
+                func(self, inner.reg, instrIndex);
             },
             .Mov => |inner| {
-                self.setRegLastUsedIndex(inner.src, instrIndex);
-                self.setRegLastUsedIndex(inner.dest, instrIndex);
+                func(self, inner.src, instrIndex);
+                func(self, inner.dest, instrIndex);
             },
-            .MovSpNegOffset16 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
-            .MovSpNegOffset32 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
-            .MovSpNegOffset64 => |inner| self.setRegLastUsedIndex(inner.reg, instrIndex),
+            .MovSpNegOffset16 => |inner| func(self, inner.reg, instrIndex),
+            .MovSpNegOffset32 => |inner| func(self, inner.reg, instrIndex),
+            .MovSpNegOffset64, .MovSpNegOffsetAny => |inner| func(self, inner.reg, instrIndex),
             .Xor, .BitAnd, .BitOr, .AndSetReg, .OrSetReg => |inner| {
-                self.setRegLastUsedIndex(inner.reg1, instrIndex);
-                self.setRegLastUsedIndex(inner.reg2, instrIndex);
-                self.setRegLastUsedIndex(inner.dest, instrIndex);
+                func(self, inner.reg1, instrIndex);
+                func(self, inner.reg2, instrIndex);
+                func(self, inner.dest, instrIndex);
             },
             .XorConst8 => |inner| {
-                self.setRegLastUsedIndex(inner.reg, instrIndex);
-                self.setRegLastUsedIndex(inner.dest, instrIndex);
+                func(self, inner.reg, instrIndex);
+                func(self, inner.dest, instrIndex);
             },
             .Store64AtReg, .Store32AtReg, .Store16AtReg, .Store8AtReg => |inner| {
-                self.setRegLastUsedIndex(inner.fromReg, instrIndex);
-                self.setRegLastUsedIndex(inner.toRegPtr, instrIndex);
+                func(self, inner.fromReg, instrIndex);
+                func(self, inner.toRegPtr, instrIndex);
             },
             .Store64AtRegPostInc16,
             .Store32AtRegPostInc16,
             .Store16AtRegPostInc16,
             .Store8AtRegPostInc16,
             => |inner| {
-                self.setRegLastUsedIndex(inner.fromReg, instrIndex);
-                self.setRegLastUsedIndex(inner.toRegPtr, instrIndex);
+                func(self, inner.fromReg, instrIndex);
+                func(self, inner.toRegPtr, instrIndex);
             },
             .Store64AtSpNegOffset16,
             .Store32AtSpNegOffset16,
             .Store16AtSpNegOffset16,
             .Store8AtSpNegOffset16,
             => |inner| {
-                self.setRegLastUsedIndex(inner.reg, instrIndex);
+                func(self, inner.reg, instrIndex);
             },
             .Load64AtRegOffset16,
             .Load32AtRegOffset16,
             .Load16AtRegOffset16,
             .Load8AtRegOffset16,
             => |inner| {
-                self.setRegLastUsedIndex(inner.fromRegPtr, instrIndex);
-                self.setRegLastUsedIndex(inner.dest, instrIndex);
+                func(self, inner.fromRegPtr, instrIndex);
+                func(self, inner.dest, instrIndex);
             },
             .Load64AtReg, .Load32AtReg, .Load16AtReg, .Load8AtReg => |inner| {
-                self.setRegLastUsedIndex(inner.fromRegPtr, instrIndex);
-                self.setRegLastUsedIndex(inner.dest, instrIndex);
+                func(self, inner.fromRegPtr, instrIndex);
+                func(self, inner.dest, instrIndex);
             },
             .MulReg16AddReg => |inner| {
-                self.setRegLastUsedIndex(inner.addReg, instrIndex);
-                self.setRegLastUsedIndex(inner.mulReg, instrIndex);
-                self.setRegLastUsedIndex(inner.dest, instrIndex);
+                func(self, inner.addReg, instrIndex);
+                func(self, inner.mulReg, instrIndex);
+                func(self, inner.dest, instrIndex);
             },
             .And, .Or => |inner| {
-                self.setRegLastUsedIndex(inner.reg1, instrIndex);
-                self.setRegLastUsedIndex(inner.reg2, instrIndex);
+                func(self, inner.reg1, instrIndex);
+                func(self, inner.reg2, instrIndex);
             },
             .PrePushRegNegOffset8, .PostPopRegNegOffset8 => |inner| {
-                self.setRegLastUsedIndex(inner.reg, instrIndex);
+                func(self, inner.reg, instrIndex);
             },
             .PrePushRegNegOffset16, .PostPopRegNegOffset16 => |inner| {
-                self.setRegLastUsedIndex(inner.reg, instrIndex);
+                func(self, inner.reg, instrIndex);
             },
             .PrePushRegNegOffset32, .PostPopRegNegOffset32 => |inner| {
-                self.setRegLastUsedIndex(inner.reg, instrIndex);
+                func(self, inner.reg, instrIndex);
             },
-            .PrePushRegNegOffset64, .PostPopRegNegOffset64 => |inner| {
-                self.setRegLastUsedIndex(inner.reg, instrIndex);
+            .PrePushRegNegOffset64,
+            .PostPopRegNegOffset64,
+            .PrePushRegNegOffsetAny,
+            .PostPopRegNegOffsetAny,
+            => |inner| {
+                func(self, inner.reg, instrIndex);
             },
-
-            .PostPopRegNegOffsetAny, .PrePushRegNegOffsetAny, .MovSpNegOffsetAny => unreachable,
         }
-    }
-
-    fn setRegLastUsedIndex(self: *Self, reg: TempRegister, instrIndex: u32) void {
-        self.registers.items[reg].lastUsedInstrIndex = instrIndex;
     }
 
     pub fn takeLabelId(self: *Self) vmInfo.LabelType {
@@ -1205,34 +1446,10 @@ pub const GenInfo = struct {
         };
     }
 
-    pub fn finishProc(self: *Self, allocator: Allocator, context: *Context, root: bool) !void {
-        try self.labelByteInfo.appendLabelCount(allocator, self.currentLabelId);
+    pub fn finishProc(self: *Self, allocator: Allocator, context: *Context) !void {
+        try self.labelByteInfo.ensureLabelCount(allocator, self.currentLabelId);
 
-        var stackOffset: u64 = 0;
-        if (!root) {
-            if (self.currentProc.maxPreserveReg) |maxPreserve| {
-                const numRegs = maxPreserve - vmInfo.PRESERVE_REGISTER_START + 1;
-                stackOffset = numRegs * vmInfo.POINTER_SIZE;
-                self.currentProc.stackFrameSize += stackOffset;
-
-                const pushRegInstr = Instr{
-                    .PrePushRegNegOffsetAny = .{
-                        .offset = 0,
-                        .reg = maxPreserve,
-                    },
-                };
-                self.instrList.items[self.currentProc.startIndex] = pushRegInstr;
-
-                const popRegInstr = Instr{
-                    .PostPopRegNegOffsetAny = .{
-                        .offset = 0,
-                        .reg = maxPreserve,
-                    },
-                };
-                try self.instrList.append(allocator, popRegInstr);
-            }
-        }
-
+        const stackOffset: u64 = 0;
         const spInstrs = try getSpIncInstructions(self.currentProc.stackFrameSize);
 
         try adjustInstructions(
@@ -1273,7 +1490,7 @@ pub const GenInfo = struct {
         }
     }
 
-    fn updateInstrLabelLocation(self: *Self, instrIndex: u32, location: u64) void {
+    fn updateInstrLabelLocation(self: *Self, instrIndex: usize, location: u64) void {
         const instr = &self.instrList.items[instrIndex];
         switch (instr.*) {
             .Jump,
@@ -1304,7 +1521,7 @@ pub const GenInfo = struct {
 fn adjustInstructions(
     allocator: Allocator,
     context: *Context,
-    instrStartIndex: u32,
+    instrStartIndex: usize,
     frameSize: u64,
     stackOffset: u64,
 ) !void {
@@ -1312,12 +1529,11 @@ fn adjustInstructions(
     const beforeLen = context.genInfo.activeRegisters.items.len;
     try context.genInfo.activeRegisters.ensureTotalCapacity(allocator, registersLen);
     context.genInfo.activeRegisters.items.len = registersLen;
-    @memset(context.genInfo.activeRegisters.items[beforeLen..], .{});
+    @memset(context.genInfo.activeRegisters.items[beforeLen..], false);
 
-    var i: u32 = instrStartIndex;
+    var i: usize = instrStartIndex;
     while (i < context.genInfo.instrList.items.len) : (i += 1) {
-        // TODO - if the instr is a branch to function, record all active registers and do smth
-        try adjustInstruction(allocator, context, i, frameSize, stackOffset);
+        try adjustInstruction(allocator, context, i, frameSize, stackOffset, beforeLen);
         context.genInfo.byteCounter += context.genInfo.instrList.items[i].getInstrLen();
     }
 }
@@ -1326,9 +1542,10 @@ fn adjustInstructions(
 fn adjustInstruction(
     allocator: Allocator,
     context: *Context,
-    instrIndex: u32,
+    instrIndex: usize,
     frameSize: u64,
     stackOffset: u64,
+    procRegStart: usize,
 ) !void {
     var instr = &context.genInfo.instrList.items[instrIndex];
     switch (instr.*) {
@@ -1423,6 +1640,18 @@ fn adjustInstruction(
             instr.* = newInstr;
         },
         else => {},
+    }
+
+    switch (instr.*) {
+        .BranchLink, .BranchLinkBack => {
+            var i: usize = procRegStart;
+            while (i < context.genInfo.activeRegisters.items.len) : (i += 1) {
+                if (context.genInfo.activeRegisters.items[i]) {
+                    context.genInfo.registers.items[i].usage = .Preserved;
+                }
+            }
+        },
+        else => context.genInfo.setInstrRegActiveStatus(instrIndex),
     }
 }
 
@@ -1522,7 +1751,7 @@ pub fn codegenAst(
     context.genInfo.vmInfo.version = version.VERSION;
     try context.genInfo.newProc(allocator);
     _ = try genBytecode(allocator, context, tree.root);
-    try context.genInfo.finishProc(allocator, context, true);
+    try context.genInfo.finishProc(allocator, context);
     try codegenFunctions(allocator, context);
 
     if (backend == .Bytecode) {
@@ -2636,7 +2865,7 @@ fn codegenFunctions(allocator: Allocator, context: *Context) !void {
             func.labelInfo.id = labelId;
             break :a labelId;
         };
-        try context.genInfo.labelByteInfo.appendLabelCount(
+        try context.genInfo.labelByteInfo.ensureLabelCount(
             allocator,
             context.genInfo.currentLabelId,
         );
@@ -2658,7 +2887,7 @@ fn codegenFunctions(allocator: Allocator, context: *Context) !void {
 
         try context.genInfo.newProc(allocator);
         _ = try genBytecode(allocator, context, func.body);
-        try context.genInfo.finishProc(allocator, context, false);
+        try context.genInfo.finishProc(allocator, context);
     }
 }
 
@@ -3288,202 +3517,6 @@ fn generateFallback(
         try generateFallback(allocator, context, newFallback);
         const jumpEndLabel = Instr{ .Label = jumpEndLabelId };
         try context.genInfo.appendChunk(allocator, jumpEndLabel);
-    }
-}
-
-fn writeChunk(instr: Instr, writer: *Writer) !void {
-    if (instr == .Label or instr == .NoOp) return;
-
-    try writer.writeByte(instr.getInstrByte());
-
-    switch (instr) {
-        .Label, .NoOp => unreachable,
-        .Ret => {},
-        .SetReg64 => |inner| {
-            try writer.writeByte(@intCast(inner.reg));
-            try writeNumber(u64, inner.data, writer);
-        },
-        .SetReg32 => |inner| {
-            try writer.writeByte(@intCast(inner.reg));
-            try writeNumber(u32, inner.data, writer);
-        },
-        .SetReg16 => |inner| {
-            try writer.writeByte(@intCast(inner.reg));
-            try writeNumber(u16, inner.data, writer);
-        },
-        .SetReg8 => |inner| {
-            try writer.writeByte(@intCast(inner.reg));
-            try writeNumber(u8, inner.data, writer);
-        },
-        .Add,
-        .Sub,
-        .Mult,
-        .CmpSetRegEQ,
-        .CmpSetRegNE,
-        .CmpSetRegGT,
-        .CmpSetRegLT,
-        .CmpSetRegGTE,
-        .CmpSetRegLTE,
-        .Xor,
-        => |inner| {
-            try writer.writeByte(@intCast(inner.dest));
-            try writer.writeByte(@intCast(inner.reg1));
-            try writer.writeByte(@intCast(inner.reg2));
-        },
-        .Add8, .Sub8 => |inner| {
-            try writer.writeByte(@intCast(inner.dest));
-            try writer.writeByte(@intCast(inner.reg));
-            try writer.writeByte(@intCast(inner.data));
-        },
-        .Add16, .Sub16 => |inner| {
-            try writer.writeByte(@intCast(inner.dest));
-            try writer.writeByte(@intCast(inner.reg));
-            try writer.writeInt(u16, @intCast(inner.data), .little);
-        },
-        .Jump,
-        .JumpEQ,
-        .JumpNE,
-        .JumpGT,
-        .JumpLT,
-        .JumpGTE,
-        .JumpLTE,
-        .JumpBack,
-        .JumpBackEQ,
-        .JumpBackNE,
-        .JumpBackGT,
-        .JumpBackLT,
-        .JumpBackGTE,
-        .JumpBackLTE,
-        => |inner| {
-            try writer.writeInt(u32, @intCast(inner), .little);
-        },
-        .Cmp => |inner| {
-            try writer.writeByte(@intCast(inner.reg1));
-            try writer.writeByte(@intCast(inner.reg2));
-        },
-        .CmpConst8, .IncConst8, .DecConst8 => |inner| {
-            try writer.writeByte(@intCast(inner.reg));
-            try writer.writeByte(inner.data);
-        },
-        .Mov => |inner| {
-            try writer.writeByte(@intCast(inner.dest));
-            try writer.writeByte(@intCast(inner.src));
-        },
-        .MovSpNegOffsetAny => unreachable,
-        .MovSpNegOffset16 => |inner| {
-            try writer.writeByte(@intCast(inner.reg));
-            try writer.writeInt(u16, inner.offset, .little);
-        },
-        .MovSpNegOffset32 => |inner| {
-            try writer.writeByte(@intCast(inner.reg));
-            try writer.writeInt(u32, inner.offset, .little);
-        },
-        .MovSpNegOffset64 => |inner| {
-            try writer.writeByte(@intCast(inner.reg));
-            try writer.writeInt(u64, inner.offset, .little);
-        },
-        .XorConst8 => |inner| {
-            try writer.writeByte(@intCast(inner.dest));
-            try writer.writeByte(@intCast(inner.reg));
-            try writer.writeByte(inner.byte);
-        },
-        .AddSp8, .SubSp8 => |inner| {
-            try writer.writeByte(inner);
-        },
-        .AddSp16, .SubSp16 => |inner| {
-            try writer.writeInt(u16, inner, .little);
-        },
-        .AddSp32, .SubSp32 => |inner| {
-            try writer.writeInt(u32, inner, .little);
-        },
-        .AddSp64, .SubSp64 => |inner| {
-            try writer.writeInt(u64, inner, .little);
-        },
-        .Store64AtReg,
-        .Store32AtReg,
-        .Store16AtReg,
-        .Store8AtReg,
-        => |inner| {
-            try writer.writeByte(@intCast(inner.fromReg));
-            try writer.writeByte(@intCast(inner.toRegPtr));
-        },
-        .Store64AtRegPostInc16,
-        .Store32AtRegPostInc16,
-        .Store16AtRegPostInc16,
-        .Store8AtRegPostInc16,
-        => |inner| {
-            try writer.writeByte(@intCast(inner.fromReg));
-            try writer.writeByte(@intCast(inner.toRegPtr));
-            try writer.writeInt(u16, inner.inc, .little);
-        },
-        .Store64AtSpNegOffset16,
-        .Store32AtSpNegOffset16,
-        .Store16AtSpNegOffset16,
-        .Store8AtSpNegOffset16,
-        => |inner| {
-            try writer.writeByte(@intCast(inner.reg));
-            try writer.writeInt(u16, inner.offset, .little);
-        },
-        .Load64AtReg,
-        .Load32AtReg,
-        .Load16AtReg,
-        .Load8AtReg,
-        => |inner| {
-            try writer.writeByte(@intCast(inner.dest));
-            try writer.writeByte(@intCast(inner.fromRegPtr));
-        },
-        .Load64AtRegOffset16,
-        .Load32AtRegOffset16,
-        .Load16AtRegOffset16,
-        .Load8AtRegOffset16,
-        => |inner| {
-            try writer.writeByte(@intCast(inner.dest));
-            try writer.writeByte(@intCast(inner.fromRegPtr));
-            try writer.writeInt(u16, inner.offset, .little);
-        },
-        .MulReg16AddReg => |inner| {
-            try writer.writeByte(@intCast(inner.dest));
-            try writer.writeByte(@intCast(inner.addReg));
-            try writer.writeByte(@intCast(inner.mulReg));
-            try writer.writeInt(u16, inner.data, .little);
-        },
-        .DbgReg => |reg| {
-            try writer.writeByte(@intCast(reg));
-        },
-        .BitAnd, .BitOr => |inner| {
-            try writer.writeByte(@intCast(inner.dest));
-            try writer.writeByte(@intCast(inner.reg1));
-            try writer.writeByte(@intCast(inner.reg2));
-        },
-        .And, .Or => |inner| {
-            try writer.writeByte(@intCast(inner.reg1));
-            try writer.writeByte(@intCast(inner.reg2));
-        },
-        .AndSetReg, .OrSetReg => |inner| {
-            try writer.writeByte(@intCast(inner.dest));
-            try writer.writeByte(@intCast(inner.reg1));
-            try writer.writeByte(@intCast(inner.reg2));
-        },
-        .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
-        .PrePushRegNegOffset8, .PostPopRegNegOffset8 => |inner| {
-            try writer.writeByte(@intCast(inner.reg));
-            try writer.writeByte(inner.offset);
-        },
-        .PrePushRegNegOffset16, .PostPopRegNegOffset16 => |inner| {
-            try writer.writeByte(@intCast(inner.reg));
-            try writer.writeInt(u16, inner.offset, .little);
-        },
-        .PrePushRegNegOffset32, .PostPopRegNegOffset32 => |inner| {
-            try writer.writeByte(@intCast(inner.reg));
-            try writer.writeInt(u32, inner.offset, .little);
-        },
-        .PrePushRegNegOffset64, .PostPopRegNegOffset64 => |inner| {
-            try writer.writeByte(@intCast(inner.reg));
-            try writer.writeInt(u64, inner.offset, .little);
-        },
-        .BranchLink, .BranchLinkBack => |inner| {
-            try writer.writeInt(u32, @intCast(inner), .little);
-        },
     }
 }
 
