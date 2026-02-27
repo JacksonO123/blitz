@@ -70,8 +70,19 @@ fn remapInstr(context: *Context, allocator: Allocator, instrIndex: usize) !void 
         .SubSp64,
         .DbgReg,
         .Ret,
+        .End,
         .BranchLink,
         .BranchLinkBack,
+        .PrePushLRNegOffsetAny,
+        .PrePushLRNegOffset8,
+        .PrePushLRNegOffset16,
+        .PrePushLRNegOffset32,
+        .PrePushLRNegOffset64,
+        .PostPopLRNegOffsetAny,
+        .PostPopLRNegOffset8,
+        .PostPopLRNegOffset16,
+        .PostPopLRNegOffset32,
+        .PostPopLRNegOffset64,
         => {},
 
         .SetReg64 => |*inner| remapReg(context, &inner.reg, instrIndex),
@@ -165,26 +176,18 @@ fn remapInstr(context: *Context, allocator: Allocator, instrIndex: usize) !void 
             remapReg(context, &inner.reg1, instrIndex);
             remapReg(context, &inner.reg2, instrIndex);
         },
-        .PrePushRegNegOffset8, .PostPopRegNegOffset8 => |*inner| remapReg(
-            context,
-            &inner.reg,
-            instrIndex,
-        ),
-        .PrePushRegNegOffset16, .PostPopRegNegOffset16 => |*inner| remapReg(
-            context,
-            &inner.reg,
-            instrIndex,
-        ),
-        .PrePushRegNegOffset32, .PostPopRegNegOffset32 => |*inner| remapReg(
-            context,
-            &inner.reg,
-            instrIndex,
-        ),
-        .PrePushRegNegOffset64, .PostPopRegNegOffset64 => |*inner| remapReg(
-            context,
-            &inner.reg,
-            instrIndex,
-        ),
+        .PrePushRegNegOffset8, .PostPopRegNegOffset8 => |*inner| {
+            inner.reg += context.genInfo.registerLimits.preserved.start;
+        },
+        .PrePushRegNegOffset16, .PostPopRegNegOffset16 => |*inner| {
+            inner.reg += context.genInfo.registerLimits.preserved.start;
+        },
+        .PrePushRegNegOffset32, .PostPopRegNegOffset32 => |*inner| {
+            inner.reg += context.genInfo.registerLimits.preserved.start;
+        },
+        .PrePushRegNegOffset64, .PostPopRegNegOffset64 => |*inner| {
+            inner.reg += context.genInfo.registerLimits.preserved.start;
+        },
 
         .PostPopRegNegOffsetAny, .PrePushRegNegOffsetAny, .MovSpNegOffsetAny => unreachable,
     }
@@ -197,7 +200,7 @@ fn handleMaybeSkipInstruction(context: *Context, allocator: Allocator, instrInde
     switch (instr) {
         .Mov => |inner| {
             if (inner.src == inner.dest) {
-                try context.genInfo.skipInstrInfo.skip.append(allocator, @intCast(instrIndex));
+                try context.genInfo.skipInstrInfo.action.append(allocator, @intCast(instrIndex));
             }
         },
         else => {},

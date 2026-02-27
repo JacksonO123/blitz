@@ -131,6 +131,7 @@ fn interpretBytecode(
             .Label, .NoOp => unreachable,
             .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
             .MovSpNegOffsetAny => unreachable,
+            .PrePushLRNegOffsetAny, .PostPopLRNegOffsetAny => unreachable,
             .Mov => {
                 runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.registers[bytecode[current + 2]];
             },
@@ -502,11 +503,13 @@ fn interpretBytecode(
                 const offset = bytecode[current + 2];
                 const sp = runtimeInfo.ptrs.sp;
 
-                var i: u8 = vmInfo.PRESERVE_REGISTER_START;
+                var i: usize = vmInfo.PRESERVE_REGISTER_START;
                 while (i <= topReg) : (i += 1) {
+                    const scale = i - vmInfo.PRESERVE_REGISTER_START;
+                    const location = sp - offset + (8 * scale);
                     const byteValue: [8]u8 = @bitCast(runtimeInfo.registers[i]);
                     @memcpy(
-                        runtimeInfo.stack.items[sp + offset + (8 * i) .. sp + offset + (8 * i) + 8],
+                        runtimeInfo.stack.items[location .. location + 8],
                         &byteValue,
                     );
                 }
@@ -525,34 +528,128 @@ fn interpretBytecode(
                 const offset = bytecode[current + 2];
                 const sp = runtimeInfo.ptrs.sp;
 
-                var i: u8 = vmInfo.PRESERVE_REGISTER_START;
+                var i: usize = vmInfo.PRESERVE_REGISTER_START;
                 while (i <= topReg) : (i += 1) {
-                    const byteValue = runtimeInfo.stack.items[sp + offset + (8 * i) .. sp + offset + (8 * i) + 8];
+                    const scale = i - vmInfo.PRESERVE_REGISTER_START;
+                    const location = sp - offset + (8 * scale);
+                    const byteValue = runtimeInfo.stack.items[location .. location + 8];
                     const intValue = std.mem.readInt(u64, @ptrCast(byteValue), .little);
                     runtimeInfo.registers[i] = intValue;
                 }
             },
             .PostPopRegNegOffset16 => {
-                postPushRegNegOffset(u16, runtimeInfo, bytecode, current);
+                postPopRegNegOffset(u16, runtimeInfo, bytecode, current);
             },
             .PostPopRegNegOffset32 => {
-                postPushRegNegOffset(u32, runtimeInfo, bytecode, current);
+                postPopRegNegOffset(u32, runtimeInfo, bytecode, current);
             },
             .PostPopRegNegOffset64 => {
-                postPushRegNegOffset(u32, runtimeInfo, bytecode, current);
+                postPopRegNegOffset(u32, runtimeInfo, bytecode, current);
             },
             .Ret => {
                 if (runtimeInfo.ptrs.lr == 0) return;
                 current = runtimeInfo.ptrs.lr;
+                continue;
             },
-            .BranchLink, .BranchLinkBack => utils.unimplemented(),
+            .End => return,
+            .BranchLink => {
+                runtimeInfo.ptrs.lr = current + instLen;
+                const amount = std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 1 .. current + 3]),
+                    .little,
+                );
+                current += amount;
+            },
+            .BranchLinkBack => {
+                runtimeInfo.ptrs.lr = current;
+                const amount = std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 1 .. current + 3]),
+                    .little,
+                );
+                current -= amount;
+                continue;
+            },
+            .PrePushLRNegOffset8 => {
+                const sp = runtimeInfo.ptrs.sp;
+                const offset = bytecode[current + 1];
+                const byteData: [8]u8 = @bitCast(runtimeInfo.ptrs.lr);
+                @memcpy(runtimeInfo.stack.items[sp - offset .. sp - offset + 8], &byteData);
+            },
+            .PostPopLRNegOffset8 => {
+                const sp = runtimeInfo.ptrs.sp;
+                const offset = bytecode[current + 1];
+
+                runtimeInfo.ptrs.lr = std.mem.readInt(
+                    u64,
+                    @ptrCast(runtimeInfo.stack.items[sp - offset .. sp - offset + 8]),
+                    .little,
+                );
+            },
+            .PrePushLRNegOffset16 => {
+                prePushLRNegOffset(u16, runtimeInfo, bytecode, current);
+            },
+            .PostPopLRNegOffset16 => {
+                postPopLRNegOffset(u16, runtimeInfo, bytecode, current);
+            },
+            .PrePushLRNegOffset32 => {
+                prePushLRNegOffset(u32, runtimeInfo, bytecode, current);
+            },
+            .PostPopLRNegOffset32 => {
+                postPopLRNegOffset(u32, runtimeInfo, bytecode, current);
+            },
+            .PrePushLRNegOffset64 => {
+                prePushLRNegOffset(u64, runtimeInfo, bytecode, current);
+            },
+            .PostPopLRNegOffset64 => {
+                postPopLRNegOffset(u64, runtimeInfo, bytecode, current);
+            },
         }
 
         current += instLen;
     }
 }
 
-fn postPushRegNegOffset(
+fn postPopLRNegOffset(
+    comptime T: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const byteLen = @sizeOf(T);
+    const sp = runtimeInfo.ptrs.sp;
+    const offset = std.mem.readInt(
+        T,
+        @ptrCast(bytecode[current + 1 .. current + 1 + byteLen]),
+        .little,
+    );
+    runtimeInfo.ptrs.lr = std.mem.readInt(
+        u64,
+        @ptrCast(runtimeInfo.stack.items[sp - offset .. sp - offset + 8]),
+        .little,
+    );
+}
+
+fn prePushLRNegOffset(
+    comptime T: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const byteLen = @sizeOf(T);
+
+    const sp = runtimeInfo.ptrs.sp;
+    const offset = std.mem.readInt(
+        T,
+        @ptrCast(bytecode[current + 1 .. current + 1 + byteLen]),
+        .little,
+    );
+    const byteData: [8]u8 = @bitCast(runtimeInfo.ptrs.lr);
+    @memcpy(runtimeInfo.stack.items[sp - offset .. sp - offset + 8], &byteData);
+}
+
+fn postPopRegNegOffset(
     comptime T: type,
     runtimeInfo: *RuntimeInfo,
     bytecode: []const u8,
@@ -569,8 +666,8 @@ fn postPushRegNegOffset(
 
     var i: u8 = vmInfo.PRESERVE_REGISTER_START;
     while (i <= topReg) : (i += 1) {
-        const byteValue = runtimeInfo.stack.items[sp + offset + (8 * i) .. sp + offset + (8 * i) + 8];
-        const intValue = std.mem.readInt(u64, @ptrCast(byteValue), .little);
+        const intData = runtimeInfo.stack.items[sp - offset + (8 * i) .. sp - offset + (8 * i) + 8];
+        const intValue = std.mem.readInt(u64, @ptrCast(intData), .little);
         runtimeInfo.registers[i] = intValue;
     }
 }
@@ -592,10 +689,10 @@ fn prePushRegNegOffset(
 
     var i: u8 = vmInfo.PRESERVE_REGISTER_START;
     while (i <= topReg) : (i += 1) {
-        const byteValue: [8]u8 = @bitCast(runtimeInfo.registers[i]);
+        const byteData: [8]u8 = @bitCast(runtimeInfo.registers[i]);
         @memcpy(
-            runtimeInfo.stack.items[sp + offset + (8 * i) .. sp + offset + (8 * i) + 8],
-            &byteValue,
+            runtimeInfo.stack.items[sp - offset + (8 * i) .. sp - offset + (8 * i) + 8],
+            &byteData,
         );
     }
 }

@@ -22,8 +22,10 @@ const ContextSettings = struct {
 
         printLabels: bool = false,
         printNoOps: bool = false,
+        printSkippedInstrs: bool = false,
         // printLabels: bool = true,
         // printNoOps: bool = true,
+        // printSkippedInstrs: bool = true,
     } = .{},
 };
 

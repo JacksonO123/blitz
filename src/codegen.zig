@@ -179,7 +179,20 @@ pub const InstructionVariants = enum(u8) {
     PostPopRegNegOffset32, // inst, top reg, offset 4B
     PostPopRegNegOffset64, // inst, top reg, offset 8B
 
+    PrePushLRNegOffsetAny, // inst, offset (TBD by compiler)B
+    PrePushLRNegOffset8, // inst, offset 1B
+    PrePushLRNegOffset16, // inst, offset 2B
+    PrePushLRNegOffset32, // inst, offset 4B
+    PrePushLRNegOffset64, // inst, offset 8B
+
+    PostPopLRNegOffsetAny, // inst, offset (TBD by compiler)B
+    PostPopLRNegOffset8, // inst, offset 1B
+    PostPopLRNegOffset16, // inst, offset 2B
+    PostPopLRNegOffset32, // inst, offset 4B
+    PostPopLRNegOffset64, // inst, offset 8B
+
     Ret,
+    End,
 
     BranchLink, // inst, 4B data
     BranchLinkBack, // inst, 4B data
@@ -288,7 +301,14 @@ pub const InstructionVariants = enum(u8) {
             .PrePushRegNegOffset32, .PostPopRegNegOffset32 => 6,
             .PrePushRegNegOffset64, .PostPopRegNegOffset64 => 10,
 
+            .PrePushLRNegOffsetAny, .PostPopLRNegOffsetAny => unreachable,
+            .PrePushLRNegOffset8, .PostPopLRNegOffset8 => 2,
+            .PrePushLRNegOffset16, .PostPopLRNegOffset16 => 3,
+            .PrePushLRNegOffset32, .PostPopLRNegOffset32 => 5,
+            .PrePushLRNegOffset64, .PostPopLRNegOffset64 => 9,
+
             .Ret => 1,
+            .End => 1,
 
             .BranchLink => 5,
             .BranchLinkBack => 5,
@@ -305,6 +325,8 @@ pub const InstructionVariants = enum(u8) {
                 .MovSpNegOffsetAny,
                 .PrePushRegNegOffsetAny,
                 .PostPopRegNegOffsetAny,
+                .PrePushLRNegOffsetAny,
+                .PostPopLRNegOffsetAny,
                 => continue,
                 else => {},
             }
@@ -427,7 +449,20 @@ pub const InstructionVariants = enum(u8) {
             .PostPopRegNegOffset32 => "pop_reg_neg_offset_32",
             .PostPopRegNegOffset64 => "pop_reg_neg_offset_64",
 
+            .PrePushLRNegOffsetAny => "pre_push_lr_neg_offset_any",
+            .PrePushLRNegOffset8 => "pre_push_lr_neg_offset_8",
+            .PrePushLRNegOffset16 => "pre_push_lr_neg_offset_16",
+            .PrePushLRNegOffset32 => "pre_push_lr_neg_offset_32",
+            .PrePushLRNegOffset64 => "pre_push_lr_neg_offset_64",
+
+            .PostPopLRNegOffsetAny => "post_pop_lr_neg_offset_any",
+            .PostPopLRNegOffset8 => "post_pop_lr_neg_offset_8",
+            .PostPopLRNegOffset16 => "post_pop_lr_neg_offset_16",
+            .PostPopLRNegOffset32 => "post_pop_lr_neg_offset_32",
+            .PostPopLRNegOffset64 => "post_pop_lr_neg_offset_64",
+
             .Ret => "ret",
+            .End => "end",
 
             .BranchLink => "branch_link",
             .BranchLinkBack => "branch_link_back",
@@ -669,7 +704,20 @@ pub const Instr = union(InstructionVariants) {
     PostPopRegNegOffset32: PushOrPopRegNegOffset(u32),
     PostPopRegNegOffset64: PushOrPopRegNegOffset(u64),
 
+    PrePushLRNegOffsetAny: u64,
+    PrePushLRNegOffset8: u8,
+    PrePushLRNegOffset16: u16,
+    PrePushLRNegOffset32: u32,
+    PrePushLRNegOffset64: u64,
+
+    PostPopLRNegOffsetAny: u64,
+    PostPopLRNegOffset8: u8,
+    PostPopLRNegOffset16: u16,
+    PostPopLRNegOffset32: u32,
+    PostPopLRNegOffset64: u64,
+
     Ret: void,
+    End: void,
 
     BranchLink: u64,
     BranchLinkBack: u64,
@@ -766,6 +814,7 @@ const RegInfoVarInfo = struct {
 pub const RegInfo = struct {
     varInfo: ?RegInfoVarInfo = null,
     usage: RegisterUsage = .Temporary,
+    firstFoundIndex: ?u32 = null,
     lastUsedInstrIndex: ?u32 = null,
     regRemap: ?TempRegister = null,
 };
@@ -857,6 +906,13 @@ pub const RegisterRange = struct {
     end: u16 = 0,
 };
 
+fn InstrActionInfo(comptime T: type) type {
+    return struct {
+        action: T,
+        current: usize = 0,
+    };
+}
+
 pub const GenInfo = struct {
     const Self = @This();
 
@@ -879,10 +935,7 @@ pub const GenInfo = struct {
         preserved: RegisterRange = .{},
     } = .{},
     labelByteInfo: *LabelByteInfo,
-    skipInstrInfo: struct {
-        skip: *ArrayList(u32),
-        current: usize,
-    },
+    skipInstrInfo: InstrActionInfo(*ArrayList(u32)),
 
     pub fn init(allocator: Allocator) !Self {
         const varNameReg = try utils.initMutPtrT(StringHashMap(TempRegister), allocator);
@@ -915,8 +968,7 @@ pub const GenInfo = struct {
             .activeRegisters = activeRegistersPtr,
             .labelByteInfo = labelByteInfoPtr,
             .skipInstrInfo = .{
-                .skip = skipInstrInfoPtr,
-                .current = 0,
+                .action = skipInstrInfoPtr,
             },
         };
     }
@@ -940,8 +992,8 @@ pub const GenInfo = struct {
         if (instr == .Label or instr == .NoOp) return;
 
         const currentSkip = self.skipInstrInfo.current;
-        if (currentSkip < self.skipInstrInfo.skip.items.len and
-            self.skipInstrInfo.skip.items[currentSkip] == instrIndex)
+        if (currentSkip < self.skipInstrInfo.action.items.len and
+            self.skipInstrInfo.action.items[currentSkip] == instrIndex)
         {
             self.skipInstrInfo.current += 1;
             return;
@@ -951,7 +1003,7 @@ pub const GenInfo = struct {
 
         switch (instr) {
             .Label, .NoOp => unreachable,
-            .Ret => {},
+            .Ret, .End => {},
             .SetReg64 => |inner| {
                 try writer.writeByte(@intCast(inner.reg));
                 try writeNumber(u64, inner.data, writer);
@@ -1117,7 +1169,11 @@ pub const GenInfo = struct {
                 try writer.writeByte(@intCast(inner.reg1));
                 try writer.writeByte(@intCast(inner.reg2));
             },
-            .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
+            .PrePushRegNegOffsetAny,
+            .PostPopRegNegOffsetAny,
+            .PrePushLRNegOffsetAny,
+            .PostPopLRNegOffsetAny,
+            => unreachable,
             .PrePushRegNegOffset8, .PostPopRegNegOffset8 => |inner| {
                 try writer.writeByte(@intCast(inner.reg));
                 try writer.writeByte(inner.offset);
@@ -1136,6 +1192,18 @@ pub const GenInfo = struct {
             },
             .BranchLink, .BranchLinkBack => |inner| {
                 try writer.writeInt(u32, @intCast(inner), .little);
+            },
+            .PrePushLRNegOffset8, .PostPopLRNegOffset8 => |inner| {
+                try writer.writeByte(inner);
+            },
+            .PrePushLRNegOffset16, .PostPopLRNegOffset16 => |inner| {
+                try writer.writeInt(u16, inner, .little);
+            },
+            .PrePushLRNegOffset32, .PostPopLRNegOffset32 => |inner| {
+                try writer.writeInt(u32, inner, .little);
+            },
+            .PrePushLRNegOffset64, .PostPopLRNegOffset64 => |inner| {
+                try writer.writeInt(u64, inner, .little);
             },
         }
     }
@@ -1171,6 +1239,9 @@ pub const GenInfo = struct {
     }
 
     fn setRegLastUsedIndex(self: *Self, reg: TempRegister, instrIndex: usize) void {
+        if (self.registers.items[reg].firstFoundIndex == null) {
+            self.registers.items[reg].firstFoundIndex = @intCast(instrIndex);
+        }
         self.registers.items[reg].lastUsedInstrIndex = @intCast(instrIndex);
     }
 
@@ -1207,8 +1278,29 @@ pub const GenInfo = struct {
             .SubSp64,
             .DbgReg,
             .Ret,
+            .End,
             .BranchLink,
             .BranchLinkBack,
+            .PrePushRegNegOffsetAny,
+            .PrePushRegNegOffset8,
+            .PrePushRegNegOffset16,
+            .PrePushRegNegOffset32,
+            .PrePushRegNegOffset64,
+            .PostPopRegNegOffsetAny,
+            .PostPopRegNegOffset8,
+            .PostPopRegNegOffset16,
+            .PostPopRegNegOffset32,
+            .PostPopRegNegOffset64,
+            .PrePushLRNegOffsetAny,
+            .PrePushLRNegOffset8,
+            .PrePushLRNegOffset16,
+            .PrePushLRNegOffset32,
+            .PrePushLRNegOffset64,
+            .PostPopLRNegOffsetAny,
+            .PostPopLRNegOffset8,
+            .PostPopLRNegOffset16,
+            .PostPopLRNegOffset32,
+            .PostPopLRNegOffset64,
             => {},
 
             .SetReg64 => |inner| func(self, inner.reg, instrIndex),
@@ -1301,22 +1393,6 @@ pub const GenInfo = struct {
             .And, .Or => |inner| {
                 func(self, inner.reg1, instrIndex);
                 func(self, inner.reg2, instrIndex);
-            },
-            .PrePushRegNegOffset8, .PostPopRegNegOffset8 => |inner| {
-                func(self, inner.reg, instrIndex);
-            },
-            .PrePushRegNegOffset16, .PostPopRegNegOffset16 => |inner| {
-                func(self, inner.reg, instrIndex);
-            },
-            .PrePushRegNegOffset32, .PostPopRegNegOffset32 => |inner| {
-                func(self, inner.reg, instrIndex);
-            },
-            .PrePushRegNegOffset64,
-            .PostPopRegNegOffset64,
-            .PrePushRegNegOffsetAny,
-            .PostPopRegNegOffsetAny,
-            => |inner| {
-                func(self, inner.reg, instrIndex);
             },
         }
     }
@@ -1437,38 +1513,26 @@ pub const GenInfo = struct {
     pub fn newProc(self: *Self, allocator: Allocator) !void {
         // noop for possible sp add instr
         try self.instrList.append(allocator, .{ .NoOp = {} });
-        const startIndex = self.instrList.items.len - 1;
-        // noop or possible register push instr
+        // noop for possible register push instr
         try self.instrList.append(allocator, .{ .NoOp = {} });
+        // noop for possible lr push instr
+        try self.instrList.append(allocator, .{ .NoOp = {} });
+        const startIndex = self.instrList.items.len - 3;
 
         self.currentProc = .{
             .startIndex = @intCast(startIndex),
         };
     }
 
-    pub fn finishProc(self: *Self, allocator: Allocator, context: *Context) !void {
+    pub fn finishProc(self: *Self, allocator: Allocator, context: *Context, isRoot: bool) !void {
         try self.labelByteInfo.ensureLabelCount(allocator, self.currentLabelId);
-
-        const stackOffset: u64 = 0;
-        const spInstrs = try getSpIncInstructions(self.currentProc.stackFrameSize);
-
         try adjustInstructions(
             allocator,
             context,
             self.currentProc.startIndex,
             self.currentProc.stackFrameSize,
-            stackOffset,
+            isRoot,
         );
-
-        if (self.currentProc.stackFrameSize + stackOffset > 0) {
-            self.byteCounter += spInstrs.add.getInstrLen() + spInstrs.sub.getInstrLen();
-
-            self.instrList.items[self.currentProc.startIndex + 1] = spInstrs.add;
-            try self.instrList.append(allocator, spInstrs.sub);
-        }
-
-        try self.instrList.append(allocator, .{ .Ret = {} });
-        self.byteCounter += 1;
     }
 
     pub fn setLabelLocation(
@@ -1523,19 +1587,78 @@ fn adjustInstructions(
     context: *Context,
     instrStartIndex: usize,
     frameSize: u64,
-    stackOffset: u64,
+    isRoot: bool,
 ) !void {
-    const registersLen = context.genInfo.registers.items.len;
     const beforeLen = context.genInfo.activeRegisters.items.len;
-    try context.genInfo.activeRegisters.ensureTotalCapacity(allocator, registersLen);
-    context.genInfo.activeRegisters.items.len = registersLen;
-    @memset(context.genInfo.activeRegisters.items[beforeLen..], false);
 
-    var i: usize = instrStartIndex;
+    var i = instrStartIndex;
+    var numPushedRegisters: u32 = 0;
+
     while (i < context.genInfo.instrList.items.len) : (i += 1) {
-        try adjustInstruction(allocator, context, i, frameSize, stackOffset, beforeLen);
+        const instr = context.genInfo.instrList.items[i];
+        switch (instr) {
+            .BranchLink, .BranchLinkBack => {
+                var procReg: usize = beforeLen;
+                while (procReg < context.genInfo.registers.items.len) : (procReg += 1) {
+                    const regInfo = context.genInfo.registers.items[procReg];
+                    const firstFound = regInfo.firstFoundIndex orelse continue;
+                    const lastUsed = regInfo.lastUsedInstrIndex orelse continue;
+
+                    if (firstFound < i and i < lastUsed) {
+                        context.genInfo.registers.items[procReg].usage = .Preserved;
+                        if (context.genInfo.currentProc.maxPreserveReg) |*reg| {
+                            reg.* += 1;
+                        } else {
+                            context.genInfo.currentProc.maxPreserveReg = 0;
+                        }
+
+                        numPushedRegisters += 1;
+                    }
+                }
+            },
+            else => {},
+        }
+    }
+
+    const stackOffset =
+        numPushedRegisters * vmInfo.POINTER_SIZE +
+        vmInfo.POINTER_SIZE * (if (numPushedRegisters > 0) @as(u8, 1) else @as(u8, 0));
+
+    if (context.genInfo.currentProc.maxPreserveReg) |maxReg| {
+        const pushInstr = try pushRegNegOffsetAnyInstr(maxReg, frameSize + stackOffset);
+        const popInstr = try popRegNegOffsetAnyInstr(maxReg, frameSize + stackOffset);
+        const pushLRInstr = try prePushLRNegOffsetAnyInstr(
+            frameSize + stackOffset - vmInfo.POINTER_SIZE,
+        );
+        const popLRInstr = try postPopLRNegOffsetAnyInstr(
+            frameSize + stackOffset - vmInfo.POINTER_SIZE,
+        );
+        context.genInfo.byteCounter += pushInstr.getInstrLen() + popInstr.getInstrLen();
+        context.genInfo.byteCounter += pushLRInstr.getInstrLen() + popLRInstr.getInstrLen();
+
+        context.genInfo.instrList.items[instrStartIndex + 2] = pushLRInstr;
+        try context.genInfo.instrList.append(allocator, popLRInstr);
+        context.genInfo.instrList.items[instrStartIndex + 1] = pushInstr;
+        try context.genInfo.instrList.append(allocator, popInstr);
+    }
+
+    if (frameSize + stackOffset > 0) {
+        const spInstrs = try getSpIncInstructions(frameSize + stackOffset);
+        context.genInfo.byteCounter += spInstrs.add.getInstrLen() + spInstrs.sub.getInstrLen();
+
+        context.genInfo.instrList.items[context.genInfo.currentProc.startIndex] = spInstrs.add;
+        try context.genInfo.instrList.append(allocator, spInstrs.sub);
+    }
+
+    i = instrStartIndex;
+    while (i < context.genInfo.instrList.items.len) : (i += 1) {
+        try adjustInstruction(allocator, context, i, frameSize, stackOffset);
         context.genInfo.byteCounter += context.genInfo.instrList.items[i].getInstrLen();
     }
+
+    const finishInstr = if (isRoot) Instr{ .End = {} } else Instr{ .Ret = {} };
+    try context.genInfo.instrList.append(allocator, finishInstr);
+    context.genInfo.byteCounter += finishInstr.getInstrLen();
 }
 
 /// adjusts store instructions that are based on sp offsets
@@ -1545,7 +1668,6 @@ fn adjustInstruction(
     instrIndex: usize,
     frameSize: u64,
     stackOffset: u64,
-    procRegStart: usize,
 ) !void {
     var instr = &context.genInfo.instrList.items[instrIndex];
     switch (instr.*) {
@@ -1611,7 +1733,7 @@ fn adjustInstruction(
         },
         .BranchLink => |*data| {
             const labelId = data.*;
-            data.* = context.genInfo.byteCounter;
+            data.* = context.genInfo.byteCounter + instr.getInstrLen();
             try context.genInfo.labelByteInfo.waitForLabel(
                 allocator,
                 @intCast(labelId),
@@ -1621,11 +1743,13 @@ fn adjustInstruction(
         .BranchLinkBack => |*labelId| {
             const loc = try context.genInfo.labelByteInfo.getLabelLocation(@intCast(labelId.*));
             _ = loc;
+            // TODO
+            unreachable;
             // labelId.* = loc.?;
         },
         // not changed by stackOffset
         .PrePushRegNegOffsetAny => |pushInstr| {
-            const newInstr = try adjustPushRegNegOffsetAnyInstr(
+            const newInstr = try pushRegNegOffsetAnyInstr(
                 pushInstr.reg,
                 frameSize - pushInstr.offset,
             );
@@ -1633,7 +1757,7 @@ fn adjustInstruction(
         },
         // not changed by stackOffset
         .PostPopRegNegOffsetAny => |popInstr| {
-            const newInstr = try adjustPopRegNegOffsetAnyInstr(
+            const newInstr = try popRegNegOffsetAnyInstr(
                 popInstr.reg,
                 frameSize - popInstr.offset,
             );
@@ -1641,21 +1765,47 @@ fn adjustInstruction(
         },
         else => {},
     }
-
-    switch (instr.*) {
-        .BranchLink, .BranchLinkBack => {
-            var i: usize = procRegStart;
-            while (i < context.genInfo.activeRegisters.items.len) : (i += 1) {
-                if (context.genInfo.activeRegisters.items[i]) {
-                    context.genInfo.registers.items[i].usage = .Preserved;
-                }
-            }
-        },
-        else => context.genInfo.setInstrRegActiveStatus(instrIndex),
-    }
 }
 
-fn adjustPopRegNegOffsetAnyInstr(reg: TempRegister, offset: u64) !Instr {
+fn postPopLRNegOffsetAnyInstr(offset: u64) !Instr {
+    const spOpSize = try getOpSizeFromNum(offset);
+
+    return switch (spOpSize) {
+        .U8 => Instr{
+            .PostPopLRNegOffset8 = @intCast(offset),
+        },
+        .U16 => Instr{
+            .PostPopLRNegOffset16 = @intCast(offset),
+        },
+        .U32 => Instr{
+            .PostPopLRNegOffset32 = @intCast(offset),
+        },
+        .U64 => Instr{
+            .PostPopLRNegOffset64 = offset,
+        },
+    };
+}
+
+fn prePushLRNegOffsetAnyInstr(offset: u64) !Instr {
+    const spOpSize = try getOpSizeFromNum(offset);
+
+    return switch (spOpSize) {
+        .U8 => Instr{
+            .PrePushLRNegOffset8 = @intCast(offset),
+        },
+        .U16 => Instr{
+            .PrePushLRNegOffset16 = @intCast(offset),
+        },
+        .U32 => Instr{
+            .PrePushLRNegOffset32 = @intCast(offset),
+        },
+        .U64 => Instr{
+            .PrePushLRNegOffset64 = offset,
+        },
+    };
+}
+
+fn popRegNegOffsetAnyInstr(reg: TempRegister, offset: u64) !Instr {
     const spOpSize = try getOpSizeFromNum(offset);
 
     return switch (spOpSize) {
@@ -1686,7 +1836,7 @@ fn adjustPopRegNegOffsetAnyInstr(reg: TempRegister, offset: u64) !Instr {
     };
 }
 
-fn adjustPushRegNegOffsetAnyInstr(reg: TempRegister, offset: u64) !Instr {
+fn pushRegNegOffsetAnyInstr(reg: TempRegister, offset: u64) !Instr {
     const spOpSize = try getOpSizeFromNum(offset);
 
     return switch (spOpSize) {
@@ -1751,7 +1901,7 @@ pub fn codegenAst(
     context.genInfo.vmInfo.version = version.VERSION;
     try context.genInfo.newProc(allocator);
     _ = try genBytecode(allocator, context, tree.root);
-    try context.genInfo.finishProc(allocator, context);
+    try context.genInfo.finishProc(allocator, context, true);
     try codegenFunctions(allocator, context);
 
     if (backend == .Bytecode) {
@@ -2887,7 +3037,7 @@ fn codegenFunctions(allocator: Allocator, context: *Context) !void {
 
         try context.genInfo.newProc(allocator);
         _ = try genBytecode(allocator, context, func.body);
-        try context.genInfo.finishProc(allocator, context);
+        try context.genInfo.finishProc(allocator, context, false);
     }
 }
 

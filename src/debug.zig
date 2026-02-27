@@ -784,11 +784,13 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
         if (instr == .NoOp and !context.settings.debug.printNoOps) continue;
 
         const currentSkip = context.genInfo.skipInstrInfo.current;
-        if (currentSkip < context.genInfo.skipInstrInfo.skip.items.len and
-            context.genInfo.skipInstrInfo.skip.items[currentSkip] == index)
+        if (currentSkip < context.genInfo.skipInstrInfo.action.items.len and
+            context.genInfo.skipInstrInfo.action.items[currentSkip] == index)
         {
-            try writer.writeAll("(SKIPPING) ");
             context.genInfo.skipInstrInfo.current += 1;
+            if (!context.settings.debug.printSkippedInstrs) continue;
+
+            try writer.writeAll("(SKIPPING) ");
         }
 
         const chunkLen = instr.getInstrLen();
@@ -813,7 +815,7 @@ fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
     try writer.writeAll(instr.toString());
 
     switch (instr) {
-        .Label, .NoOp, .Ret => {},
+        .Label, .NoOp, .Ret, .End => {},
         .SetReg64 => |inner| {
             try writer.writeAll(" r");
             try writer.printInt(inner.reg, 10, .lower, .{});
@@ -1058,30 +1060,43 @@ fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
         .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
         .PrePushRegNegOffset8,
         .PostPopRegNegOffset8,
-        => |inner| try printPushOrPopNRegNegOffset(inner, writer),
+        => |inner| try printPushOrPopNRegNegOffset(u8, inner, writer),
         .PrePushRegNegOffset16,
         .PostPopRegNegOffset16,
-        => |inner| try printPushOrPopNRegNegOffset(inner, writer),
+        => |inner| try printPushOrPopNRegNegOffset(u16, inner, writer),
         .PrePushRegNegOffset32,
         .PostPopRegNegOffset32,
-        => |inner| try printPushOrPopNRegNegOffset(inner, writer),
+        => |inner| try printPushOrPopNRegNegOffset(u32, inner, writer),
         .PrePushRegNegOffset64,
         .PostPopRegNegOffset64,
-        => |inner| try printPushOrPopNRegNegOffset(inner, writer),
+        => |inner| try printPushOrPopNRegNegOffset(u64, inner, writer),
         .BranchLink, .BranchLinkBack => |inner| {
             try writer.writeByte(' ');
             try writeHexDecNumber(u32, @intCast(inner), writer);
+        },
+        .PrePushLRNegOffsetAny, .PostPopLRNegOffsetAny => unreachable,
+        .PrePushLRNegOffset8, .PostPopLRNegOffset8 => |inner| {
+            try writeHexDecNumber(u8, inner, writer);
+        },
+        .PrePushLRNegOffset16, .PostPopLRNegOffset16 => |inner| {
+            try writeHexDecNumber(u16, inner, writer);
+        },
+        .PrePushLRNegOffset32, .PostPopLRNegOffset32 => |inner| {
+            try writeHexDecNumber(u32, inner, writer);
+        },
+        .PrePushLRNegOffset64, .PostPopLRNegOffset64 => |inner| {
+            try writeHexDecNumber(u64, inner, writer);
         },
     }
 
     try writer.writeByte('\n');
 }
 
-fn printPushOrPopNRegNegOffset(instr: anytype, writer: *Writer) !void {
-    try writer.writeAll(" to #");
+fn printPushOrPopNRegNegOffset(comptime T: type, instr: anytype, writer: *Writer) !void {
+    try writer.writeAll(" r");
     try writer.printInt(instr.reg, 10, .lower, .{});
     try writer.writeByte(' ');
-    try writer.printInt(instr.offset, 10, .lower, .{});
+    try writeHexDecNumber(T, instr.offset, writer);
 }
 
 fn printInstName(inst: u8, writer: *Writer) !void {

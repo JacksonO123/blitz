@@ -70,7 +70,7 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
     try writer.writeAll(inst.toString());
 
     switch (inst) {
-        .Label, .NoOp, .Ret => {},
+        .Label, .NoOp, .Ret, .End => {},
         .SetReg64 => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});
@@ -328,6 +328,23 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
         .PrePushRegNegOffset64,
         .PostPopRegNegOffset64,
         => try printPushOrPopRegNegOffset(u64, bytecode, writer),
+        .PrePushLRNegOffsetAny, .PostPopLRNegOffsetAny => unreachable,
+        .PrePushLRNegOffset8, .PostPopLRNegOffset8 => {
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[1..2], writer);
+        },
+        .PrePushLRNegOffset16, .PostPopLRNegOffset16 => {
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[1..3], writer);
+        },
+        .PrePushLRNegOffset32, .PostPopLRNegOffset32 => {
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[1..5], writer);
+        },
+        .PrePushLRNegOffset64, .PostPopLRNegOffset64 => {
+            try writer.writeByte(' ');
+            try writeHexDecNumberSlice(bytecode[1..9], writer);
+        },
     }
 
     try writer.writeByte('\n');
@@ -336,16 +353,10 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
 fn printPushOrPopRegNegOffset(comptime T: type, bytecode: []const u8, writer: *Writer) !void {
     const byteLen = @sizeOf(T);
 
-    try writer.writeAll(" #");
-    const count = bytecode[1];
-    try writer.printInt(count, 10, .lower, .{});
-    var i: usize = count;
-    while (i < count) : (i += 1) {
-        try writer.writeAll(" r");
-        try writer.printInt(bytecode[2 + i], 10, .lower, .{});
-    }
+    try writer.writeAll(" r");
+    try writer.printInt(bytecode[1], 10, .lower, .{});
     try writer.writeByte(' ');
-    try writeHexDecNumberSlice(bytecode[1 + count .. 1 + count + byteLen], writer);
+    try writeHexDecNumberSlice(bytecode[2 .. 2 + byteLen], writer);
 }
 
 fn writeHexDecNumberSlice(constStr: []const u8, writer: *Writer) !void {
