@@ -20,12 +20,12 @@ const ContextSettings = struct {
         printAddresses: bool = false,
         trackPoolMem: bool = builtin.mode == .Debug,
 
-        printLabels: bool = false,
-        printNoOps: bool = false,
-        printSkippedInstrs: bool = false,
-        // printLabels: bool = true,
-        // printNoOps: bool = true,
-        // printSkippedInstrs: bool = true,
+        // printLabels: bool = false,
+        // printNoOps: bool = false,
+        // printSkippedInstrs: bool = false,
+        printLabels: bool = true,
+        printNoOps: bool = true,
+        printSkippedInstrs: bool = true,
     } = .{},
 };
 

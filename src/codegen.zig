@@ -2967,11 +2967,16 @@ pub fn genBytecodeUtil(
         },
         .FuncCall => |call| {
             const func = node.typeInfo.resolvesToFunc.?;
-            const branchLabelId = if (func.labelInfo.id) |labelId|
-                labelId
-            else a: {
+            const labelIdPtr = switch (func.genericState) {
+                .Generic => |*generic| &generic
+                    .genericInstances
+                    .items[node.typeInfo.funcGenInstanceIndex.?]
+                    .labelId,
+                .Normal => |*normal| &normal.labelId,
+            };
+            const branchLabelId = labelIdPtr.* orelse a: {
                 const labelId = context.genInfo.takeLabelId();
-                node.typeInfo.resolvesToFunc.?.labelInfo.id = labelId;
+                labelIdPtr.* = labelId;
                 break :a labelId;
             };
 
@@ -2988,7 +2993,7 @@ pub fn genBytecodeUtil(
                 try context.genInfo.appendChunk(allocator, movInstr);
             }
 
-            const branchInstr = if (func.labelInfo.generated) Instr{
+            const branchInstr = if (func.labelsGenerated) Instr{
                 .BranchLinkBack = branchLabelId,
             } else Instr{
                 .BranchLink = branchLabelId,
@@ -3021,34 +3026,56 @@ fn codegenFunctions(allocator: Allocator, context: *Context) !void {
     while (funcIter.next()) |funcPtr| {
         const func = funcPtr.*;
 
-        const labelId = func.labelInfo.id orelse a: {
-            const labelId = context.genInfo.takeLabelId();
-            func.labelInfo.id = labelId;
-            break :a labelId;
-        };
-        try context.genInfo.labelByteInfo.ensureLabelCount(
-            allocator,
-            context.genInfo.currentLabelId,
-        );
-        const label = Instr{
-            .Label = labelId,
-        };
-        try context.genInfo.appendChunk(allocator, label);
-        context.genInfo.setLabelLocation(labelId, context.genInfo.byteCounter);
+        if (utils.compString(func.name, constants.MAIN_FN_NAME)) continue;
 
-        for (func.params.params) |param| {
-            const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
-            try context.genInfo.setVariableRegister(allocator, param.name, paramReg);
+        switch (func.genericState) {
+            .Generic => |generic| {
+                for (generic.genericInstances.items) |*instance| {
+                    try functionSetupBytecode(allocator, context, func, &instance.labelId);
+                    try context.genInfo.newProc(allocator);
+                    _ = try genBytecode(allocator, context, instance.funcRootNode);
+                    try context.genInfo.finishProc(allocator, context, false);
+                }
+            },
+            .Normal => |*normal| {
+                try functionSetupBytecode(allocator, context, func, &normal.labelId);
+                try context.genInfo.newProc(allocator);
+                _ = try genBytecode(allocator, context, func.body);
+                try context.genInfo.finishProc(allocator, context, false);
+            },
         }
+    }
+}
 
-        if (func.params.selfInfo != null) {
-            const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
-            try context.genInfo.setVariableRegister(allocator, "self", paramReg);
-        }
+fn functionSetupBytecode(
+    allocator: Allocator,
+    context: *Context,
+    func: *ast.FuncDecNode,
+    labelId: *?u32,
+) !void {
+    const labelIdOrNew = labelId.* orelse a: {
+        const newLabelId = context.genInfo.takeLabelId();
+        labelId.* = newLabelId;
+        break :a newLabelId;
+    };
+    try context.genInfo.labelByteInfo.ensureLabelCount(
+        allocator,
+        context.genInfo.currentLabelId,
+    );
+    const label = Instr{
+        .Label = labelIdOrNew,
+    };
+    try context.genInfo.appendChunk(allocator, label);
+    context.genInfo.setLabelLocation(labelIdOrNew, context.genInfo.byteCounter);
 
-        try context.genInfo.newProc(allocator);
-        _ = try genBytecode(allocator, context, func.body);
-        try context.genInfo.finishProc(allocator, context, false);
+    for (func.params.params) |param| {
+        const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
+        try context.genInfo.setVariableRegister(allocator, param.name, paramReg);
+    }
+
+    if (func.params.selfInfo != null) {
+        const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
+        try context.genInfo.setVariableRegister(allocator, constants.SELF_NAME, paramReg);
     }
 }
 

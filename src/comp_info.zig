@@ -71,6 +71,7 @@ const ScopeType = enum {
 pub const CompInfo = struct {
     const Self = @This();
 
+    preAst: bool,
     hoistedDecs: struct {
         structs: *StringHashMap(?*ast.StructDecNode),
         errors: *StringHashMap(?*const ast.ErrorOrEnumDecNode),
@@ -91,7 +92,6 @@ pub const CompInfo = struct {
     returnInfo: *ReturnInfo,
     builtins: builtins.BuiltinFuncMemo,
     stackSizeEstimate: vmInfo.StartStackType,
-    preAst: bool,
 
     pub fn init(
         allocator: Allocator,
@@ -383,10 +383,13 @@ pub const CompInfo = struct {
 
                     const f = attr.attr.Function;
 
-                    if (f.generics) |funcGens| {
-                        for (funcGens) |generic| {
-                            try self.addParsedGeneric(allocator, generic.name);
-                        }
+                    switch (f.genericState) {
+                        .Generic => |generic| {
+                            for (generic.generics) |gen| {
+                                try self.addParsedGeneric(allocator, gen.name);
+                            }
+                        },
+                        else => {},
                     }
 
                     const prevTokenUtil = context.tokenUtil;
@@ -564,13 +567,7 @@ pub const CompInfo = struct {
         return null;
     }
 
-    pub fn getVariableType(
-        self: *Self,
-        allocator: Allocator,
-        context: *Context,
-        name: []const u8,
-        replaceGenerics: bool,
-    ) !?scanner.TypeAndAllocInfo {
+    pub fn getVariableType(self: *Self, name: []const u8) !?scanner.TypeAndAllocInfo {
         const varTypeInfo = (try self.getVariableTypeInfo(name)) orelse return null;
 
         var copy = varTypeInfo.varTypeUsedInfo;
@@ -579,20 +576,6 @@ pub const CompInfo = struct {
         if (!varTypeInfo.shouldCapture) {
             return copy.varTypeAndAllocInfo;
         }
-
-        _ = allocator;
-        _ = context;
-        _ = replaceGenerics;
-        // const captureScope = self.variableCaptures.getCurrentScope();
-        // if (captureScope) |capScope| {
-        //     const clonedType = try clone.cloneAstTypeInfo(
-        //         allocator,
-        //         context,
-        //         copy.varTypeAndAllocInfo.info,
-        //         replaceGenerics,
-        //     );
-        //     try capScope.put(name, clonedType.toAllocInfo(.Allocated));
-        // }
 
         return copy.varTypeAndAllocInfo;
     }

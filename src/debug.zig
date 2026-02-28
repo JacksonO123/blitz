@@ -113,8 +113,11 @@ pub fn printType(
             try writer.writeAll("func.name");
             try writer.writeByte('\"');
 
-            if (func.generics) |generics| {
-                try printGenerics(context, generics, writer);
+            switch (func.genericState) {
+                .Generic => |generic| {
+                    try printGenerics(context, generic.generics, writer);
+                },
+                else => {},
             }
 
             try writer.writeAll(" (");
@@ -578,10 +581,14 @@ pub fn printFuncDec(
     try writer.writeAll("] (");
     try writer.writeAll(func.name);
     try writer.writeByte(')');
-    if (func.generics) |generics| {
-        try writer.writeAll(" with generics [");
-        try printGenerics(context, generics, writer);
-        try writer.writeByte(']');
+
+    switch (func.genericState) {
+        .Generic => |generic| {
+            try writer.writeAll(" with generics [");
+            try printGenerics(context, generic.generics, writer);
+            try writer.writeByte(']');
+        },
+        else => {},
     }
 
     if (func.definedCaptures.len > 0) {

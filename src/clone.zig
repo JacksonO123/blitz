@@ -184,7 +184,7 @@ pub fn cloneAstTypes(
     }
 }
 
-fn cloneAstNodePtrMut(
+pub fn cloneAstNodePtrMut(
     allocator: Allocator,
     context: *Context,
     node: *const ast.AstNode,

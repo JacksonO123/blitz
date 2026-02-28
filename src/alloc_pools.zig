@@ -137,12 +137,19 @@ pub fn releaseFuncDec(
         recursiveReleaseTypeAll(context, param.type.astType);
     }
 
-    if (func.generics) |generics| {
-        for (generics) |generic| {
-            if (generic.restriction) |restriction| {
-                recursiveReleaseTypeAll(context, restriction.astType);
+    switch (func.genericState) {
+        .Generic => |generic| {
+            for (generic.generics) |gen| {
+                if (gen.restriction) |restriction| {
+                    recursiveReleaseTypeAll(context, restriction.astType);
+                }
             }
-        }
+
+            for (generic.genericInstances.items) |instance| {
+                recursiveReleaseNodeAll(context, instance.funcRootNode);
+            }
+        },
+        else => {},
     }
 
     if (func.capturedTypes) |captured| {

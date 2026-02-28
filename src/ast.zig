@@ -12,6 +12,7 @@ const logger = blitz.logger;
 const pools = blitz.allocPools;
 const TokenError = tokenizer.TokenError;
 const Context = blitz.context.Context;
+const constants = blitz.constants;
 
 const AstNumberVariantsStrRel = struct {
     str: []const u8,
@@ -523,17 +524,33 @@ const FuncType = enum {
     Normal,
 };
 
+const GenericFuncInstance = struct {
+    labelId: ?u32 = null,
+    funcRootNode: *AstNode,
+};
+
+const FuncGenericStateVariants = enum {
+    Generic,
+    Normal,
+};
+
+const FuncGenericState = union(FuncGenericStateVariants) {
+    Generic: struct {
+        generics: []GenericType,
+        genericInstances: *ArrayList(GenericFuncInstance),
+    },
+    Normal: struct {
+        labelId: ?u32 = null,
+    },
+};
+
 pub const FuncDecNode = struct {
-    labelInfo: struct {
-        id: ?u32 = null,
-        generated: bool = false,
-    } = .{},
+    labelsGenerated: bool = false,
     capturedTypes: ?*compInfo.TypeScope = null,
     capturedFuncs: ?*compInfo.StringListScope = null,
     capturedVariables: ?*compInfo.CaptureScope = null,
     visited: bool = false,
     name: []const u8,
-    generics: ?[]GenericType,
     params: ParseParamsResult,
     body: *AstNode,
     bodyTokens: []tokenizer.Token,
@@ -542,6 +559,7 @@ pub const FuncDecNode = struct {
     toScanTypes: *ToScanTypesList,
     funcType: FuncType,
     globallyDefined: bool,
+    genericState: FuncGenericState,
 };
 
 const FuncParseStructInfo = struct {
@@ -762,6 +780,7 @@ const AstNodeTypeInfo = struct {
     makesSliceWithLen: ?u64 = null,
     isSlice: bool = false,
     resolvesToFunc: ?*FuncDecNode = null,
+    funcGenInstanceIndex: ?u32 = null,
 };
 
 pub const AstNode = struct {
@@ -2162,11 +2181,11 @@ fn parseFuncDef(
 
     var next = try context.tokenUtil.take();
     var nameStr: []const u8 = undefined;
-    var generics: ?[]GenericType = null;
+    var genericsOrNull: ?[]GenericType = null;
     var captures: []FuncCaptures = &[_]FuncCaptures{};
 
     if (next.type == .LBracket) {
-        generics = try parseGenerics(allocator, context);
+        genericsOrNull = try parseGenerics(allocator, context);
         next = try context.tokenUtil.take();
     }
 
@@ -2211,7 +2230,6 @@ fn parseFuncDef(
 
     return try utils.createMut(FuncDecNode, allocator, .{
         .name = nameStr,
-        .generics = generics,
         .params = params,
         .body = body,
         .bodyTokens = bodyTokens,
@@ -2220,6 +2238,18 @@ fn parseFuncDef(
         .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
         .funcType = if (structInfoOrNull == null) .Normal else .StructMethod,
         .globallyDefined = context.compInfo.getScopeDepth() == 1,
+        .genericState = if (genericsOrNull) |generics| .{
+            .Generic = .{
+                .generics = generics,
+                .genericInstances = try utils.createMut(
+                    ArrayList(GenericFuncInstance),
+                    allocator,
+                    .empty,
+                ),
+            },
+        } else .{
+            .Normal = .{},
+        },
     });
 }
 
@@ -2335,7 +2365,7 @@ fn parseParams(
         const param = try parseParam(allocator, context, structInfoOrNull);
         try params.append(allocator, param);
 
-        if (utils.compString(param.name, "self")) {
+        if (utils.compString(param.name, constants.SELF_NAME)) {
             res.selfInfo = .{ .mutState = param.mutState };
         }
 
@@ -2368,7 +2398,7 @@ fn parseParam(
     }
 
     const tokString = context.getTokString(first);
-    if (utils.compString(tokString, "self")) {
+    if (utils.compString(tokString, constants.SELF_NAME)) {
         if (structInfoOrNull) |structInfo| {
             if (structInfo.isStatic) {
                 return AstError.UnexpectedSelfParamOnStaticFunction;

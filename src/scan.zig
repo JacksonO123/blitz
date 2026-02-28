@@ -11,6 +11,7 @@ const compInfo = blitz.compInfo;
 const vmInfo = blitz.vmInfo;
 const allocPools = blitz.allocPools;
 const Context = blitz.context.Context;
+const constants = blitz.constants;
 
 pub const ScanInfo = struct {
     allowErrorWithoutVariants: bool = false,
@@ -667,7 +668,7 @@ pub fn scanNode(
                     );
 
                     if (propType) |t| {
-                        if (!utils.compString(name, "self")) {
+                        if (!utils.compString(name, constants.SELF_NAME)) {
                             const dec = context.compInfo.getStructDec(name).?;
 
                             if (t.astType.* == .Function) {
@@ -878,12 +879,7 @@ pub fn scanNode(
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
         .Variable => |name| {
-            const varInfo = try context.compInfo.getVariableType(
-                allocator,
-                context,
-                name,
-                withGenDef,
-            );
+            const varInfo = try context.compInfo.getVariableType(name);
 
             if (varInfo) |info| {
                 const res = try clone.replaceGenericsOnTypeInfo(
@@ -1011,12 +1007,8 @@ pub fn scanNode(
             };
 
             for (func.definedCaptures) |capture| {
-                const origVarType = try context.compInfo.getVariableType(
-                    allocator,
-                    context,
-                    capture.ident,
-                    withGenDef,
-                ) orelse return ScanError.VariableIsUndefined;
+                const origVarType = try context.compInfo.getVariableType(capture.ident) orelse
+                    return ScanError.VariableIsUndefined;
                 var varType = try escapeVarInfo(origVarType);
                 const incomingMutState = origVarType.info.mutState.orConst(varType.info.mutState);
                 if (capture.isPtr and incomingMutState == .Const and capture.mutState == .Mut) {
@@ -1060,7 +1052,7 @@ pub fn scanNode(
                 return ScanError.UnexpectedSelfParameter;
             }
 
-            if (func.generics == null) {
+            if (func.genericState == .Normal) {
                 func.visited = true;
             }
 
@@ -1083,12 +1075,13 @@ pub fn scanNode(
             defer context.compInfo.popGenScope(context);
 
             if (call.callGenerics) |callGenerics| {
-                if (func.generics) |defGenerics| {
-                    if (callGenerics.len != defGenerics.len) {
-                        return ScanError.CallGenericsAndFuncDecGenericCountMismatch;
-                    }
-                } else {
-                    return ScanError.UnexpectedCallGenerics;
+                switch (func.genericState) {
+                    .Generic => |generic| {
+                        if (callGenerics.len != generic.generics.len) {
+                            return ScanError.CallGenericsAndFuncDecGenericCountMismatch;
+                        }
+                    },
+                    else => return ScanError.UnexpectedCallGenerics,
                 }
             }
 
@@ -1099,7 +1092,7 @@ pub fn scanNode(
             }
 
             if (func.params.selfInfo != null and
-                !utils.compString("self", func.params.params[0].name))
+                !utils.compString(constants.SELF_NAME, func.params.params[0].name))
             {
                 return ScanError.ExpectedSelfParameterToBeFirst;
             }
@@ -1115,7 +1108,7 @@ pub fn scanNode(
                 defer context.compInfo.popScope(context);
 
                 if (call.callGenerics) |callGenerics| {
-                    for (callGenerics, func.generics.?) |callGenericType, decGeneric| {
+                    for (callGenerics, func.genericState.Generic.generics) |callGenericType, decGeneric| {
                         if (decGeneric.restriction) |restriction| {
                             const matches = try matchTypes(
                                 allocator,
@@ -1153,7 +1146,7 @@ pub fn scanNode(
                 if (func.params.selfInfo) |info| {
                     try context.compInfo.setVariableType(
                         context,
-                        "self",
+                        constants.SELF_NAME,
                         func.params.params[0].type.toAllocInfo(.Recycled),
                         null,
                         info.mutState,
@@ -1178,7 +1171,7 @@ pub fn scanNode(
                 }
             }
 
-            if (func.generics != null) {
+            if (func.genericState == .Generic) {
                 const genScope = context.compInfo.genericScopes.getCurrentScope().?;
                 const scannedBefore = try fnHasScannedWithSameGenTypes(
                     allocator,
@@ -1187,7 +1180,9 @@ pub fn scanNode(
                     genScope,
                     withGenDef,
                 );
-                if (!scannedBefore) {
+                if (scannedBefore) |at| {
+                    node.typeInfo.funcGenInstanceIndex = @intCast(at);
+                } else {
                     const scopeRels = try genScopeToRels(
                         allocator,
                         context,
@@ -1195,6 +1190,7 @@ pub fn scanNode(
                         withGenDef,
                     );
                     try func.toScanTypes.append(allocator, scopeRels);
+                    node.typeInfo.funcGenInstanceIndex = @intCast(func.toScanTypes.items.len - 1);
                     try context.compInfo.addFuncToScan(allocator, func, scopeRels, withGenDef);
                 }
             }
@@ -1240,7 +1236,7 @@ pub fn scanNode(
                     if (attr.attr != .Function) continue;
 
                     const func = attr.attr.Function;
-                    if (func.generics == null) {
+                    if (func.genericState == .Normal) {
                         const scannedBefore = try fnHasScannedWithSameGenTypes(
                             allocator,
                             context,
@@ -1248,7 +1244,8 @@ pub fn scanNode(
                             scope,
                             withGenDef,
                         );
-                        if (scannedBefore) continue;
+                        // TODO - account for generic struct methods
+                        if (scannedBefore != null) continue;
                     }
 
                     const scopeRels = try genScopeToRels(
@@ -1631,7 +1628,7 @@ fn checkUndefVars(context: *Context, node: *const ast.AstNode, allowSelf: bool) 
 
     return switch (node.variant) {
         .Variable => |name| {
-            if (allowSelf and utils.compString("self", name)) return false;
+            if (allowSelf and utils.compString(constants.SELF_NAME, name)) return false;
             return !context.compInfo.isVariableInScope(name);
         },
         .Cast => |cast| checkUndefVars(context, cast.node, allowSelf),
@@ -1754,6 +1751,11 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
         }
 
         try scanFuncBodyAndReturn(allocator, context, func, toScanItem.withGenDef);
+        const cloned = try clone.cloneAstNodePtrMut(allocator, context, func.body, true);
+        try func.genericState.Generic.genericInstances.append(
+            allocator,
+            .{ .funcRootNode = cloned },
+        );
     }
 }
 
@@ -1773,14 +1775,7 @@ fn setGenTypesFromParams(
         var isGeneric = false;
 
         switch (decParam.type.astType.*) {
-            .Generic => |generic| {
-                const typePtr = try clone.cloneAstTypeInfo(
-                    allocator,
-                    context,
-                    callParamType.info,
-                    withGenDef,
-                );
-
+            .Generic => |generic| a: {
                 const currentGenScope = context.compInfo.genericScopes.getCurrentScope();
                 if (currentGenScope) |scope| {
                     if (scope.get(generic)) |genType| {
@@ -1791,11 +1786,21 @@ fn setGenTypesFromParams(
                             genType.info,
                             false,
                         );
-                        if (!matches) {
+                        if (matches) {
+                            isGeneric = true;
+                            break :a;
+                        } else {
                             return ScanError.GenericRestrictionConflict;
                         }
                     }
                 }
+
+                const typePtr = try clone.cloneAstTypeInfo(
+                    allocator,
+                    context,
+                    callParamType.info,
+                    withGenDef,
+                );
 
                 try context.compInfo.setGeneric(generic, typePtr.toAllocInfo(.Allocated));
                 isGeneric = true;
@@ -1869,8 +1874,8 @@ fn fnHasScannedWithSameGenTypes(
     func: *ast.FuncDecNode,
     genScope: *compInfo.TypeScope,
     withGenDef: bool,
-) !bool {
-    outer: for (func.toScanTypes.items) |scannedScope| {
+) !?usize {
+    outer: for (func.toScanTypes.items, 0..) |scannedScope, index| {
         for (scannedScope) |rel| {
             const genType = genScope.get(rel.str);
             if (genType == null) continue :outer;
@@ -1882,15 +1887,14 @@ fn fnHasScannedWithSameGenTypes(
                 withGenDef,
                 .Strict,
             );
-            if (!matches) {
-                continue :outer;
-            }
+
+            if (!matches) continue :outer;
         }
 
-        return true;
+        return index;
     }
 
-    return false;
+    return null;
 }
 
 fn isAnyType(astType: *const ast.AstTypes) bool {
