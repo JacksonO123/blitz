@@ -852,11 +852,43 @@ pub const Ast = struct {
 };
 
 pub fn createAst(allocator: Allocator, context: *Context, writer: *Writer) !Ast {
-    const seq = parseSequence(allocator, context, false) catch |e| {
+    const seq = parseModule(allocator, context) catch |e| {
         logger.logParseError(context, e, writer);
         return e;
     };
     return Ast.init(context, seq);
+}
+
+pub fn parseModule(allocator: Allocator, context: *Context) !*AstNode {
+    var seq: ArrayList(*AstNode) = .empty;
+
+    while (context.tokenUtil.hasNext()) {
+        const peakToken = try context.tokenUtil.peakFixed();
+        if (peakToken.type == .Semicolon or peakToken.type == .NewLine) {
+            _ = try context.tokenUtil.takeFixed();
+            continue;
+        }
+
+        // TODO - make export keyword to export fn
+        try context.tokenUtil.expectToken(.Fn);
+
+        const func = try parseFuncDef(allocator, context, null);
+        try context.compInfo.addFunction(func.name, func);
+        const funcDecVariant = AstNodeUnion{
+            .FuncDec = func.name,
+        };
+        const node = try context.pools.newNode(context, funcDecVariant.toAstNode());
+
+        try seq.append(allocator, node);
+    }
+
+    const ownedSlice = try seq.toOwnedSlice(allocator);
+    try context.deferCleanup.nodeSlices.append(allocator, ownedSlice);
+
+    const seqVariant = AstNodeUnion{
+        .Seq = ownedSlice,
+    };
+    return try context.pools.newNode(context, seqVariant.toAstNode());
 }
 
 pub fn parseSequence(

@@ -116,7 +116,7 @@ pub fn compile(
         try scanner.typeScan(allocator, &context, tree);
         // _ = format;
         // _ = fileWriter;
-        try codegen.codegenAst(allocator, &context, tree, .Bytecode);
+        try codegen.codegenAst(allocator, &context, .Bytecode);
 
         if (printState == .All) {
             try printWriter.writeAll("\n------------\n\n");

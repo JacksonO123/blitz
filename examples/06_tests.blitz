@@ -19,5 +19,5 @@ struct M {
     };
 
     let thing = outer.m[1u64].value;
-    let a = 3;
+    let a = thing;
 }

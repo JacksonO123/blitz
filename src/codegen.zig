@@ -15,6 +15,7 @@ const version = blitz.version;
 const bytecodeBackend = blitz.backends.bytecode;
 const TempRegister = vmInfo.TempRegister;
 const Context = blitz.context.Context;
+const constants = blitz.constants;
 
 const CodeGenError = error{
     RawNumberIsTooBig,
@@ -27,6 +28,7 @@ const CodeGenError = error{
     NoTrivialRegister,
     AccessTargetDoesNotHaveStructName,
     LabelDoesNotExist,
+    MainFunctionNotFound,
 };
 const GenBytecodeError = CodeGenError ||
     Allocator.Error ||
@@ -1895,12 +1897,14 @@ fn movSpNegOffset(reg: TempRegister, offset: u64) !Instr {
 pub fn codegenAst(
     allocator: Allocator,
     context: *Context,
-    tree: ast.Ast,
     backend: CodegenBackend,
 ) !void {
     context.genInfo.vmInfo.version = version.VERSION;
+
+    const mainFn = context.compInfo.functions.get(constants.MAIN_FN_NAME) orelse
+        return CodeGenError.MainFunctionNotFound;
     try context.genInfo.newProc(allocator);
-    _ = try genBytecode(allocator, context, tree.root);
+    _ = try genBytecode(allocator, context, mainFn.body);
     try context.genInfo.finishProc(allocator, context, true);
     try codegenFunctions(allocator, context);
 
@@ -1939,7 +1943,14 @@ pub fn genBytecodeUtil(
     writeLoc: ?WriteLocInfo,
 ) GenBytecodeError!?TempRegister {
     switch (node.variant) {
-        .StructPlaceholder, .StructDec, .UndefValue, .NoOp, .FuncDec => {},
+        .StructPlaceholder,
+        .StructDec,
+        .UndefValue,
+        .NoOp,
+        .FuncDec,
+        .EnumDec,
+        .ErrorDec,
+        => {},
         .Seq => |seq| {
             for (seq) |seqNode| {
                 _ = try genBytecode(allocator, context, seqNode);
