@@ -6,6 +6,6 @@ fn main() {
     thing(10u64, 2u64);
 }
 
-fn [T] thing(a: T, b: T) T {
+fn thing [T](a: T, b: T) T {
     return a + b;
 }

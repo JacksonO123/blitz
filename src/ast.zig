@@ -2178,8 +2178,8 @@ fn parseFuncDef(
     }
 
     if (next.type == .LBracket) {
+        _ = try context.tokenUtil.take();
         genericsOrNull = try parseGenerics(allocator, context);
-        next = try context.tokenUtil.take();
     }
 
     try context.tokenUtil.expectToken(.LParen);
@@ -2304,7 +2304,7 @@ fn parseGenerics(allocator: Allocator, context: *Context) ![]GenericType {
         try context.tokenUtil.expectToken(.Comma);
     }
 
-    _ = try context.tokenUtil.take();
+    try context.tokenUtil.expectToken(.RBracket);
 
     return try generics.toOwnedSlice(allocator);
 }
