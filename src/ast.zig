@@ -442,6 +442,7 @@ pub const StructDecNode = struct {
     attributes: []StructAttribute,
     totalMemberList: []StructAttribute,
     toScanTypes: *ToScanTypesList,
+    endPos: usize,
 
     pub fn getMemberLocation(
         self: Self,
@@ -882,21 +883,30 @@ pub fn parseModule(allocator: Allocator, context: *Context) !*AstNode {
     var seq: ArrayList(*AstNode) = .empty;
 
     while (context.tokenUtil.hasNext()) {
-        const peakToken = try context.tokenUtil.peakFixed();
-        if (peakToken.type == .Semicolon or peakToken.type == .NewLine) {
+        var peakToken = try context.tokenUtil.peakFixed();
+        while (peakToken.type == .Semicolon or peakToken.type == .NewLine) {
             _ = try context.tokenUtil.takeFixed();
+            peakToken = try context.tokenUtil.peakFixed();
             continue;
         }
 
-        // TODO - make export keyword to export fn
-        try context.tokenUtil.expectToken(.Fn);
-
-        const func = try parseFuncDef(allocator, context, null);
-        try context.compInfo.addFunction(func.name, func);
-        const funcDecVariant = AstNodeUnion{
-            .FuncDec = func.name,
+        const node = switch (peakToken.type) {
+            // TODO - make export keyword to export fn
+            .Fn => a: {
+                _ = try context.tokenUtil.take();
+                break :a try handleParseFunction(allocator, context);
+            },
+            .Struct => {
+                _ = try context.tokenUtil.take();
+                const name = try context.tokenUtil.take();
+                if (name.type != .Identifier) return AstError.UnexpectedToken;
+                const dec = context.compInfo.getStructDec(context.getTokString(name)).?;
+                context.tokenUtil.pos = dec.endPos;
+                continue;
+            },
+            .Enum => try handleParseEnum(allocator, context),
+            else => return AstError.UnexpectedToken,
         };
-        const node = try context.pools.newNode(context, funcDecVariant.toAstNode());
 
         try seq.append(allocator, node);
     }
@@ -984,15 +994,7 @@ fn parseStatement(
             };
             return try context.pools.newNode(context, ifVariant.toAstNode());
         },
-        .Fn => {
-            const func = try parseFuncDef(allocator, context, null);
-            try context.compInfo.addFunction(func.name, func);
-
-            const funcDecVariant = AstNodeUnion{
-                .FuncDec = func.name,
-            };
-            return try context.pools.newNode(context, funcDecVariant.toAstNode());
-        },
+        .Fn => return try handleParseFunction(allocator, context),
         .For => {
             try context.tokenUtil.expectToken(.LParen);
 
@@ -1152,65 +1154,9 @@ fn parseStatement(
             };
             return try context.pools.newNode(context, returnVariant.toAstNode());
         },
-        .Error => {
-            if (!context.compInfo.preAst) {
-                _ = try context.tokenUtil.take();
-                var next = try context.tokenUtil.take();
-                if (next.type == .LBrace) {
-                    while (next.type != .RBrace) {
-                        next = try context.tokenUtil.take();
-                    }
-                } else if (next.type != .Semicolon) {
-                    return TokenError.UnexpectedToken;
-                }
-
-                return context.staticPtrs.nodes.noOp;
-            }
-
-            const errNode = try parseError(allocator, context);
-
-            const errDecVariant = AstNodeUnion{
-                .ErrorDec = errNode,
-            };
-            return try context.pools.newNode(context, errDecVariant.toAstNode());
-        },
-        .Struct => {
-            if (!context.compInfo.preAst) {
-                var parens: usize = 0;
-
-                var current = try context.tokenUtil.take();
-                while (parens > 1 or current.type != .RBrace) {
-                    if (current.isOpenToken(false)) {
-                        parens += 1;
-                    } else if (current.isCloseToken(false)) {
-                        parens -= 1;
-                    }
-
-                    current = try context.tokenUtil.take();
-                }
-
-                return context.staticPtrs.nodes.structPlaceholder;
-            }
-
-            return try parseStructDec(allocator, context);
-        },
-        .Enum => {
-            if (!context.compInfo.preAst) {
-                _ = try context.tokenUtil.take();
-                var next = try context.tokenUtil.take();
-                while (next.type != .RBrace) {
-                    next = try context.tokenUtil.take();
-                }
-
-                return context.staticPtrs.nodes.noOp;
-            }
-
-            const enumDec = try parseEnumDec(allocator, context);
-            const enumDecVariant = AstNodeUnion{
-                .EnumDec = enumDec,
-            };
-            return context.pools.newNode(context, enumDecVariant.toAstNode());
-        },
+        .Error => return AstError.ErrorDefinedInLowerScope,
+        .Struct => return AstError.StructDefinedInLowerScope,
+        .Enum => return AstError.EnumDefinedInLowerScope,
         .LBrace => {
             const seq = try parseSequence(allocator, context, true);
             try context.tokenUtil.expectToken(.RBrace);
@@ -1237,6 +1183,45 @@ fn parseStatement(
             return TokenError.UnexpectedToken;
         },
     }
+}
+
+fn handleParseEnum(allocator: Allocator, context: *Context) !*AstNode {
+    const enumDec = try parseEnumDec(allocator, context);
+    const enumDecVariant = AstNodeUnion{
+        .EnumDec = enumDec,
+    };
+    return context.pools.newNode(context, enumDecVariant.toAstNode());
+}
+
+fn handleParseError(allocator: Allocator, context: *Context) !*AstNode {
+    const errNode = try parseError(allocator, context);
+    const errDecVariant = AstNodeUnion{
+        .ErrorDec = errNode,
+    };
+    return try context.pools.newNode(context, errDecVariant.toAstNode());
+}
+
+fn handleParseFunction(allocator: Allocator, context: *Context) !*AstNode {
+    const name = try context.tokenUtil.peak();
+    if (name.type != .Identifier) return AstError.UnexpectedToken;
+
+    const func =
+        if (context.compInfo.getFunctionAsGlobal(context.getTokString(name))) |func| a: {
+            const tokens = func.bodyTokens;
+            const last = tokens[tokens.len - 1];
+            context.tokenUtil.pos = last.end;
+
+            break :a func;
+        } else a: {
+            const func = try parseFuncDef(allocator, context, null);
+            try context.compInfo.addFunction(func.name, func);
+            break :a func;
+        };
+
+    const funcDecVariant = AstNodeUnion{
+        .FuncDec = func.name,
+    };
+    return try context.pools.newNode(context, funcDecVariant.toAstNode());
 }
 
 fn parseEnumDec(allocator: Allocator, context: *Context) !*const ErrorOrEnumDecNode {
@@ -1294,7 +1279,7 @@ fn parseIfChain(allocator: Allocator, context: *Context) !?FallbackInfo {
     };
 }
 
-fn parseStructDec(allocator: Allocator, context: *Context) !?*AstNode {
+fn parseStructDec(allocator: Allocator, context: *Context) !*AstNode {
     try context.compInfo.pushParsedGenericsScope(allocator, false);
     defer context.compInfo.popParsedGenericsScope(context);
 
@@ -1325,6 +1310,7 @@ fn parseStructDec(allocator: Allocator, context: *Context) !?*AstNode {
             .attributes = attributes,
             .totalMemberList = &[_]StructAttribute{},
             .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
+            .endPos = context.tokenUtil.pos,
         }),
     };
     return try context.pools.newNode(context, structDecVariant.toAstNode());
@@ -2184,15 +2170,16 @@ fn parseFuncDef(
     var genericsOrNull: ?[]GenericType = null;
     var captures: []FuncCaptures = &[_]FuncCaptures{};
 
+    if (next.type == .Identifier) {
+        nameStr = context.getTokString(next);
+        next = try context.tokenUtil.peak();
+    } else {
+        return AstError.ExpectedIdentifierForFunctionName;
+    }
+
     if (next.type == .LBracket) {
         genericsOrNull = try parseGenerics(allocator, context);
         next = try context.tokenUtil.take();
-    }
-
-    if (next.type == .Identifier) {
-        nameStr = context.getTokString(next);
-    } else {
-        return AstError.ExpectedIdentifierForFunctionName;
     }
 
     try context.tokenUtil.expectToken(.LParen);
@@ -2741,25 +2728,25 @@ pub fn hoistRelevantNodes(
     var enumDecs: ArrayList(*AstNode) = .empty;
 
     while (context.tokenUtil.hasNext()) {
-        const token = try context.tokenUtil.take();
-        if (token.type != .Struct and token.type != .Error and token.type != .Enum) {
-            continue;
-        }
+        const token = try context.tokenUtil.peak();
 
-        context.tokenUtil.returnToken();
-        const node = try parseStatement(allocator, context) orelse continue;
-
-        switch (node.variant) {
-            .StructDec => {
-                try structDecs.append(allocator, node);
+        switch (token.type) {
+            .Struct => {
+                _ = try context.tokenUtil.take();
+                const structNode = try parseStructDec(allocator, context);
+                try structDecs.append(allocator, structNode);
             },
-            .ErrorDec => {
-                try errorDecs.append(allocator, node);
+            .Error => {
+                const errorNode = try handleParseError(allocator, context);
+                try errorDecs.append(allocator, errorNode);
             },
-            .EnumDec => {
-                try enumDecs.append(allocator, node);
+            .Enum => {
+                const enumNode = try handleParseEnum(allocator, context);
+                try enumDecs.append(allocator, enumNode);
             },
-            else => unreachable,
+            else => {
+                _ = try context.tokenUtil.take();
+            },
         }
     }
 

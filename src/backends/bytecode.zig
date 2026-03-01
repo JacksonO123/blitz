@@ -31,17 +31,17 @@ pub fn begin(allocator: Allocator, context: *Context) !void {
     context.genInfo.activeRegisters.items.len = context.genInfo.registerLimits.preserved.end;
     @memset(context.genInfo.activeRegisters.items, false);
 
-    try allocateRegisters(context, allocator);
+    try allocateRegisters(allocator, context);
 }
 
-fn allocateRegisters(context: *Context, allocator: Allocator) !void {
+fn allocateRegisters(allocator: Allocator, context: *Context) !void {
     var i: usize = 0;
     while (i < context.genInfo.instrList.items.len) : (i += 1) {
-        try remapInstr(context, allocator, i);
+        try remapInstr(allocator, context, i);
     }
 }
 
-fn remapInstr(context: *Context, allocator: Allocator, instrIndex: usize) !void {
+fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize) !void {
     const instr = &context.genInfo.instrList.items[instrIndex];
     switch (instr.*) {
         .NoOp,
