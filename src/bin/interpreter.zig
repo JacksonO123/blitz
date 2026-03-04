@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 const builtin = @import("builtin");
 
-const blitz = @import("blitz.zig");
+const blitz = @import("blitz");
 const utils = blitz.utils;
 const vmInfo = blitz.vmInfo;
 const codegen = blitz.codegen;

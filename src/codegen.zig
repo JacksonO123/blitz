@@ -16,6 +16,7 @@ const bytecodeBackend = blitz.backends.bytecode;
 const TempRegister = vmInfo.TempRegister;
 const Context = blitz.context.Context;
 const constants = blitz.constants;
+const backendUtils = blitz.backendUtils;
 
 const CodeGenError = error{
     RawNumberIsTooBig,
@@ -35,8 +36,22 @@ const GenBytecodeError = CodeGenError ||
     std.fmt.ParseIntError ||
     ast.AstTypeError;
 
-const CodegenBackend = enum {
+pub const BackendTypes = enum {
     Bytecode,
+};
+
+pub const BackendInterface = struct {
+    initMetadata: fn (
+        Allocator,
+        *Context,
+    ) Allocator.Error!void = backendUtils.initMetadataNoop,
+    allocateRegisters: fn (
+        Allocator,
+        *Context,
+        []Instr,
+        usize,
+        *u64,
+    ) Allocator.Error!void = backendUtils.allocateRegistersNoop,
 };
 
 const RegisterUsage = enum {
@@ -915,9 +930,20 @@ fn InstrActionInfo(comptime T: type) type {
     };
 }
 
+const InsertType = enum {
+    Before,
+    After,
+};
+
+const InsertInfo = struct {
+    insertType: InsertType,
+    instr: Instr,
+};
+
 pub const GenInfo = struct {
     const Self = @This();
 
+    backend: BackendInterface = .{},
     instrList: *ArrayList(Instr),
     currentProc: Proc,
     vmInfo: struct {
@@ -938,6 +964,7 @@ pub const GenInfo = struct {
     } = .{},
     labelByteInfo: *LabelByteInfo,
     skipInstrInfo: InstrActionInfo(*ArrayList(u32)),
+    insertInstrInfo: InstrActionInfo(*ArrayList(InsertInfo)),
 
     pub fn init(allocator: Allocator) !Self {
         const varNameReg = try utils.initMutPtrT(StringHashMap(TempRegister), allocator);
@@ -951,6 +978,7 @@ pub const GenInfo = struct {
         const activeRegistersPtr = try utils.createMut(ArrayList(bool), allocator, .empty);
 
         const skipInstrInfoPtr = try utils.createMut(ArrayList(u32), allocator, .empty);
+        const insertInstrInfoPtr = try utils.createMut(ArrayList(InsertInfo), allocator, .empty);
 
         return .{
             .instrList = instrListPtr,
@@ -972,6 +1000,9 @@ pub const GenInfo = struct {
             .skipInstrInfo = .{
                 .action = skipInstrInfoPtr,
             },
+            .insertInstrInfo = .{
+                .action = insertInstrInfoPtr,
+            },
         };
     }
 
@@ -987,6 +1018,7 @@ pub const GenInfo = struct {
         }
 
         self.skipInstrInfo.current = 0;
+        self.insertInstrInfo.current = 0;
     }
 
     fn writeChunk(self: *Self, instrIndex: usize, writer: *Writer) !void {
@@ -1528,11 +1560,11 @@ pub const GenInfo = struct {
 
     pub fn finishProc(self: *Self, allocator: Allocator, context: *Context, isRoot: bool) !void {
         try self.labelByteInfo.ensureLabelCount(allocator, self.currentLabelId);
-        try adjustInstructions(
+        try adjustProc(
             allocator,
             context,
             self.currentProc.startIndex,
-            self.currentProc.stackFrameSize,
+            &self.currentProc.stackFrameSize,
             isRoot,
         );
     }
@@ -1584,11 +1616,11 @@ pub const GenInfo = struct {
     }
 };
 
-fn adjustInstructions(
+fn adjustProc(
     allocator: Allocator,
     context: *Context,
     instrStartIndex: usize,
-    frameSize: u64,
+    frameSize: *u64,
     isRoot: bool,
 ) !void {
     const beforeLen = context.genInfo.activeRegisters.items.len;
@@ -1627,16 +1659,14 @@ fn adjustInstructions(
         vmInfo.POINTER_SIZE * (if (numPushedRegisters > 0) @as(u8, 1) else @as(u8, 0));
 
     if (context.genInfo.currentProc.maxPreserveReg) |maxReg| {
-        const pushInstr = try pushRegNegOffsetAnyInstr(maxReg, frameSize + stackOffset);
-        const popInstr = try popRegNegOffsetAnyInstr(maxReg, frameSize + stackOffset);
+        const pushInstr = try pushRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
+        const popInstr = try popRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
         const pushLRInstr = try prePushLRNegOffsetAnyInstr(
-            frameSize + stackOffset - vmInfo.POINTER_SIZE,
+            frameSize.* + stackOffset - vmInfo.POINTER_SIZE,
         );
         const popLRInstr = try postPopLRNegOffsetAnyInstr(
-            frameSize + stackOffset - vmInfo.POINTER_SIZE,
+            frameSize.* + stackOffset - vmInfo.POINTER_SIZE,
         );
-        context.genInfo.byteCounter += pushInstr.getInstrLen() + popInstr.getInstrLen();
-        context.genInfo.byteCounter += pushLRInstr.getInstrLen() + popLRInstr.getInstrLen();
 
         context.genInfo.instrList.items[instrStartIndex + 2] = pushLRInstr;
         try context.genInfo.instrList.append(allocator, popLRInstr);
@@ -1644,23 +1674,41 @@ fn adjustInstructions(
         try context.genInfo.instrList.append(allocator, popInstr);
     }
 
-    if (frameSize + stackOffset > 0) {
-        const spInstrs = try getSpIncInstructions(frameSize + stackOffset);
-        context.genInfo.byteCounter += spInstrs.add.getInstrLen() + spInstrs.sub.getInstrLen();
+    if (frameSize.* + stackOffset > 0) {
+        const spInstrs = try getSpIncInstructions(frameSize.* + stackOffset);
 
         context.genInfo.instrList.items[context.genInfo.currentProc.startIndex] = spInstrs.add;
         try context.genInfo.instrList.append(allocator, spInstrs.sub);
     }
 
-    i = instrStartIndex;
-    while (i < context.genInfo.instrList.items.len) : (i += 1) {
-        try adjustInstruction(allocator, context, i, frameSize, stackOffset);
-        context.genInfo.byteCounter += context.genInfo.instrList.items[i].getInstrLen();
-    }
-
     const finishInstr = if (isRoot) Instr{ .End = {} } else Instr{ .Ret = {} };
     try context.genInfo.instrList.append(allocator, finishInstr);
-    context.genInfo.byteCounter += finishInstr.getInstrLen();
+
+    const instrs = context.genInfo.instrList.items[instrStartIndex..];
+    try context.genInfo.backend.allocateRegisters(
+        allocator,
+        context,
+        instrs,
+        instrStartIndex,
+        frameSize,
+    );
+
+    try adjustInstructions(allocator, context, instrs, instrStartIndex, frameSize.*, stackOffset);
+}
+
+fn adjustInstructions(
+    allocator: Allocator,
+    context: *Context,
+    instrs: []Instr,
+    instrStartIndex: usize,
+    frameSize: u64,
+    stackOffset: u64,
+) !void {
+    var i: usize = 0;
+    while (i < instrs.len) : (i += 1) {
+        try adjustInstruction(allocator, context, i + instrStartIndex, frameSize, stackOffset);
+        context.genInfo.byteCounter += context.genInfo.instrList.items[i].getInstrLen();
+    }
 }
 
 /// adjusts store instructions that are based on sp offsets
@@ -1897,9 +1945,17 @@ fn movSpNegOffset(reg: TempRegister, offset: u64) !Instr {
 pub fn codegenAst(
     allocator: Allocator,
     context: *Context,
-    backend: CodegenBackend,
+    backendType: BackendTypes,
 ) !void {
     context.genInfo.vmInfo.version = version.VERSION;
+
+    switch (backendType) {
+        .Bytecode => {
+            context.genInfo.backend.* = bytecodeBackend.backend;
+        },
+    }
+
+    try context.genInfo.backend.initMetadata(allocator, context);
 
     const mainFn = context.compInfo.functions.get(constants.MAIN_FN_NAME) orelse
         return CodeGenError.MainFunctionNotFound;
@@ -1907,10 +1963,6 @@ pub fn codegenAst(
     _ = try genBytecode(allocator, context, mainFn.body);
     try context.genInfo.finishProc(allocator, context, true);
     try codegenFunctions(allocator, context);
-
-    if (backend == .Bytecode) {
-        try bytecodeBackend.begin(allocator, context);
-    }
 }
 
 fn writeIntSliceToInstr(

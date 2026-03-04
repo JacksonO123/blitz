@@ -816,6 +816,7 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     });
 
     context.genInfo.skipInstrInfo.current = 0;
+    context.genInfo.insertInstrInfo.current = 0;
 }
 
 fn printChunk(instr: codegen.Instr, writer: *Writer) !void {

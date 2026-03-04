@@ -2,7 +2,7 @@ const std = @import("std");
 const Writer = std.Io.Writer;
 const builtin = @import("builtin");
 
-const blitz = @import("blitz.zig");
+const blitz = @import("blitz");
 const utils = blitz.utils;
 const codegen = blitz.codegen;
 const vmInfo = blitz.vmInfo;

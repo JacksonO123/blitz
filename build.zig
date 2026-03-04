@@ -13,48 +13,64 @@ pub fn build(b: *std.Build) void {
     const interpreterName = if (mode == .Debug) "blitz-debug" else "blitz";
     const diffName = "blitz-diff";
 
+    const blitzModule = b.addModule("blitz", .{
+        .root_source_file = b.path("src/blitz.zig"),
+    });
+
     const compilerExe = b.addExecutable(.{
         .use_llvm = true, // for debugger variables
         .name = compilerName,
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/compiler.zig"),
+            .root_source_file = b.path("src/bin/compiler.zig"),
             .target = target,
             .optimize = mode,
         }),
     });
+    compilerExe.root_module.addImport("blitz", blitzModule);
 
     const objdumpExe = b.addExecutable(.{
         .use_llvm = true, // for debugger variables
         .name = objdumpName,
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/bzc_objdump.zig"),
+            .root_source_file = b.path("src/bin/bzc_objdump.zig"),
             .target = target,
             .optimize = mode,
         }),
     });
+    objdumpExe.root_module.addImport("blitz", blitzModule);
 
     const interpreterExe = b.addExecutable(.{
         .use_llvm = true, // for debugger variables
         .name = interpreterName,
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/interpreter.zig"),
+            .root_source_file = b.path("src/bin/interpreter.zig"),
             .target = target,
             .optimize = mode,
         }),
     });
+    interpreterExe.root_module.addImport("blitz", blitzModule);
 
     const diffExe = b.addExecutable(.{
         .use_llvm = true, // for debugger variables
         .name = diffName,
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/diff_bytecode.zig"),
+            .root_source_file = b.path("src/bin/diff_bytecode.zig"),
             .target = target,
             .optimize = .Debug,
         }),
     });
+    diffExe.root_module.addImport("blitz", blitzModule);
 
     b.installArtifact(compilerExe);
     b.installArtifact(objdumpExe);
     b.installArtifact(interpreterExe);
     b.installArtifact(diffExe);
+
+    const run_exe = b.addRunArtifact(compilerExe);
+    const run_step = b.step("run-compiler", "Run the application");
+    run_step.dependOn(&run_exe.step);
+
+    if (b.args) |args| {
+        run_exe.addArgs(args);
+    }
 }
