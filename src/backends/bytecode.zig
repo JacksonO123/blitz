@@ -164,6 +164,10 @@ fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize, sp: *u
         .Store32AtSpNegOffset16,
         .Store16AtSpNegOffset16,
         .Store8AtSpNegOffset16,
+        .Load64AtSpNegOffset16,
+        .Load32AtSpNegOffset16,
+        .Load16AtSpNegOffset16,
+        .Load8AtSpNegOffset16,
         => |*inner| {
             try remapReg(allocator, context, &inner.reg, instrIndex, sp);
         },
@@ -231,7 +235,7 @@ fn remapReg(
     if (regInfo.regRemap) |remap| {
         regPtr.* = remap;
     } else {
-        const reg = try getRegFromUsage(allocator, context, regInfo, sp);
+        const reg = try getRegFromUsage(allocator, context, regInfo, regPtr.*, sp);
         regPtr.* = reg;
         regInfo.regRemap = reg;
     }
@@ -247,6 +251,7 @@ fn getRegFromUsage(
     allocator: Allocator,
     context: *Context,
     regInfo: *codegen.RegInfo,
+    vReg: vmInfo.TempRegister,
     sp: *u64,
 ) !vmInfo.TempRegister {
     return switch (regInfo.usage) {
@@ -254,12 +259,14 @@ fn getRegFromUsage(
             allocator,
             context,
             context.genInfo.registerLimits.temporary,
+            vReg,
             sp,
         ),
         .Preserved => try inactiveRegFromLimits(
             allocator,
             context,
             context.genInfo.registerLimits.preserved,
+            vReg,
             sp,
         ),
         .Param, .Return => {
@@ -273,6 +280,7 @@ fn getRegFromUsage(
             allocator,
             context,
             context.genInfo.registerLimits.params,
+            vReg,
             sp,
         ),
     };
@@ -282,6 +290,7 @@ fn inactiveRegFromLimits(
     allocator: Allocator,
     context: *Context,
     limits: codegen.RegisterRange,
+    vReg: vmInfo.TempRegister,
     sp: *u64,
 ) !vmInfo.TempRegister {
     for (limits.start..limits.end) |index| {
@@ -295,16 +304,33 @@ fn inactiveRegFromLimits(
     const toLocation = sp.*;
     sp.* += vmInfo.POINTER_SIZE;
 
-    const instr = codegen.Instr{
+    const pushInstr = codegen.Instr{
         .Store64AtSpNegOffset16 = .{
             .reg = regToSpill,
             .offset = @intCast(toLocation),
         },
     };
 
+    const popInstr = codegen.Instr{
+        .Load64AtSpNegOffset16 = .{
+            .reg = regToSpill,
+            .offset = @intCast(toLocation),
+        },
+    };
+
+    const startIndex = context.genInfo.registers.items[vReg].firstFoundIndex.?;
+    const endIndex = context.genInfo.registers.items[vReg].lastUsedInstrIndex.?;
+
     try context.genInfo.instrActions.insertInstrInfo.action.append(allocator, .{
-        .instr = instr,
+        .instr = pushInstr,
         .insertType = .Before,
+        .pos = startIndex,
+    });
+
+    try context.genInfo.instrActions.insertInstrInfo.action.append(allocator, .{
+        .instr = popInstr,
+        .insertType = .After,
+        .pos = endIndex,
     });
 
     return regToSpill;

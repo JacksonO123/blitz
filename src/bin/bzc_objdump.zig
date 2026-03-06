@@ -249,6 +249,10 @@ fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
         .Store32AtSpNegOffset16,
         .Store16AtSpNegOffset16,
         .Store8AtSpNegOffset16,
+        .Load64AtSpNegOffset16,
+        .Load32AtSpNegOffset16,
+        .Load16AtSpNegOffset16,
+        .Load8AtSpNegOffset16,
         => {
             try writer.writeAll(" r");
             try writer.printInt(bytecode[1], 10, .lower, .{});

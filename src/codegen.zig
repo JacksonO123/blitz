@@ -163,6 +163,11 @@ pub const InstructionVariants = enum(u8) {
     Load16AtRegOffset16, // inst, dest reg, from reg (ptr), offset 2B
     Load8AtRegOffset16, // inst, dest reg, from reg (ptr), offset 2B
 
+    Load64AtSpNegOffset16, // inst, dest reg, offset 2B
+    Load32AtSpNegOffset16, // inst, dest reg, offset 2B
+    Load16AtSpNegOffset16, // inst, dest reg, offset 2B
+    Load8AtSpNegOffset16, // inst, dest reg, offset 2B
+
     Load64AtReg, // inst, dest reg, from reg (ptr)
     Load32AtReg, // inst, dest reg, from reg (ptr)
     Load16AtReg, // inst, dest reg, from reg (ptr)
@@ -286,6 +291,10 @@ pub const InstructionVariants = enum(u8) {
             .Store32AtSpNegOffset16,
             .Store16AtSpNegOffset16,
             .Store8AtSpNegOffset16,
+            .Load64AtSpNegOffset16,
+            .Load32AtSpNegOffset16,
+            .Load16AtSpNegOffset16,
+            .Load8AtSpNegOffset16,
             => 4,
 
             .Load64AtReg,
@@ -300,7 +309,8 @@ pub const InstructionVariants = enum(u8) {
             .Load8AtRegOffset16,
             => 5,
 
-            .MulReg16AddReg => 6,
+            .MulReg16AddReg,
+            => 6,
 
             .DbgReg => 2,
 
@@ -428,6 +438,11 @@ pub const InstructionVariants = enum(u8) {
             .Store16AtSpNegOffset16 => "store_16_at_sp_neg_offset_16",
             .Store8AtSpNegOffset16 => "store_8_at_sp_neg_offset_16",
 
+            .Load64AtSpNegOffset16 => "load_64_at_sp_neg_offset_16",
+            .Load32AtSpNegOffset16 => "load_32_at_sp_neg_offset_16",
+            .Load16AtSpNegOffset16 => "load_16_at_sp_neg_offset_16",
+            .Load8AtSpNegOffset16 => "load_8_at_sp_neg_offset_16",
+
             .Load64AtReg => "load_64_at_reg",
             .Load32AtReg => "load_32_at_reg",
             .Load16AtReg => "load_16_at_reg",
@@ -539,7 +554,7 @@ fn StoreOffsetInstr(comptime T: type) type {
     };
 }
 
-fn StoreOffsetSpInstr(comptime T: type) type {
+fn StoreOrLoadOffsetSpInstr(comptime T: type) type {
     return struct {
         reg: TempRegister,
         offset: T,
@@ -682,15 +697,20 @@ pub const Instr = union(InstructionVariants) {
     Store16AtRegPostInc16: StoreAtRegIncInstr(u16),
     Store8AtRegPostInc16: StoreAtRegIncInstr(u16),
 
-    Store64AtSpNegOffset16: StoreOffsetSpInstr(u16),
-    Store32AtSpNegOffset16: StoreOffsetSpInstr(u16),
-    Store16AtSpNegOffset16: StoreOffsetSpInstr(u16),
-    Store8AtSpNegOffset16: StoreOffsetSpInstr(u16),
+    Store64AtSpNegOffset16: StoreOrLoadOffsetSpInstr(u16),
+    Store32AtSpNegOffset16: StoreOrLoadOffsetSpInstr(u16),
+    Store16AtSpNegOffset16: StoreOrLoadOffsetSpInstr(u16),
+    Store8AtSpNegOffset16: StoreOrLoadOffsetSpInstr(u16),
 
     Load64AtRegOffset16: LoadAtRegOffset16,
     Load32AtRegOffset16: LoadAtRegOffset16,
     Load16AtRegOffset16: LoadAtRegOffset16,
     Load8AtRegOffset16: LoadAtRegOffset16,
+
+    Load64AtSpNegOffset16: StoreOrLoadOffsetSpInstr(u16),
+    Load32AtSpNegOffset16: StoreOrLoadOffsetSpInstr(u16),
+    Load16AtSpNegOffset16: StoreOrLoadOffsetSpInstr(u16),
+    Load8AtSpNegOffset16: StoreOrLoadOffsetSpInstr(u16),
 
     Load64AtReg: LoadAtReg,
     Load32AtReg: LoadAtReg,
@@ -946,6 +966,7 @@ const InsertType = enum {
 const InsertInfo = struct {
     insertType: InsertType,
     instr: Instr,
+    pos: u32,
 };
 
 const InstrActions = struct {
@@ -1174,6 +1195,10 @@ pub const GenInfo = struct {
             .Store32AtSpNegOffset16,
             .Store16AtSpNegOffset16,
             .Store8AtSpNegOffset16,
+            .Load64AtSpNegOffset16,
+            .Load32AtSpNegOffset16,
+            .Load16AtSpNegOffset16,
+            .Load8AtSpNegOffset16,
             => |inner| {
                 try writer.writeByte(@intCast(inner.reg));
                 try writer.writeInt(u16, inner.offset, .little);
@@ -1419,6 +1444,10 @@ pub const GenInfo = struct {
             .Store32AtSpNegOffset16,
             .Store16AtSpNegOffset16,
             .Store8AtSpNegOffset16,
+            .Load64AtSpNegOffset16,
+            .Load32AtSpNegOffset16,
+            .Load16AtSpNegOffset16,
+            .Load8AtSpNegOffset16,
             => |inner| {
                 func(self, inner.reg, instrIndex);
             },

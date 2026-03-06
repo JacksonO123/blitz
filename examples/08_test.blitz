@@ -3,8 +3,11 @@ fn main() {
     let c = a + 1;
     let b = thing(c, 1);
     let d = b + 1;
+
+    let h = thing<u64>(1u64, 2u64);
+    let h2 = h + 1u64;
 }
 
-fn thing(p1: u32, p2: u32) u32 {
+fn thing [T](p1: T, p2: T) T {
     return p1 + p2;
 }

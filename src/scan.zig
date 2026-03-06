@@ -1056,7 +1056,7 @@ pub fn scanNode(
                 func.visited = true;
             }
 
-            try scanFuncBodyAndReturn(allocator, context, func, false);
+            try scanFuncBodyAndReturn(allocator, context, func, func.genericState == .Normal);
 
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
@@ -1097,8 +1097,8 @@ pub fn scanNode(
                 return ScanError.ExpectedSelfParameterToBeFirst;
             }
 
-            const lenOffset: u32 = if (func.params.selfInfo != null) 1 else 0;
-            const decParams = func.params.params[lenOffset..];
+            const lenSelfOffset: u32 = if (func.params.selfInfo != null) 1 else 0;
+            const decParams = func.params.params[lenSelfOffset..];
             if (decParams.len != call.params.len) {
                 return ScanError.FunctionCallParamCountMismatch;
             }
@@ -1108,12 +1108,12 @@ pub fn scanNode(
                 defer context.compInfo.popScope(context);
 
                 if (call.callGenerics) |callGenerics| {
-                    for (callGenerics, func.genericState.Generic.generics) |callGenericType, decGeneric| {
-                        if (decGeneric.restriction) |restriction| {
+                    for (callGenerics, func.genericState.Generic.generics) |callGenType, decGen| {
+                        if (decGen.restriction) |restriction| {
                             const matches = try matchTypes(
                                 allocator,
                                 context,
-                                callGenericType,
+                                callGenType,
                                 restriction,
                                 false,
                             );
@@ -1125,16 +1125,36 @@ pub fn scanNode(
                         const typeClone = try clone.cloneAstTypeInfo(
                             allocator,
                             context,
-                            callGenericType,
+                            callGenType,
                             withGenDef,
                         );
                         try context.compInfo.setGeneric(
-                            decGeneric.name,
+                            decGen.name,
                             typeClone.toAllocInfo(.Allocated),
                         );
                     }
+
+                    for (decParams, call.params) |decParam, callParam| {
+                        const origCallParam = try scanNode(
+                            allocator,
+                            context,
+                            callParam,
+                            withGenDef,
+                        );
+                        defer releaseIfAllocated(context, origCallParam);
+                        const callParamType = try escapeVarInfo(origCallParam);
+
+                        const matches = try matchTypes(
+                            allocator,
+                            context,
+                            decParam.type,
+                            callParamType.info,
+                            withGenDef,
+                        );
+                        if (!matches) return ScanError.FunctionCallParamTypeMismatch;
+                    }
                 } else {
-                    _ = try setGenTypesFromParams(
+                    _ = try setGenTypesAndMatchTypesFromParams(
                         allocator,
                         context,
                         decParams,
@@ -1759,7 +1779,7 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
     }
 }
 
-fn setGenTypesFromParams(
+fn setGenTypesAndMatchTypesFromParams(
     allocator: Allocator,
     context: *Context,
     decParams: []ast.Parameter,

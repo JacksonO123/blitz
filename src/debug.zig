@@ -997,6 +997,10 @@ fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
         .Store32AtSpNegOffset16,
         .Store16AtSpNegOffset16,
         .Store8AtSpNegOffset16,
+        .Load64AtSpNegOffset16,
+        .Load32AtSpNegOffset16,
+        .Load16AtSpNegOffset16,
+        .Load8AtSpNegOffset16,
         => |inner| {
             try writer.writeAll(" r");
             try writer.printInt(inner.reg, 10, .lower, .{});
