@@ -790,12 +790,11 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
         if (instr == .Label and !context.settings.debug.printLabels) continue;
         if (instr == .NoOp and !context.settings.debug.printNoOps) continue;
 
-        const currentSkip = context.genInfo.skipInstrInfo.current;
-        if (currentSkip < context.genInfo.skipInstrInfo.action.items.len and
-            context.genInfo.skipInstrInfo.action.items[currentSkip] == index)
-        {
-            context.genInfo.skipInstrInfo.current += 1;
-            if (!context.settings.debug.printSkippedInstrs) continue;
+        const skipped = context.genInfo.handleSkipInstruction(index);
+        if (skipped) {
+            if (!context.settings.debug.printSkippedInstrs) {
+                continue;
+            }
 
             try writer.writeAll("(SKIPPING) ");
         }
@@ -815,7 +814,7 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
         context.genInfo.byteCounter, vmInfo.VM_INFO_BYTECODE_LEN,
     });
 
-    context.genInfo.skipInstrInfo.current = 0;
+    context.genInfo.instrActions.resetPtrs();
 }
 
 fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
@@ -865,7 +864,6 @@ fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
         .CmpSetRegLT,
         .CmpSetRegGTE,
         .CmpSetRegLTE,
-        .Xor,
         => |inner| {
             try writer.writeAll(" r");
             try writer.printInt(inner.dest, 10, .lower, .{});
@@ -874,10 +872,7 @@ fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
             try writer.writeAll(" r");
             try writer.printInt(inner.reg2, 10, .lower, .{});
         },
-        .Add,
-        .Sub,
-        .Mult,
-        => |inner| {
+        .Add, .Sub, .Mult, .Xor => |inner| {
             try writer.writeAll(" r");
             try writer.printInt(inner.dest, 10, .lower, .{});
             try writer.writeAll(" r");

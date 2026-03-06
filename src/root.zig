@@ -13,7 +13,6 @@ pub const tokenizer = @import("tokenizer.zig");
 pub const utils = @import("utils.zig");
 pub const version = @import("version.zig");
 pub const vmInfo = @import("vm_info.zig");
-pub const backendUtils = @import("backends/utils.zig");
 
 pub const backends = .{
     .bytecode = @import("backends/bytecode.zig"),

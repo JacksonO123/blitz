@@ -5,7 +5,7 @@ const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 const builtin = @import("builtin");
 
-const blitz = @import("blitz.zig");
+const blitz = @import("blitz");
 const tokenizer = blitz.tokenizer;
 const ast = blitz.ast;
 const scanner = blitz.scanner;

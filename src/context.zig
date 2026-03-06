@@ -26,6 +26,9 @@ const ContextSettings = struct {
         printLabels: bool = true,
         printNoOps: bool = true,
         printSkippedInstrs: bool = true,
+
+        allocateRegisters: bool = true,
+        // allocateRegisters: bool = false,
     } = .{},
 };
 

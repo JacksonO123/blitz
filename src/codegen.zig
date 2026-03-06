@@ -16,6 +16,7 @@ const bytecodeBackend = blitz.backends.bytecode;
 const TempRegister = vmInfo.TempRegister;
 const Context = blitz.context.Context;
 const constants = blitz.constants;
+const backendUtils = blitz.backendUtils;
 
 const CodeGenError = error{
     RawNumberIsTooBig,
@@ -35,8 +36,19 @@ const GenBytecodeError = CodeGenError ||
     std.fmt.ParseIntError ||
     ast.AstTypeError;
 
-const CodegenBackend = enum {
+pub const BackendTypes = enum {
     Bytecode,
+};
+
+pub const BackendInterface = struct {
+    initMetadata: fn (Allocator, *Context) Allocator.Error!void,
+    allocateRegisters: fn (
+        Allocator,
+        *Context,
+        []Instr,
+        usize,
+        *u64,
+    ) Allocator.Error!void,
 };
 
 const RegisterUsage = enum {
@@ -473,38 +485,38 @@ pub const InstructionVariants = enum(u8) {
 };
 
 const TwoOpResultInstr = struct {
-    dest: TempRegister = 0,
-    reg1: TempRegister = 0,
-    reg2: TempRegister = 0,
+    dest: TempRegister,
+    reg1: TempRegister,
+    reg2: TempRegister,
 };
 
 fn OneOpResultInstr(comptime T: type) type {
     return struct {
-        dest: TempRegister = 0,
-        reg: TempRegister = 0,
+        dest: TempRegister,
+        reg: TempRegister,
         data: T,
     };
 }
 
 const RegBytePayloadInstr = struct {
-    reg: TempRegister = 0,
-    data: u8 = 0,
+    reg: TempRegister,
+    data: u8,
 };
 
 const MathInstr = TwoOpResultInstr;
 
 const SpInstr = struct {
-    amount: TempRegister = 0,
+    amount: TempRegister,
 };
 
 const SpRegInstr = struct {
-    reg: TempRegister = 0,
+    reg: TempRegister,
 };
 
 fn SetRegInstr(comptime T: type) type {
     return struct {
-        reg: TempRegister = 0,
-        data: T = 0,
+        reg: TempRegister,
+        data: T,
     };
 }
 
@@ -513,74 +525,78 @@ const CmpInstr = struct {
     reg2: TempRegister = 0,
 };
 
-const CmpSetRegInstr = TwoOpResultInstr;
+const CmpSetRegInstr = struct {
+    dest: TempRegister = 0,
+    reg1: TempRegister = 0,
+    reg2: TempRegister = 0,
+};
 
 fn StoreOffsetInstr(comptime T: type) type {
     return struct {
-        fromReg: TempRegister = 0,
-        toRegPtr: TempRegister = 0,
-        offset: T = 0,
+        fromReg: TempRegister,
+        toRegPtr: TempRegister,
+        offset: T,
     };
 }
 
 fn StoreOffsetSpInstr(comptime T: type) type {
     return struct {
-        reg: TempRegister = 0,
-        offset: T = 0,
+        reg: TempRegister,
+        offset: T,
     };
 }
 
 fn StoreAtRegIncInstr(comptime T: type) type {
     return struct {
-        fromReg: TempRegister = 0,
-        toRegPtr: TempRegister = 0,
-        inc: T = 0,
+        fromReg: TempRegister,
+        toRegPtr: TempRegister,
+        inc: T,
     };
 }
 
 const StoreAtRegInstr = struct {
-    fromReg: TempRegister = 0,
-    toRegPtr: TempRegister = 0,
+    fromReg: TempRegister,
+    toRegPtr: TempRegister,
 };
 
 fn StoreIncSpInstr(comptime T: type) type {
     return struct {
-        reg: TempRegister = 0,
-        inc: T = 0,
+        reg: TempRegister,
+        inc: T,
     };
 }
 
 const LoadAtReg = struct {
-    dest: TempRegister = 0,
-    fromRegPtr: TempRegister = 0,
+    dest: TempRegister,
+    fromRegPtr: TempRegister,
 };
 
 const LoadAtRegOffset16 = struct {
-    dest: TempRegister = 0,
-    fromRegPtr: TempRegister = 0,
-    offset: u16 = 0,
+    dest: TempRegister,
+    fromRegPtr: TempRegister,
+    offset: u16,
 };
 
 fn MulRegTAddReg(comptime T: type) type {
     return struct {
-        dest: TempRegister = 0,
-        addReg: TempRegister = 0,
-        mulReg: TempRegister = 0,
+        dest: TempRegister,
+        addReg: TempRegister,
+        mulReg: TempRegister,
         data: T,
     };
 }
 
 fn MovSpNegOffset(comptime T: type) type {
     return struct {
-        reg: TempRegister = 0,
-        offset: T = 0,
+        reg: TempRegister,
+        offset: T,
     };
 }
 
 fn PushOrPopRegNegOffset(comptime T: type) type {
     return struct {
         reg: TempRegister,
-        offset: T = 0,
+        offset: T,
     };
 }
 
@@ -899,6 +915,7 @@ pub const Proc = struct {
     stackFrameSize: u64 = 0,
     startIndex: u32,
     maxPreserveReg: ?TempRegister = null,
+    preProcVirtualReg: TempRegister = 0,
 };
 
 pub const RegisterRange = struct {
@@ -910,10 +927,38 @@ pub const RegisterRange = struct {
 
 fn InstrActionInfo(comptime T: type) type {
     return struct {
+        const Self = @This();
+
         action: T,
         current: usize = 0,
+
+        pub fn next(self: *Self) void {
+            self.current += 1;
+        }
     };
 }
+
+const InsertType = enum {
+    Before,
+    After,
+};
+
+const InsertInfo = struct {
+    insertType: InsertType,
+    instr: Instr,
+};
+
+const InstrActions = struct {
+    const Self = @This();
+
+    skipInstrInfo: InstrActionInfo(*ArrayList(u32)),
+    insertInstrInfo: InstrActionInfo(*ArrayList(InsertInfo)),
+
+    pub fn resetPtrs(self: *Self) void {
+        self.skipInstrInfo.current = 0;
+        self.insertInstrInfo.current = 0;
+    }
+};
 
 pub const GenInfo = struct {
     const Self = @This();
@@ -937,7 +982,7 @@ pub const GenInfo = struct {
         preserved: RegisterRange = .{},
     } = .{},
     labelByteInfo: *LabelByteInfo,
-    skipInstrInfo: InstrActionInfo(*ArrayList(u32)),
+    instrActions: InstrActions,
 
     pub fn init(allocator: Allocator) !Self {
         const varNameReg = try utils.initMutPtrT(StringHashMap(TempRegister), allocator);
@@ -951,6 +996,7 @@ pub const GenInfo = struct {
         const activeRegistersPtr = try utils.createMut(ArrayList(bool), allocator, .empty);
 
         const skipInstrInfoPtr = try utils.createMut(ArrayList(u32), allocator, .empty);
+        const insertInstrInfoPtr = try utils.createMut(ArrayList(InsertInfo), allocator, .empty);
 
         return .{
             .instrList = instrListPtr,
@@ -969,8 +1015,13 @@ pub const GenInfo = struct {
             .registers = registersPtr,
             .activeRegisters = activeRegistersPtr,
             .labelByteInfo = labelByteInfoPtr,
-            .skipInstrInfo = .{
-                .action = skipInstrInfoPtr,
+            .instrActions = .{
+                .skipInstrInfo = .{
+                    .action = skipInstrInfoPtr,
+                },
+                .insertInstrInfo = .{
+                    .action = insertInstrInfoPtr,
+                },
             },
         };
     }
@@ -986,20 +1037,15 @@ pub const GenInfo = struct {
             try self.writeChunk(i, writer);
         }
 
-        self.skipInstrInfo.current = 0;
+        self.instrActions.resetPtrs();
     }
 
     fn writeChunk(self: *Self, instrIndex: usize, writer: *Writer) !void {
         const instr = self.instrList.items[instrIndex];
         if (instr == .Label or instr == .NoOp) return;
 
-        const currentSkip = self.skipInstrInfo.current;
-        if (currentSkip < self.skipInstrInfo.action.items.len and
-            self.skipInstrInfo.action.items[currentSkip] == instrIndex)
-        {
-            self.skipInstrInfo.current += 1;
-            return;
-        }
+        const skipped = self.handleSkipInstruction(instrIndex);
+        if (skipped) return;
 
         try writer.writeByte(instr.getInstrByte());
 
@@ -1022,16 +1068,17 @@ pub const GenInfo = struct {
                 try writer.writeByte(@intCast(inner.reg));
                 try writeNumber(u8, inner.data, writer);
             },
-            .Add,
-            .Sub,
-            .Mult,
+            .Add, .Sub, .Mult, .Xor => |inner| {
+                try writer.writeByte(@intCast(inner.dest));
+                try writer.writeByte(@intCast(inner.reg1));
+                try writer.writeByte(@intCast(inner.reg2));
+            },
             .CmpSetRegEQ,
             .CmpSetRegNE,
             .CmpSetRegGT,
             .CmpSetRegLT,
             .CmpSetRegGTE,
             .CmpSetRegLTE,
-            .Xor,
             => |inner| {
                 try writer.writeByte(@intCast(inner.dest));
                 try writer.writeByte(@intCast(inner.reg1));
@@ -1526,14 +1573,21 @@ pub const GenInfo = struct {
         };
     }
 
-    pub fn finishProc(self: *Self, allocator: Allocator, context: *Context, isRoot: bool) !void {
+    pub fn finishProc(
+        self: *Self,
+        allocator: Allocator,
+        context: *Context,
+        isRoot: bool,
+        comptime backend: BackendInterface,
+    ) !void {
         try self.labelByteInfo.ensureLabelCount(allocator, self.currentLabelId);
-        try adjustInstructions(
+        try adjustProc(
             allocator,
             context,
             self.currentProc.startIndex,
-            self.currentProc.stackFrameSize,
+            &self.currentProc.stackFrameSize,
             isRoot,
+            backend,
         );
     }
 
@@ -1582,17 +1636,28 @@ pub const GenInfo = struct {
             else => {},
         }
     }
+
+    pub fn handleSkipInstruction(self: *Self, index: usize) bool {
+        const currentSkip = self.instrActions.skipInstrInfo.current;
+        if (currentSkip < self.instrActions.skipInstrInfo.action.items.len and
+            self.instrActions.skipInstrInfo.action.items[currentSkip] == index)
+        {
+            self.instrActions.skipInstrInfo.next();
+            return true;
+        }
+
+        return false;
+    }
 };
 
-fn adjustInstructions(
+fn adjustProc(
     allocator: Allocator,
     context: *Context,
     instrStartIndex: usize,
-    frameSize: u64,
+    frameSize: *u64,
     isRoot: bool,
+    comptime backend: BackendInterface,
 ) !void {
-    const beforeLen = context.genInfo.activeRegisters.items.len;
-
     var i = instrStartIndex;
     var numPushedRegisters: u32 = 0;
 
@@ -1600,7 +1665,7 @@ fn adjustInstructions(
         const instr = context.genInfo.instrList.items[i];
         switch (instr) {
             .BranchLink, .BranchLinkBack => {
-                var procReg: usize = beforeLen;
+                var procReg: usize = context.genInfo.currentProc.preProcVirtualReg;
                 while (procReg < context.genInfo.registers.items.len) : (procReg += 1) {
                     const regInfo = context.genInfo.registers.items[procReg];
                     const firstFound = regInfo.firstFoundIndex orelse continue;
@@ -1627,16 +1692,14 @@ fn adjustInstructions(
         vmInfo.POINTER_SIZE * (if (numPushedRegisters > 0) @as(u8, 1) else @as(u8, 0));
 
     if (context.genInfo.currentProc.maxPreserveReg) |maxReg| {
-        const pushInstr = try pushRegNegOffsetAnyInstr(maxReg, frameSize + stackOffset);
-        const popInstr = try popRegNegOffsetAnyInstr(maxReg, frameSize + stackOffset);
+        const pushInstr = try pushRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
+        const popInstr = try popRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
         const pushLRInstr = try prePushLRNegOffsetAnyInstr(
-            frameSize + stackOffset - vmInfo.POINTER_SIZE,
+            frameSize.* + stackOffset - vmInfo.POINTER_SIZE,
         );
         const popLRInstr = try postPopLRNegOffsetAnyInstr(
-            frameSize + stackOffset - vmInfo.POINTER_SIZE,
+            frameSize.* + stackOffset - vmInfo.POINTER_SIZE,
         );
-        context.genInfo.byteCounter += pushInstr.getInstrLen() + popInstr.getInstrLen();
-        context.genInfo.byteCounter += pushLRInstr.getInstrLen() + popLRInstr.getInstrLen();
 
         context.genInfo.instrList.items[instrStartIndex + 2] = pushLRInstr;
         try context.genInfo.instrList.append(allocator, popLRInstr);
@@ -1644,23 +1707,46 @@ fn adjustInstructions(
         try context.genInfo.instrList.append(allocator, popInstr);
     }
 
-    if (frameSize + stackOffset > 0) {
-        const spInstrs = try getSpIncInstructions(frameSize + stackOffset);
-        context.genInfo.byteCounter += spInstrs.add.getInstrLen() + spInstrs.sub.getInstrLen();
+    if (frameSize.* + stackOffset > 0) {
+        const spInstrs = try getSpIncInstructions(frameSize.* + stackOffset);
 
         context.genInfo.instrList.items[context.genInfo.currentProc.startIndex] = spInstrs.add;
         try context.genInfo.instrList.append(allocator, spInstrs.sub);
     }
 
-    i = instrStartIndex;
-    while (i < context.genInfo.instrList.items.len) : (i += 1) {
-        try adjustInstruction(allocator, context, i, frameSize, stackOffset);
-        context.genInfo.byteCounter += context.genInfo.instrList.items[i].getInstrLen();
-    }
-
     const finishInstr = if (isRoot) Instr{ .End = {} } else Instr{ .Ret = {} };
     try context.genInfo.instrList.append(allocator, finishInstr);
-    context.genInfo.byteCounter += finishInstr.getInstrLen();
+
+    const instrs = context.genInfo.instrList.items[instrStartIndex..];
+    if (context.settings.debug.allocateRegisters) {
+        try backend.allocateRegisters(
+            allocator,
+            context,
+            instrs,
+            instrStartIndex,
+            frameSize,
+        );
+    }
+
+    try adjustInstructions(allocator, context, instrs, instrStartIndex, frameSize.*, stackOffset);
+
+    context.genInfo.instrActions.resetPtrs();
+    context.genInfo.currentProc.preProcVirtualReg = @intCast(context.genInfo.registers.items.len);
+}
+
+fn adjustInstructions(
+    allocator: Allocator,
+    context: *Context,
+    instrs: []Instr,
+    instrStartIndex: usize,
+    frameSize: u64,
+    stackOffset: u64,
+) !void {
+    var i: usize = 0;
+    while (i < instrs.len) : (i += 1) {
+        try adjustInstruction(allocator, context, i + instrStartIndex, frameSize, stackOffset);
+        context.genInfo.byteCounter += context.genInfo.instrList.items[i].getInstrLen();
+    }
 }
 
 /// adjusts store instructions that are based on sp offsets
@@ -1671,6 +1757,9 @@ fn adjustInstruction(
     frameSize: u64,
     stackOffset: u64,
 ) !void {
+    const skipped = context.genInfo.handleSkipInstruction(instrIndex);
+    if (skipped) return;
+
     var instr = &context.genInfo.instrList.items[instrIndex];
     switch (instr.*) {
         .Label => |label| {
@@ -1897,20 +1986,22 @@ fn movSpNegOffset(reg: TempRegister, offset: u64) !Instr {
 pub fn codegenAst(
     allocator: Allocator,
     context: *Context,
-    backend: CodegenBackend,
+    comptime backendType: BackendTypes,
 ) !void {
     context.genInfo.vmInfo.version = version.VERSION;
+
+    const backend = switch (backendType) {
+        .Bytecode => bytecodeBackend.backend,
+    };
+
+    try backend.initMetadata(allocator, context);
 
     const mainFn = context.compInfo.functions.get(constants.MAIN_FN_NAME) orelse
         return CodeGenError.MainFunctionNotFound;
     try context.genInfo.newProc(allocator);
     _ = try genBytecode(allocator, context, mainFn.body);
-    try context.genInfo.finishProc(allocator, context, true);
-    try codegenFunctions(allocator, context);
-
-    if (backend == .Bytecode) {
-        try bytecodeBackend.begin(allocator, context);
-    }
+    try context.genInfo.finishProc(allocator, context, true, backend);
+    try codegenFunctions(allocator, context, backend);
 }
 
 fn writeIntSliceToInstr(
@@ -2980,10 +3071,11 @@ pub fn genBytecodeUtil(
                 break :a labelId;
             };
 
-            for (call.params) |param| {
+            for (call.params, 0..) |param, index| {
                 const reg = try genBytecode(allocator, context, param) orelse
                     return CodeGenError.ReturnedRegisterNotFound;
-                const resReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
+                const regUsage: RegisterUsage = if (index == 0) .Param else .ParamNext;
+                const resReg = try context.genInfo.getNextRegisterUtil(allocator, regUsage);
                 const movInstr = Instr{
                     .Mov = .{
                         .src = reg,
@@ -3021,7 +3113,11 @@ pub fn genBytecodeUtil(
     return null;
 }
 
-fn codegenFunctions(allocator: Allocator, context: *Context) !void {
+fn codegenFunctions(
+    allocator: Allocator,
+    context: *Context,
+    comptime backend: BackendInterface,
+) !void {
     var funcIter = context.compInfo.functions.valueIterator();
     while (funcIter.next()) |funcPtr| {
         const func = funcPtr.*;
@@ -3034,14 +3130,14 @@ fn codegenFunctions(allocator: Allocator, context: *Context) !void {
                     try functionSetupBytecode(allocator, context, func, &instance.labelId);
                     try context.genInfo.newProc(allocator);
                     _ = try genBytecode(allocator, context, instance.funcRootNode);
-                    try context.genInfo.finishProc(allocator, context, false);
+                    try context.genInfo.finishProc(allocator, context, false, backend);
                 }
             },
             .Normal => |*normal| {
                 try functionSetupBytecode(allocator, context, func, &normal.labelId);
                 try context.genInfo.newProc(allocator);
                 _ = try genBytecode(allocator, context, func.body);
-                try context.genInfo.finishProc(allocator, context, false);
+                try context.genInfo.finishProc(allocator, context, false, backend);
             },
         }
     }
@@ -3068,8 +3164,9 @@ fn functionSetupBytecode(
     try context.genInfo.appendChunk(allocator, label);
     context.genInfo.setLabelLocation(labelIdOrNew, context.genInfo.byteCounter);
 
-    for (func.params.params) |param| {
-        const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
+    for (func.params.params, 0..) |param, index| {
+        const usage: RegisterUsage = if (index == 0) .Param else .ParamNext;
+        const paramReg = try context.genInfo.getNextRegisterUtil(allocator, usage);
         try context.genInfo.setVariableRegister(allocator, param.name, paramReg);
     }
 
