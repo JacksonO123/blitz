@@ -93,7 +93,6 @@ fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize, sp: *u
         .PostPopLRNegOffset64,
         .PostPopRegNegOffsetAny,
         .PrePushRegNegOffsetAny,
-        .MovSpNegOffsetAny,
         => {},
 
         .SetReg64 => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
@@ -137,7 +136,9 @@ fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize, sp: *u
         },
         .MovSpNegOffset16 => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
         .MovSpNegOffset32 => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
-        .MovSpNegOffset64 => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
+        .MovSpNegOffset64,
+        .MovSpNegOffsetAny,
+        => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
         .Xor, .BitAnd, .BitOr, .AndSetReg, .OrSetReg => |*inner| {
             try remapReg(allocator, context, &inner.reg1, instrIndex, sp);
             try remapReg(allocator, context, &inner.reg2, instrIndex, sp);
@@ -209,7 +210,10 @@ fn handleMaybeSkipInstruction(context: *Context, allocator: Allocator, instrInde
     switch (instr) {
         .Mov => |inner| {
             if (inner.src == inner.dest) {
-                try context.genInfo.skipInstrInfo.action.append(allocator, @intCast(instrIndex));
+                try context.genInfo.instrActions.skipInstrInfo.action.append(
+                    allocator,
+                    @intCast(instrIndex),
+                );
             }
         },
         else => {},
@@ -232,7 +236,9 @@ fn remapReg(
         regInfo.regRemap = reg;
     }
 
-    if (regInfo.lastUsedInstrIndex.? == instrIndex) {
+    if (regInfo.lastUsedInstrIndex.? == instrIndex and
+        !(regInfo.usage == .Param or regInfo.usage == .ParamNext))
+    {
         context.genInfo.activeRegisters.items[regPtr.*] = false;
     }
 }
@@ -296,7 +302,7 @@ fn inactiveRegFromLimits(
         },
     };
 
-    try context.genInfo.insertInstrInfo.action.append(allocator, .{
+    try context.genInfo.instrActions.insertInstrInfo.action.append(allocator, .{
         .instr = instr,
         .insertType = .Before,
     });

@@ -1,4 +1,10 @@
 fn main() {
     let a = 2;
-    let p = &a;
+    let c = a + 1;
+    let b = thing(c, 1);
+    let d = b + 1;
+}
+
+fn thing(p1: u32, p2: u32) u32 {
+    return p1 + p2;
 }

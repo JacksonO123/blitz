@@ -66,11 +66,16 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(interpreterExe);
     b.installArtifact(diffExe);
 
-    const run_exe = b.addRunArtifact(compilerExe);
-    const run_step = b.step("run-compiler", "Run the application");
-    run_step.dependOn(&run_exe.step);
+    const runCompilerExe = b.addRunArtifact(compilerExe);
+    const runCompilerStep = b.step("run-compiler", "Run the compiler");
+    runCompilerStep.dependOn(&runCompilerExe.step);
+
+    const runInterpreterExe = b.addRunArtifact(interpreterExe);
+    const runInterpreterStep = b.step("run-interpreter", "Run the interpreter");
+    runInterpreterStep.dependOn(&runInterpreterExe.step);
 
     if (b.args) |args| {
-        run_exe.addArgs(args);
+        runCompilerExe.addArgs(args);
+        runInterpreterExe.addArgs(args);
     }
 }
