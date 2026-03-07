@@ -15,17 +15,30 @@ fn initMetadata(allocator: Allocator, context: *Context) !void {
     // temporary and preserved registers split
     // remaining register space equally
     // (256 - 8) / 2 = 124
+    // context.genInfo.registerLimits.params = .{
+    //     .start = 0,
+    //     .end = 8,
+    // };
+    // context.genInfo.registerLimits.temporary = .{
+    //     .start = 8,
+    //     .end = 8 + 124,
+    // };
+    // context.genInfo.registerLimits.preserved = .{
+    //     .start = 8 + 124,
+    //     .end = 8 + 124 + 124,
+    // };
+
     context.genInfo.registerLimits.params = .{
         .start = 0,
         .end = 8,
     };
     context.genInfo.registerLimits.temporary = .{
         .start = 8,
-        .end = 8 + 124,
+        .end = 11,
     };
     context.genInfo.registerLimits.preserved = .{
-        .start = 8 + 124,
-        .end = 8 + 124 + 124,
+        .start = 11,
+        .end = 15,
     };
 
     try context.genInfo.activeRegisters.ensureTotalCapacityPrecise(
@@ -323,13 +336,11 @@ fn inactiveRegFromLimits(
 
     try context.genInfo.instrActions.insertInstrInfo.action.append(allocator, .{
         .instr = pushInstr,
-        .insertType = .Before,
-        .pos = startIndex,
+        .pos = startIndex - 1,
     });
 
     try context.genInfo.instrActions.insertInstrInfo.action.append(allocator, .{
         .instr = popInstr,
-        .insertType = .After,
         .pos = endIndex,
     });
 
@@ -338,5 +349,5 @@ fn inactiveRegFromLimits(
 
 fn getIdealSpillReg(context: *Context) vmInfo.TempRegister {
     _ = context;
-    return 10;
+    return 5;
 }

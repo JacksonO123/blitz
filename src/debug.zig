@@ -791,23 +791,32 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
         if (instr == .NoOp and !context.settings.debug.printNoOps) continue;
 
         const skipped = context.genInfo.handleSkipInstruction(index);
-        if (skipped) {
-            if (!context.settings.debug.printSkippedInstrs) {
-                continue;
-            }
-
+        if (skipped and context.settings.debug.printSkippedInstrs) {
             try writer.writeAll("(SKIPPING) ");
         }
 
-        const chunkLen = instr.getInstrLen();
-        try writer.writeByte('[');
-        try writer.printInt(byteCounter, 10, .lower, .{ .width = numDigits, .fill = '.' });
-        try writer.writeAll("] (");
-        try writer.printInt(chunkLen, 10, .lower, .{ .width = numInstrLenDigits, .fill = '.' });
-        try writer.writeAll(") ");
+        if (!skipped or context.settings.debug.printSkippedInstrs) {
+            byteCounter += try printChunkDetailed(
+                instr,
+                byteCounter,
+                numDigits,
+                numInstrLenDigits,
+                writer,
+            );
+        }
 
-        try printChunk(instr, writer);
-        byteCounter += chunkLen;
+        while (context.genInfo.handleInsertInstr(index)) |insertedInstr| {
+            if (context.settings.debug.printInsertedTag) {
+                try writer.writeAll("(INSERTED) ");
+            }
+            byteCounter += try printChunkDetailed(
+                insertedInstr,
+                byteCounter,
+                numDigits,
+                numInstrLenDigits,
+                writer,
+            );
+        }
     }
 
     try writer.print("total bytes: {d} ({d} vm info)\n", .{
@@ -815,6 +824,25 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     });
 
     context.genInfo.instrActions.resetPtrs();
+}
+
+fn printChunkDetailed(
+    instr: codegen.Instr,
+    byteCounter: usize,
+    numDigits: u32,
+    numInstrLenDigits: u32,
+    writer: *Writer,
+) !u8 {
+    const chunkLen = instr.getInstrLen();
+    try writer.writeByte('[');
+    try writer.printInt(byteCounter, 10, .lower, .{ .width = numDigits, .fill = '.' });
+    try writer.writeAll("] (");
+    try writer.printInt(chunkLen, 10, .lower, .{ .width = numInstrLenDigits, .fill = '.' });
+    try writer.writeAll(") ");
+
+    try printChunk(instr, writer);
+
+    return chunkLen;
 }
 
 fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
