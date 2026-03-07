@@ -23,9 +23,11 @@ const ContextSettings = struct {
         // printLabels: bool = false,
         // printNoOps: bool = false,
         // printSkippedInstrs: bool = false,
+        // printInsertedTag: bool = false,
         printLabels: bool = true,
         printNoOps: bool = true,
         printSkippedInstrs: bool = true,
+        printInsertedTag: bool = true,
 
         allocateRegisters: bool = true,
         // allocateRegisters: bool = false,
