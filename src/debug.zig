@@ -786,6 +786,7 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     const numInstrLenDigits = utils.getNumberDigitCount(u8, codegen.Instr.maxInstrSize());
 
     var byteCounter: usize = vmInfo.VM_INFO_BYTECODE_LEN;
+    var totalIndex: usize = 0;
     for (context.genInfo.instrList.items, 0..) |instr, index| {
         if (instr == .Label and !context.settings.debug.printLabels) continue;
         if (instr == .NoOp and !context.settings.debug.printNoOps) continue;
@@ -798,11 +799,13 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
         if (!skipped or context.settings.debug.printSkippedInstrs) {
             byteCounter += try printChunkDetailed(
                 instr,
+                totalIndex,
                 byteCounter,
                 numDigits,
                 numInstrLenDigits,
                 writer,
             );
+            totalIndex += 1;
         }
 
         while (context.genInfo.handleInsertInstr(index)) |insertedInstr| {
@@ -810,7 +813,8 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
                 try writer.writeAll("(INSERTED) ");
             }
             byteCounter += try printChunkDetailed(
-                insertedInstr,
+                insertedInstr.*,
+                totalIndex,
                 byteCounter,
                 numDigits,
                 numInstrLenDigits,
@@ -828,13 +832,15 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
 
 fn printChunkDetailed(
     instr: codegen.Instr,
+    index: usize,
     byteCounter: usize,
     numDigits: u32,
     numInstrLenDigits: u32,
     writer: *Writer,
 ) !u8 {
     const chunkLen = instr.getInstrLen();
-    try writer.writeByte('[');
+    try writer.printInt(index, 10, .lower, .{ .width = 3, .fill = '.', .alignment = .left });
+    try writer.writeAll(") [");
     try writer.printInt(byteCounter, 10, .lower, .{ .width = numDigits, .fill = '.' });
     try writer.writeAll("] (");
     try writer.printInt(chunkLen, 10, .lower, .{ .width = numInstrLenDigits, .fill = '.' });

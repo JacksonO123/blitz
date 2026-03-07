@@ -855,6 +855,7 @@ pub const RegInfo = struct {
     firstFoundIndex: ?u32 = null,
     lastUsedInstrIndex: ?u32 = null,
     regRemap: ?TempRegister = null,
+    spilledUntil: ?u32 = null,
 };
 
 const LabelInfo = struct {
@@ -958,7 +959,7 @@ fn InstrActionInfo(comptime T: type) type {
     };
 }
 
-const InsertInfo = struct {
+pub const InsertInfo = struct {
     instr: Instr,
     pos: u32,
 };
@@ -998,6 +999,11 @@ pub const GenInfo = struct {
     } = .{},
     labelByteInfo: *LabelByteInfo,
     instrActions: InstrActions,
+    regAllocateUtils: struct {
+        furthestInstrReach: u32,
+        /// 0 for invalid state
+        regNextUseIndex: *ArrayList(u32),
+    },
 
     pub fn init(allocator: Allocator) !Self {
         const varNameReg = try utils.initMutPtrT(StringHashMap(TempRegister), allocator);
@@ -1012,6 +1018,8 @@ pub const GenInfo = struct {
 
         const skipInstrInfoPtr = try utils.createMut(ArrayList(u32), allocator, .empty);
         const insertInstrInfoPtr = try utils.createMut(ArrayList(InsertInfo), allocator, .empty);
+
+        const regNextUseIndexPtr = try utils.createMut(ArrayList(u32), allocator, .empty);
 
         return .{
             .instrList = instrListPtr,
@@ -1038,6 +1046,10 @@ pub const GenInfo = struct {
                     .action = insertInstrInfoPtr,
                 },
             },
+            .regAllocateUtils = .{
+                .furthestInstrReach = 0,
+                .regNextUseIndex = regNextUseIndexPtr,
+            },
         };
     }
 
@@ -1056,7 +1068,7 @@ pub const GenInfo = struct {
             }
 
             while (self.handleInsertInstr(i)) |instr| {
-                try writeChunk(instr, writer);
+                try writeChunk(instr.*, writer);
             }
         }
 
@@ -1432,12 +1444,12 @@ pub const GenInfo = struct {
         return false;
     }
 
-    pub fn handleInsertInstr(self: *Self, index: usize) ?Instr {
+    pub fn handleInsertInstr(self: *Self, index: usize) ?*Instr {
         const currentInsert = self.instrActions.insertInstrInfo.current;
         if (currentInsert < self.instrActions.insertInstrInfo.action.items.len and
             self.instrActions.insertInstrInfo.action.items[currentInsert].pos == index)
         {
-            const res = self.instrActions.insertInstrInfo.action.items[currentInsert].instr;
+            const res = &self.instrActions.insertInstrInfo.action.items[currentInsert].instr;
             self.instrActions.insertInstrInfo.next();
             return res;
         }
@@ -1746,16 +1758,6 @@ fn adjustProc(
         try context.genInfo.instrList.append(allocator, popInstr);
     }
 
-    if (frameSize.* + stackOffset > 0) {
-        const spInstrs = try getSpIncInstructions(frameSize.* + stackOffset);
-
-        context.genInfo.instrList.items[context.genInfo.currentProc.startIndex] = spInstrs.add;
-        try context.genInfo.instrList.append(allocator, spInstrs.sub);
-    }
-
-    const finishInstr = if (isRoot) Instr{ .End = {} } else Instr{ .Ret = {} };
-    try context.genInfo.instrList.append(allocator, finishInstr);
-
     const instrs = context.genInfo.instrList.items[instrStartIndex..];
     if (context.settings.debug.allocateRegisters) {
         try backend.allocateRegisters(
@@ -1766,6 +1768,16 @@ fn adjustProc(
             frameSize,
         );
     }
+
+    if (frameSize.* + stackOffset > 0) {
+        const spInstrs = try getSpIncInstructions(frameSize.* + stackOffset);
+
+        context.genInfo.instrList.items[context.genInfo.currentProc.startIndex] = spInstrs.add;
+        try context.genInfo.instrList.append(allocator, spInstrs.sub);
+    }
+
+    const finishInstr = if (isRoot) Instr{ .End = {} } else Instr{ .Ret = {} };
+    try context.genInfo.instrList.append(allocator, finishInstr);
 
     try adjustInstructions(allocator, context, instrs, instrStartIndex, frameSize.*, stackOffset);
 
@@ -1783,16 +1795,29 @@ fn adjustInstructions(
 ) !void {
     var i: usize = 0;
     while (i < instrs.len) : (i += 1) {
-        if (context.genInfo.handleSkipInstruction(i + instrStartIndex)) continue;
+        const skipped = context.genInfo.handleSkipInstruction(i + instrStartIndex);
 
-        try adjustInstruction(
-            allocator,
-            context,
-            &context.genInfo.instrList.items[i + instrStartIndex],
-            frameSize,
-            stackOffset,
-        );
-        context.genInfo.byteCounter += context.genInfo.instrList.items[i].getInstrLen();
+        if (!skipped) {
+            try adjustInstruction(
+                allocator,
+                context,
+                &context.genInfo.instrList.items[i + instrStartIndex],
+                frameSize,
+                stackOffset,
+            );
+            context.genInfo.byteCounter += context.genInfo.instrList.items[i].getInstrLen();
+        }
+
+        while (context.genInfo.handleInsertInstr(i + instrStartIndex)) |instr| {
+            try adjustInstruction(
+                allocator,
+                context,
+                instr,
+                frameSize,
+                stackOffset,
+            );
+            context.genInfo.byteCounter += instr.getInstrLen();
+        }
     }
 }
 
@@ -1815,6 +1840,10 @@ fn adjustInstruction(
         .Store16AtSpNegOffset16,
         .Store32AtSpNegOffset16,
         .Store64AtSpNegOffset16,
+        .Load8AtSpNegOffset16,
+        .Load16AtSpNegOffset16,
+        .Load32AtSpNegOffset16,
+        .Load64AtSpNegOffset16,
         => |*storeInstr| {
             storeInstr.offset = @intCast(stackOffset + frameSize - storeInstr.offset);
         },

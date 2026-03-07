@@ -4,4 +4,6 @@ fn main() {
     let c = b + 1;
     let d = a + b + c;
     let e = a + b + c + d;
+    let f = a + b + c + d + e;
+    let g = a + b + c + d + e + f;
 }
