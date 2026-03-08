@@ -784,6 +784,10 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
 
     const numDigits = utils.getNumberDigitCount(u64, context.genInfo.byteCounter);
     const numInstrLenDigits = utils.getNumberDigitCount(u8, codegen.Instr.maxInstrSize());
+    const fmtSettings = ChunkPrintFmtSettings{
+        .numDigits = numDigits,
+        .numInstrLenDigits = numInstrLenDigits,
+    };
 
     var byteCounter: usize = vmInfo.VM_INFO_BYTECODE_LEN;
     var totalIndex: usize = 0;
@@ -792,18 +796,14 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
         if (instr == .NoOp and !context.settings.debug.printNoOps) continue;
 
         const skipped = context.genInfo.handleSkipInstruction(index);
-        if (skipped and context.settings.debug.printSkippedInstrs) {
-            try writer.writeAll("(SKIPPING) ");
-        }
-
         if (!skipped or context.settings.debug.printSkippedInstrs) {
             byteCounter += try printChunkDetailed(
                 instr,
                 totalIndex,
                 byteCounter,
-                numDigits,
-                numInstrLenDigits,
+                fmtSettings,
                 writer,
+                if (skipped) .Skip else null,
             );
             totalIndex += 1;
         }
@@ -816,9 +816,9 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
                 insertedInstr.*,
                 totalIndex,
                 byteCounter,
-                numDigits,
-                numInstrLenDigits,
+                fmtSettings,
                 writer,
+                .Insert,
             );
         }
     }
@@ -830,21 +830,37 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
     context.genInfo.instrActions.resetPtrs();
 }
 
-fn printChunkDetailed(
+pub const ChunkPrintFmtSettings = struct {
+    numDigits: u32,
+    numInstrLenDigits: u32,
+};
+
+pub fn printChunkDetailed(
     instr: codegen.Instr,
     index: usize,
     byteCounter: usize,
-    numDigits: u32,
-    numInstrLenDigits: u32,
+    fmtSettings: ChunkPrintFmtSettings,
     writer: *Writer,
+    actionType: ?codegen.InstrActions.ActionTypes,
 ) !u8 {
     const chunkLen = instr.getInstrLen();
-    try writer.printInt(index, 10, .lower, .{ .width = 3, .fill = '.', .alignment = .left });
+    try writer.printInt(index, 10, .lower, .{ .width = 3, .fill = ' ', .alignment = .right });
     try writer.writeAll(") [");
-    try writer.printInt(byteCounter, 10, .lower, .{ .width = numDigits, .fill = '.' });
+    try writer.printInt(byteCounter, 10, .lower, .{ .width = fmtSettings.numDigits, .fill = '.' });
     try writer.writeAll("] (");
-    try writer.printInt(chunkLen, 10, .lower, .{ .width = numInstrLenDigits, .fill = '.' });
+    try writer.printInt(
+        chunkLen,
+        10,
+        .lower,
+        .{ .width = fmtSettings.numInstrLenDigits, .fill = '.' },
+    );
     try writer.writeAll(") ");
+
+    if (actionType) |action| {
+        try writer.writeByte('(');
+        try writer.writeAll(action.toString());
+        try writer.writeAll(") ");
+    }
 
     try printChunk(instr, writer);
 

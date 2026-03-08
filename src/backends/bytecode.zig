@@ -16,8 +16,8 @@ fn initMetadata(allocator: Allocator, context: *Context) !void {
     // remaining register space equally
     // (256 - 8) / 2 = 124
 
-    // const a = true;
-    const a = false;
+    const a = true;
+    // const a = false;
 
     if (a) {
         context.genInfo.registerLimits.params = .{
@@ -272,7 +272,7 @@ fn remapReg(
 
     context.genInfo.regAllocateUtils.furthestInstrReach = @max(
         context.genInfo.regAllocateUtils.furthestInstrReach,
-        regInfo.lastUsedInstrIndex.?,
+        regInfo.lastUsedIndex.?,
     );
 
     if (regInfo.spilledUntil) |spilledUntil| {
@@ -282,7 +282,7 @@ fn remapReg(
         }
     }
 
-    if (regInfo.lastUsedInstrIndex.? == instrIndex and
+    if (regInfo.lastUsedIndex.? == instrIndex and
         !(regInfo.usage == .Param or regInfo.usage == .ParamNext))
     {
         context.genInfo.activeRegisters.items[regPtr.*] = false;
@@ -346,7 +346,7 @@ fn inactiveRegFromLimits(
             const regInfo = context.genInfo.registers.items[index];
             const vRegInfo = context.genInfo.registers.items[vReg];
             const spilledUntil = regInfo.spilledUntil orelse break :a true;
-            const lastUsed = vRegInfo.lastUsedInstrIndex orelse break :a true;
+            const lastUsed = vRegInfo.lastUsedIndex orelse break :a true;
             break :a lastUsed <= spilledUntil;
         };
         if (isActive or !spillSafe) continue;

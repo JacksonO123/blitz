@@ -853,7 +853,7 @@ pub const RegInfo = struct {
     varInfo: ?RegInfoVarInfo = null,
     usage: RegisterUsage = .Temporary,
     firstFoundIndex: ?u32 = null,
-    lastUsedInstrIndex: ?u32 = null,
+    lastUsedIndex: ?u32 = null,
     regRemap: ?TempRegister = null,
     spilledUntil: ?u32 = null,
 };
@@ -950,11 +950,27 @@ fn InstrActionInfo(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        action: T,
+        action: *ArrayList(T),
         current: usize = 0,
+
+        pub fn init(allocator: Allocator) !Self {
+            const actionPtr = try utils.createMut(ArrayList(T), allocator, .empty);
+
+            return Self{
+                .action = actionPtr,
+            };
+        }
 
         pub fn next(self: *Self) void {
             self.current += 1;
+        }
+
+        pub fn getCurrent(self: *Self) ?T {
+            if (self.current < self.action.items.len) {
+                return self.action.items[self.current];
+            }
+
+            return null;
         }
     };
 }
@@ -964,11 +980,30 @@ pub const InsertInfo = struct {
     pos: u32,
 };
 
-const InstrActions = struct {
+pub const InstrActions = struct {
     const Self = @This();
 
-    skipInstrInfo: InstrActionInfo(*ArrayList(u32)),
-    insertInstrInfo: InstrActionInfo(*ArrayList(InsertInfo)),
+    pub const ActionTypes = enum {
+        Insert,
+        Skip,
+
+        pub fn toString(self: @This()) []const u8 {
+            return switch (self) {
+                .Insert => "INSERT",
+                .Skip => "SKIP",
+            };
+        }
+    };
+
+    skipInstrInfo: InstrActionInfo(u32),
+    insertInstrInfo: InstrActionInfo(InsertInfo),
+
+    pub fn init(allocator: Allocator) !Self {
+        return Self{
+            .skipInstrInfo = try InstrActionInfo(u32).init(allocator),
+            .insertInstrInfo = try InstrActionInfo(InsertInfo).init(allocator),
+        };
+    }
 
     pub fn resetPtrs(self: *Self) void {
         self.skipInstrInfo.current = 0;
@@ -1016,9 +1051,6 @@ pub const GenInfo = struct {
         const registersPtr = try utils.createMut(ArrayList(*RegInfo), allocator, .empty);
         const activeRegistersPtr = try utils.createMut(ArrayList(bool), allocator, .empty);
 
-        const skipInstrInfoPtr = try utils.createMut(ArrayList(u32), allocator, .empty);
-        const insertInstrInfoPtr = try utils.createMut(ArrayList(InsertInfo), allocator, .empty);
-
         const regNextUseIndexPtr = try utils.createMut(ArrayList(u32), allocator, .empty);
 
         return .{
@@ -1038,14 +1070,7 @@ pub const GenInfo = struct {
             .registers = registersPtr,
             .activeRegisters = activeRegistersPtr,
             .labelByteInfo = labelByteInfoPtr,
-            .instrActions = .{
-                .skipInstrInfo = .{
-                    .action = skipInstrInfoPtr,
-                },
-                .insertInstrInfo = .{
-                    .action = insertInstrInfoPtr,
-                },
-            },
+            .instrActions = try InstrActions.init(allocator),
             .regAllocateUtils = .{
                 .furthestInstrReach = 0,
                 .regNextUseIndex = regNextUseIndexPtr,
@@ -1082,16 +1107,20 @@ pub const GenInfo = struct {
     pub fn appendChunkAndReturn(self: *Self, allocator: Allocator, instr: Instr) !*Instr {
         try self.instrList.append(allocator, instr);
         const instrIndex = self.instrList.items.len - 1;
-        self.setInstrRegLastUsedIndices(@intCast(instrIndex));
+        self.setInstrRegLastUsedIndices(&self.instrList.items[instrIndex], instrIndex);
         return &self.instrList.items[instrIndex];
     }
 
-    fn setInstrRegActiveStatus(self: *Self, instrIndex: usize) void {
-        self.applyRegIndexFnToInstr(instrIndex, setRegActiveStatusIndex);
+    pub fn setInstrRegActiveStatus(self: *Self, instr: *const Instr, instrIndex: usize) void {
+        self.applyRegIndexFnToInstr(usize, instr, instrIndex, setRegActiveStatusIndex);
     }
 
-    fn setRegActiveStatusIndex(self: *Self, reg: TempRegister, instrIndex: usize) void {
-        if (self.registers.items[reg].lastUsedInstrIndex) |lastIndex| {
+    fn setRegActiveStatusIndex(
+        self: *Self,
+        reg: TempRegister,
+        instrIndex: usize,
+    ) void {
+        if (self.registers.items[reg].lastUsedIndex) |lastIndex| {
             if (lastIndex == instrIndex) {
                 self.activeRegisters.items[reg] = false;
                 return;
@@ -1101,24 +1130,29 @@ pub const GenInfo = struct {
         self.activeRegisters.items[reg] = true;
     }
 
-    fn setInstrRegLastUsedIndices(self: *Self, instrIndex: usize) void {
-        self.applyRegIndexFnToInstr(instrIndex, setRegLastUsedIndex);
+    fn setInstrRegLastUsedIndices(self: *Self, instr: *const Instr, instrIndex: usize) void {
+        self.applyRegIndexFnToInstr(usize, instr, instrIndex, setRegLastUsedIndex);
     }
 
-    fn setRegLastUsedIndex(self: *Self, reg: TempRegister, instrIndex: usize) void {
+    fn setRegLastUsedIndex(
+        self: *Self,
+        reg: TempRegister,
+        instrIndex: usize,
+    ) void {
         if (self.registers.items[reg].firstFoundIndex == null) {
             self.registers.items[reg].firstFoundIndex = @intCast(instrIndex);
         }
-        self.registers.items[reg].lastUsedInstrIndex = @intCast(instrIndex);
+        self.registers.items[reg].lastUsedIndex = @intCast(instrIndex);
     }
 
-    fn applyRegIndexFnToInstr(
+    pub fn applyRegIndexFnToInstr(
         self: *Self,
-        instrIndex: usize,
-        comptime func: fn (*Self, TempRegister, usize) void,
+        comptime T: type,
+        instr: *const Instr,
+        value: T,
+        comptime func: fn (*Self, TempRegister, T) void,
     ) void {
-        const instr = self.instrList.items[instrIndex];
-        switch (instr) {
+        switch (instr.*) {
             .NoOp,
             .Label,
             .Jump,
@@ -1170,26 +1204,26 @@ pub const GenInfo = struct {
             .PostPopLRNegOffset64,
             => {},
 
-            .SetReg64 => |inner| func(self, inner.reg, instrIndex),
-            .SetReg32 => |inner| func(self, inner.reg, instrIndex),
-            .SetReg16 => |inner| func(self, inner.reg, instrIndex),
-            .SetReg8 => |inner| func(self, inner.reg, instrIndex),
+            .SetReg64 => |inner| func(self, inner.reg, value),
+            .SetReg32 => |inner| func(self, inner.reg, value),
+            .SetReg16 => |inner| func(self, inner.reg, value),
+            .SetReg8 => |inner| func(self, inner.reg, value),
             .Add, .Sub, .Mult => |inner| {
-                func(self, inner.reg1, instrIndex);
-                func(self, inner.reg2, instrIndex);
-                func(self, inner.dest, instrIndex);
+                func(self, inner.reg1, value);
+                func(self, inner.reg2, value);
+                func(self, inner.dest, value);
             },
             .Add8, .Sub8 => |inner| {
-                func(self, inner.reg, instrIndex);
-                func(self, inner.dest, instrIndex);
+                func(self, inner.reg, value);
+                func(self, inner.dest, value);
             },
             .Add16, .Sub16 => |inner| {
-                func(self, inner.reg, instrIndex);
-                func(self, inner.dest, instrIndex);
+                func(self, inner.reg, value);
+                func(self, inner.dest, value);
             },
             .Cmp => |inner| {
-                func(self, inner.reg1, instrIndex);
-                func(self, inner.reg2, instrIndex);
+                func(self, inner.reg1, value);
+                func(self, inner.reg2, value);
             },
             .CmpSetRegEQ,
             .CmpSetRegNE,
@@ -1198,40 +1232,40 @@ pub const GenInfo = struct {
             .CmpSetRegGTE,
             .CmpSetRegLTE,
             => |inner| {
-                func(self, inner.reg1, instrIndex);
-                func(self, inner.reg2, instrIndex);
-                func(self, inner.dest, instrIndex);
+                func(self, inner.reg1, value);
+                func(self, inner.reg2, value);
+                func(self, inner.dest, value);
             },
             .CmpConst8, .IncConst8, .DecConst8 => |inner| {
-                func(self, inner.reg, instrIndex);
+                func(self, inner.reg, value);
             },
             .Mov => |inner| {
-                func(self, inner.src, instrIndex);
-                func(self, inner.dest, instrIndex);
+                func(self, inner.src, value);
+                func(self, inner.dest, value);
             },
-            .MovSpNegOffset16 => |inner| func(self, inner.reg, instrIndex),
-            .MovSpNegOffset32 => |inner| func(self, inner.reg, instrIndex),
-            .MovSpNegOffset64, .MovSpNegOffsetAny => |inner| func(self, inner.reg, instrIndex),
+            .MovSpNegOffset16 => |inner| func(self, inner.reg, value),
+            .MovSpNegOffset32 => |inner| func(self, inner.reg, value),
+            .MovSpNegOffset64, .MovSpNegOffsetAny => |inner| func(self, inner.reg, value),
             .Xor, .BitAnd, .BitOr, .AndSetReg, .OrSetReg => |inner| {
-                func(self, inner.reg1, instrIndex);
-                func(self, inner.reg2, instrIndex);
-                func(self, inner.dest, instrIndex);
+                func(self, inner.reg1, value);
+                func(self, inner.reg2, value);
+                func(self, inner.dest, value);
             },
             .XorConst8 => |inner| {
-                func(self, inner.reg, instrIndex);
-                func(self, inner.dest, instrIndex);
+                func(self, inner.reg, value);
+                func(self, inner.dest, value);
             },
             .Store64AtReg, .Store32AtReg, .Store16AtReg, .Store8AtReg => |inner| {
-                func(self, inner.fromReg, instrIndex);
-                func(self, inner.toRegPtr, instrIndex);
+                func(self, inner.fromReg, value);
+                func(self, inner.toRegPtr, value);
             },
             .Store64AtRegPostInc16,
             .Store32AtRegPostInc16,
             .Store16AtRegPostInc16,
             .Store8AtRegPostInc16,
             => |inner| {
-                func(self, inner.fromReg, instrIndex);
-                func(self, inner.toRegPtr, instrIndex);
+                func(self, inner.fromReg, value);
+                func(self, inner.toRegPtr, value);
             },
             .Store64AtSpNegOffset16,
             .Store32AtSpNegOffset16,
@@ -1242,28 +1276,28 @@ pub const GenInfo = struct {
             .Load16AtSpNegOffset16,
             .Load8AtSpNegOffset16,
             => |inner| {
-                func(self, inner.reg, instrIndex);
+                func(self, inner.reg, value);
             },
             .Load64AtRegOffset16,
             .Load32AtRegOffset16,
             .Load16AtRegOffset16,
             .Load8AtRegOffset16,
             => |inner| {
-                func(self, inner.fromRegPtr, instrIndex);
-                func(self, inner.dest, instrIndex);
+                func(self, inner.fromRegPtr, value);
+                func(self, inner.dest, value);
             },
             .Load64AtReg, .Load32AtReg, .Load16AtReg, .Load8AtReg => |inner| {
-                func(self, inner.fromRegPtr, instrIndex);
-                func(self, inner.dest, instrIndex);
+                func(self, inner.fromRegPtr, value);
+                func(self, inner.dest, value);
             },
             .MulReg16AddReg => |inner| {
-                func(self, inner.addReg, instrIndex);
-                func(self, inner.mulReg, instrIndex);
-                func(self, inner.dest, instrIndex);
+                func(self, inner.addReg, value);
+                func(self, inner.mulReg, value);
+                func(self, inner.dest, value);
             },
             .And, .Or => |inner| {
-                func(self, inner.reg1, instrIndex);
-                func(self, inner.reg2, instrIndex);
+                func(self, inner.reg1, value);
+                func(self, inner.reg2, value);
             },
         }
     }
@@ -1433,12 +1467,11 @@ pub const GenInfo = struct {
     }
 
     pub fn handleSkipInstruction(self: *Self, index: usize) bool {
-        const currentSkip = self.instrActions.skipInstrInfo.current;
-        if (currentSkip < self.instrActions.skipInstrInfo.action.items.len and
-            self.instrActions.skipInstrInfo.action.items[currentSkip] == index)
-        {
-            self.instrActions.skipInstrInfo.next();
-            return true;
+        if (self.instrActions.skipInstrInfo.getCurrent()) |current| {
+            if (current == index) {
+                self.instrActions.skipInstrInfo.next();
+                return true;
+            }
         }
 
         return false;
@@ -1446,12 +1479,12 @@ pub const GenInfo = struct {
 
     pub fn handleInsertInstr(self: *Self, index: usize) ?*Instr {
         const currentInsert = self.instrActions.insertInstrInfo.current;
-        if (currentInsert < self.instrActions.insertInstrInfo.action.items.len and
-            self.instrActions.insertInstrInfo.action.items[currentInsert].pos == index)
-        {
-            const res = &self.instrActions.insertInstrInfo.action.items[currentInsert].instr;
-            self.instrActions.insertInstrInfo.next();
-            return res;
+        if (self.instrActions.insertInstrInfo.getCurrent()) |current| {
+            if (current.pos == index) {
+                const res = &self.instrActions.insertInstrInfo.action.items[currentInsert].instr;
+                self.instrActions.insertInstrInfo.next();
+                return res;
+            }
         }
 
         return null;
@@ -1720,7 +1753,7 @@ fn adjustProc(
                 while (procReg < context.genInfo.registers.items.len) : (procReg += 1) {
                     const regInfo = context.genInfo.registers.items[procReg];
                     const firstFound = regInfo.firstFoundIndex orelse continue;
-                    const lastUsed = regInfo.lastUsedInstrIndex orelse continue;
+                    const lastUsed = regInfo.lastUsedIndex orelse continue;
 
                     if (firstFound < i and i < lastUsed) {
                         context.genInfo.registers.items[procReg].usage = .Preserved;

@@ -106,17 +106,19 @@ pub fn compile(
             allocPools.releaseHoistedNodes(&context, hoistedNodes);
         }
 
-        if (printState == .All) {
-            try printWriter.writeAll("--- code ---\n");
-            try printWriter.writeAll(code);
-            try printWriter.writeAll("\n------------\n\n");
-            try debug.printAst(&context, tree, printWriter);
-        }
+        // if (printState == .All) {
+        //     try printWriter.writeAll("--- code ---\n");
+        //     try printWriter.writeAll(code);
+        //     try printWriter.writeAll("\n------------\n\n");
+        //     try debug.printAst(&context, tree, printWriter);
+        // }
 
         try scanner.typeScan(allocator, &context, tree);
         // _ = format;
         // _ = fileWriter;
         try codegen.codegenAst(allocator, &context, .Bytecode);
+
+        try blitz.analyzer.analyze(allocator, &context, printWriter);
 
         if (printState == .All) {
             try printWriter.writeAll("\n------------\n\n");
