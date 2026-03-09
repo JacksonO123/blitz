@@ -14,6 +14,9 @@ const RegUsedPayload = struct {
     list: *ArrayList(vmInfo.TempRegister),
 };
 
+const SPACING = "   ";
+const NUM_FMT = "{d:<" ++ &[_]u8{(@as(u8, @intCast(SPACING.len)) + '0')} ++ "}";
+
 pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !void {
     var arena = std.heap.ArenaAllocator.init(childAllocator);
     defer arena.deinit();
@@ -32,6 +35,15 @@ pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !v
     var instrRegs: ArrayList(vmInfo.TempRegister) = .empty;
     var byteCounter: usize = vmInfo.VM_INFO_BYTECODE_LEN;
     var totalIndex: usize = 0;
+
+    {
+        var i: usize = 0;
+        while (i < context.genInfo.registers.items.len) : (i += 1) {
+            try str.appendSlice(allocator, "r");
+            try str.print(allocator, NUM_FMT, .{i});
+        }
+        try str.append(allocator, '\n');
+    }
 
     for (context.genInfo.instrList.items, 0..) |*instr, index| {
         if (instr.* == .Label and !context.settings.debug.printLabels) continue;
@@ -103,7 +115,6 @@ fn fmtAnalysisLine(
     var current: usize = 0;
     for (context.genInfo.registers.items, 0..) |regInfo, reg| {
         defer current += 1;
-        const firstFound = regInfo.firstFoundIndex orelse continue;
         const lastFound = regInfo.lastUsedIndex orelse continue;
 
         const found = std.mem.indexOfScalar(
@@ -112,16 +123,13 @@ fn fmtAnalysisLine(
             @intCast(reg),
         ) != null;
 
-        if (instrIndex == firstFound) {
-            try line.appendSlice(allocator, "r");
-            try line.print(allocator, "{d:<2}", .{reg});
-        } else if (context.genInfo.activeRegisters.items[reg] or
+        if (context.genInfo.activeRegisters.items[reg] or
             (instrIndex == lastFound and found))
         {
-            const slice = if (found) "X  " else "|  ";
+            const slice = if (found) "X" ++ SPACING else "|" ++ SPACING;
             try line.appendSlice(allocator, slice);
         } else {
-            try line.appendSlice(allocator, ".  ");
+            try line.appendSlice(allocator, "." ++ SPACING);
         }
     }
 

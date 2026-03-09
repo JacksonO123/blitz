@@ -8,15 +8,17 @@ struct M {
     pub inner: Inner;
 }
 
-let a = M {
-    inner = Inner {
-        value = 6u8,
-    },
-    width = 5u16,
-    height = 9u16,
-};
+fn main() {
+    let a = M {
+        inner = Inner {
+            value = 6u8,
+        },
+        width = 5u16,
+        height = 9u16,
+    };
 
-let b = 2;
-let c = 3;
-let d = a.inner;
-let e = a.inner.value;
+    let b = 2;
+    let c = 3;
+    let d = a.inner;
+    let e = a.inner.value;
+}

@@ -905,7 +905,10 @@ pub fn parseModule(allocator: Allocator, context: *Context) !*AstNode {
                 continue;
             },
             .Enum => try handleParseEnum(allocator, context),
-            else => return AstError.UnexpectedToken,
+            else => {
+                _ = try context.tokenUtil.take();
+                return AstError.UnexpectedToken;
+            },
         };
 
         try seq.append(allocator, node);
