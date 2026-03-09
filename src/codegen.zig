@@ -3418,7 +3418,15 @@ fn calculateAccessOffset(
                 try context.genInfo.appendChunk(allocator, derefInstr);
             }
 
-            if (offset > 0) {
+            if (offset == 0) {
+                const instr = Instr{
+                    .SetReg8 = .{
+                        .reg = outReg,
+                        .data = 0,
+                    },
+                };
+                try context.genInfo.appendChunk(allocator, instr);
+            } else if (offset > 0) {
                 const instr = Instr{
                     .Add16 = .{
                         .dest = outReg,

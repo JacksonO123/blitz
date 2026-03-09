@@ -1,3 +1,4 @@
-let arr2 = [8u64]u64 with (idx) idx;
-let item2 = arr2[3u64]
-let b = 2;
+fn main() {
+    let arr2 = [8u64]u64 with (idx) idx;
+    let item2 = arr2[3u64]
+}

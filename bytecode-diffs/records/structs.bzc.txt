@@ -3,21 +3,21 @@ MakeStack 0x00000400(1024)
   0) [.5] (.2) add_sp_8 0x05(5)
   1) [.7] (.0) noop
   2) [.7] (.0) noop
-  3) [.7] (.4) mov_sp_neg_offset_16 r0 0x0005(5)
-  4) [11] (.4) set_reg_16 r1 0x0005(5)
-  5) [15] (.5) store_16_at_reg_post_inc_16 r1 r0 0x0002(2)
-  6) [20] (.4) set_reg_16 r2 0x0009(9)
-  7) [24] (.5) store_16_at_reg_post_inc_16 r2 r0 0x0002(2)
-  8) [29] (.3) set_reg_8 r3 0x06(6)
-  9) [32] (.5) store_8_at_reg_post_inc_16 r3 r0 0x0001(1)
- 10) [37] (.4) mov_sp_neg_offset_16 r0 0x0005(5)
- 11) [41] (.3) mov r4 r0
- 12) [44] (.6) set_reg_32 r5 0x00000002(2)
- 13) [50] (.6) set_reg_32 r6 0x00000003(3)
- 14) [56] (.5) add_16 r7 r4 0x0004(4)
- 15) [61] (.3) load_8_at_reg r8 [r7]
- 16) [64] (.5) add_16 r9 r4 0x0004(4)
- 17) [69] (.3) load_8_at_reg r10 [r9]
+  3) [.7] (.4) mov_sp_neg_offset_16 r8 0x0005(5)
+  4) [11] (.4) set_reg_16 r9 0x0005(5)
+  5) [15] (.5) store_16_at_reg_post_inc_16 r9 r8 0x0002(2)
+  6) [20] (.4) set_reg_16 r9 0x0009(9)
+  7) [24] (.5) store_16_at_reg_post_inc_16 r9 r8 0x0002(2)
+  8) [29] (.3) set_reg_8 r9 0x06(6)
+  9) [32] (.5) store_8_at_reg_post_inc_16 r9 r8 0x0001(1)
+ 10) [37] (.4) mov_sp_neg_offset_16 r8 0x0005(5)
+ 11) [41] (.3) (SKIP) mov r8 r8
+ 12) [44] (.6) set_reg_32 r9 0x00000002(2)
+ 13) [50] (.6) set_reg_32 r9 0x00000003(3)
+ 14) [56] (.5) add_16 r9 r8 0x0004(4)
+ 15) [61] (.3) load_8_at_reg r9 [r9]
+ 16) [64] (.5) add_16 r8 r8 0x0004(4)
+ 17) [69] (.3) load_8_at_reg r8 [r8]
  18) [72] (.2) sub_sp_8 0x05(5)
  19) [74] (.1) end
-total bytes: 72 (5 vm info)
+total bytes: 69 (5 vm info)

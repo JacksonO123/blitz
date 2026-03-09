@@ -1,4 +1,6 @@
-let a = 2u8;
-let b = 3u16;
-let pa = &a;
-let pb = &b;
+fn main() {
+    let a = 2u8;
+    let b = 3u16;
+    let pa = &a;
+    let pb = &b;
+}

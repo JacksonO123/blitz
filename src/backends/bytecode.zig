@@ -103,7 +103,6 @@ fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize, sp: *u
         .SubSp32,
         .AddSp64,
         .SubSp64,
-        .DbgReg,
         .Ret,
         .End,
         .BranchLink,
@@ -119,6 +118,8 @@ fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize, sp: *u
         .PostPopLRNegOffset32,
         .PostPopLRNegOffset64,
         => {},
+
+        .DbgReg => |*inner| try remapReg(allocator, context, inner, instrIndex, sp),
 
         .SetReg64 => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
         .SetReg32 => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
@@ -343,6 +344,7 @@ fn inactiveRegFromLimits(
     for (limits.start..limits.end) |index| {
         const isActive = context.genInfo.activeRegisters.items[index];
         const spillSafe = a: {
+            if (index >= context.genInfo.registers.items.len) break :a true;
             const regInfo = context.genInfo.registers.items[index];
             const vRegInfo = context.genInfo.registers.items[vReg];
             const spilledUntil = regInfo.spilledUntil orelse break :a true;

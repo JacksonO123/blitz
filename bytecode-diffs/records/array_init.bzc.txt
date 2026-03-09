@@ -1,22 +1,24 @@
 blitz bytecode version 0
 MakeStack 0x00000400(1024)
-[.5] (.0) noop
-[.5] (.2) add_sp_8 0x40(64)
-[.7] (.4) mov_sp_neg_offset_16 r0 0x0040(64)
-[11] (10) set_reg_64 r1 0x0000000000000008(8)
-[21] (.3) set_reg_8 r2 0x00(0)
-[24] (.3) cmp_const_8 r1 0x00(0)
-[27] (.5) jump_eq 0x00000012(18)
-[32] (.5) store_64_at_reg_post_inc_16 r2 r0 0x0008(8)
-[37] (.4) sub_8 r1 r1 0x01(1)
-[41] (.4) add_8 r2 r2 0x01(1)
-[45] (.5) jump_back 0x00000015(21)
-[50] (.4) mov_sp_neg_offset_16 r0 0x0040(64)
-[54] (.3) mov r3 r0
-[57] (10) set_reg_64 r4 0x0000000000000003(3)
-[67] (.6) mul_reg_16_add_reg r5 r5 r4 0x0008(8)
-[73] (.3) load_64_at_reg r6 [r5]
-[76] (.6) set_reg_32 r7 0x00000002(2)
-[82] (.2) sub_sp_8 0x40(64)
-[84] (.1) ret
-total bytes: 84 (5 vm info)
+  0) [.5] (.2) add_sp_8 0x40(64)
+  1) [.7] (.0) noop
+  2) [.7] (.0) noop
+  3) [.7] (.4) mov_sp_neg_offset_16 r8 0x0040(64)
+  4) [11] (10) set_reg_64 r9 0x0000000000000008(8)
+  5) [21] (.3) set_reg_8 r10 0x00(0)
+  6) [24] (.0) (label)
+  7) [24] (.3) cmp_const_8 r9 0x00(0)
+  8) [27] (.5) jump_eq 0x00000012(18)
+  9) [32] (.5) store_64_at_reg_post_inc_16 r10 r8 0x0008(8)
+ 10) [37] (.4) sub_8 r9 r9 0x01(1)
+ 11) [41] (.4) add_8 r10 r10 0x01(1)
+ 12) [45] (.5) jump_back 0x00000015(21)
+ 13) [50] (.0) (label)
+ 14) [50] (.4) mov_sp_neg_offset_16 r8 0x0040(64)
+ 15) [54] (.3) (SKIP) mov r8 r8
+ 16) [57] (10) set_reg_64 r8 0x0000000000000003(3)
+ 17) [67] (.6) mul_reg_16_add_reg r9 r9 r8 0x0008(8)
+ 18) [73] (.3) load_64_at_reg r8 [r9]
+ 19) [76] (.2) sub_sp_8 0x40(64)
+ 20) [78] (.1) end
+total bytes: 73 (5 vm info)
