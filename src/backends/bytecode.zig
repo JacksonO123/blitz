@@ -11,13 +11,18 @@ pub const backend: codegen.BackendInterface = .{
     .allocateRegisters = allocateRegisters,
 };
 
+const InsertionType = enum {
+    Prepend,
+    Append,
+};
+
 fn initMetadata(allocator: Allocator, context: *Context) !void {
     // temporary and preserved registers split
     // remaining register space equally
     // (256 - 8) / 2 = 124
 
-    const a = true;
-    // const a = false;
+    // const a = true;
+    const a = false;
 
     if (a) {
         context.genInfo.registerLimits.params = .{
@@ -377,26 +382,47 @@ fn inactiveRegFromLimits(
 
     const startIndex = context.genInfo.registers.items[vReg].firstFoundIndex.?;
     try insertInsertAction(allocator, context, .{ .instr = pushInstr, .pos = startIndex - 1 });
-    try insertInsertAction(
+    try insertInsertActionUtil(
         allocator,
         context,
         .{ .instr = popInstr, .pos = spillInfo.furthestUseIndex - 1 },
+        .Prepend,
     );
 
     context.genInfo.registers.items[spillInfo.reg].spilledUntil = spillInfo.furthestUseIndex - 1;
-
     return spillInfo.reg;
 }
 
 fn insertInsertAction(allocator: Allocator, context: *Context, action: codegen.InsertInfo) !void {
+    try insertInsertActionUtil(allocator, context, action, .Append);
+}
+
+fn insertInsertActionUtil(
+    allocator: Allocator,
+    context: *Context,
+    action: codegen.InsertInfo,
+    insertionType: InsertionType,
+) !void {
     const actions = context.genInfo.instrActions.insertInstrInfo.action.items;
-    if (actions.len == 0 or actions[actions.len - 1].pos <= action.pos) {
+
+    if (actions.len == 0 or actions[actions.len - 1].pos < action.pos) {
         try context.genInfo.instrActions.insertInstrInfo.action.append(allocator, action);
     } else {
         var i: usize = actions.len - 1;
-        while (i > 0 and action.pos < actions[i].pos) : (i -= 1) {}
+        switch (insertionType) {
+            .Append => {
+                while (i > 0 and action.pos < actions[i].pos) : (i -= 1) {}
+            },
+            .Prepend => {
+                while (i > 0 and action.pos <= actions[i].pos) : (i -= 1) {}
+            },
+        }
         i += 1;
-        try context.genInfo.instrActions.insertInstrInfo.action.insert(allocator, i, action);
+        try context.genInfo.instrActions.insertInstrInfo.action.insert(
+            allocator,
+            i,
+            action,
+        );
     }
 }
 

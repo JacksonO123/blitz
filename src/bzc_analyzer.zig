@@ -14,7 +14,7 @@ const RegUsedPayload = struct {
     list: *ArrayList(vmInfo.TempRegister),
 };
 
-const SPACING = "   ";
+const SPACING = "  ";
 const NUM_FMT = "{d:<" ++ &[_]u8{(@as(u8, @intCast(SPACING.len)) + '0')} ++ "}";
 
 pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !void {
@@ -22,6 +22,10 @@ pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !v
     defer arena.deinit();
     const allocator = arena.allocator();
 
+    context.genInfo.activeRegisters.items.len = @max(
+        context.genInfo.registerLimits.preserved.end,
+        context.genInfo.registers.items.len,
+    );
     @memset(context.genInfo.activeRegisters.items, false);
 
     const numDigits = utils.getNumberDigitCount(u64, context.genInfo.byteCounter);
@@ -83,6 +87,7 @@ pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !v
     }
 
     try writer.writeAll(str.items);
+    context.genInfo.instrActions.resetPtrs();
 }
 
 fn setRegUsed(genInfo: *codegen.GenInfo, reg: vmInfo.TempRegister, payload: *RegUsedPayload) void {
