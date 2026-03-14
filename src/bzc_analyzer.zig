@@ -22,11 +22,11 @@ pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !v
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    context.genInfo.activeRegisters.items.len = @max(
+    context.genInfo.registerStatus.items.len = @max(
         context.genInfo.registerLimits.preserved.end,
         context.genInfo.registers.items.len,
     );
-    @memset(context.genInfo.activeRegisters.items, false);
+    @memset(context.genInfo.registerStatus.items, false);
 
     const numDigits = utils.getNumberDigitCount(u64, context.genInfo.byteCounter);
     const numInstrLenDigits = utils.getNumberDigitCount(u8, codegen.Instr.maxInstrSize());
@@ -132,7 +132,7 @@ fn fmtAnalysisLine(
             @intCast(reg),
         ) != null;
 
-        if (context.genInfo.activeRegisters.items[reg] or
+        if (context.genInfo.registerStatus.items[reg] or
             (instrIndex == lastFound and found))
         {
             const slice = if (found) "X" ++ SPACING else "|" ++ SPACING;
