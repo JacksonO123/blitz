@@ -19,3 +19,7 @@ pub const analyzer = @import("bzc_analyzer.zig");
 pub const backends = .{
     .bytecode = @import("backends/bytecode.zig"),
 };
+
+test "tests" {
+    _ = @import("backends/bytecode.zig");
+}

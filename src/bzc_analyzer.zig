@@ -54,7 +54,8 @@ pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !v
         if (instr.* == .NoOp and !context.settings.debug.printNoOps) continue;
 
         const skipped = context.genInfo.handleSkipInstruction(index);
-        if (!skipped or context.settings.debug.printSkippedInstrs) {
+        const printSkippedChunk = !skipped or context.settings.debug.printSkippedInstrs;
+        if (printSkippedChunk) {
             const line = try fmtAnalysisLine(
                 allocator,
                 context,
@@ -67,7 +68,6 @@ pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !v
                 if (skipped) .Skip else null,
             );
             try str.appendSlice(allocator, line);
-            totalIndex += 1;
         }
 
         while (context.genInfo.handleInsertInstr(index)) |insertInstr| {
@@ -83,6 +83,10 @@ pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !v
                 .Insert,
             );
             try str.appendSlice(allocator, insertedLine);
+        }
+
+        if (printSkippedChunk) {
+            totalIndex += 1;
         }
     }
 

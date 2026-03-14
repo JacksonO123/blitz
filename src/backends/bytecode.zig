@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const blitz = @import("../blitz.zig");
 const codegen = blitz.codegen;
+const utils = blitz.utils;
 const Context = blitz.context.Context;
 const vmInfo = blitz.vmInfo;
 
@@ -14,6 +15,16 @@ pub const backend: codegen.BackendInterface = .{
 const InsertionType = enum {
     Prepend,
     Append,
+};
+
+const SpillStateVariants = enum {
+    UseReg,
+    UseStack,
+};
+
+const AllocatedRegInfo = struct {
+    reg: vmInfo.TempRegister,
+    state: codegen.RegStateInfo,
 };
 
 fn initMetadata(allocator: Allocator, context: *Context) !void {
@@ -52,12 +63,12 @@ fn initMetadata(allocator: Allocator, context: *Context) !void {
         };
     }
 
-    try context.genInfo.activeRegisters.ensureTotalCapacityPrecise(
+    try context.genInfo.registerStatus.ensureTotalCapacityPrecise(
         allocator,
         context.genInfo.registerLimits.preserved.end,
     );
-    context.genInfo.activeRegisters.items.len = context.genInfo.registerLimits.preserved.end;
-    @memset(context.genInfo.activeRegisters.items, false);
+    context.genInfo.registerStatus.items.len = context.genInfo.registerLimits.preserved.end;
+    @memset(context.genInfo.registerStatus.items, .{});
 
     try context.genInfo.regAllocateUtils.regNextUseIndex.ensureTotalCapacityPrecise(
         allocator,
@@ -281,17 +292,10 @@ fn remapReg(
         regInfo.lastUsedIndex.?,
     );
 
-    if (regInfo.spilledUntil) |spilledUntil| {
-        if (spilledUntil == instrIndex) {
-            regInfo.spilledUntil = null;
-            return;
-        }
-    }
-
     if (regInfo.lastUsedIndex.? == instrIndex and
         !(regInfo.usage == .Param or regInfo.usage == .ParamNext))
     {
-        context.genInfo.activeRegisters.items[regPtr.*] = false;
+        context.genInfo.registerStatus.items[regPtr.*].active = false;
     }
 }
 
@@ -323,8 +327,8 @@ fn getRegFromUsage(
         .Param, .Return => {
             const start = context.genInfo.registerLimits.params.start;
             const end = context.genInfo.registerLimits.params.end;
-            @memset(context.genInfo.activeRegisters.items[start + 1 .. end], false);
-            context.genInfo.activeRegisters.items[0] = true;
+            @memset(context.genInfo.registerStatus.items[start + 1 .. end], .{});
+            context.genInfo.registerStatus.items[0].active = true;
             return 0;
         },
         .ParamNext, .ReturnNext => try inactiveRegFromLimits(
@@ -347,17 +351,10 @@ fn inactiveRegFromLimits(
     sp: *u64,
 ) !vmInfo.TempRegister {
     for (limits.start..limits.end) |index| {
-        const isActive = context.genInfo.activeRegisters.items[index];
-        const spillSafe = a: {
-            if (index >= context.genInfo.registers.items.len) break :a true;
-            const regInfo = context.genInfo.registers.items[index];
-            const vRegInfo = context.genInfo.registers.items[vReg];
-            const spilledUntil = regInfo.spilledUntil orelse break :a true;
-            const lastUsed = vRegInfo.lastUsedIndex orelse break :a true;
-            break :a lastUsed <= spilledUntil;
-        };
-        if (isActive or !spillSafe) continue;
-        context.genInfo.activeRegisters.items[index] = true;
+        const status = context.genInfo.registerStatus.items[index];
+        if (status.active) continue;
+
+        context.genInfo.registerStatus.items[index].active = true;
         return @intCast(index);
     }
 
@@ -373,23 +370,12 @@ fn inactiveRegFromLimits(
         },
     };
 
-    const popInstr = codegen.Instr{
-        .Load64AtSpNegOffset16 = .{
-            .reg = spillInfo.reg,
-            .offset = @intCast(toLocation),
-        },
-    };
-
     const startIndex = context.genInfo.registers.items[vReg].firstFoundIndex.?;
-    try insertInsertAction(allocator, context, .{ .instr = pushInstr, .pos = startIndex - 1 });
-    try insertInsertActionUtil(
-        allocator,
-        context,
-        .{ .instr = popInstr, .pos = spillInfo.furthestUseIndex - 1 },
-        .Prepend,
-    );
+    try insertInsertAction(allocator, context, .{
+        .instr = pushInstr,
+        .pos = startIndex - 1,
+    });
 
-    context.genInfo.registers.items[spillInfo.reg].spilledUntil = spillInfo.furthestUseIndex - 1;
     return spillInfo.reg;
 }
 
@@ -437,24 +423,24 @@ fn getIdealSpillReg(
     @memset(context.genInfo.regAllocateUtils.regNextUseIndex.items, 0);
 
     const furthestInstrReach = context.genInfo.regAllocateUtils.furthestInstrReach;
-    var i: usize = fromInstrIndex;
+    var i: usize = fromInstrIndex + 1;
     while (i <= furthestInstrReach) : (i += 1) {
         recordInstrRegUsages(context, i, limits);
     }
 
     const nextUseItems = context.genInfo.regAllocateUtils.regNextUseIndex.items;
-    var furthestUse: u32 = 0;
-    var furthestReg: vmInfo.TempRegister = 0;
+    var furthestNextUse: u32 = 0;
+    var furthestNextUseReg: vmInfo.TempRegister = 0;
     for (limits.start..limits.end) |index| {
-        if (furthestUse < nextUseItems[index]) {
-            furthestUse = nextUseItems[index];
-            furthestReg = @intCast(index);
+        if (furthestNextUse < nextUseItems[index]) {
+            furthestNextUse = nextUseItems[index];
+            furthestNextUseReg = @intCast(index);
         }
     }
 
     return .{
-        .reg = furthestReg,
-        .furthestUseIndex = furthestUse,
+        .reg = furthestNextUseReg,
+        .furthestUseIndex = furthestNextUse,
     };
 }
 
@@ -627,4 +613,99 @@ fn recordNextUsage(
     if (context.genInfo.regAllocateUtils.regNextUseIndex.items[reg] == 0) {
         context.genInfo.regAllocateUtils.regNextUseIndex.items[reg] = @intCast(instrIndex);
     }
+}
+
+test "remap reg" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const instrs = &[_]codegen.Instr{
+        codegen.Instr{
+            .SetReg32 = .{
+                .reg = 0,
+                .data = 1,
+            },
+        },
+        codegen.Instr{
+            .Mov = .{
+                .dest = 1,
+                .src = 0,
+            },
+        },
+        codegen.Instr{
+            .SetReg32 = .{
+                .reg = 2,
+                .data = 2,
+            },
+        },
+        codegen.Instr{
+            .Add = .{
+                .dest = 3,
+                .reg1 = 1,
+                .reg2 = 2,
+            },
+        },
+    };
+    const instrsPtr = try blitz.utils.createMut(std.ArrayList(codegen.Instr), allocator, .empty);
+    try instrsPtr.appendSlice(allocator, instrs);
+
+    var stdout = std.fs.File.stdout().writer(&[_]u8{});
+    defer stdout.end() catch {};
+    const writer = &stdout.interface;
+    defer writer.flush() catch {};
+
+    var context = try Context.init(allocator, "", writer, .{});
+
+    try initMetadata(allocator, &context);
+
+    context.genInfo.instrList = instrsPtr;
+    try context.genInfo.registers.ensureTotalCapacityPrecise(allocator, instrs.len);
+    context.genInfo.registers.items.len = instrs.len;
+    const info1 = try blitz.utils.createMut(codegen.RegInfo, allocator, .{
+        .firstFoundIndex = 0,
+        .lastUsedIndex = 1,
+    });
+    context.genInfo.registers.items[0] = info1;
+    const info11 = try blitz.utils.createMut(codegen.RegInfo, allocator, .{
+        .firstFoundIndex = 1,
+        .lastUsedIndex = 3,
+    });
+    context.genInfo.registers.items[1] = info11;
+    const info2 = try blitz.utils.createMut(codegen.RegInfo, allocator, .{
+        .firstFoundIndex = 2,
+        .lastUsedIndex = 3,
+    });
+    context.genInfo.registers.items[2] = info2;
+    const info3 = try blitz.utils.createMut(codegen.RegInfo, allocator, .{
+        .firstFoundIndex = 3,
+        .lastUsedIndex = 3,
+    });
+    context.genInfo.registers.items[3] = info3;
+
+    var sp: u64 = 0;
+
+    var t0 = context.genInfo.instrList.items[0].SetReg32.reg;
+    var t01 = context.genInfo.instrList.items[1].Mov.src;
+    var t02 = context.genInfo.instrList.items[1].Mov.dest;
+    var t1 = context.genInfo.instrList.items[2].SetReg32.reg;
+    var t2 = context.genInfo.instrList.items[3].Add.reg2;
+    var t3 = context.genInfo.instrList.items[3].Add.reg1;
+    var t4 = context.genInfo.instrList.items[3].Add.dest;
+
+    try remapReg(allocator, &context, &t0, 0, &sp);
+    try remapReg(allocator, &context, &t01, 1, &sp);
+    try remapReg(allocator, &context, &t02, 1, &sp);
+    try remapReg(allocator, &context, &t1, 2, &sp);
+    try remapReg(allocator, &context, &t2, 3, &sp);
+    try remapReg(allocator, &context, &t3, 3, &sp);
+    try remapReg(allocator, &context, &t4, 3, &sp);
+
+    try std.testing.expectEqual(8, t0);
+    try std.testing.expectEqual(8, t01);
+    try std.testing.expectEqual(8, t02);
+    try std.testing.expectEqual(9, t1);
+    try std.testing.expectEqual(9, t2);
+    try std.testing.expectEqual(8, t3);
+    try std.testing.expectEqual(8, t4);
 }

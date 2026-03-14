@@ -849,13 +849,40 @@ const RegInfoVarInfo = struct {
     prevInfo: ?*RegInfoVarInfo = null,
 };
 
+const RegStateVariants = enum {
+    Unused,
+    ActiveReg,
+    StoredReg,
+    SpilledReg,
+};
+
+pub const RegStateInfo = union(RegStateVariants) {
+    Unused,
+    ActiveReg: TempRegister,
+    StoredReg: u64,
+    SpilledReg: struct {
+        reg: TempRegister,
+        until: u32,
+        location: u64,
+    },
+};
+
+pub const RegState = struct {
+    prevState: ?*RegState = null,
+    info: RegStateInfo = .Unused,
+};
+
+pub const RegStatus = struct {
+    active: bool = false,
+    state: RegState = .{},
+};
+
 pub const RegInfo = struct {
     varInfo: ?RegInfoVarInfo = null,
     usage: RegisterUsage = .Temporary,
     firstFoundIndex: ?u32 = null,
     lastUsedIndex: ?u32 = null,
     regRemap: ?TempRegister = null,
-    spilledUntil: ?u32 = null,
 };
 
 const LabelInfo = struct {
@@ -1026,7 +1053,7 @@ pub const GenInfo = struct {
     byteCounter: u64,
     currentLabelId: vmInfo.LabelType,
     registers: *ArrayList(*RegInfo),
-    activeRegisters: *ArrayList(bool),
+    registerStatus: *ArrayList(RegStatus),
     registerLimits: struct {
         params: RegisterRange = .{},
         temporary: RegisterRange = .{},
@@ -1049,7 +1076,7 @@ pub const GenInfo = struct {
 
         const instrListPtr = try utils.createMut(ArrayList(Instr), allocator, .empty);
         const registersPtr = try utils.createMut(ArrayList(*RegInfo), allocator, .empty);
-        const activeRegistersPtr = try utils.createMut(ArrayList(bool), allocator, .empty);
+        const activeRegistersPtr = try utils.createMut(ArrayList(RegStatus), allocator, .empty);
 
         const regNextUseIndexPtr = try utils.createMut(ArrayList(u32), allocator, .empty);
 
@@ -1068,7 +1095,7 @@ pub const GenInfo = struct {
             .loopInfo = loopInfoPtr,
             .currentLabelId = 0,
             .registers = registersPtr,
-            .activeRegisters = activeRegistersPtr,
+            .registerStatus = activeRegistersPtr,
             .labelByteInfo = labelByteInfoPtr,
             .instrActions = try InstrActions.init(allocator),
             .regAllocateUtils = .{
@@ -1122,12 +1149,12 @@ pub const GenInfo = struct {
     ) void {
         if (self.registers.items[reg].lastUsedIndex) |lastIndex| {
             if (lastIndex == instrIndex) {
-                self.activeRegisters.items[reg] = false;
+                self.registerStatus.items[reg] = false;
                 return;
             }
         }
 
-        self.activeRegisters.items[reg] = true;
+        self.registerStatus.items[reg] = true;
     }
 
     fn setInstrRegLastUsedIndices(self: *Self, instr: *const Instr, instrIndex: usize) void {
@@ -2101,6 +2128,193 @@ pub fn codegenAst(
         return CodeGenError.MainFunctionNotFound;
     try context.genInfo.newProc(allocator);
     _ = try genBytecode(allocator, context, mainFn.body);
+
+    // VERSION 1
+    // const slice = &[_]Instr{
+    //     Instr{
+    //         .AddSp32 = 32, // ADDING SP
+    //     },
+    //     Instr{ .SetReg32 = .{
+    //         .reg = 8,
+    //         .data = 2,
+    //     } },
+    //     Instr{ .SetReg32 = .{
+    //         .reg = 9,
+    //         .data = 1,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 9,
+    //         .reg1 = 8,
+    //         .reg2 = 9,
+    //     } },
+    //     Instr{ .SetReg32 = .{
+    //         .reg = 10,
+    //         .data = 1,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 10,
+    //         .reg1 = 9,
+    //         .reg2 = 10,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 11,
+    //         .reg1 = 9,
+    //         .reg2 = 10,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 11,
+    //         .reg1 = 8,
+    //         .reg2 = 11,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 12,
+    //         .reg1 = 10,
+    //         .reg2 = 11,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 12,
+    //         .reg1 = 9,
+    //         .reg2 = 12,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 12,
+    //         .reg1 = 8,
+    //         .reg2 = 12,
+    //     } },
+    //     Instr{
+    //         .Store64AtSpNegOffset16 = .{
+    //             .reg = 11,
+    //             .offset = 32, // FIRST
+    //         },
+    //     },
+    //     Instr{ .Add = .{
+    //         .dest = 11,
+    //         .reg1 = 11,
+    //         .reg2 = 12,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 11,
+    //         .reg1 = 10,
+    //         .reg2 = 11,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 11,
+    //         .reg1 = 9,
+    //         .reg2 = 11,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 11,
+    //         .reg1 = 8,
+    //         .reg2 = 11,
+    //     } },
+    //     Instr{
+    //         .Store64AtSpNegOffset16 = .{
+    //             .reg = 11,
+    //             .offset = 24, // SECOND X = sp - 24
+    //         },
+    //     },
+    //     Instr{
+    //         .Store64AtSpNegOffset16 = .{
+    //             .reg = 12,
+    //             .offset = 16, // THIRD
+    //         },
+    //     },
+    //     Instr{ .Add = .{
+    //         .dest = 12,
+    //         .reg1 = 12,
+    //         .reg2 = 11,
+    //     } },
+    //     Instr{
+    //         .Load64AtSpNegOffset16 = .{
+    //             .reg = 11,
+    //             .offset = 32, // LOAD 1
+    //         },
+    //     },
+    //     Instr{ .Add = .{
+    //         .dest = 12,
+    //         .reg1 = 11,
+    //         .reg2 = 12,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 12,
+    //         .reg1 = 10,
+    //         .reg2 = 12,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 12,
+    //         .reg1 = 9,
+    //         .reg2 = 12,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 12,
+    //         .reg1 = 8,
+    //         .reg2 = 12,
+    //     } },
+    //     Instr{
+    //         .Store64AtSpNegOffset16 = .{
+    //             .reg = 8,
+    //             .offset = 8, // FOURTH
+    //         },
+    //     },
+    //     Instr{
+    //         .Load64AtSpNegOffset16 = .{
+    //             .reg = 8,
+    //             .offset = 24, // LOAD 2
+    //         },
+    //     },
+    //     Instr{ .Add = .{
+    //         .dest = 8,
+    //         .reg1 = 8,
+    //         .reg2 = 12,
+    //     } },
+    //     Instr{
+    //         .Load64AtSpNegOffset16 = .{
+    //             .reg = 12,
+    //             .offset = 16, // LOAD 3
+    //         },
+    //     },
+    //     Instr{ .Add = .{
+    //         .dest = 8,
+    //         .reg1 = 12,
+    //         .reg2 = 8,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 8,
+    //         .reg1 = 11,
+    //         .reg2 = 8,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 8,
+    //         .reg1 = 10,
+    //         .reg2 = 8,
+    //     } },
+    //     Instr{ .Add = .{
+    //         .dest = 9,
+    //         .reg1 = 9,
+    //         .reg2 = 8,
+    //     } },
+    //     Instr{
+    //         .Load64AtSpNegOffset16 = .{
+    //             .reg = 8,
+    //             .offset = 8, // LOAD 4
+    //         },
+    //     },
+    //     Instr{ .Add = .{
+    //         .dest = 8,
+    //         .reg1 = 8,
+    //         .reg2 = 9,
+    //     } },
+    //     Instr{
+    //         .SubSp32 = 32, // SUB SP
+    //     },
+    //     Instr{ .End = {} },
+    // };
+
+    // const listPtr = try utils.createMut(ArrayList(Instr), allocator, .empty);
+    // try listPtr.appendSlice(allocator, slice);
+
+    // context.genInfo.instrList = listPtr;
+
     try context.genInfo.finishProc(allocator, context, true, backend);
     try codegenFunctions(allocator, context, backend);
 }

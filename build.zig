@@ -15,6 +15,7 @@ pub fn build(b: *std.Build) void {
 
     const blitzModule = b.addModule("blitz", .{
         .root_source_file = b.path("src/blitz.zig"),
+        .target = target,
     });
 
     const compilerExe = b.addExecutable(.{
@@ -65,6 +66,15 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(objdumpExe);
     b.installArtifact(interpreterExe);
     b.installArtifact(diffExe);
+
+    const unitTests = b.addTest(.{
+        .root_module = blitzModule,
+    });
+
+    const runUnitTests = b.addRunArtifact(unitTests);
+
+    const testStep = b.step("test", "Run unit tests");
+    testStep.dependOn(&runUnitTests.step);
 
     const runCompilerExe = b.addRunArtifact(compilerExe);
     const runCompilerStep = b.step("run-compiler", "Run the compiler");
