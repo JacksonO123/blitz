@@ -107,7 +107,8 @@ fn flushPendingDeactivations(context: *Context) void {
 }
 
 fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize, sp: *u64) !void {
-    context.genInfo.regAllocateUtils.protectedRegisters.clear();
+    defer flushPendingDeactivations(context);
+
     const instr = &context.genInfo.instrList.items[instrIndex];
     switch (instr.*) {
         .NoOp,
@@ -277,7 +278,6 @@ fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize, sp: *u
         },
     }
 
-    flushPendingDeactivations(context);
     try handleMaybeSkipInstruction(context, allocator, instrIndex);
 }
 
@@ -310,7 +310,8 @@ fn remapReg(
         .Unused => {
             regPtr.* = try handleNewRegRemap(allocator, context, regInfo, regPtr, instrIndex, sp);
         },
-        .Normal => |remap| {
+        .Normal => |remap| a: {
+            @branchHint(.likely);
             const regStatus = &context.genInfo.registerStatus.items[remap];
             var remapState = &regStatus.state;
 
@@ -343,39 +344,40 @@ fn remapReg(
                 });
 
                 regPtr.* = reg;
-            } else {
-                while (remapState.info != .Normal) {
-                    switch (remapState.info) {
-                        .Unused, .Normal => break,
-                        .Spilled => |*info| {
-                            try handleStoreSpilledReg(
-                                allocator,
-                                context,
-                                regInfo,
-                                instrIndex,
-                                info.*,
-                                sp,
-                            );
-
-                            const popInstr = codegen.Instr{
-                                .Load64AtSpNegOffset16 = .{
-                                    .reg = info.reg,
-                                    .offset = @intCast(info.location),
-                                },
-                            };
-                            try insertInsertAction(allocator, context, .{
-                                .instr = popInstr,
-                                .pos = @intCast(instrIndex - 1),
-                            });
-
-                            context.genInfo.registerStatus.items[remap].state =
-                                remapState.prevState.?.*;
-                        },
-                    }
-                }
-
-                regPtr.* = remap;
+                break :a;
             }
+
+            while (remapState.info != .Normal) {
+                switch (remapState.info) {
+                    .Unused, .Normal => break,
+                    .Spilled => |*info| {
+                        try handleStoreSpilledReg(
+                            allocator,
+                            context,
+                            regInfo,
+                            instrIndex,
+                            info.*,
+                            sp,
+                        );
+
+                        const popInstr = codegen.Instr{
+                            .Load64AtSpNegOffset16 = .{
+                                .reg = info.reg,
+                                .offset = @intCast(info.location),
+                            },
+                        };
+                        try insertInsertAction(allocator, context, .{
+                            .instr = popInstr,
+                            .pos = @intCast(instrIndex - 1),
+                        });
+
+                        context.genInfo.registerStatus.items[remap].state =
+                            remapState.prevState.?.*;
+                    },
+                }
+            }
+
+            regPtr.* = remap;
         },
         .Spilled => |spillInfo| a: {
             const regStatus = &context.genInfo.registerStatus.items[spillInfo.reg];
@@ -384,6 +386,7 @@ fn remapReg(
             if (remapState.info == .Spilled and regStatus.active and
                 remapState.info.Spilled.by != spillInfo.byVReg)
             {
+                @branchHint(.cold);
                 var location: ?u64 = null;
                 var stateIter: *codegen.RegState = remapState;
                 while (stateIter.info == .Spilled) {
@@ -424,6 +427,7 @@ fn remapReg(
             }
 
             while (remapState.info != .Normal) {
+                @branchHint(.cold);
                 switch (remapState.info) {
                     .Unused, .Normal => unreachable,
                     .Spilled => |*info| {
@@ -542,6 +546,7 @@ fn handleNewRegRemap(
 
     switch (regResult) {
         .Normal => |reg| {
+            @branchHint(.likely);
             const resRegState = &context.genInfo.registerStatus.items[reg].state.info;
 
             switch (resRegState.*) {
@@ -627,7 +632,17 @@ fn getRegFromUsage(
     instrIndex: usize,
     regInfo: *codegen.RegInfo,
 ) !InactiveRegResult {
-    switch (regInfo.usage) {
+    return switch (regInfo.usage) {
+        .Temporary => try inactiveRegFromLimits(
+            context,
+            instrIndex,
+            context.genInfo.registerLimits.temporary,
+        ),
+        .Preserved => try inactiveRegFromLimits(
+            context,
+            instrIndex,
+            context.genInfo.registerLimits.preserved,
+        ),
         .Param, .Return => {
             const start = context.genInfo.registerLimits.params.start;
             const end = context.genInfo.registerLimits.params.end;
@@ -635,15 +650,12 @@ fn getRegFromUsage(
             context.genInfo.registerStatus.items[0].active = true;
             return .{ .Normal = 0 };
         },
-        else => {
-            const limits = getRegLimitsFromUsage(context, regInfo);
-            return try inactiveRegFromLimits(
-                context,
-                instrIndex,
-                limits,
-            );
-        },
-    }
+        .ParamNext, .ReturnNext => try inactiveRegFromLimits(
+            context,
+            instrIndex,
+            context.genInfo.registerLimits.params,
+        ),
+    };
 }
 
 fn inactiveRegFromLimits(
