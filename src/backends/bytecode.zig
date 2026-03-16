@@ -443,9 +443,25 @@ fn handleStoreSpilledReg(
                     .location = storeLocation,
                 },
             };
-        }
+        } else {
+            const storeInstr = codegen.Instr{
+                .Store64AtSpNegOffset16 = .{
+                    .reg = state.reg,
+                    .offset = @intCast(storeLocation),
+                },
+            };
+            try insertInsertAction(allocator, context, .{
+                .instr = storeInstr,
+                .pos = @intCast(instrIndex - 1),
+            });
 
-        // TODO - if another is available for reg lifetime, use that
+            spilledByRegInfo.regRemap = .{
+                .Spilled = .{
+                    .reg = state.reg,
+                    .byVReg = spillInfo.by,
+                },
+            };
+        }
     }
 }
 
