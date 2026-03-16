@@ -831,7 +831,7 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
         context.genInfo.byteCounter, vmInfo.VM_INFO_BYTECODE_LEN,
     });
 
-    context.genInfo.instrActions.resetPtrs();
+    context.genInfo.instrActions.resetIter();
 }
 
 pub const ChunkPrintFmtSettings = struct {

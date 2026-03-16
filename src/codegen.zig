@@ -52,12 +52,21 @@ pub const BackendInterface = struct {
 };
 
 const RegisterUsage = enum {
+    const Self = @This();
+
     Param,
     ParamNext,
     Return,
     ReturnNext,
     Preserved,
     Temporary,
+
+    pub fn isParam(self: Self) bool {
+        return switch (self) {
+            .Param, .ParamNext => true,
+            else => false,
+        };
+    }
 };
 
 const LoopCondInfo = struct {
@@ -851,20 +860,21 @@ const RegInfoVarInfo = struct {
 
 const RegStateVariants = enum {
     Unused,
-    ActiveReg,
-    StoredReg,
-    SpilledReg,
+    Normal,
+    Spilled,
+};
+
+pub const RegStateSpilled = struct {
+    by: TempRegister,
+    reg: TempRegister,
+    until: u32,
+    location: u64,
 };
 
 pub const RegStateInfo = union(RegStateVariants) {
     Unused,
-    ActiveReg: TempRegister,
-    StoredReg: u64,
-    SpilledReg: struct {
-        reg: TempRegister,
-        until: u32,
-        location: u64,
-    },
+    Normal: TempRegister,
+    Spilled: RegStateSpilled,
 };
 
 pub const RegState = struct {
@@ -877,12 +887,85 @@ pub const RegStatus = struct {
     state: RegState = .{},
 };
 
+pub const RegUseIndices = struct {
+    const Self = @This();
+
+    indices: *ArrayList(u32),
+    baseIndex: usize = 0,
+    currentIndex: usize = 0,
+
+    pub fn init(allocator: Allocator) !Self {
+        const indicesPtr = try utils.createMut(ArrayList(u32), allocator, .empty);
+        return .{ .indices = indicesPtr };
+    }
+
+    /// should only ever be called with at least one index
+    pub fn first(self: Self) u32 {
+        return self.indices.items[0];
+    }
+
+    /// should only ever be called with at least one index
+    pub fn last(self: Self) u32 {
+        return self.indices.items[self.indices.items.len - 1];
+    }
+
+    pub fn current(self: Self) ?u32 {
+        if (self.currentIndex >= self.indices.items.len) return null;
+        return self.indices.items[self.currentIndex];
+    }
+
+    pub fn baseNext(self: *Self) void {
+        self.baseIndex += 1;
+        self.currentIndex = self.baseIndex;
+    }
+
+    pub fn next(self: *Self) void {
+        self.currentIndex += 1;
+    }
+
+    pub fn resetIter(self: *Self) void {
+        self.currentIndex = self.baseIndex;
+    }
+};
+
+const RegRemapStateVariants = enum {
+    Unused,
+    Normal,
+    Stored,
+    Spilled,
+};
+
+const RegRemap = union(RegRemapStateVariants) {
+    Unused,
+    Normal: vmInfo.TempRegister,
+    Stored: struct {
+        byVReg: vmInfo.TempRegister,
+        location: u64,
+    },
+    Spilled: struct {
+        byVReg: vmInfo.TempRegister,
+        reg: vmInfo.TempRegister,
+    },
+};
+
 pub const RegInfo = struct {
+    const Self = @This();
+
     varInfo: ?RegInfoVarInfo = null,
     usage: RegisterUsage = .Temporary,
-    firstFoundIndex: ?u32 = null,
-    lastUsedIndex: ?u32 = null,
-    regRemap: ?TempRegister = null,
+    useIndices: RegUseIndices,
+    regRemap: RegRemap = .Unused,
+
+    pub fn init(allocator: Allocator) !Self {
+        return .{ .useIndices = try RegUseIndices.init(allocator) };
+    }
+
+    pub fn initWithUsage(allocator: Allocator, usage: RegisterUsage) !Self {
+        return .{
+            .usage = usage,
+            .useIndices = try RegUseIndices.init(allocator),
+        };
+    }
 };
 
 const LabelInfo = struct {
@@ -1032,7 +1115,7 @@ pub const InstrActions = struct {
         };
     }
 
-    pub fn resetPtrs(self: *Self) void {
+    pub fn resetIter(self: *Self) void {
         self.skipInstrInfo.current = 0;
         self.insertInstrInfo.current = 0;
     }
@@ -1124,7 +1207,7 @@ pub const GenInfo = struct {
             }
         }
 
-        self.instrActions.resetPtrs();
+        self.instrActions.resetIter();
     }
 
     pub fn appendChunk(self: *Self, allocator: Allocator, instr: Instr) !void {
@@ -1134,7 +1217,7 @@ pub const GenInfo = struct {
     pub fn appendChunkAndReturn(self: *Self, allocator: Allocator, instr: Instr) !*Instr {
         try self.instrList.append(allocator, instr);
         const instrIndex = self.instrList.items.len - 1;
-        self.setInstrRegLastUsedIndices(&self.instrList.items[instrIndex], instrIndex);
+        try self.setInstrRegUseIndex(allocator, &self.instrList.items[instrIndex], instrIndex);
         return &self.instrList.items[instrIndex];
     }
 
@@ -1157,28 +1240,32 @@ pub const GenInfo = struct {
         self.registerStatus.items[reg] = true;
     }
 
-    fn setInstrRegLastUsedIndices(self: *Self, instr: *const Instr, instrIndex: usize) void {
-        self.applyRegIndexFnToInstr(usize, instr, instrIndex, setRegLastUsedIndex);
+    fn setInstrRegUseIndex(
+        self: *Self,
+        allocator: Allocator,
+        instr: *const Instr,
+        instrIndex: usize,
+    ) !void {
+        try self.applyRegIndexFnToInstr(usize, allocator, instr, instrIndex, addRegUseIndex);
     }
 
-    fn setRegLastUsedIndex(
+    fn addRegUseIndex(
         self: *Self,
+        allocator: Allocator,
         reg: TempRegister,
         instrIndex: usize,
-    ) void {
-        if (self.registers.items[reg].firstFoundIndex == null) {
-            self.registers.items[reg].firstFoundIndex = @intCast(instrIndex);
-        }
-        self.registers.items[reg].lastUsedIndex = @intCast(instrIndex);
+    ) !void {
+        try self.registers.items[reg].useIndices.indices.append(allocator, @intCast(instrIndex));
     }
 
     pub fn applyRegIndexFnToInstr(
         self: *Self,
         comptime T: type,
+        allocator: Allocator,
         instr: *const Instr,
         value: T,
-        comptime func: fn (*Self, TempRegister, T) void,
-    ) void {
+        comptime func: fn (*Self, Allocator, TempRegister, T) Allocator.Error!void,
+    ) !void {
         switch (instr.*) {
             .NoOp,
             .Label,
@@ -1231,26 +1318,26 @@ pub const GenInfo = struct {
             .PostPopLRNegOffset64,
             => {},
 
-            .SetReg64 => |inner| func(self, inner.reg, value),
-            .SetReg32 => |inner| func(self, inner.reg, value),
-            .SetReg16 => |inner| func(self, inner.reg, value),
-            .SetReg8 => |inner| func(self, inner.reg, value),
+            .SetReg64 => |inner| try func(self, allocator, inner.reg, value),
+            .SetReg32 => |inner| try func(self, allocator, inner.reg, value),
+            .SetReg16 => |inner| try func(self, allocator, inner.reg, value),
+            .SetReg8 => |inner| try func(self, allocator, inner.reg, value),
             .Add, .Sub, .Mult => |inner| {
-                func(self, inner.reg1, value);
-                func(self, inner.reg2, value);
-                func(self, inner.dest, value);
+                try func(self, allocator, inner.reg1, value);
+                try func(self, allocator, inner.reg2, value);
+                try func(self, allocator, inner.dest, value);
             },
             .Add8, .Sub8 => |inner| {
-                func(self, inner.reg, value);
-                func(self, inner.dest, value);
+                try func(self, allocator, inner.reg, value);
+                try func(self, allocator, inner.dest, value);
             },
             .Add16, .Sub16 => |inner| {
-                func(self, inner.reg, value);
-                func(self, inner.dest, value);
+                try func(self, allocator, inner.reg, value);
+                try func(self, allocator, inner.dest, value);
             },
             .Cmp => |inner| {
-                func(self, inner.reg1, value);
-                func(self, inner.reg2, value);
+                try func(self, allocator, inner.reg1, value);
+                try func(self, allocator, inner.reg2, value);
             },
             .CmpSetRegEQ,
             .CmpSetRegNE,
@@ -1259,40 +1346,40 @@ pub const GenInfo = struct {
             .CmpSetRegGTE,
             .CmpSetRegLTE,
             => |inner| {
-                func(self, inner.reg1, value);
-                func(self, inner.reg2, value);
-                func(self, inner.dest, value);
+                try func(self, allocator, inner.reg1, value);
+                try func(self, allocator, inner.reg2, value);
+                try func(self, allocator, inner.dest, value);
             },
             .CmpConst8, .IncConst8, .DecConst8 => |inner| {
-                func(self, inner.reg, value);
+                try func(self, allocator, inner.reg, value);
             },
             .Mov => |inner| {
-                func(self, inner.src, value);
-                func(self, inner.dest, value);
+                try func(self, allocator, inner.src, value);
+                try func(self, allocator, inner.dest, value);
             },
-            .MovSpNegOffset16 => |inner| func(self, inner.reg, value),
-            .MovSpNegOffset32 => |inner| func(self, inner.reg, value),
-            .MovSpNegOffset64, .MovSpNegOffsetAny => |inner| func(self, inner.reg, value),
+            .MovSpNegOffset16 => |inner| try func(self, allocator, inner.reg, value),
+            .MovSpNegOffset32 => |inner| try func(self, allocator, inner.reg, value),
+            .MovSpNegOffset64, .MovSpNegOffsetAny => |inner| try func(self, allocator, inner.reg, value),
             .Xor, .BitAnd, .BitOr, .AndSetReg, .OrSetReg => |inner| {
-                func(self, inner.reg1, value);
-                func(self, inner.reg2, value);
-                func(self, inner.dest, value);
+                try func(self, allocator, inner.reg1, value);
+                try func(self, allocator, inner.reg2, value);
+                try func(self, allocator, inner.dest, value);
             },
             .XorConst8 => |inner| {
-                func(self, inner.reg, value);
-                func(self, inner.dest, value);
+                try func(self, allocator, inner.reg, value);
+                try func(self, allocator, inner.dest, value);
             },
             .Store64AtReg, .Store32AtReg, .Store16AtReg, .Store8AtReg => |inner| {
-                func(self, inner.fromReg, value);
-                func(self, inner.toRegPtr, value);
+                try func(self, allocator, inner.fromReg, value);
+                try func(self, allocator, inner.toRegPtr, value);
             },
             .Store64AtRegPostInc16,
             .Store32AtRegPostInc16,
             .Store16AtRegPostInc16,
             .Store8AtRegPostInc16,
             => |inner| {
-                func(self, inner.fromReg, value);
-                func(self, inner.toRegPtr, value);
+                try func(self, allocator, inner.fromReg, value);
+                try func(self, allocator, inner.toRegPtr, value);
             },
             .Store64AtSpNegOffset16,
             .Store32AtSpNegOffset16,
@@ -1303,28 +1390,28 @@ pub const GenInfo = struct {
             .Load16AtSpNegOffset16,
             .Load8AtSpNegOffset16,
             => |inner| {
-                func(self, inner.reg, value);
+                try func(self, allocator, inner.reg, value);
             },
             .Load64AtRegOffset16,
             .Load32AtRegOffset16,
             .Load16AtRegOffset16,
             .Load8AtRegOffset16,
             => |inner| {
-                func(self, inner.fromRegPtr, value);
-                func(self, inner.dest, value);
+                try func(self, allocator, inner.fromRegPtr, value);
+                try func(self, allocator, inner.dest, value);
             },
             .Load64AtReg, .Load32AtReg, .Load16AtReg, .Load8AtReg => |inner| {
-                func(self, inner.fromRegPtr, value);
-                func(self, inner.dest, value);
+                try func(self, allocator, inner.fromRegPtr, value);
+                try func(self, allocator, inner.dest, value);
             },
             .MulReg16AddReg => |inner| {
-                func(self, inner.addReg, value);
-                func(self, inner.mulReg, value);
-                func(self, inner.dest, value);
+                try func(self, allocator, inner.addReg, value);
+                try func(self, allocator, inner.mulReg, value);
+                try func(self, allocator, inner.dest, value);
             },
             .And, .Or => |inner| {
-                func(self, inner.reg1, value);
-                func(self, inner.reg2, value);
+                try func(self, allocator, inner.reg1, value);
+                try func(self, allocator, inner.reg2, value);
             },
         }
     }
@@ -1344,7 +1431,11 @@ pub const GenInfo = struct {
         allocator: Allocator,
         usage: RegisterUsage,
     ) !TempRegister {
-        const regInfoPtr = try utils.createMut(RegInfo, allocator, .{ .usage = usage });
+        const regInfoPtr = try utils.createMut(
+            RegInfo,
+            allocator,
+            try RegInfo.initWithUsage(allocator, usage),
+        );
         try self.registers.append(allocator, regInfoPtr);
         return @intCast(self.registers.items.len - 1);
     }
@@ -1359,7 +1450,7 @@ pub const GenInfo = struct {
         name: []const u8,
         reg: TempRegister,
     ) !void {
-        const regInfo = try utils.createMut(RegInfo, allocator, .{});
+        const regInfo = try utils.createMut(RegInfo, allocator, try RegInfo.init(allocator));
 
         try self.varNameToReg.put(name, reg);
         if (self.registers.items[reg].varInfo) |*varInfo| {
@@ -1779,8 +1870,8 @@ fn adjustProc(
                 var procReg: usize = context.genInfo.currentProc.preProcVirtualReg;
                 while (procReg < context.genInfo.registers.items.len) : (procReg += 1) {
                     const regInfo = context.genInfo.registers.items[procReg];
-                    const firstFound = regInfo.firstFoundIndex orelse continue;
-                    const lastUsed = regInfo.lastUsedIndex orelse continue;
+                    const firstFound = regInfo.useIndices.first();
+                    const lastUsed = regInfo.useIndices.last();
 
                     if (firstFound < i and i < lastUsed) {
                         context.genInfo.registers.items[procReg].usage = .Preserved;
@@ -1841,7 +1932,7 @@ fn adjustProc(
 
     try adjustInstructions(allocator, context, instrs, instrStartIndex, frameSize.*, stackOffset);
 
-    context.genInfo.instrActions.resetPtrs();
+    context.genInfo.instrActions.resetIter();
     context.genInfo.currentProc.preProcVirtualReg = @intCast(context.genInfo.registers.items.len);
 }
 

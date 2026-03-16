@@ -91,7 +91,7 @@ pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !v
     }
 
     try writer.writeAll(str.items);
-    context.genInfo.instrActions.resetPtrs();
+    context.genInfo.instrActions.resetIter();
 }
 
 fn setRegUsed(genInfo: *codegen.GenInfo, reg: vmInfo.TempRegister, payload: *RegUsedPayload) void {
