@@ -135,3 +135,26 @@ pub fn searchFlagMap(
     }
     return null;
 }
+
+pub fn StaticBufferList(comptime T: type, comptime size: comptime_int) type {
+    return struct {
+        const Self = @This();
+
+        buf: [size]T = undefined,
+        count: usize = 0,
+
+        pub fn push(self: *Self, val: T) void {
+            if (self.count >= size) return;
+            self.buf[self.count] = val;
+            self.count += 1;
+        }
+
+        pub fn clear(self: *Self) void {
+            self.count = 0;
+        }
+
+        pub fn getSliceFromStart(self: Self) []const T {
+            return self.buf[0..self.count];
+        }
+    };
+}

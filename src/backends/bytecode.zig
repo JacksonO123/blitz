@@ -103,18 +103,15 @@ fn allocateRegisters(
 }
 
 fn flushPendingDeactivations(context: *Context) void {
-    const count = context.genInfo.regAllocateUtils.pendingDeactivationCount;
-    for (context.genInfo.regAllocateUtils.pendingDeactivations[0..count]) |reg| {
+    for (context.genInfo.regAllocateUtils.pendingDeactivations.getSliceFromStart()) |reg| {
         context.genInfo.registerStatus.items[reg].active = false;
     }
-    context.genInfo.regAllocateUtils.pendingDeactivationCount = 0;
-    // Clear protected registers: the flush runs between source and dest operands,
-    // so the dest can safely reuse source registers (reads happen before writes).
-    context.genInfo.regAllocateUtils.protectedRegisterCount = 0;
+    context.genInfo.regAllocateUtils.pendingDeactivations.clear();
+    context.genInfo.regAllocateUtils.protectedRegisters.clear();
 }
 
 fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize, sp: *u64) !void {
-    context.genInfo.regAllocateUtils.protectedRegisterCount = 0;
+    context.genInfo.regAllocateUtils.protectedRegisters.clear();
     const instr = &context.genInfo.instrList.items[instrIndex];
     switch (instr.*) {
         .NoOp,
@@ -477,9 +474,7 @@ fn remapReg(
 
     // Mark this physical register as protected so it won't be chosen as a
     // spill target by other operands of the same instruction.
-    const pCount = &context.genInfo.regAllocateUtils.protectedRegisterCount;
-    context.genInfo.regAllocateUtils.protectedRegisters[pCount.*] = regPtr.*;
-    pCount.* += 1;
+    context.genInfo.regAllocateUtils.protectedRegisters.push(regPtr.*);
 
     regInfo.useIndices.baseNext();
     const lastUseIndex = regInfo.useIndices.last();
@@ -490,9 +485,7 @@ fn remapReg(
     );
 
     if (lastUseIndex == instrIndex and !regInfo.usage.isParam()) {
-        const count = &context.genInfo.regAllocateUtils.pendingDeactivationCount;
-        context.genInfo.regAllocateUtils.pendingDeactivations[count.*] = regPtr.*;
-        count.* += 1;
+        context.genInfo.regAllocateUtils.pendingDeactivations.push(regPtr.*);
     }
 }
 
@@ -726,7 +719,7 @@ fn getIdealSpillReg(
     );
 
     const nextUseItems = context.genInfo.regAllocateUtils.regNextUseIndex.items;
-    const protectedRegs = context.genInfo.regAllocateUtils.protectedRegisters[0..context.genInfo.regAllocateUtils.protectedRegisterCount];
+    const protectedRegs = context.genInfo.regAllocateUtils.protectedRegisters.getSliceFromStart();
     var furthestNextUse: u32 = 0;
     var furthestNextUseReg: vmInfo.TempRegister = 0;
     for (limits.start..limits.end) |index| {
