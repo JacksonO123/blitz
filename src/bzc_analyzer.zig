@@ -22,11 +22,11 @@ pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !v
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    context.genInfo.activeRegisters.items.len = @max(
+    context.genInfo.registerStatus.items.len = @max(
         context.genInfo.registerLimits.preserved.end,
         context.genInfo.registers.items.len,
     );
-    @memset(context.genInfo.activeRegisters.items, false);
+    @memset(context.genInfo.registerStatus.items, false);
 
     const numDigits = utils.getNumberDigitCount(u64, context.genInfo.byteCounter);
     const numInstrLenDigits = utils.getNumberDigitCount(u8, codegen.Instr.maxInstrSize());
@@ -54,7 +54,8 @@ pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !v
         if (instr.* == .NoOp and !context.settings.debug.printNoOps) continue;
 
         const skipped = context.genInfo.handleSkipInstruction(index);
-        if (!skipped or context.settings.debug.printSkippedInstrs) {
+        const printSkippedChunk = !skipped or context.settings.debug.printSkippedInstrs;
+        if (printSkippedChunk) {
             const line = try fmtAnalysisLine(
                 allocator,
                 context,
@@ -67,7 +68,6 @@ pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !v
                 if (skipped) .Skip else null,
             );
             try str.appendSlice(allocator, line);
-            totalIndex += 1;
         }
 
         while (context.genInfo.handleInsertInstr(index)) |insertInstr| {
@@ -84,10 +84,14 @@ pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !v
             );
             try str.appendSlice(allocator, insertedLine);
         }
+
+        if (printSkippedChunk) {
+            totalIndex += 1;
+        }
     }
 
     try writer.writeAll(str.items);
-    context.genInfo.instrActions.resetPtrs();
+    context.genInfo.instrActions.resetIter();
 }
 
 fn setRegUsed(genInfo: *codegen.GenInfo, reg: vmInfo.TempRegister, payload: *RegUsedPayload) void {
@@ -128,7 +132,7 @@ fn fmtAnalysisLine(
             @intCast(reg),
         ) != null;
 
-        if (context.genInfo.activeRegisters.items[reg] or
+        if (context.genInfo.registerStatus.items[reg] or
             (instrIndex == lastFound and found))
         {
             const slice = if (found) "X" ++ SPACING else "|" ++ SPACING;

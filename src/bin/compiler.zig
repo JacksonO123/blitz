@@ -118,9 +118,9 @@ pub fn compile(
         // _ = fileWriter;
         try codegen.codegenAst(allocator, &context, .Bytecode);
 
-        if (printState == .All) {
-            try blitz.analyzer.analyze(allocator, &context, printWriter);
-        }
+        // if (printState == .All) {
+        //     try blitz.analyzer.analyze(allocator, &context, printWriter);
+        // }
 
         if (printState == .All) {
             try printWriter.writeAll("\n------------\n\n");

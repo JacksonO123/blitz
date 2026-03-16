@@ -66,16 +66,16 @@ pub fn calculatePadding(stackLocation: u64, alignment: u8) u8 {
 
 test "Calculate padding" {
     const p1 = calculatePadding(0, 1);
-    try std.testing.expectEqual(0, p1.padding);
+    try std.testing.expectEqual(0, p1);
 
     const p2 = calculatePadding(1, 1);
-    try std.testing.expectEqual(0, p2.padding);
+    try std.testing.expectEqual(0, p2);
 
     const p3 = calculatePadding(1, 2);
-    try std.testing.expectEqual(1, p3.padding);
+    try std.testing.expectEqual(1, p3);
 
     const p4 = calculatePadding(2, 2);
-    try std.testing.expectEqual(0, p4.padding);
+    try std.testing.expectEqual(0, p4);
 }
 
 const FlagInfo = struct { []const u8, usize };

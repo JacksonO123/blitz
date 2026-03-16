@@ -796,7 +796,8 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
         if (instr == .NoOp and !context.settings.debug.printNoOps) continue;
 
         const skipped = context.genInfo.handleSkipInstruction(index);
-        if (!skipped or context.settings.debug.printSkippedInstrs) {
+        const printSkippedChunk = !skipped or context.settings.debug.printSkippedInstrs;
+        if (printSkippedChunk) {
             byteCounter += try printChunkDetailed(
                 instr,
                 totalIndex,
@@ -805,7 +806,6 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
                 writer,
                 if (skipped) .Skip else null,
             );
-            totalIndex += 1;
         }
 
         while (context.genInfo.handleInsertInstr(index)) |insertedInstr| {
@@ -821,13 +821,17 @@ pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
                 .Insert,
             );
         }
+
+        if (printSkippedChunk) {
+            totalIndex += 1;
+        }
     }
 
     try writer.print("total bytes: {d} ({d} vm info)\n", .{
         context.genInfo.byteCounter, vmInfo.VM_INFO_BYTECODE_LEN,
     });
 
-    context.genInfo.instrActions.resetPtrs();
+    context.genInfo.instrActions.resetIter();
 }
 
 pub const ChunkPrintFmtSettings = struct {
