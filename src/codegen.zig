@@ -649,12 +649,14 @@ pub const InstructionVariants = enum(u8) {
     SetReg8 = 5, // inst, reg, 1B data
 
     Add = 6, // inst, out reg, reg1, reg2
-    Add8 = 7, // inst, out reg, reg1, 1B data
-    Add16 = 8, // inst, out reg, reg1, 2B data
-    Sub = 9, // inst, out reg, reg1, reg2
+    Sub = 7, // inst, out reg, reg1, reg2
+    Mult = 8, // inst, out reg, reg1, reg2
+
+    Add8 = 9, // inst, out reg, reg1, 1B data
     Sub8 = 10, // inst, out reg, reg1, 1B data
-    Sub16 = 11, // inst, out reg, reg1, 2B data
-    Mult = 12, // inst, out reg, reg1, reg2
+
+    Add16 = 11, // inst, out reg, reg1, 2B data
+    Sub16 = 12, // inst, out reg, reg1, 2B data
 
     Jump = 13, // inst, 4B data
     JumpEQ = 14, // inst, 4B data
@@ -960,12 +962,14 @@ pub const Instr = union(InstructionVariants) {
     SetReg8: SetRegInstr(u8),
 
     Add: MathInstr,
-    Add8: OneOpResultInstr(u8),
-    Add16: OneOpResultInstr(u16),
     Sub: MathInstr,
-    Sub8: OneOpResultInstr(u8),
-    Sub16: OneOpResultInstr(u16),
     Mult: MathInstr,
+
+    Add8: OneOpResultInstr(u8),
+    Sub8: OneOpResultInstr(u8),
+
+    Add16: OneOpResultInstr(u16),
+    Sub16: OneOpResultInstr(u16),
 
     // must be u64 because stores absolute byte position
     Jump: u64,
@@ -3334,11 +3338,6 @@ pub fn genBytecodeUtil(
             const srcReg = try genBytecode(allocator, context, set.setNode) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
 
-            const dbgInstr = Instr{
-                .DbgReg = destReg,
-            };
-            try context.genInfo.appendChunk(allocator, dbgInstr);
-
             const instr = if (isDeref or
                 set.value.variant == .IndexValue or
                 set.value.variant == .PropertyAccess)
@@ -3775,6 +3774,11 @@ pub fn genBytecodeUtil(
                 node.typeInfo.alignment,
             );
 
+            const dbg1 = Instr{
+                .DbgReg = reg,
+            };
+            try context.genInfo.appendChunk(allocator, dbg1);
+
             const mulAdd = Instr{
                 .MulReg16AddReg = .{
                     .dest = reg,
@@ -3784,6 +3788,11 @@ pub fn genBytecodeUtil(
                 },
             };
             try context.genInfo.appendChunk(allocator, mulAdd);
+
+            const dbg2 = Instr{
+                .DbgReg = reg,
+            };
+            try context.genInfo.appendChunk(allocator, dbg2);
 
             if (context.genInfo.settings.propertyAccessReturnsPointer) {
                 return reg;
@@ -4011,7 +4020,9 @@ fn calculateAccessOffset(
                 allocator,
                 context,
                 accessNode.value,
-                offset + @as(u16, @intCast(loc)),
+                offset +
+                    @as(u16, @intCast(loc)) +
+                    if (node.typeInfo.isSlice) @as(u16, vmInfo.POINTER_SIZE * 2) else 0,
             );
         },
         .IndexValue => |indexNode| {
@@ -4045,27 +4056,24 @@ fn calculateAccessOffset(
                 return CodeGenError.ReturnedRegisterNotFound;
 
             const isVar = context.genInfo.isRegVariable(reg);
-            const outReg = try context.genInfo.getNextRegister(allocator);
 
             if (node.typeInfo.isSlice) {
+                const outReg = try context.genInfo.getNextRegister(allocator);
                 const derefInstr = Instr{
                     .Load64AtReg = .{
                         .dest = outReg,
-                        .fromRegPtr = outReg,
+                        .fromRegPtr = reg,
                     },
                 };
                 try context.genInfo.appendChunk(allocator, derefInstr);
             }
 
             if (offset == 0) {
-                const instr = Instr{
-                    .SetReg8 = .{
-                        .reg = outReg,
-                        .data = 0,
-                    },
-                };
-                try context.genInfo.appendChunk(allocator, instr);
-            } else if (offset > 0) {
+                return reg;
+            }
+
+            const outReg = try context.genInfo.getNextRegister(allocator);
+            if (offset > 0) {
                 const instr = Instr{
                     .Add16 = .{
                         .dest = outReg,

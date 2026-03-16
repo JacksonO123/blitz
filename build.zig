@@ -19,7 +19,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const compilerExe = b.addExecutable(.{
-        .use_llvm = true, // for debugger variables
+        .use_llvm = mode == .Debug, // for debugger variables
         .name = compilerName,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/bin/compiler.zig"),
@@ -30,7 +30,7 @@ pub fn build(b: *std.Build) void {
     compilerExe.root_module.addImport("blitz", blitzModule);
 
     const objdumpExe = b.addExecutable(.{
-        .use_llvm = true, // for debugger variables
+        .use_llvm = mode == .Debug, // for debugger variables
         .name = objdumpName,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/bin/bzc_objdump.zig"),
@@ -41,7 +41,7 @@ pub fn build(b: *std.Build) void {
     objdumpExe.root_module.addImport("blitz", blitzModule);
 
     const interpreterExe = b.addExecutable(.{
-        .use_llvm = true, // for debugger variables
+        .use_llvm = mode == .Debug, // for debugger variables
         .name = interpreterName,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/bin/interpreter.zig"),
@@ -52,7 +52,7 @@ pub fn build(b: *std.Build) void {
     interpreterExe.root_module.addImport("blitz", blitzModule);
 
     const diffExe = b.addExecutable(.{
-        .use_llvm = true, // for debugger variables
+        .use_llvm = mode == .Debug, // for debugger variables
         .name = diffName,
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/bin/diff_bytecode.zig"),

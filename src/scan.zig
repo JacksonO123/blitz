@@ -307,7 +307,13 @@ pub fn scanNode(
             }
 
             const arrOrNull = switch (targetType.info.astType.*) {
-                .ArrayDec => |dec| dec,
+                .ArrayDec => |dec| a: {
+                    if (dec.size == null) {
+                        indexInfo.target.typeInfo.isSlice = true;
+                    }
+
+                    break :a dec;
+                },
                 .Pointer => |inner| switch (inner.info.astType.*) {
                     .ArrayDec => |dec| a: {
                         indexInfo.target.typeInfo.isSlice = true;

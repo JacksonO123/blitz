@@ -978,7 +978,7 @@ test "remap reg" {
 
     context.genInfo.instrList = instrsPtr;
     try context.genInfo.registers.ensureTotalCapacityPrecise(allocator, instrs.len);
-    context.genInfo.registers.items.len = instrs.len;
+    context.genInfo.registers.items.len = 4;
 
     const uses1 = try codegen.RegUseIndices.init(allocator);
     try uses1.indices.append(allocator, 0);
