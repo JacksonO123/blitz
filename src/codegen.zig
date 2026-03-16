@@ -88,423 +88,747 @@ const sizeToOpSizeTuple = .{
     .{ std.math.maxInt(u64), OpSizes.U64 },
 };
 
+const InstrInfo = struct {
+    len: u8,
+    opCount: u8,
+    text: []const u8,
+};
+
+const instrDataArr = [_]InstrInfo{
+    .{ // 0
+        .len = 0,
+        .opCount = 0,
+        .text = "noop",
+    },
+    .{ // 1
+        .len = 0,
+        .opCount = 0,
+        .text = "(label)",
+    },
+    .{ // 2
+        .len = 10,
+        .opCount = 1,
+        .text = "set_reg_64",
+    },
+    .{ // 3
+        .len = 6,
+        .opCount = 1,
+        .text = "set_reg_32",
+    },
+    .{ // 4
+        .len = 4,
+        .opCount = 1,
+        .text = "set_reg_16",
+    },
+    .{ // 5
+        .len = 3,
+        .opCount = 1,
+        .text = "set_reg_8",
+    },
+    .{ // 6
+        .len = 4,
+        .opCount = 3,
+        .text = "add",
+    },
+    .{ // 7
+        .len = 4,
+        .opCount = 3,
+        .text = "sub",
+    },
+    .{ // 8
+        .len = 4,
+        .opCount = 3,
+        .text = "mult",
+    },
+    .{ // 9
+        .len = 4,
+        .opCount = 2,
+        .text = "add_8",
+    },
+    .{ // 10
+        .len = 4,
+        .opCount = 2,
+        .text = "sub_8",
+    },
+    .{ // 11
+        .len = 5,
+        .opCount = 2,
+        .text = "add_16",
+    },
+    .{ // 12
+        .len = 5,
+        .opCount = 2,
+        .text = "sub_16",
+    },
+    .{ // 13
+        .len = 5,
+        .opCount = 0,
+        .text = "jump",
+    },
+    .{ // 14
+        .len = 5,
+        .opCount = 0,
+        .text = "jump_eq",
+    },
+    .{ // 15
+        .len = 5,
+        .opCount = 0,
+        .text = "jump_ne",
+    },
+    .{ // 16
+        .len = 5,
+        .opCount = 0,
+        .text = "jump_gt",
+    },
+    .{ // 17
+        .len = 5,
+        .opCount = 0,
+        .text = "jump_lt",
+    },
+    .{ // 18
+        .len = 5,
+        .opCount = 0,
+        .text = "jump_gte",
+    },
+    .{ // 19
+        .len = 5,
+        .opCount = 0,
+        .text = "jump_lte",
+    },
+    .{ // 20
+        .len = 5,
+        .opCount = 0,
+        .text = "jump_back",
+    },
+    .{ // 21
+        .len = 5,
+        .opCount = 0,
+        .text = "jump_back_eq",
+    },
+    .{ // 22
+        .len = 5,
+        .opCount = 0,
+        .text = "jump_back_ne",
+    },
+    .{ // 23
+        .len = 5,
+        .opCount = 0,
+        .text = "jump_back_gt",
+    },
+    .{ // 24
+        .len = 5,
+        .opCount = 0,
+        .text = "jump_back_lt",
+    },
+    .{ // 25
+        .len = 5,
+        .opCount = 0,
+        .text = "jump_back_gte",
+    },
+    .{ // 26
+        .len = 5,
+        .opCount = 0,
+        .text = "jump_back_lte",
+    },
+    .{ // 27
+        .len = 3,
+        .opCount = 2,
+        .text = "cmp",
+    },
+    .{ // 28
+        .len = 4,
+        .opCount = 3,
+        .text = "cmp_set_reg_eq",
+    },
+    .{ // 29
+        .len = 4,
+        .opCount = 3,
+        .text = "cmp_set_reg_ne",
+    },
+    .{ // 30
+        .len = 4,
+        .opCount = 3,
+        .text = "cmp_set_reg_gt",
+    },
+    .{ // 31
+        .len = 4,
+        .opCount = 3,
+        .text = "cmp_set_reg_lt",
+    },
+    .{ // 32
+        .len = 4,
+        .opCount = 3,
+        .text = "cmp_set_reg_gte",
+    },
+    .{ // 33
+        .len = 4,
+        .opCount = 3,
+        .text = "cmp_set_reg_lte",
+    },
+    .{ // 34
+        .len = 3,
+        .opCount = 1,
+        .text = "cmp_const_8",
+    },
+    .{ // 35
+        .len = 3,
+        .opCount = 1,
+        .text = "inc_const_8",
+    },
+    .{ // 36
+        .len = 3,
+        .opCount = 1,
+        .text = "dec_const_8",
+    },
+    .{ // 37
+        .len = 3,
+        .opCount = 2,
+        .text = "mov",
+    },
+    .{ // 38
+        .len = undefined, // SHOULD NOT EXIST FOR WRITER
+        .opCount = 1,
+        .text = "mov_sp_neg_offset_ANY",
+    },
+    .{ // 39
+        .len = 4,
+        .opCount = 1,
+        .text = "mov_sp_neg_offset_16",
+    },
+    .{ // 40
+        .len = 6,
+        .opCount = 1,
+        .text = "mov_sp_neg_offset_32",
+    },
+    .{ // 41
+        .len = 10,
+        .opCount = 1,
+        .text = "mov_sp_neg_offset_64",
+    },
+    .{ // 42
+        .len = 4,
+        .opCount = 3,
+        .text = "xor",
+    },
+    .{ // 43
+        .len = 4,
+        .opCount = 2,
+        .text = "xor_const_8",
+    },
+    .{ // 44
+        .len = 2,
+        .opCount = 0,
+        .text = "add_sp_8",
+    },
+    .{ // 45
+        .len = 2,
+        .opCount = 0,
+        .text = "sub_sp_8",
+    },
+    .{ // 46
+        .len = 3,
+        .opCount = 0,
+        .text = "add_sp_16",
+    },
+    .{ // 47
+        .len = 3,
+        .opCount = 0,
+        .text = "sub_sp_16",
+    },
+    .{ // 48
+        .len = 5,
+        .opCount = 0,
+        .text = "add_sp_32",
+    },
+    .{ // 49
+        .len = 5,
+        .opCount = 0,
+        .text = "sub_sp_32",
+    },
+    .{ // 50
+        .len = 9,
+        .opCount = 0,
+        .text = "add_sp_64",
+    },
+    .{ // 51
+        .len = 9,
+        .opCount = 0,
+        .text = "sub_sp_64",
+    },
+    .{ // 52
+        .len = 3,
+        .opCount = 2,
+        .text = "store_64_at_reg",
+    },
+    .{ // 53
+        .len = 3,
+        .opCount = 2,
+        .text = "store_32_at_reg",
+    },
+    .{ // 54
+        .len = 3,
+        .opCount = 2,
+        .text = "store_16_at_reg",
+    },
+    .{ // 55
+        .len = 3,
+        .opCount = 2,
+        .text = "store_8_at_reg",
+    },
+    .{ // 56
+        .len = 5,
+        .opCount = 2,
+        .text = "store_64_at_reg_post_inc_16",
+    },
+    .{ // 57
+        .len = 5,
+        .opCount = 2,
+        .text = "store_32_at_reg_post_inc_16",
+    },
+    .{ // 58
+        .len = 5,
+        .opCount = 2,
+        .text = "store_16_at_reg_post_inc_16",
+    },
+    .{ // 59
+        .len = 5,
+        .opCount = 2,
+        .text = "store_8_at_reg_post_inc_16",
+    },
+    .{ // 60
+        .len = 4,
+        .opCount = 1,
+        .text = "store_64_at_sp_neg_offset_16",
+    },
+    .{ // 61
+        .len = 4,
+        .opCount = 1,
+        .text = "store_32_at_sp_neg_offset_16",
+    },
+    .{ // 62
+        .len = 4,
+        .opCount = 1,
+        .text = "store_16_at_sp_neg_offset_16",
+    },
+    .{ // 63
+        .len = 4,
+        .opCount = 1,
+        .text = "store_8_at_sp_neg_offset_16",
+    },
+    .{ // 64
+        .len = 5,
+        .opCount = 2,
+        .text = "load_64_at_reg_offset_16",
+    },
+    .{ // 65
+        .len = 5,
+        .opCount = 2,
+        .text = "load_32_at_reg_offset_16",
+    },
+    .{ // 66
+        .len = 5,
+        .opCount = 2,
+        .text = "load_16_at_reg_offset_16",
+    },
+    .{ // 67
+        .len = 5,
+        .opCount = 2,
+        .text = "load_8_at_reg_offset_16",
+    },
+    .{ // 68
+        .len = 4,
+        .opCount = 1,
+        .text = "load_64_at_sp_neg_offset_16",
+    },
+    .{ // 69
+        .len = 4,
+        .opCount = 1,
+        .text = "load_32_at_sp_neg_offset_16",
+    },
+    .{ // 70
+        .len = 4,
+        .opCount = 1,
+        .text = "load_16_at_sp_neg_offset_16",
+    },
+    .{ // 71
+        .len = 4,
+        .opCount = 1,
+        .text = "load_8_at_sp_neg_offset_16",
+    },
+    .{ // 72
+        .len = 3,
+        .opCount = 2,
+        .text = "load_64_at_reg",
+    },
+    .{ // 73
+        .len = 3,
+        .opCount = 2,
+        .text = "load_32_at_reg",
+    },
+    .{ // 74
+        .len = 3,
+        .opCount = 2,
+        .text = "load_16_at_reg",
+    },
+    .{ // 75
+        .len = 3,
+        .opCount = 2,
+        .text = "load_8_at_reg",
+    },
+    .{ // 76
+        .len = 6,
+        .opCount = 3,
+        .text = "mul_reg_16_add_reg",
+    },
+    .{ // 77
+        .len = 2,
+        .opCount = 1,
+        .text = "dbg_reg",
+    },
+    .{ // 78
+        .len = 4,
+        .opCount = 3,
+        .text = "bit_and",
+    },
+    .{ // 79
+        .len = 4,
+        .opCount = 3,
+        .text = "bit_or",
+    },
+    .{ // 80
+        .len = 3,
+        .opCount = 2,
+        .text = "and",
+    },
+    .{ // 81
+        .len = 3,
+        .opCount = 2,
+        .text = "or",
+    },
+    .{ // 82
+        .len = 4,
+        .opCount = 3,
+        .text = "and_set_reg",
+    },
+    .{ // 83
+        .len = 4,
+        .opCount = 3,
+        .text = "or_set_reg",
+    },
+    .{ // 84
+        .len = undefined, // SHOULD NOT EXIST FOR WRITER
+        .opCount = 1,
+        .text = "push_reg_neg_offset_ANY",
+    },
+    .{ // 85
+        .len = 3,
+        .opCount = 1,
+        .text = "push_reg_neg_offset_8",
+    },
+    .{ // 86
+        .len = 4,
+        .opCount = 1,
+        .text = "push_reg_neg_offset_16",
+    },
+    .{ // 87
+        .len = 6,
+        .opCount = 1,
+        .text = "push_reg_neg_offset_32",
+    },
+    .{ // 88
+        .len = 10,
+        .opCount = 1,
+        .text = "push_reg_neg_offset_64",
+    },
+    .{ // 89
+        .len = undefined, // SHOULD NOT EXIST FOR WRITER
+        .opCount = 0,
+        .text = "pop_reg_neg_offset_ANY",
+    },
+    .{ // 90
+        .len = 3,
+        .opCount = 0,
+        .text = "pop_reg_neg_offset_8",
+    },
+    .{ // 91
+        .len = 4,
+        .opCount = 0,
+        .text = "pop_reg_neg_offset_16",
+    },
+    .{ // 92
+        .len = 6,
+        .opCount = 0,
+        .text = "pop_reg_neg_offset_32",
+    },
+    .{ // 93
+        .len = 10,
+        .opCount = 0,
+        .text = "pop_reg_neg_offset_64",
+    },
+    .{ // 94
+        .len = undefined, // SHOULD NOT EXIST FOR WRITER
+        .opCount = 0,
+        .text = "pre_push_lr_neg_offset_any",
+    },
+    .{ // 95
+        .len = 2,
+        .opCount = 0,
+        .text = "pre_push_lr_neg_offset_8",
+    },
+    .{ // 96
+        .len = 3,
+        .opCount = 0,
+        .text = "pre_push_lr_neg_offset_16",
+    },
+    .{ // 97
+        .len = 5,
+        .opCount = 0,
+        .text = "pre_push_lr_neg_offset_32",
+    },
+    .{ // 98
+        .len = 9,
+        .opCount = 0,
+        .text = "pre_push_lr_neg_offset_64",
+    },
+    .{ // 99
+        .len = undefined, // SHOULD NOT EXIST FOR WRITER
+        .opCount = 0,
+        .text = "post_pop_lr_neg_offset_any",
+    },
+    .{ // 100
+        .len = 2,
+        .opCount = 0,
+        .text = "post_pop_lr_neg_offset_8",
+    },
+    .{ // 101
+        .len = 3,
+        .opCount = 0,
+        .text = "post_pop_lr_neg_offset_16",
+    },
+    .{ // 102
+        .len = 5,
+        .opCount = 0,
+        .text = "post_pop_lr_neg_offset_32",
+    },
+    .{ // 103
+        .len = 9,
+        .opCount = 0,
+        .text = "post_pop_lr_neg_offset_64",
+    },
+    .{ // 104
+        .len = 1,
+        .opCount = 0,
+        .text = "ret",
+    },
+    .{ // 105
+        .len = 1,
+        .opCount = 0,
+        .text = "end",
+    },
+    .{ // 106
+        .len = 5,
+        .opCount = 0,
+        .text = "branch_link",
+    },
+    .{ // 107
+        .len = 5,
+        .opCount = 0,
+        .text = "branch_link_back",
+    },
+};
+
 pub const InstructionVariants = enum(u8) {
     const Self = @This();
 
-    NoOp, // OB (not in output)
-    Label, // 0B (not in output)
+    NoOp = 0, // 0B (not in output)
+    Label = 1, // 0B (not in output)
 
-    SetReg64, // inst, reg, 8B data
-    SetReg32, // inst, reg, 4B data
-    SetReg16, // inst, reg, 2B data
-    SetReg8, // inst, reg, 1B data
+    SetReg64 = 2, // inst, reg, 8B data
+    SetReg32 = 3, // inst, reg, 4B data
+    SetReg16 = 4, // inst, reg, 2B data
+    SetReg8 = 5, // inst, reg, 1B data
 
-    Add, // inst, out reg, reg1, reg2
-    Add8, // inst, out reg, reg1, 1B data
-    Add16, // inst, out reg, reg1, 2B data
-    Sub, // inst, out reg, reg1, reg2
-    Sub8, // inst, out reg, reg1, 1B data
-    Sub16, // inst, out reg, reg1, 2B data
-    Mult, // inst, out reg, reg1, reg2
+    Add = 6, // inst, out reg, reg1, reg2
+    Add8 = 7, // inst, out reg, reg1, 1B data
+    Add16 = 8, // inst, out reg, reg1, 2B data
+    Sub = 9, // inst, out reg, reg1, reg2
+    Sub8 = 10, // inst, out reg, reg1, 1B data
+    Sub16 = 11, // inst, out reg, reg1, 2B data
+    Mult = 12, // inst, out reg, reg1, reg2
 
-    Jump, // inst, 4B data
-    JumpEQ, // inst, 4B data
-    JumpNE, // inst, 4B data
-    JumpGT, // inst, 4B data
-    JumpLT, // inst, 4B data
-    JumpGTE, // inst, 4B data
-    JumpLTE, // inst, 4B data
-    JumpBack, // inst, 4B data
-    JumpBackEQ, // inst, 4B data
-    JumpBackNE, // inst, 4B data
-    JumpBackGT, // inst, 4B data
-    JumpBackLT, // inst, 4B data
-    JumpBackGTE, // inst, 4B data
-    JumpBackLTE, // inst, 4B data
+    Jump = 13, // inst, 4B data
+    JumpEQ = 14, // inst, 4B data
+    JumpNE = 15, // inst, 4B data
+    JumpGT = 16, // inst, 4B data
+    JumpLT = 17, // inst, 4B data
+    JumpGTE = 18, // inst, 4B data
+    JumpLTE = 19, // inst, 4B data
+    JumpBack = 20, // inst, 4B data
+    JumpBackEQ = 21, // inst, 4B data
+    JumpBackNE = 22, // inst, 4B data
+    JumpBackGT = 23, // inst, 4B data
+    JumpBackLT = 24, // inst, 4B data
+    JumpBackGTE = 25, // inst, 4B data
+    JumpBackLTE = 26, // inst, 4B data
 
-    Cmp, // inst, reg1, reg2  ;  sets to flags
-    CmpSetRegEQ, // inst, out reg, reg1, reg2  ;  sets to flags
-    CmpSetRegNE, // inst, out reg, reg1, reg2  ;  sets to flags
-    CmpSetRegGT, // inst, out reg, reg1, reg2  ;  sets to flags
-    CmpSetRegLT, // inst, out reg, reg1, reg2  ;  sets to flags
-    CmpSetRegGTE, // inst, out reg, reg1, reg2  ;  sets to flags
-    CmpSetRegLTE, // inst, out reg, reg1, reg2  ;  sets to flags
-    CmpConst8, // inst, reg1, 1B data
+    Cmp = 27, // inst, reg1, reg2  ;  sets to flags
+    CmpSetRegEQ = 28, // inst, out reg, reg1, reg2  ;  sets to flags
+    CmpSetRegNE = 29, // inst, out reg, reg1, reg2  ;  sets to flags
+    CmpSetRegGT = 30, // inst, out reg, reg1, reg2  ;  sets to flags
+    CmpSetRegLT = 31, // inst, out reg, reg1, reg2  ;  sets to flags
+    CmpSetRegGTE = 32, // inst, out reg, reg1, reg2  ;  sets to flags
+    CmpSetRegLTE = 33, // inst, out reg, reg1, reg2  ;  sets to flags
+    CmpConst8 = 34, // inst, reg1, 1B data
 
-    IncConst8, // inst, in/out reg, 1B data
-    DecConst8, // inst, in/out reg, 1B data
+    IncConst8 = 35, // inst, in/out reg, 1B data
+    DecConst8 = 36, // inst, in/out reg, 1B data
 
-    Mov, // inst, reg1, reg2
-    MovSpNegOffsetAny, // inst, dest, offset (TBD by compiler)B
-    MovSpNegOffset16, // inst, dest, offset 2B
-    MovSpNegOffset32, // inst, dest, offset 4B
-    MovSpNegOffset64, // inst, dest, offset 8B
+    Mov = 37, // inst, reg1, reg2
+    MovSpNegOffsetAny = 38, // inst, dest reg, offset (TBD by compiler)B
+    MovSpNegOffset16 = 39, // inst, dest reg, offset 2B
+    MovSpNegOffset32 = 40, // inst, dest reg, offset 4B
+    MovSpNegOffset64 = 41, // inst, dest reg, offset 8B
 
-    Xor, // inst, out reg, reg1, reg2
-    XorConst8, // inst, out reg, reg1, 1B data
+    Xor = 42, // inst, out reg, reg1, reg2
+    XorConst8 = 43, // inst, out reg, reg1, 1B data
 
-    AddSp8, // inst, 2B data
-    SubSp8, // inst, 2B data
-    AddSp16, // inst, 2B data
-    SubSp16, // inst, 2B data
-    AddSp32, // inst, 4B data
-    SubSp32, // inst, 4B data
-    AddSp64, // inst, 8B data
-    SubSp64, // inst, 8B data
+    AddSp8 = 44, // inst, 1B data
+    SubSp8 = 45, // inst, 1B data
+    AddSp16 = 46, // inst, 2B data
+    SubSp16 = 47, // inst, 2B data
+    AddSp32 = 48, // inst, 4B data
+    SubSp32 = 49, // inst, 4B data
+    AddSp64 = 50, // inst, 8B data
+    SubSp64 = 51, // inst, 8B data
 
-    Store64AtReg, // inst, reg, to reg (ptr)
-    Store32AtReg, // inst, reg, to reg (ptr)
-    Store16AtReg, // inst, reg, to reg (ptr)
-    Store8AtReg, // inst, reg, to reg (ptr)
+    Store64AtReg = 52, // inst, reg, to reg (ptr)
+    Store32AtReg = 53, // inst, reg, to reg (ptr)
+    Store16AtReg = 54, // inst, reg, to reg (ptr)
+    Store8AtReg = 55, // inst, reg, to reg (ptr)
 
-    Store64AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
-    Store32AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
-    Store16AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
-    Store8AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
+    Store64AtRegPostInc16 = 56, // inst, reg, to reg (ptr), inc 2B
+    Store32AtRegPostInc16 = 57, // inst, reg, to reg (ptr), inc 2B
+    Store16AtRegPostInc16 = 58, // inst, reg, to reg (ptr), inc 2B
+    Store8AtRegPostInc16 = 59, // inst, reg, to reg (ptr), inc 2B
 
-    Store64AtSpNegOffset16, // inst, reg, offset 2B
-    Store32AtSpNegOffset16, // inst, reg, offset 2B
-    Store16AtSpNegOffset16, // inst, reg, offset 2B
-    Store8AtSpNegOffset16, // inst, reg, offset 2B
+    Store64AtSpNegOffset16 = 60, // inst, reg, offset 2B
+    Store32AtSpNegOffset16 = 61, // inst, reg, offset 2B
+    Store16AtSpNegOffset16 = 62, // inst, reg, offset 2B
+    Store8AtSpNegOffset16 = 63, // inst, reg, offset 2B
 
-    Load64AtRegOffset16, // inst, dest reg, from reg (ptr), offset 2B
-    Load32AtRegOffset16, // inst, dest reg, from reg (ptr), offset 2B
-    Load16AtRegOffset16, // inst, dest reg, from reg (ptr), offset 2B
-    Load8AtRegOffset16, // inst, dest reg, from reg (ptr), offset 2B
+    Load64AtRegOffset16 = 64, // inst, dest reg, from reg (ptr), offset 2B
+    Load32AtRegOffset16 = 65, // inst, dest reg, from reg (ptr), offset 2B
+    Load16AtRegOffset16 = 66, // inst, dest reg, from reg (ptr), offset 2B
+    Load8AtRegOffset16 = 67, // inst, dest reg, from reg (ptr), offset 2B
 
-    Load64AtSpNegOffset16, // inst, dest reg, offset 2B
-    Load32AtSpNegOffset16, // inst, dest reg, offset 2B
-    Load16AtSpNegOffset16, // inst, dest reg, offset 2B
-    Load8AtSpNegOffset16, // inst, dest reg, offset 2B
+    Load64AtSpNegOffset16 = 68, // inst, dest reg, offset 2B
+    Load32AtSpNegOffset16 = 69, // inst, dest reg, offset 2B
+    Load16AtSpNegOffset16 = 70, // inst, dest reg, offset 2B
+    Load8AtSpNegOffset16 = 71, // inst, dest reg, offset 2B
 
-    Load64AtReg, // inst, dest reg, from reg (ptr)
-    Load32AtReg, // inst, dest reg, from reg (ptr)
-    Load16AtReg, // inst, dest reg, from reg (ptr)
-    Load8AtReg, // inst, dest reg, from reg (ptr)
+    Load64AtReg = 72, // inst, dest reg, from reg (ptr)
+    Load32AtReg = 73, // inst, dest reg, from reg (ptr)
+    Load16AtReg = 74, // inst, dest reg, from reg (ptr)
+    Load8AtReg = 75, // inst, dest reg, from reg (ptr)
 
-    MulReg16AddReg, // inst, dest, addReg, mulReg, data 2B ( dest = addReg + (mulReg1 * data) )
+    MulReg16AddReg = 76, // inst, dest reg, addReg, mulReg, data 2B ( dest = addReg + (mulReg1 * data) )
 
-    DbgReg, // inst, reg
+    DbgReg = 77, // inst, reg
 
-    BitAnd, // inst, dest reg, reg1, reg2
-    BitOr, // inst, dest reg, reg1, reg2
+    BitAnd = 78, // inst, dest reg, reg1, reg2
+    BitOr = 79, // inst, dest reg, reg1, reg2
 
-    And, // inst, reg1, reg2  ;  sets to flags
-    Or, // inst, reg1, reg2  ;  sets to flags
+    And = 80, // inst, reg1, reg2  ;  sets to flags
+    Or = 81, // inst, reg1, reg2  ;  sets to flags
 
-    AndSetReg, // inst, dest reg, reg1, reg2
-    OrSetReg, // inst, dest reg, reg1, reg2
+    AndSetReg = 82, // inst, dest reg, reg1, reg2
+    OrSetReg = 83, // inst, dest reg, reg1, reg2
 
-    PrePushRegNegOffsetAny, // inst, top reg, offset (TBD by compiler)B
-    PrePushRegNegOffset8, // inst, top reg, offset 1B
-    PrePushRegNegOffset16, // inst, top reg, offset 2B
-    PrePushRegNegOffset32, // inst, top reg, offset 4B
-    PrePushRegNegOffset64, // inst, top reg, offset 8B
+    PrePushRegNegOffsetAny = 84, // inst, top reg, offset (TBD by compiler)B
+    PrePushRegNegOffset8 = 85, // inst, top reg, offset 1B
+    PrePushRegNegOffset16 = 86, // inst, top reg, offset 2B
+    PrePushRegNegOffset32 = 87, // inst, top reg, offset 4B
+    PrePushRegNegOffset64 = 88, // inst, top reg, offset 8B
 
-    PostPopRegNegOffsetAny, // inst, top reg, offset (TBD by compiler)B
-    PostPopRegNegOffset8, // inst, top reg, offset 1B
-    PostPopRegNegOffset16, // inst, top reg, offset 2B
-    PostPopRegNegOffset32, // inst, top reg, offset 4B
-    PostPopRegNegOffset64, // inst, top reg, offset 8B
+    PostPopRegNegOffsetAny = 89, // inst, top reg, offset (TBD by compiler)B
+    PostPopRegNegOffset8 = 90, // inst, top reg, offset 1B
+    PostPopRegNegOffset16 = 91, // inst, top reg, offset 2B
+    PostPopRegNegOffset32 = 92, // inst, top reg, offset 4B
+    PostPopRegNegOffset64 = 93, // inst, top reg, offset 8B
 
-    PrePushLRNegOffsetAny, // inst, offset (TBD by compiler)B
-    PrePushLRNegOffset8, // inst, offset 1B
-    PrePushLRNegOffset16, // inst, offset 2B
-    PrePushLRNegOffset32, // inst, offset 4B
-    PrePushLRNegOffset64, // inst, offset 8B
+    PrePushLRNegOffsetAny = 94, // inst, offset (TBD by compiler)B
+    PrePushLRNegOffset8 = 95, // inst, offset 1B
+    PrePushLRNegOffset16 = 96, // inst, offset 2B
+    PrePushLRNegOffset32 = 97, // inst, offset 4B
+    PrePushLRNegOffset64 = 98, // inst, offset 8B
 
-    PostPopLRNegOffsetAny, // inst, offset (TBD by compiler)B
-    PostPopLRNegOffset8, // inst, offset 1B
-    PostPopLRNegOffset16, // inst, offset 2B
-    PostPopLRNegOffset32, // inst, offset 4B
-    PostPopLRNegOffset64, // inst, offset 8B
+    PostPopLRNegOffsetAny = 99, // inst, offset (TBD by compiler)B
+    PostPopLRNegOffset8 = 100, // inst, offset 1B
+    PostPopLRNegOffset16 = 101, // inst, offset 2B
+    PostPopLRNegOffset32 = 102, // inst, offset 4B
+    PostPopLRNegOffset64 = 103, // inst, offset 8B
 
-    Ret,
-    End,
+    Ret = 104,
+    End = 105,
 
-    BranchLink, // inst, 4B data
-    BranchLinkBack, // inst, 4B data
+    BranchLink = 106, // inst, 4B data
+    BranchLinkBack = 107, // inst, 4B data
 
     pub fn getInstrByte(self: Self) u8 {
         return @as(u8, @intCast(@intFromEnum(self)));
     }
 
-    pub fn getInstrLen(self: Self) u8 {
+    pub fn getInstrInfo(self: Self) InstrInfo {
+        return instrDataArr[@intFromEnum(self)];
+    }
+
+    fn instrIsAny(self: Self) bool {
         return switch (self) {
-            .NoOp => 0,
-            .Label => 0,
-
-            .SetReg64 => 10,
-            .SetReg32 => 6,
-            .SetReg16 => 4,
-            .SetReg8 => 3,
-
-            .Add, .Sub, .Mult, .Add8, .Sub8 => 4,
-            .Add16, .Sub16 => 5,
-
-            .Jump,
-            .JumpEQ,
-            .JumpNE,
-            .JumpGT,
-            .JumpLT,
-            .JumpGTE,
-            .JumpLTE,
-            .JumpBack,
-            .JumpBackEQ,
-            .JumpBackNE,
-            .JumpBackGT,
-            .JumpBackLT,
-            .JumpBackGTE,
-            .JumpBackLTE,
-            => 5,
-
-            .Cmp => 3,
-            .CmpSetRegEQ,
-            .CmpSetRegNE,
-            .CmpSetRegGT,
-            .CmpSetRegLT,
-            .CmpSetRegGTE,
-            .CmpSetRegLTE,
-            => 4,
-
-            .CmpConst8 => 3,
-
-            .IncConst8, .DecConst8 => 3,
-
-            .Mov => 3,
-            .MovSpNegOffsetAny => unreachable, // SHOULD NOT EXIST FOR WRITER
-            .MovSpNegOffset16 => 4,
-            .MovSpNegOffset32 => 6,
-            .MovSpNegOffset64 => 10,
-
-            .Xor, .XorConst8 => 4,
-
-            .AddSp8, .SubSp8 => 2,
-            .AddSp16, .SubSp16 => 3,
-            .AddSp32, .SubSp32 => 5,
-            .AddSp64, .SubSp64 => 9,
-
-            .Store64AtReg,
-            .Store32AtReg,
-            .Store16AtReg,
-            .Store8AtReg,
-            => 3,
-
-            .Store64AtRegPostInc16,
-            .Store32AtRegPostInc16,
-            .Store16AtRegPostInc16,
-            .Store8AtRegPostInc16,
-            => 5,
-
-            .Store64AtSpNegOffset16,
-            .Store32AtSpNegOffset16,
-            .Store16AtSpNegOffset16,
-            .Store8AtSpNegOffset16,
-            .Load64AtSpNegOffset16,
-            .Load32AtSpNegOffset16,
-            .Load16AtSpNegOffset16,
-            .Load8AtSpNegOffset16,
-            => 4,
-
-            .Load64AtReg,
-            .Load32AtReg,
-            .Load16AtReg,
-            .Load8AtReg,
-            => 3,
-
-            .Load64AtRegOffset16,
-            .Load32AtRegOffset16,
-            .Load16AtRegOffset16,
-            .Load8AtRegOffset16,
-            => 5,
-
-            .MulReg16AddReg,
-            => 6,
-
-            .DbgReg => 2,
-
-            .BitAnd, .BitOr => 4,
-
-            .And, .Or => 3,
-            .AndSetReg, .OrSetReg => 4,
-
-            .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable, // SHOULD NOT EXIST FOR WRITER
-            .PrePushRegNegOffset8, .PostPopRegNegOffset8 => 3,
-            .PrePushRegNegOffset16, .PostPopRegNegOffset16 => 4,
-            .PrePushRegNegOffset32, .PostPopRegNegOffset32 => 6,
-            .PrePushRegNegOffset64, .PostPopRegNegOffset64 => 10,
-
-            .PrePushLRNegOffsetAny, .PostPopLRNegOffsetAny => unreachable,
-            .PrePushLRNegOffset8, .PostPopLRNegOffset8 => 2,
-            .PrePushLRNegOffset16, .PostPopLRNegOffset16 => 3,
-            .PrePushLRNegOffset32, .PostPopLRNegOffset32 => 5,
-            .PrePushLRNegOffset64, .PostPopLRNegOffset64 => 9,
-
-            .Ret => 1,
-            .End => 1,
-
-            .BranchLink => 5,
-            .BranchLinkBack => 5,
+            .MovSpNegOffsetAny,
+            .PrePushRegNegOffsetAny,
+            .PostPopRegNegOffsetAny,
+            .PrePushLRNegOffsetAny,
+            .PostPopLRNegOffsetAny,
+            => true,
+            else => false,
         };
     }
 
-    pub fn maxInstrSize() u8 {
-        var max: u8 = 0;
+    fn ensureNotAny(self: Self) void {
+        if (self.instrIsAny()) @panic("Cannot get length of variable length instr");
+    }
+
+    pub fn getInstrLen(self: Self) u8 {
+        self.ensureNotAny();
+        return self.getInstrInfo().len;
+    }
+
+    pub fn getOpCount(self: Self) u8 {
+        return self.getInstrInfo().opCount;
+    }
+
+    pub fn toString(self: Self) []const u8 {
+        return self.getInstrInfo().text;
+    }
+
+    pub fn maxOpCount() comptime_int {
+        var max = 0;
         inline for (@typeInfo(Self).@"enum".fields) |field| {
             const val: Self = @enumFromInt(field.value);
-
-            // place holders, not actual instructions
-            switch (val) {
-                .MovSpNegOffsetAny,
-                .PrePushRegNegOffsetAny,
-                .PostPopRegNegOffsetAny,
-                .PrePushLRNegOffsetAny,
-                .PostPopLRNegOffsetAny,
-                => continue,
-                else => {},
-            }
-
-            max = @max(val.getInstrLen(), max);
+            if (val.instrIsAny()) continue;
+            max = @max(val.getOpCount(), max);
         }
         return max;
     }
 
-    pub fn toString(self: Self) []const u8 {
-        return switch (self) {
-            .NoOp => "noop",
-            .Label => "(label)",
-
-            .SetReg64 => "set_reg_64",
-            .SetReg32 => "set_reg_32",
-            .SetReg16 => "set_reg_16",
-            .SetReg8 => "set_reg_8",
-
-            .Add => "add",
-            .Sub => "sub",
-            .Mult => "mult",
-            .Add8 => "add_8",
-            .Sub8 => "sub_8",
-            .Add16 => "add_16",
-            .Sub16 => "sub_16",
-
-            .Jump => "jump",
-            .JumpEQ => "jump_eq",
-            .JumpNE => "jump_ne",
-            .JumpGT => "jump_gt",
-            .JumpLT => "jump_lt",
-            .JumpGTE => "jump_gte",
-            .JumpLTE => "jump_lte",
-            .JumpBack => "jump_back",
-            .JumpBackEQ => "jump_back_eq",
-            .JumpBackNE => "jump_back_ne",
-            .JumpBackGT => "jump_back_gt",
-            .JumpBackLT => "jump_back_lt",
-            .JumpBackGTE => "jump_back_gte",
-            .JumpBackLTE => "jump_back_lte",
-
-            .CmpConst8 => "cmp_const_8",
-            .Cmp => "cmp",
-            .CmpSetRegEQ => "cmp_set_reg_eq",
-            .CmpSetRegNE => "cmp_set_reg_ne",
-            .CmpSetRegGT => "cmp_set_reg_gt",
-            .CmpSetRegLT => "cmp_set_reg_lt",
-            .CmpSetRegGTE => "cmp_set_reg_gte",
-            .CmpSetRegLTE => "cmp_set_reg_lte",
-
-            .IncConst8 => "inc_const_8",
-            .DecConst8 => "dec_const_8",
-
-            .Mov => "mov",
-            .MovSpNegOffsetAny => "mov_sp_neg_offset_ANY",
-            .MovSpNegOffset16 => "mov_sp_neg_offset_16",
-            .MovSpNegOffset32 => "mov_sp_neg_offset_32",
-            .MovSpNegOffset64 => "mov_sp_neg_offset_64",
-
-            .Xor => "xor",
-            .XorConst8 => "xor_const_8",
-
-            .AddSp8 => "add_sp_8",
-            .SubSp8 => "sub_sp_8",
-            .AddSp16 => "add_sp_16",
-            .SubSp16 => "sub_sp_16",
-            .AddSp32 => "add_sp_32",
-            .SubSp32 => "sub_sp_32",
-            .AddSp64 => "add_sp_64",
-            .SubSp64 => "sub_sp_64",
-
-            .Store64AtReg => "store_64_at_reg",
-            .Store32AtReg => "store_32_at_reg",
-            .Store16AtReg => "store_16_at_reg",
-            .Store8AtReg => "store_8_at_reg",
-
-            .Store64AtRegPostInc16 => "store_64_at_reg_post_inc_16",
-            .Store32AtRegPostInc16 => "store_32_at_reg_post_inc_16",
-            .Store16AtRegPostInc16 => "store_16_at_reg_post_inc_16",
-            .Store8AtRegPostInc16 => "store_8_at_reg_post_inc_16",
-
-            .Store64AtSpNegOffset16 => "store_64_at_sp_neg_offset_16",
-            .Store32AtSpNegOffset16 => "store_32_at_sp_neg_offset_16",
-            .Store16AtSpNegOffset16 => "store_16_at_sp_neg_offset_16",
-            .Store8AtSpNegOffset16 => "store_8_at_sp_neg_offset_16",
-
-            .Load64AtSpNegOffset16 => "load_64_at_sp_neg_offset_16",
-            .Load32AtSpNegOffset16 => "load_32_at_sp_neg_offset_16",
-            .Load16AtSpNegOffset16 => "load_16_at_sp_neg_offset_16",
-            .Load8AtSpNegOffset16 => "load_8_at_sp_neg_offset_16",
-
-            .Load64AtReg => "load_64_at_reg",
-            .Load32AtReg => "load_32_at_reg",
-            .Load16AtReg => "load_16_at_reg",
-            .Load8AtReg => "load_8_at_reg",
-
-            .Load64AtRegOffset16 => "load_64_at_reg_offset_16",
-            .Load32AtRegOffset16 => "load_32_at_reg_offset_16",
-            .Load16AtRegOffset16 => "load_16_at_reg_offset_16",
-            .Load8AtRegOffset16 => "load_8_at_reg_offset_16",
-
-            .MulReg16AddReg => "mul_reg_16_add_reg",
-
-            .DbgReg => "dbg_reg",
-
-            .BitAnd => "bit_and",
-            .BitOr => "bit_or",
-
-            .And => "and",
-            .Or => "or",
-
-            .AndSetReg => "and_set_reg",
-            .OrSetReg => "or_set_reg",
-
-            .PrePushRegNegOffsetAny => "push_reg_neg_offset_ANY",
-            .PrePushRegNegOffset8 => "push_reg_neg_offset_8",
-            .PrePushRegNegOffset16 => "push_reg_neg_offset_16",
-            .PrePushRegNegOffset32 => "push_reg_neg_offset_32",
-            .PrePushRegNegOffset64 => "push_reg_neg_offset_64",
-
-            .PostPopRegNegOffsetAny => "pop_reg_neg_offset_ANY",
-            .PostPopRegNegOffset8 => "pop_reg_neg_offset_8",
-            .PostPopRegNegOffset16 => "pop_reg_neg_offset_16",
-            .PostPopRegNegOffset32 => "pop_reg_neg_offset_32",
-            .PostPopRegNegOffset64 => "pop_reg_neg_offset_64",
-
-            .PrePushLRNegOffsetAny => "pre_push_lr_neg_offset_any",
-            .PrePushLRNegOffset8 => "pre_push_lr_neg_offset_8",
-            .PrePushLRNegOffset16 => "pre_push_lr_neg_offset_16",
-            .PrePushLRNegOffset32 => "pre_push_lr_neg_offset_32",
-            .PrePushLRNegOffset64 => "pre_push_lr_neg_offset_64",
-
-            .PostPopLRNegOffsetAny => "post_pop_lr_neg_offset_any",
-            .PostPopLRNegOffset8 => "post_pop_lr_neg_offset_8",
-            .PostPopLRNegOffset16 => "post_pop_lr_neg_offset_16",
-            .PostPopLRNegOffset32 => "post_pop_lr_neg_offset_32",
-            .PostPopLRNegOffset64 => "post_pop_lr_neg_offset_64",
-
-            .Ret => "ret",
-            .End => "end",
-
-            .BranchLink => "branch_link",
-            .BranchLinkBack => "branch_link_back",
-        };
+    pub fn maxInstrSize() comptime_int {
+        var max = 0;
+        inline for (@typeInfo(Self).@"enum".fields) |field| {
+            const val: Self = @enumFromInt(field.value);
+            if (val.instrIsAny()) continue;
+            max = @max(val.getInstrLen(), max);
+        }
+        return max;
     }
 };
 
@@ -794,7 +1118,7 @@ const SliceBytecodeInfo = struct {
     reg: TempRegister,
 };
 
-const InstrInfo = struct {
+const CtrlFlowInstrInfo = struct {
     chunk: *Instr,
     label: vmInfo.LabelType,
 };
@@ -803,12 +1127,12 @@ const LoopInfo = struct {
     const Self = @This();
 
     continueLabel: vmInfo.LabelType,
-    breaks: *ArrayList(InstrInfo),
-    continues: *ArrayList(InstrInfo),
+    breaks: *ArrayList(CtrlFlowInstrInfo),
+    continues: *ArrayList(CtrlFlowInstrInfo),
 
     pub fn init(allocator: Allocator) !Self {
-        const breaksPtr = try utils.createMut(ArrayList(InstrInfo), allocator, .empty);
-        const continuesPtr = try utils.createMut(ArrayList(InstrInfo), allocator, .empty);
+        const breaksPtr = try utils.createMut(ArrayList(CtrlFlowInstrInfo), allocator, .empty);
+        const continuesPtr = try utils.createMut(ArrayList(CtrlFlowInstrInfo), allocator, .empty);
 
         return .{
             .continueLabel = 0,
@@ -1148,6 +1472,14 @@ pub const GenInfo = struct {
         furthestInstrReach: u32,
         /// 0 for invalid state
         regNextUseIndex: *ArrayList(u32),
+        pendingDeactivations: utils.StaticBufferList(
+            vmInfo.TempRegister,
+            InstructionVariants.maxOpCount(),
+        ),
+        protectedRegisters: utils.StaticBufferList(
+            vmInfo.TempRegister,
+            InstructionVariants.maxOpCount(),
+        ),
     },
 
     pub fn init(allocator: Allocator) !Self {
@@ -1184,6 +1516,8 @@ pub const GenInfo = struct {
             .regAllocateUtils = .{
                 .furthestInstrReach = 0,
                 .regNextUseIndex = regNextUseIndexPtr,
+                .pendingDeactivations = .{},
+                .protectedRegisters = .{},
             },
         };
     }
