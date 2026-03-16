@@ -156,5 +156,13 @@ pub fn StaticBufferList(comptime T: type, comptime size: comptime_int) type {
         pub fn getSliceFromStart(self: Self) []const T {
             return self.buf[0..self.count];
         }
+
+        pub fn includes(self: Self, val: T) bool {
+            for (self.getSliceFromStart()) |item| {
+                if (item == val) return true;
+            }
+
+            return false;
+        }
     };
 }

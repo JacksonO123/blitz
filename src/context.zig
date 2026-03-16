@@ -22,11 +22,11 @@ const ContextSettings = struct {
 
         // printLabels: bool = false,
         // printNoOps: bool = false,
-        printSkippedInstrs: bool = false,
+        // printSkippedInstrs: bool = false,
         // printInsertedTag: bool = false,
         printLabels: bool = true,
         printNoOps: bool = true,
-        // printSkippedInstrs: bool = true,
+        printSkippedInstrs: bool = true,
         printInsertedTag: bool = true,
 
         allocateRegisters: bool = true,
@@ -56,12 +56,6 @@ pub const Context = struct {
         writer: *Writer,
         settings: ContextSettings,
     ) !Self {
-        // NOTE - context pointer is passed around before initialization
-        // this is intentional, these utility structs need to store the memory
-        // location which is allocated before initialization
-        // to make this pattern safe, all of these util init functions must not
-        // use context properties, as they are undefined
-
         const pools = try allocPools.Pools.init(allocator);
         const poolsPtr = try utils.createMut(allocPools.Pools, allocator, pools);
 

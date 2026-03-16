@@ -65,7 +65,7 @@ fn initMetadata(allocator: Allocator, context: *Context) !void {
         };
         context.genInfo.registerLimits.temporary = .{
             .start = 8,
-            .end = 12,
+            .end = 11,
         };
         context.genInfo.registerLimits.preserved = .{
             .start = 13,
@@ -281,10 +281,7 @@ fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize, sp: *u
         },
     }
 
-    // Flush any remaining pending deactivations (e.g., for instructions
-    // with only source operands like Cmp, or single-operand instructions).
     flushPendingDeactivations(context);
-
     try handleMaybeSkipInstruction(context, allocator, instrIndex);
 }
 
@@ -321,20 +318,23 @@ fn remapReg(
             const regStatus = &context.genInfo.registerStatus.items[remap];
             var remapState = &regStatus.state;
 
-            // If the register is active and has been taken over by another vReg
-            // (e.g., another operand of the same instruction), we can't reclaim it.
-            // Instead, get a new register and load our data from the spill location.
             if (remapState.info == .Spilled and regStatus.active) {
-                // Walk to the bottom-most Spilled layer (just above .Normal) to find
-                // where the original occupant's data was displaced to. The top layer
-                // may have been created by a later spiller and holds someone else's data.
-                var walkState: *codegen.RegState = remapState;
-                while (walkState.prevState) |prev| {
+                var stateIter: *codegen.RegState = remapState;
+                while (stateIter.prevState) |prev| {
                     if (prev.info != .Spilled) break;
-                    walkState = prev;
+                    stateIter = prev;
                 }
-                const spillLocation = walkState.info.Spilled.location;
-                const reg = try handleNewRegRemap(allocator, context, regInfo, regPtr, instrIndex, sp);
+
+                const reg = try handleNewRegRemap(
+                    allocator,
+                    context,
+                    regInfo,
+                    regPtr,
+                    instrIndex,
+                    sp,
+                );
+                const spillLocation = stateIter.info.Spilled.location;
+
                 const loadInstr = codegen.Instr{
                     .Load64AtSpNegOffset16 = .{
                         .reg = reg,
@@ -345,6 +345,7 @@ fn remapReg(
                     .instr = loadInstr,
                     .pos = @intCast(instrIndex - 1),
                 });
+
                 regPtr.* = reg;
             } else {
                 while (remapState.info != .Normal) {
@@ -376,32 +377,37 @@ fn remapReg(
                         },
                     }
                 }
+
                 regPtr.* = remap;
             }
         },
-        .Spilled => |spillInfo| {
+        .Spilled => |spillInfo| a: {
             const regStatus = &context.genInfo.registerStatus.items[spillInfo.reg];
             var remapState = &regStatus.state;
 
-            // If the register is active and was taken by another operand,
-            // walk the chain to find where our data was stored and load from there.
             if (remapState.info == .Spilled and regStatus.active and
                 remapState.info.Spilled.by != spillInfo.byVReg)
             {
-                // Walk the chain to find the layer above ours.
-                // The location in that layer is where our data was stored.
-                var dataLocation: ?u64 = null;
-                var walkState: *codegen.RegState = remapState;
-                while (walkState.info == .Spilled) {
-                    if (walkState.info.Spilled.by == spillInfo.byVReg) {
+                var location: ?u64 = null;
+                var stateIter: *codegen.RegState = remapState;
+                while (stateIter.info == .Spilled) {
+                    if (stateIter.info.Spilled.by == spillInfo.byVReg) {
                         break;
                     }
-                    dataLocation = walkState.info.Spilled.location;
-                    walkState = walkState.prevState.?;
+                    location = stateIter.info.Spilled.location;
+                    stateIter = stateIter.prevState.?;
                 }
 
-                if (dataLocation) |loc| {
-                    const reg = try handleNewRegRemap(allocator, context, regInfo, regPtr, instrIndex, sp);
+                const newReg = if (location) |loc| b: {
+                    const reg = try handleNewRegRemap(
+                        allocator,
+                        context,
+                        regInfo,
+                        regPtr,
+                        instrIndex,
+                        sp,
+                    );
+
                     const loadInstr = codegen.Instr{
                         .Load64AtSpNegOffset16 = .{
                             .reg = reg,
@@ -412,46 +418,50 @@ fn remapReg(
                         .instr = loadInstr,
                         .pos = @intCast(instrIndex - 1),
                     });
-                    regPtr.* = reg;
-                } else {
-                    regPtr.* = spillInfo.reg;
-                }
-            } else {
-                while (remapState.info != .Normal) {
-                    switch (remapState.info) {
-                        .Unused, .Normal => unreachable,
-                        .Spilled => |*info| {
-                            if (info.by != spillInfo.byVReg) {
-                                try handleStoreSpilledReg(
-                                    allocator,
-                                    context,
-                                    regInfo,
-                                    instrIndex,
-                                    info.*,
-                                    sp,
-                                );
 
-                                const popInstr = codegen.Instr{
-                                    .Load64AtSpNegOffset16 = .{
-                                        .reg = info.reg,
-                                        .offset = @intCast(info.location),
-                                    },
-                                };
-                                try insertInsertAction(allocator, context, .{
-                                    .instr = popInstr,
-                                    .pos = @intCast(instrIndex - 1),
-                                });
+                    break :b reg;
+                } else spillInfo.reg;
 
-                                context.genInfo.registerStatus.items[spillInfo.reg].state =
-                                    remapState.prevState.?.*;
-                            } else {
-                                break;
-                            }
-                        },
-                    }
-                }
-                regPtr.* = spillInfo.reg;
+                regPtr.* = newReg;
+
+                break :a;
             }
+
+            while (remapState.info != .Normal) {
+                switch (remapState.info) {
+                    .Unused, .Normal => unreachable,
+                    .Spilled => |*info| {
+                        if (info.by != spillInfo.byVReg) {
+                            try handleStoreSpilledReg(
+                                allocator,
+                                context,
+                                regInfo,
+                                instrIndex,
+                                info.*,
+                                sp,
+                            );
+
+                            const popInstr = codegen.Instr{
+                                .Load64AtSpNegOffset16 = .{
+                                    .reg = info.reg,
+                                    .offset = @intCast(info.location),
+                                },
+                            };
+                            try insertInsertAction(allocator, context, .{
+                                .instr = popInstr,
+                                .pos = @intCast(instrIndex - 1),
+                            });
+
+                            context.genInfo.registerStatus.items[spillInfo.reg].state =
+                                remapState.prevState.?.*;
+                        } else {
+                            break;
+                        }
+                    },
+                }
+            }
+
+            regPtr.* = spillInfo.reg;
         },
         .Stored => |storedInfo| {
             const reg = try handleNewRegRemap(allocator, context, regInfo, regPtr, instrIndex, sp);
@@ -472,8 +482,6 @@ fn remapReg(
         },
     }
 
-    // Mark this physical register as protected so it won't be chosen as a
-    // spill target by other operands of the same instruction.
     context.genInfo.regAllocateUtils.protectedRegisters.push(regPtr.*);
 
     regInfo.useIndices.baseNext();
@@ -719,19 +727,12 @@ fn getIdealSpillReg(
     );
 
     const nextUseItems = context.genInfo.regAllocateUtils.regNextUseIndex.items;
-    const protectedRegs = context.genInfo.regAllocateUtils.protectedRegisters.getSliceFromStart();
     var furthestNextUse: u32 = 0;
     var furthestNextUseReg: vmInfo.TempRegister = 0;
     for (limits.start..limits.end) |index| {
-        // Skip registers that are already claimed by other operands
-        // of the current instruction.
-        var isProtected = false;
-        for (protectedRegs) |protected| {
-            if (protected == index) {
-                isProtected = true;
-                break;
-            }
-        }
+        const isProtected = context.genInfo.regAllocateUtils.protectedRegisters.includes(
+            @intCast(index),
+        );
         if (isProtected) continue;
 
         if (furthestNextUse < nextUseItems[index]) {
@@ -1026,23 +1027,23 @@ test "remap reg" {
     var t4 = context.genInfo.instrList.items[3].Add.dest;
 
     try std.testing.expectEqual(0, context.genInfo.registers.items[0].useIndices.current());
-    context.genInfo.regAllocateUtils.protectedRegisterCount = 0;
+    context.genInfo.regAllocateUtils.protectedRegisters.clear();
     try remapReg(allocator, &context, &t0, 0, &sp);
     try std.testing.expectEqual(1, context.genInfo.registers.items[0].useIndices.current());
-    context.genInfo.regAllocateUtils.protectedRegisterCount = 0;
+    context.genInfo.regAllocateUtils.protectedRegisters.clear();
     try remapReg(allocator, &context, &t01, 1, &sp);
-    flushPendingDeactivations(&context); // flush sources before dest (Mov)
+    flushPendingDeactivations(&context);
     try remapReg(allocator, &context, &t02, 1, &sp);
-    flushPendingDeactivations(&context); // end of instruction 1
-    context.genInfo.regAllocateUtils.protectedRegisterCount = 0;
+    flushPendingDeactivations(&context);
+    context.genInfo.regAllocateUtils.protectedRegisters.clear();
     try remapReg(allocator, &context, &t1, 2, &sp);
-    flushPendingDeactivations(&context); // end of instruction 2
-    context.genInfo.regAllocateUtils.protectedRegisterCount = 0;
+    flushPendingDeactivations(&context);
+    context.genInfo.regAllocateUtils.protectedRegisters.clear();
     try remapReg(allocator, &context, &t2, 3, &sp);
     try remapReg(allocator, &context, &t3, 3, &sp);
-    flushPendingDeactivations(&context); // flush sources before dest (Add)
+    flushPendingDeactivations(&context);
     try remapReg(allocator, &context, &t4, 3, &sp);
-    flushPendingDeactivations(&context); // end of instruction 3
+    flushPendingDeactivations(&context);
     try std.testing.expectEqual(null, context.genInfo.registers.items[0].useIndices.current());
 
     try std.testing.expectEqual(8, t0);
