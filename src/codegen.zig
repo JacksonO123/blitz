@@ -1148,6 +1148,10 @@ pub const GenInfo = struct {
         furthestInstrReach: u32,
         /// 0 for invalid state
         regNextUseIndex: *ArrayList(u32),
+        pendingDeactivations: [8]vmInfo.TempRegister = undefined,
+        pendingDeactivationCount: u8 = 0,
+        protectedRegisters: [8]vmInfo.TempRegister = undefined,
+        protectedRegisterCount: u8 = 0,
     },
 
     pub fn init(allocator: Allocator) !Self {
