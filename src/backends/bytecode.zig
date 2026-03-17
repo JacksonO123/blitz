@@ -308,6 +308,7 @@ fn remapReg(
 
     switch (regInfo.regRemap) {
         .Unused => {
+            @branchHint(.likely);
             regPtr.* = try handleNewRegRemap(allocator, context, regInfo, regPtr, instrIndex, sp);
         },
         .Normal => |remap| a: {
@@ -386,7 +387,6 @@ fn remapReg(
             if (remapState.info == .Spilled and regStatus.active and
                 remapState.info.Spilled.by != spillInfo.byVReg)
             {
-                @branchHint(.cold);
                 var location: ?u64 = null;
                 var stateIter: *codegen.RegState = remapState;
                 while (stateIter.info == .Spilled) {
@@ -427,7 +427,6 @@ fn remapReg(
             }
 
             while (remapState.info != .Normal) {
-                @branchHint(.cold);
                 switch (remapState.info) {
                     .Unused, .Normal => unreachable,
                     .Spilled => |*info| {
