@@ -1869,13 +1869,14 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
 
         try items.append(allocator, item);
 
-        current = try context.tokenUtil.take();
+        current = try context.tokenUtil.peak();
         if (current.type == .RBracket) break;
 
-        context.tokenUtil.returnToken();
         try context.tokenUtil.expectToken(.Comma);
         current = try context.tokenUtil.peak();
     }
+
+    try context.tokenUtil.expectToken(.RBracket);
 
     const slice = try items.toOwnedSlice(allocator);
     try context.deferCleanup.nodeSlices.append(allocator, slice);
