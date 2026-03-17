@@ -944,40 +944,426 @@ fn recordNextUsage(
     }
 }
 
-test "remap reg" {
+// Tests
+
+const TestHelper = struct {
+    const Self = @This();
+
+    allocator: Allocator,
+    context: Context,
+    sp: u64,
+
+    fn init(allocator: Allocator, instrs: []const codegen.Instr, regCount: usize) !TestHelper {
+        // default bytecode register settings
+        return initWithLimits(allocator, instrs, regCount, .{
+            .params = .{ .start = 0, .end = 8 },
+            .temporary = .{ .start = 8, .end = 8 + 124 },
+            .preserved = .{ .start = 8 + 124, .end = 8 + 124 + 124 },
+        });
+    }
+
+    fn initWithLimits(
+        allocator: std.mem.Allocator,
+        instrs: []const codegen.Instr,
+        regCount: usize,
+        limits: codegen.BackendRegLimits,
+    ) !Self {
+        var stdout = std.fs.File.stdout().writer(&[_]u8{});
+        defer stdout.end() catch {};
+        const writer = &stdout.interface;
+        defer writer.flush() catch {};
+
+        var context = try Context.init(allocator, "", writer, .{});
+
+        context.genInfo.registerLimits = limits;
+
+        const totalRegs = limits.preserved.end;
+
+        try context.genInfo.registerStatus.ensureTotalCapacityPrecise(allocator, totalRegs);
+        context.genInfo.registerStatus.items.len = totalRegs;
+        @memset(context.genInfo.registerStatus.items, .{});
+
+        try context.genInfo.regAllocateUtils.regNextUseIndex.ensureTotalCapacityPrecise(
+            allocator,
+            totalRegs,
+        );
+        context.genInfo.regAllocateUtils.regNextUseIndex.items.len = totalRegs;
+        @memset(context.genInfo.regAllocateUtils.regNextUseIndex.items, 0);
+
+        const instrsPtr = try utils.createMut(std.ArrayList(codegen.Instr), allocator, .empty);
+        try instrsPtr.appendSlice(allocator, instrs);
+        context.genInfo.instrList = instrsPtr;
+
+        try context.genInfo.registers.ensureTotalCapacityPrecise(allocator, regCount);
+        context.genInfo.registers.items.len = regCount;
+
+        return .{
+            .allocator = allocator,
+            .context = context,
+            .sp = 0,
+        };
+    }
+
+    fn addVReg(self: *TestHelper, regIndex: usize, useIndicesList: []const u32) !void {
+        try self.addVRegUtil(regIndex, useIndicesList, .Temporary);
+    }
+
+    fn addVRegUtil(
+        self: *TestHelper,
+        regIndex: usize,
+        useIndicesList: []const u32,
+        usage: codegen.RegisterUsage,
+    ) !void {
+        const uses = try codegen.RegUseIndices.init(self.allocator);
+        try uses.indices.appendSlice(self.allocator, useIndicesList);
+
+        const info = try utils.createMut(codegen.RegInfo, self.allocator, .{
+            .useIndices = uses,
+            .usage = usage,
+        });
+        self.context.genInfo.registers.items[regIndex] = info;
+    }
+
+    fn runRemapInstr(self: *TestHelper, instrIndex: usize) !void {
+        try remapInstr(self.allocator, &self.context, instrIndex, &self.sp);
+    }
+
+    fn runAllocateRegisters(self: *TestHelper) !void {
+        try allocateRegisters(
+            self.allocator,
+            &self.context,
+            self.context.genInfo.instrList.items,
+            0,
+            &self.sp,
+        );
+    }
+
+    fn getInstr(self: *TestHelper, index: usize) codegen.Instr {
+        return self.context.genInfo.instrList.items[index];
+    }
+
+    fn getRegRemap(self: *TestHelper, vReg: usize) codegen.RegRemap {
+        return self.context.genInfo.registers.items[vReg].regRemap;
+    }
+
+    fn getRegStatus(self: *TestHelper, realReg: usize) codegen.RegStatus {
+        return self.context.genInfo.registerStatus.items[realReg];
+    }
+
+    fn getInsertActions(self: *TestHelper) []const codegen.InsertInfo {
+        return self.context.genInfo.instrActions.insertInstrInfo.action.items;
+    }
+
+    fn getSkipActions(self: *TestHelper) []const u32 {
+        return self.context.genInfo.instrActions.skipInstrInfo.action.items;
+    }
+};
+
+test "basic register mapping" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const instrs = &[_]codegen.Instr{
-        codegen.Instr{
-            .SetReg32 = .{
-                .reg = 0,
-                .data = 1,
-            },
-        },
-        codegen.Instr{
-            .Mov = .{
-                .dest = 1,
-                .src = 0,
-            },
-        },
-        codegen.Instr{
-            .SetReg32 = .{
-                .reg = 2,
-                .data = 2,
-            },
-        },
-        codegen.Instr{
-            .Add = .{
-                .dest = 3,
-                .reg1 = 1,
-                .reg2 = 2,
-            },
-        },
+    const instrs = [_]codegen.Instr{
+        .{ .SetReg32 = .{ .reg = 0, .data = 100 } },
+        .{ .Mov = .{ .dest = 1, .src = 0 } },
+        .{ .SetReg32 = .{ .reg = 2, .data = 101 } },
+        .{ .Add = .{ .dest = 3, .reg1 = 1, .reg2 = 2 } },
     };
-    const instrsPtr = try blitz.utils.createMut(std.ArrayList(codegen.Instr), allocator, .empty);
-    try instrsPtr.appendSlice(allocator, instrs);
+
+    var helper = try TestHelper.init(allocator, &instrs, 4);
+    try helper.addVReg(0, &.{ 0, 1 });
+    try helper.addVReg(1, &.{ 1, 3 });
+    try helper.addVReg(2, &.{ 2, 3 });
+    try helper.addVReg(3, &.{ 3, 3 });
+
+    try helper.runAllocateRegisters();
+
+    try std.testing.expectEqual(8, helper.getInstr(0).SetReg32.reg);
+    try std.testing.expectEqual(8, helper.getInstr(1).Mov.src);
+    try std.testing.expectEqual(8, helper.getInstr(1).Mov.dest);
+    try std.testing.expectEqual(9, helper.getInstr(2).SetReg32.reg);
+
+    const addInstr = helper.getInstr(3).Add;
+    try std.testing.expectEqual(8, addInstr.reg1);
+    try std.testing.expectEqual(9, addInstr.reg2);
+    try std.testing.expectEqual(8, addInstr.dest);
+
+    try std.testing.expectEqual(@as(u64, 0), helper.sp);
+    try std.testing.expectEqual(@as(usize, 0), helper.getInsertActions().len);
+}
+
+test "register reuse after last use" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const instrs = [_]codegen.Instr{
+        .{ .SetReg32 = .{ .reg = 0, .data = 100 } },
+        .{ .SetReg32 = .{ .reg = 1, .data = 101 } },
+    };
+
+    var helper = try TestHelper.init(allocator, &instrs, 2);
+    try helper.addVReg(0, &.{ 0, 0 });
+    try helper.addVReg(1, &.{ 1, 1 });
+
+    try helper.runAllocateRegisters();
+
+    try std.testing.expectEqual(8, helper.getInstr(0).SetReg32.reg);
+    try std.testing.expectEqual(8, helper.getInstr(1).SetReg32.reg);
+}
+
+test "register lifetimes" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const instrs = [_]codegen.Instr{
+        .{ .SetReg32 = .{ .reg = 0, .data = 100 } },
+        .{ .SetReg32 = .{ .reg = 0, .data = 101 } },
+        .{ .SetReg32 = .{ .reg = 0, .data = 102 } },
+    };
+
+    var helper = try TestHelper.init(allocator, &instrs, 1);
+    try helper.addVReg(0, &.{ 0, 1, 2 });
+
+    try std.testing.expectEqual(
+        @as(u32, 0),
+        helper.context.genInfo.registers.items[0].useIndices.current().?,
+    );
+
+    try helper.runRemapInstr(0);
+    try std.testing.expectEqual(8, helper.getInstr(0).SetReg32.reg);
+    try std.testing.expectEqual(
+        @as(u32, 1),
+        helper.context.genInfo.registers.items[0].useIndices.current().?,
+    );
+    try std.testing.expect(helper.getRegStatus(8).active);
+
+    try helper.runRemapInstr(1);
+    try std.testing.expectEqual(
+        @as(u32, 2),
+        helper.context.genInfo.registers.items[0].useIndices.current().?,
+    );
+
+    try helper.runRemapInstr(2);
+    try std.testing.expectEqual(
+        null,
+        helper.context.genInfo.registers.items[0].useIndices.current(),
+    );
+    try std.testing.expect(!helper.getRegStatus(8).active);
+
+    try std.testing.expectEqual(8, helper.getInstr(1).SetReg32.reg);
+    try std.testing.expectEqual(8, helper.getInstr(2).SetReg32.reg);
+}
+
+test "register usage types map to correct ranges" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // temp, preserved, param, paramNext usage
+    const instrs = [_]codegen.Instr{
+        .{ .SetReg32 = .{ .reg = 0, .data = 100 } }, // temp
+        .{ .SetReg32 = .{ .reg = 1, .data = 101 } }, // preserved
+        .{ .SetReg32 = .{ .reg = 2, .data = 102 } }, // param
+        .{ .SetReg32 = .{ .reg = 3, .data = 103 } }, // paramNext
+    };
+
+    var helper = try TestHelper.init(allocator, &instrs, 4);
+    try helper.addVRegUtil(0, &.{ 0, 0 }, .Temporary);
+    try helper.addVRegUtil(1, &.{ 1, 1 }, .Preserved);
+    try helper.addVRegUtil(2, &.{ 2, 2 }, .Param);
+    try helper.addVRegUtil(3, &.{ 3, 3 }, .ParamNext);
+
+    try helper.runAllocateRegisters();
+
+    try std.testing.expectEqual(8, helper.getInstr(0).SetReg32.reg);
+    try std.testing.expectEqual(132, helper.getInstr(1).SetReg32.reg);
+
+    const paramReg = helper.getInstr(2).SetReg32.reg;
+    try std.testing.expectEqual(0, paramReg);
+
+    const paramNextReg = helper.getInstr(3).SetReg32.reg;
+    try std.testing.expect(paramNextReg == 1);
+}
+
+test "spilling: store, load back, sp inc" {
+    // 2 temp regs, 3 live registers, requires spill
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const instrs = [_]codegen.Instr{
+        .{ .SetReg32 = .{ .reg = 0, .data = 100 } }, // stores until add
+        .{ .SetReg32 = .{ .reg = 1, .data = 101 } },
+        .{ .SetReg32 = .{ .reg = 2, .data = 102 } }, // spills a reg and takes it
+        .{ .Add = .{ .dest = 3, .reg1 = 0, .reg2 = 1 } }, // loads to get reg back
+    };
+
+    var helper = try TestHelper.initWithLimits(allocator, &instrs, 4, .{
+        .params = .{ .start = 0, .end = 8 },
+        .temporary = .{ .start = 8, .end = 10 },
+        .preserved = .{ .start = 10, .end = 12 },
+    });
+    try helper.addVReg(0, &.{ 0, 3 });
+    try helper.addVReg(1, &.{ 1, 3 });
+    try helper.addVReg(2, &.{ 2, 2 });
+    try helper.addVReg(3, &.{ 3, 3 });
+
+    try helper.runAllocateRegisters();
+
+    // spill v0 at offset 0, store v2 at offset 8
+    try std.testing.expectEqual(2 * vmInfo.POINTER_SIZE, helper.sp);
+
+    const actions = helper.getInsertActions();
+    try std.testing.expectEqual(@as(usize, 3), actions.len);
+    // spill store at pos 1
+    try std.testing.expectEqual(
+        codegen.InstructionVariants.Store64AtSpNegOffset16,
+        std.meta.activeTag(actions[0].instr),
+    );
+    try std.testing.expectEqual(@as(u32, 1), actions[0].pos);
+    // store the taken reg at pos 2
+    try std.testing.expectEqual(
+        codegen.InstructionVariants.Store64AtSpNegOffset16,
+        std.meta.activeTag(actions[1].instr),
+    );
+    try std.testing.expectEqual(@as(u32, 2), actions[1].pos);
+    // load from pos 2
+    try std.testing.expectEqual(
+        codegen.InstructionVariants.Load64AtSpNegOffset16,
+        std.meta.activeTag(actions[2].instr),
+    );
+    try std.testing.expectEqual(@as(u32, 2), actions[2].pos);
+}
+
+test "spill positioning and multiple spills" {
+    // should pick furthest next use (v0)
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const instrs = [_]codegen.Instr{
+        .{ .SetReg32 = .{ .reg = 0, .data = 100 } },
+        .{ .SetReg32 = .{ .reg = 1, .data = 101 } },
+        .{ .SetReg32 = .{ .reg = 2, .data = 102 } }, // spill at pos 1
+        .{ .SetReg32 = .{ .reg = 1, .data = 103 } },
+        .{ .SetReg32 = .{ .reg = 2, .data = 104 } },
+        .{ .SetReg32 = .{ .reg = 0, .data = 105 } }, // load
+    };
+
+    var helper = try TestHelper.initWithLimits(allocator, &instrs, 3, .{
+        .params = .{ .start = 0, .end = 8 },
+        .temporary = .{ .start = 8, .end = 10 },
+        .preserved = .{ .start = 10, .end = 12 },
+    });
+    try helper.addVReg(0, &.{ 0, 5 });
+    try helper.addVReg(1, &.{ 1, 3 });
+    try helper.addVReg(2, &.{ 2, 4 });
+
+    try helper.runAllocateRegisters();
+
+    try std.testing.expectEqual(vmInfo.POINTER_SIZE, helper.sp);
+
+    const actions = helper.getInsertActions();
+    try std.testing.expectEqual(@as(usize, 2), actions.len);
+    // v0 spilled (furthest next use at 5 vs v1 at 3)
+    try std.testing.expectEqual(
+        codegen.InstructionVariants.Store64AtSpNegOffset16,
+        std.meta.activeTag(actions[0].instr),
+    );
+    try std.testing.expectEqual(@as(u32, 1), actions[0].pos);
+    try std.testing.expectEqual(
+        codegen.InstructionVariants.Load64AtSpNegOffset16,
+        std.meta.activeTag(actions[1].instr),
+    );
+    try std.testing.expectEqual(@as(u32, 4), actions[1].pos);
+}
+
+test "mov same src to dest creates skip action" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const instrs = [_]codegen.Instr{
+        .{ .SetReg32 = .{ .reg = 0, .data = 100 } },
+        .{ .Mov = .{ .dest = 0, .src = 0 } },
+    };
+
+    var helper = try TestHelper.init(allocator, &instrs, 1);
+    try helper.addVReg(0, &.{ 0, 1, 1, 1 });
+
+    try helper.runAllocateRegisters();
+
+    try std.testing.expectEqual(8, helper.getInstr(1).Mov.src);
+    try std.testing.expectEqual(8, helper.getInstr(1).Mov.dest);
+
+    const skipActions = helper.getSkipActions();
+    try std.testing.expectEqual(@as(usize, 1), skipActions.len);
+    try std.testing.expectEqual(@as(u32, 1), skipActions[0]);
+}
+
+test "store and Load at reg remap" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const instrs = [_]codegen.Instr{
+        .{ .SetReg64 = .{ .reg = 0, .data = 100 } },
+        .{ .SetReg32 = .{ .reg = 1, .data = 101 } },
+        .{ .Store64AtReg = .{ .fromReg = 1, .toRegPtr = 0 } },
+        .{ .Load64AtReg = .{ .dest = 2, .fromRegPtr = 0 } },
+    };
+
+    var helper = try TestHelper.init(allocator, &instrs, 3);
+    try helper.addVReg(0, &.{ 0, 2, 3 });
+    try helper.addVReg(1, &.{ 1, 2 });
+    try helper.addVReg(2, &.{ 3, 3 });
+
+    try helper.runAllocateRegisters();
+
+    try std.testing.expectEqual(9, helper.getInstr(2).Store64AtReg.fromReg);
+    try std.testing.expectEqual(8, helper.getInstr(2).Store64AtReg.toRegPtr);
+    try std.testing.expectEqual(8, helper.getInstr(3).Load64AtReg.fromRegPtr);
+    try std.testing.expectEqual(8, helper.getInstr(3).Load64AtReg.dest);
+}
+
+test "register state changes after allocation" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const instrs = [_]codegen.Instr{
+        .{ .SetReg32 = .{ .reg = 0, .data = 1 } },
+        .{ .SetReg32 = .{ .reg = 0, .data = 2 } },
+    };
+
+    var helper = try TestHelper.init(allocator, &instrs, 1);
+    try helper.addVReg(0, &.{ 0, 1 });
+
+    try std.testing.expectEqual(
+        codegen.RegRemapStateVariants.Unused,
+        std.meta.activeTag(helper.getRegRemap(0)),
+    );
+
+    try helper.runRemapInstr(0);
+
+    try std.testing.expectEqual(
+        codegen.RegRemapStateVariants.Normal,
+        std.meta.activeTag(helper.getRegRemap(0)),
+    );
+    try std.testing.expectEqual(8, helper.getInstr(0).SetReg32.reg);
+    try std.testing.expectEqual(
+        codegen.RegStateVariants.Normal,
+        std.meta.activeTag(helper.getRegStatus(8).state.info),
+    );
+}
+
+test "init metadata" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var stdout = std.fs.File.stdout().writer(&[_]u8{});
     defer stdout.end() catch {};
@@ -985,80 +1371,95 @@ test "remap reg" {
     defer writer.flush() catch {};
 
     var context = try Context.init(allocator, "", writer, .{});
-
     try initMetadata(allocator, &context);
 
-    context.genInfo.instrList = instrsPtr;
-    try context.genInfo.registers.ensureTotalCapacityPrecise(allocator, instrs.len);
-    context.genInfo.registers.items.len = 4;
+    try std.testing.expectEqual(@as(u16, 0), context.genInfo.registerLimits.params.start);
+    try std.testing.expectEqual(@as(u16, 8), context.genInfo.registerLimits.params.end);
+    try std.testing.expectEqual(@as(u16, 8), context.genInfo.registerLimits.temporary.start);
+    try std.testing.expectEqual(@as(u16, 132), context.genInfo.registerLimits.temporary.end);
+    try std.testing.expectEqual(@as(u16, 132), context.genInfo.registerLimits.preserved.start);
+    try std.testing.expectEqual(@as(u16, 256), context.genInfo.registerLimits.preserved.end);
 
-    const uses1 = try codegen.RegUseIndices.init(allocator);
-    try uses1.indices.append(allocator, 0);
-    try uses1.indices.append(allocator, 1);
-    const info1 = try blitz.utils.createMut(codegen.RegInfo, allocator, .{
-        .useIndices = uses1,
+    // All 256 statuses initialized inactive with Unused state
+    try std.testing.expectEqual(@as(usize, 256), context.genInfo.registerStatus.items.len);
+    try std.testing.expectEqual(
+        @as(usize, 256),
+        context.genInfo.regAllocateUtils.regNextUseIndex.items.len,
+    );
+    for (context.genInfo.registerStatus.items) |status| {
+        try std.testing.expect(!status.active);
+        try std.testing.expectEqual(codegen.RegStateInfo.Unused, status.state.info);
+    }
+}
+
+test "chained register reuse" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const instrs = [_]codegen.Instr{
+        .{ .SetReg32 = .{ .reg = 0, .data = 100 } },
+        .{ .SetReg32 = .{ .reg = 1, .data = 101 } },
+        .{ .Add = .{ .dest = 2, .reg1 = 0, .reg2 = 1 } },
+        .{ .SetReg32 = .{ .reg = 3, .data = 102 } },
+        .{ .Add = .{ .dest = 4, .reg1 = 2, .reg2 = 3 } },
+        .{ .SetReg32 = .{ .reg = 5, .data = 103 } },
+        .{ .Add = .{ .dest = 6, .reg1 = 4, .reg2 = 5 } },
+    };
+
+    var helper = try TestHelper.init(allocator, &instrs, 7);
+    try helper.addVReg(0, &.{ 0, 2 });
+    try helper.addVReg(1, &.{ 1, 2 });
+    try helper.addVReg(2, &.{ 2, 4 });
+    try helper.addVReg(3, &.{ 3, 4 });
+    try helper.addVReg(4, &.{ 4, 6 });
+    try helper.addVReg(5, &.{ 5, 6 });
+    try helper.addVReg(6, &.{ 6, 6 });
+
+    try helper.runAllocateRegisters();
+
+    try std.testing.expectEqual(@as(u64, 0), helper.sp);
+
+    try std.testing.expectEqual(8, helper.getInstr(0).SetReg32.reg);
+    try std.testing.expectEqual(9, helper.getInstr(1).SetReg32.reg);
+    try std.testing.expectEqual(8, helper.getInstr(2).Add.dest);
+    try std.testing.expectEqual(8, helper.getInstr(2).Add.reg1);
+    try std.testing.expectEqual(9, helper.getInstr(2).Add.reg2);
+    try std.testing.expectEqual(9, helper.getInstr(3).SetReg32.reg);
+    try std.testing.expectEqual(8, helper.getInstr(4).Add.dest);
+    try std.testing.expectEqual(8, helper.getInstr(4).Add.reg1);
+    try std.testing.expectEqual(9, helper.getInstr(4).Add.reg2);
+    try std.testing.expectEqual(9, helper.getInstr(5).SetReg32.reg);
+    try std.testing.expectEqual(8, helper.getInstr(6).Add.dest);
+    try std.testing.expectEqual(8, helper.getInstr(6).Add.reg1);
+    try std.testing.expectEqual(9, helper.getInstr(6).Add.reg2);
+}
+
+test "tight register pressure and no spill" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const instrs = [_]codegen.Instr{
+        .{ .SetReg32 = .{ .reg = 0, .data = 100 } },
+        .{ .SetReg32 = .{ .reg = 1, .data = 101 } },
+        .{ .SetReg32 = .{ .reg = 2, .data = 102 } },
+        .{ .Add = .{ .dest = 3, .reg1 = 0, .reg2 = 1 } },
+        .{ .Add = .{ .dest = 4, .reg1 = 2, .reg2 = 3 } },
+    };
+
+    var helper = try TestHelper.initWithLimits(allocator, &instrs, 5, .{
+        .params = .{ .start = 0, .end = 8 },
+        .temporary = .{ .start = 8, .end = 11 },
+        .preserved = .{ .start = 11, .end = 13 },
     });
-    context.genInfo.registers.items[0] = info1;
+    try helper.addVReg(0, &.{ 0, 3 });
+    try helper.addVReg(1, &.{ 1, 3 });
+    try helper.addVReg(2, &.{ 2, 4 });
+    try helper.addVReg(3, &.{ 3, 4 });
+    try helper.addVReg(4, &.{ 4, 4 });
 
-    const uses11 = try codegen.RegUseIndices.init(allocator);
-    try uses11.indices.append(allocator, 1);
-    try uses11.indices.append(allocator, 3);
-    const info11 = try blitz.utils.createMut(codegen.RegInfo, allocator, .{
-        .useIndices = uses11,
-    });
-    context.genInfo.registers.items[1] = info11;
+    try helper.runAllocateRegisters();
 
-    const uses2 = try codegen.RegUseIndices.init(allocator);
-    try uses2.indices.append(allocator, 2);
-    try uses2.indices.append(allocator, 3);
-    const info2 = try blitz.utils.createMut(codegen.RegInfo, allocator, .{
-        .useIndices = uses2,
-    });
-    context.genInfo.registers.items[2] = info2;
-
-    const uses3 = try codegen.RegUseIndices.init(allocator);
-    try uses3.indices.append(allocator, 3);
-    try uses3.indices.append(allocator, 3);
-    const info3 = try blitz.utils.createMut(codegen.RegInfo, allocator, .{
-        .useIndices = uses3,
-    });
-    context.genInfo.registers.items[3] = info3;
-
-    var sp: u64 = 0;
-
-    var t0 = context.genInfo.instrList.items[0].SetReg32.reg;
-    var t01 = context.genInfo.instrList.items[1].Mov.src;
-    var t02 = context.genInfo.instrList.items[1].Mov.dest;
-    var t1 = context.genInfo.instrList.items[2].SetReg32.reg;
-    var t2 = context.genInfo.instrList.items[3].Add.reg2;
-    var t3 = context.genInfo.instrList.items[3].Add.reg1;
-    var t4 = context.genInfo.instrList.items[3].Add.dest;
-
-    try std.testing.expectEqual(0, context.genInfo.registers.items[0].useIndices.current());
-    context.genInfo.regAllocateUtils.protectedRegisters.clear();
-    try remapReg(allocator, &context, &t0, 0, &sp);
-    try std.testing.expectEqual(1, context.genInfo.registers.items[0].useIndices.current());
-    context.genInfo.regAllocateUtils.protectedRegisters.clear();
-    try remapReg(allocator, &context, &t01, 1, &sp);
-    flushPendingDeactivations(&context);
-    try remapReg(allocator, &context, &t02, 1, &sp);
-    flushPendingDeactivations(&context);
-    context.genInfo.regAllocateUtils.protectedRegisters.clear();
-    try remapReg(allocator, &context, &t1, 2, &sp);
-    flushPendingDeactivations(&context);
-    context.genInfo.regAllocateUtils.protectedRegisters.clear();
-    try remapReg(allocator, &context, &t2, 3, &sp);
-    try remapReg(allocator, &context, &t3, 3, &sp);
-    flushPendingDeactivations(&context);
-    try remapReg(allocator, &context, &t4, 3, &sp);
-    flushPendingDeactivations(&context);
-    try std.testing.expectEqual(null, context.genInfo.registers.items[0].useIndices.current());
-
-    try std.testing.expectEqual(8, t0);
-    try std.testing.expectEqual(8, t01);
-    try std.testing.expectEqual(8, t02);
-    try std.testing.expectEqual(9, t1);
-    try std.testing.expectEqual(9, t2);
-    try std.testing.expectEqual(8, t3);
-    try std.testing.expectEqual(8, t4);
+    try std.testing.expectEqual(@as(u64, 0), helper.sp);
 }

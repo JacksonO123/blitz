@@ -51,7 +51,7 @@ pub const BackendInterface = struct {
     ) Allocator.Error!void,
 };
 
-const RegisterUsage = enum {
+pub const RegisterUsage = enum {
     const Self = @This();
 
     Param,
@@ -1186,7 +1186,7 @@ const RegInfoVarInfo = struct {
     prevInfo: ?*RegInfoVarInfo = null,
 };
 
-const RegStateVariants = enum {
+pub const RegStateVariants = enum {
     Unused,
     Normal,
     Spilled,
@@ -1256,14 +1256,14 @@ pub const RegUseIndices = struct {
     }
 };
 
-const RegRemapStateVariants = enum {
+pub const RegRemapStateVariants = enum {
     Unused,
     Normal,
     Stored,
     Spilled,
 };
 
-const RegRemap = union(RegRemapStateVariants) {
+pub const RegRemap = union(RegRemapStateVariants) {
     Unused,
     Normal: vmInfo.TempRegister,
     Stored: struct {
@@ -1449,6 +1449,12 @@ pub const InstrActions = struct {
     }
 };
 
+pub const BackendRegLimits = struct {
+    params: RegisterRange = .{},
+    temporary: RegisterRange = .{},
+    preserved: RegisterRange = .{},
+};
+
 pub const GenInfo = struct {
     const Self = @This();
 
@@ -1465,11 +1471,7 @@ pub const GenInfo = struct {
     currentLabelId: vmInfo.LabelType,
     registers: *ArrayList(*RegInfo),
     registerStatus: *ArrayList(RegStatus),
-    registerLimits: struct {
-        params: RegisterRange = .{},
-        temporary: RegisterRange = .{},
-        preserved: RegisterRange = .{},
-    } = .{},
+    registerLimits: BackendRegLimits = .{},
     labelByteInfo: *LabelByteInfo,
     instrActions: InstrActions,
     regAllocateUtils: struct {
