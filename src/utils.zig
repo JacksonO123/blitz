@@ -153,7 +153,7 @@ pub fn StaticBufferList(comptime T: type, comptime size: comptime_int) type {
             self.count = 0;
         }
 
-        pub fn getSliceFromStart(self: Self) []const T {
+        pub inline fn getSliceFromStart(self: Self) []const T {
             return self.buf[0..self.count];
         }
 
