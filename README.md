@@ -16,7 +16,7 @@ Will generate
   <li><code>blitzc-debug</code>: compiler</li>
   <li><code>blitz-debug</code>: virtual machine</li>
   <li><code>bzc-objdump-debug</code>: bytecode disassembler</li>
-  <li><code>blitz-diff-debug</code>: bytecode diff utility</li>
+  <li><code>blitz-diff</code>: bytecode diff utility</li>
 </ul>
 
 **Make prod**
@@ -60,7 +60,7 @@ Runs from `zig run ...`
 
 **Run a file that matches a pattern**
 
-Use the -p flag, runs from `zig run ...`
+Use the -p flag to match any file that contains the next argument, runs from `zig run ...`
 
 ```sh
 ./test -p structs
