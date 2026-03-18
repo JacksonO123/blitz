@@ -52,7 +52,7 @@ Compiles with `zig build` in debug mode. Runs from `blitzc-debug` exe.
 
 **Run specific test file**
 
-Runs from `zig run ...`
+Runs from `zig build run-compiler ...`
 
 ```sh
 ./test [file name]
@@ -60,7 +60,7 @@ Runs from `zig run ...`
 
 **Run a file that matches a pattern**
 
-Use the -p flag to match any file that contains the next argument, runs from `zig run ...`
+Use the -p flag to match any file that contains the next argument, runs from `zig build run-compiler ...`
 
 ```sh
 ./test -p structs
