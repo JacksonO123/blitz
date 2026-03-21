@@ -79,10 +79,12 @@ pub fn build(b: *std.Build) void {
     const runCompilerExe = b.addRunArtifact(compilerExe);
     const runCompilerStep = b.step("run-compiler", "Run the compiler");
     runCompilerStep.dependOn(&runCompilerExe.step);
+    runCompilerExe.step.dependOn(b.getInstallStep());
 
     const runInterpreterExe = b.addRunArtifact(interpreterExe);
     const runInterpreterStep = b.step("run-interpreter", "Run the interpreter");
     runInterpreterStep.dependOn(&runInterpreterExe.step);
+    runInterpreterExe.step.dependOn(b.getInstallStep());
 
     if (b.args) |args| {
         runCompilerExe.addArgs(args);
