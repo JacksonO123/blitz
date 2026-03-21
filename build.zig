@@ -16,7 +16,6 @@ pub fn build(b: *std.Build) void {
     const blitzModule = b.addModule("blitz", .{
         .root_source_file = b.path("src/blitz.zig"),
         .target = target,
-        .optimize = mode,
     });
 
     const compilerExe = b.addExecutable(.{
