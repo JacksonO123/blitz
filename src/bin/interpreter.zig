@@ -413,8 +413,12 @@ fn interpretBytecode(
             .Load64AtSpNegOffset16 => {
                 loadAtSpNegOffset(u64, u16, runtimeInfo, bytecode, current);
             },
-            .Load32AtSpNegOffset16 => {},
-            .Load16AtSpNegOffset16 => {},
+            .Load32AtSpNegOffset16 => {
+                loadAtSpNegOffset(u32, u16, runtimeInfo, bytecode, current);
+            },
+            .Load16AtSpNegOffset16 => {
+                loadAtSpNegOffset(u16, u16, runtimeInfo, bytecode, current);
+            },
             .Load8AtSpNegOffset16 => {
                 const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 2 .. current + 4]), .little);
                 const location = runtimeInfo.ptrs.sp - offset;
@@ -573,7 +577,7 @@ fn interpretBytecode(
                 current += amount;
             },
             .BranchLinkBack => {
-                runtimeInfo.ptrs.lr = current;
+                runtimeInfo.ptrs.lr = current + instLen;
                 const amount = std.mem.readInt(
                     u16,
                     @ptrCast(bytecode[current + 1 .. current + 3]),
@@ -592,11 +596,12 @@ fn interpretBytecode(
                 const sp = runtimeInfo.ptrs.sp;
                 const offset = bytecode[current + 1];
 
-                runtimeInfo.ptrs.lr = std.mem.readInt(
+                const temp = std.mem.readInt(
                     u64,
                     @ptrCast(runtimeInfo.stack.items[sp - offset .. sp - offset + 8]),
                     .little,
                 );
+                runtimeInfo.ptrs.lr = temp;
             },
             .PrePushLRNegOffset16 => {
                 prePushLRNegOffset(u16, runtimeInfo, bytecode, current);

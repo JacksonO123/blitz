@@ -1136,15 +1136,19 @@ fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
         },
         .PrePushLRNegOffsetAny, .PostPopLRNegOffsetAny => unreachable,
         .PrePushLRNegOffset8, .PostPopLRNegOffset8 => |inner| {
+            try writer.writeByte(' ');
             try writeHexDecNumber(u8, inner, writer);
         },
         .PrePushLRNegOffset16, .PostPopLRNegOffset16 => |inner| {
+            try writer.writeByte(' ');
             try writeHexDecNumber(u16, inner, writer);
         },
         .PrePushLRNegOffset32, .PostPopLRNegOffset32 => |inner| {
+            try writer.writeByte(' ');
             try writeHexDecNumber(u32, inner, writer);
         },
         .PrePushLRNegOffset64, .PostPopLRNegOffset64 => |inner| {
+            try writer.writeByte(' ');
             try writeHexDecNumber(u64, inner, writer);
         },
     }

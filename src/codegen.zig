@@ -2207,11 +2207,13 @@ fn adjustProc(
 ) !void {
     var i = instrStartIndex;
     var numPushedRegisters: u32 = 0;
+    var hasBranchLink = false;
 
     while (i < context.genInfo.instrList.items.len) : (i += 1) {
         const instr = context.genInfo.instrList.items[i];
         switch (instr) {
             .BranchLink, .BranchLinkBack => {
+                hasBranchLink = true;
                 var procReg: usize = context.genInfo.currentProc.preProcVirtualReg;
                 while (procReg < context.genInfo.registers.items.len) : (procReg += 1) {
                     const regInfo = context.genInfo.registers.items[procReg];
@@ -2237,20 +2239,29 @@ fn adjustProc(
 
     const stackOffset =
         numPushedRegisters * vmInfo.POINTER_SIZE +
-        vmInfo.POINTER_SIZE * (if (numPushedRegisters > 0) @as(u8, 1) else @as(u8, 0));
+        vmInfo.POINTER_SIZE * (if (hasBranchLink and !isRoot) @as(u8, 1) else @as(u8, 0));
 
-    if (context.genInfo.currentProc.maxPreserveReg) |maxReg| {
-        const pushInstr = try pushRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
-        const popInstr = try popRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
+    if (hasBranchLink and !isRoot) {
+        const startOffset: u8 = if (context.genInfo.currentProc.maxPreserveReg != null)
+            vmInfo.POINTER_SIZE
+        else
+            0;
+
         const pushLRInstr = try prePushLRNegOffsetAnyInstr(
-            frameSize.* + stackOffset - vmInfo.POINTER_SIZE,
+            frameSize.* + stackOffset - startOffset,
         );
         const popLRInstr = try postPopLRNegOffsetAnyInstr(
-            frameSize.* + stackOffset - vmInfo.POINTER_SIZE,
+            frameSize.* + stackOffset - startOffset,
         );
 
         context.genInfo.instrList.items[instrStartIndex + 2] = pushLRInstr;
         try context.genInfo.instrList.append(allocator, popLRInstr);
+    }
+
+    if (context.genInfo.currentProc.maxPreserveReg) |maxReg| {
+        const pushInstr = try pushRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
+        const popInstr = try popRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
+
         context.genInfo.instrList.items[instrStartIndex + 1] = pushInstr;
         try context.genInfo.instrList.append(allocator, popInstr);
     }
@@ -2304,7 +2315,7 @@ fn adjustInstructions(
                 frameSize,
                 stackOffset,
             );
-            context.genInfo.byteCounter += context.genInfo.instrList.items[i].getInstrLen();
+            context.genInfo.byteCounter += context.genInfo.instrList.items[i + instrStartIndex].getInstrLen();
         }
 
         while (context.genInfo.handleInsertInstr(i + instrStartIndex)) |instr| {
@@ -2408,7 +2419,7 @@ fn adjustInstruction(
         },
         .BranchLinkBack => |*labelId| {
             const loc = try context.genInfo.labelByteInfo.getLabelLocation(@intCast(labelId.*));
-            labelId.* = loc.?;
+            labelId.* = context.genInfo.byteCounter - loc.?;
         },
         // not changed by stackOffset
         .PrePushRegNegOffsetAny => |pushInstr| {
@@ -3722,6 +3733,8 @@ fn codegenFunctions(
                 try context.genInfo.finishProc(allocator, context, false, backend);
             },
         }
+
+        func.labelsGenerated = true;
     }
 }
 
