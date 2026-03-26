@@ -1227,6 +1227,10 @@ pub const RegUseIndices = struct {
         return .{ .indices = indicesPtr };
     }
 
+    pub fn isUsed(self: Self) bool {
+        return self.indices.items.len > 0;
+    }
+
     /// should only ever be called with at least one index
     pub fn first(self: Self) u32 {
         return self.indices.items[0];
@@ -1303,7 +1307,7 @@ const LabelInfo = struct {
 
 const LabelByteInfo = struct {
     const Self = @This();
-    const WaitingLabelsList = ArrayList(*Instr);
+    const WaitingLabelsList = ArrayList(u32);
     const WaitingLabels = std.AutoHashMap(vmInfo.LabelType, *WaitingLabelsList);
 
     labelInfo: *ArrayList(LabelInfo),
@@ -1353,13 +1357,13 @@ const LabelByteInfo = struct {
         self: *Self,
         allocator: Allocator,
         labelId: vmInfo.LabelType,
-        instr: *Instr,
+        instrIndex: usize,
     ) !void {
         if (self.waitingLabels.get(labelId)) |arrList| {
-            try arrList.append(allocator, instr);
+            try arrList.append(allocator, @intCast(instrIndex));
         } else {
             const arrList = try utils.createMut(WaitingLabelsList, allocator, .empty);
-            try arrList.append(allocator, instr);
+            try arrList.append(allocator, @intCast(instrIndex));
             try self.waitingLabels.put(labelId, arrList);
         }
     }
@@ -1916,11 +1920,38 @@ pub const GenInfo = struct {
         };
 
         if (self.labelByteInfo.waitingLabels.get(label)) |arrList| {
-            for (arrList.items) |instr| {
-                updateInstrLabelLocation(instr, location);
+            for (arrList.items) |instrIndex| {
+                self.updateInstrLabelLocation(instrIndex, location);
             }
 
             _ = self.labelByteInfo.waitingLabels.remove(label);
+        }
+    }
+
+    fn updateInstrLabelLocation(self: Self, instrIndex: usize, location: u64) void {
+        const instr = &self.instrList.items[instrIndex];
+        switch (instr.*) {
+            .Jump,
+            .JumpEQ,
+            .JumpNE,
+            .JumpGT,
+            .JumpLT,
+            .JumpGTE,
+            .JumpLTE,
+            .JumpBack,
+            .JumpBackEQ,
+            .JumpBackNE,
+            .JumpBackGT,
+            .JumpBackLT,
+            .JumpBackGTE,
+            .JumpBackLTE,
+            .BranchLink,
+            .BranchLinkBack,
+            => |*inner| {
+                const data = location - inner.*;
+                inner.* = data;
+            },
+            else => {},
         }
     }
 
@@ -2166,32 +2197,6 @@ fn writeChunk(instr: Instr, writer: *Writer) !void {
     }
 }
 
-fn updateInstrLabelLocation(instr: *Instr, location: u64) void {
-    switch (instr.*) {
-        .Jump,
-        .JumpEQ,
-        .JumpNE,
-        .JumpGT,
-        .JumpLT,
-        .JumpGTE,
-        .JumpLTE,
-        .JumpBack,
-        .JumpBackEQ,
-        .JumpBackNE,
-        .JumpBackGT,
-        .JumpBackLT,
-        .JumpBackGTE,
-        .JumpBackLTE,
-        .BranchLink,
-        .BranchLinkBack,
-        => |*inner| {
-            const data = location - inner.*;
-            inner.* = data;
-        },
-        else => {},
-    }
-}
-
 fn adjustProc(
     allocator: Allocator,
     context: *Context,
@@ -2210,6 +2215,7 @@ fn adjustProc(
                 var procReg: usize = context.genInfo.currentProc.preProcVirtualReg;
                 while (procReg < context.genInfo.registers.items.len) : (procReg += 1) {
                     const regInfo = context.genInfo.registers.items[procReg];
+                    if (!regInfo.useIndices.isUsed()) continue;
                     const firstFound = regInfo.useIndices.first();
                     const lastUsed = regInfo.useIndices.last();
 
@@ -2267,10 +2273,11 @@ fn adjustProc(
         try context.genInfo.instrList.append(allocator, spInstrs.sub);
     }
 
+    try adjustInstructions(allocator, context, instrs, instrStartIndex, frameSize.*, stackOffset);
+
     const finishInstr = if (isRoot) Instr{ .End = {} } else Instr{ .Ret = {} };
     try context.genInfo.instrList.append(allocator, finishInstr);
-
-    try adjustInstructions(allocator, context, instrs, instrStartIndex, frameSize.*, stackOffset);
+    context.genInfo.byteCounter += 1;
 
     context.genInfo.instrActions.resetIter();
     context.genInfo.currentProc.preProcVirtualReg = @intCast(context.genInfo.registers.items.len);
@@ -2293,6 +2300,7 @@ fn adjustInstructions(
                 allocator,
                 context,
                 &context.genInfo.instrList.items[i + instrStartIndex],
+                i + instrStartIndex,
                 frameSize,
                 stackOffset,
             );
@@ -2304,6 +2312,7 @@ fn adjustInstructions(
                 allocator,
                 context,
                 instr,
+                undefined, // NOTE, IMPORTANT: not meant to be used
                 frameSize,
                 stackOffset,
             );
@@ -2313,10 +2322,13 @@ fn adjustInstructions(
 }
 
 /// adjusts store instructions that are based on sp offsets
+/// instrIndex is for storing instructions listening for label positions
+/// NOTE: not designed for inserted instructions that reference a label
 fn adjustInstruction(
     allocator: Allocator,
     context: *Context,
     instr: *Instr,
+    instrIndex: usize,
     frameSize: u64,
     stackOffset: u64,
 ) !void {
@@ -2381,21 +2393,22 @@ fn adjustInstruction(
                 try context.genInfo.labelByteInfo.waitForLabel(
                     allocator,
                     @intCast(labelId),
-                    instr,
+                    instrIndex,
                 );
             }
         },
         .BranchLink => |*data| {
             const labelId = data.*;
             data.* = context.genInfo.byteCounter + instr.getInstrLen();
-            try context.genInfo.labelByteInfo.waitForLabel(allocator, @intCast(labelId), instr);
+            try context.genInfo.labelByteInfo.waitForLabel(
+                allocator,
+                @intCast(labelId),
+                instrIndex,
+            );
         },
         .BranchLinkBack => |*labelId| {
             const loc = try context.genInfo.labelByteInfo.getLabelLocation(@intCast(labelId.*));
-            _ = loc;
-            // TODO
-            unreachable;
-            // labelId.* = loc.?;
+            labelId.* = loc.?;
         },
         // not changed by stackOffset
         .PrePushRegNegOffsetAny => |pushInstr| {
@@ -2559,192 +2572,6 @@ pub fn codegenAst(
         return CodeGenError.MainFunctionNotFound;
     try context.genInfo.newProc(allocator);
     _ = try genBytecode(allocator, context, mainFn.body);
-
-    // VERSION 1
-    // const slice = &[_]Instr{
-    //     Instr{
-    //         .AddSp32 = 32, // ADDING SP
-    //     },
-    //     Instr{ .SetReg32 = .{
-    //         .reg = 8,
-    //         .data = 2,
-    //     } },
-    //     Instr{ .SetReg32 = .{
-    //         .reg = 9,
-    //         .data = 1,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 9,
-    //         .reg1 = 8,
-    //         .reg2 = 9,
-    //     } },
-    //     Instr{ .SetReg32 = .{
-    //         .reg = 10,
-    //         .data = 1,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 10,
-    //         .reg1 = 9,
-    //         .reg2 = 10,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 11,
-    //         .reg1 = 9,
-    //         .reg2 = 10,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 11,
-    //         .reg1 = 8,
-    //         .reg2 = 11,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 12,
-    //         .reg1 = 10,
-    //         .reg2 = 11,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 12,
-    //         .reg1 = 9,
-    //         .reg2 = 12,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 12,
-    //         .reg1 = 8,
-    //         .reg2 = 12,
-    //     } },
-    //     Instr{
-    //         .Store64AtSpNegOffset16 = .{
-    //             .reg = 11,
-    //             .offset = 32, // FIRST
-    //         },
-    //     },
-    //     Instr{ .Add = .{
-    //         .dest = 11,
-    //         .reg1 = 11,
-    //         .reg2 = 12,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 11,
-    //         .reg1 = 10,
-    //         .reg2 = 11,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 11,
-    //         .reg1 = 9,
-    //         .reg2 = 11,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 11,
-    //         .reg1 = 8,
-    //         .reg2 = 11,
-    //     } },
-    //     Instr{
-    //         .Store64AtSpNegOffset16 = .{
-    //             .reg = 11,
-    //             .offset = 24, // SECOND X = sp - 24
-    //         },
-    //     },
-    //     Instr{
-    //         .Store64AtSpNegOffset16 = .{
-    //             .reg = 12,
-    //             .offset = 16, // THIRD
-    //         },
-    //     },
-    //     Instr{ .Add = .{
-    //         .dest = 12,
-    //         .reg1 = 12,
-    //         .reg2 = 11,
-    //     } },
-    //     Instr{
-    //         .Load64AtSpNegOffset16 = .{
-    //             .reg = 11,
-    //             .offset = 32, // LOAD 1
-    //         },
-    //     },
-    //     Instr{ .Add = .{
-    //         .dest = 12,
-    //         .reg1 = 11,
-    //         .reg2 = 12,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 12,
-    //         .reg1 = 10,
-    //         .reg2 = 12,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 12,
-    //         .reg1 = 9,
-    //         .reg2 = 12,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 12,
-    //         .reg1 = 8,
-    //         .reg2 = 12,
-    //     } },
-    //     Instr{
-    //         .Store64AtSpNegOffset16 = .{
-    //             .reg = 8,
-    //             .offset = 8, // FOURTH
-    //         },
-    //     },
-    //     Instr{
-    //         .Load64AtSpNegOffset16 = .{
-    //             .reg = 8,
-    //             .offset = 24, // LOAD 2
-    //         },
-    //     },
-    //     Instr{ .Add = .{
-    //         .dest = 8,
-    //         .reg1 = 8,
-    //         .reg2 = 12,
-    //     } },
-    //     Instr{
-    //         .Load64AtSpNegOffset16 = .{
-    //             .reg = 12,
-    //             .offset = 16, // LOAD 3
-    //         },
-    //     },
-    //     Instr{ .Add = .{
-    //         .dest = 8,
-    //         .reg1 = 12,
-    //         .reg2 = 8,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 8,
-    //         .reg1 = 11,
-    //         .reg2 = 8,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 8,
-    //         .reg1 = 10,
-    //         .reg2 = 8,
-    //     } },
-    //     Instr{ .Add = .{
-    //         .dest = 9,
-    //         .reg1 = 9,
-    //         .reg2 = 8,
-    //     } },
-    //     Instr{
-    //         .Load64AtSpNegOffset16 = .{
-    //             .reg = 8,
-    //             .offset = 8, // LOAD 4
-    //         },
-    //     },
-    //     Instr{ .Add = .{
-    //         .dest = 8,
-    //         .reg1 = 8,
-    //         .reg2 = 9,
-    //     } },
-    //     Instr{
-    //         .SubSp32 = 32, // SUB SP
-    //     },
-    //     Instr{ .End = {} },
-    // };
-
-    // const listPtr = try utils.createMut(ArrayList(Instr), allocator, .empty);
-    // try listPtr.appendSlice(allocator, slice);
-
-    // context.genInfo.instrList = listPtr;
 
     try context.genInfo.finishProc(allocator, context, true, backend);
     try codegenFunctions(allocator, context, backend);
@@ -3843,7 +3670,11 @@ pub fn genBytecodeUtil(
             };
             try context.genInfo.appendChunk(allocator, branchInstr);
 
-            return try context.genInfo.getNextRegisterUtil(allocator, .Return);
+            if (func.returnType.astType.* != .Void) {
+                return try context.genInfo.getNextRegisterUtil(allocator, .Return);
+            }
+
+            return null;
         },
         .ReturnNode => |inner| {
             const reg = try genBytecode(allocator, context, inner) orelse

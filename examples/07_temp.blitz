@@ -1,3 +1,11 @@
-fn main() {
-    let arr = [1, 2, 3,];
+fn thing() u32 {
+    //thing2();
+    return 2;
 }
+
+fn main() {
+    let a = thing();
+    //let b = a + 1;
+}
+
+//fn thing2() {}
