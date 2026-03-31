@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const blitz = @import("blitz.zig");
+const codegen = blitz.codegen;
 const version = @import("version.zig").VERSION;
 
 // semantic representation for locations on stack
@@ -16,15 +18,20 @@ pub const VM_INFO_BYTECODE_LEN = @sizeOf(@TypeOf(version)) + START_STACK_TYPE_SI
 pub const TempRegister = u32;
 pub const LabelType = u32;
 
-// TODO - move
-pub const NUM_PARAM_REGISTERS = 8;
-pub const NUM_TEMP_REGISTERS = 124;
-pub const NUM_PRESERVE_REGISTERS = 124;
-
-// TODO - move
-pub const PARAM_REGISTER_START = 0;
-pub const TEMP_REGISTER_START = 8;
-pub const PRESERVE_REGISTER_START = 132;
+pub const bytecodeRegLimits: codegen.BackendRegLimits = .{
+    .params = .{
+        .start = 0,
+        .end = 8,
+    },
+    .temporary = .{
+        .start = 8,
+        .end = 8 + 124,
+    },
+    .preserved = .{
+        .start = 8 + 124,
+        .end = 8 + 124 + 124,
+    },
+};
 
 // behavior
 pub const ARRAY_INIT_UNROLL_LIMIT = 1024;

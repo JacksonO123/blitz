@@ -518,9 +518,9 @@ fn interpretBytecode(
                 const offset = bytecode[current + 2];
                 const sp = runtimeInfo.ptrs.sp;
 
-                var i: usize = vmInfo.PRESERVE_REGISTER_START;
+                var i: usize = vmInfo.bytecodeRegLimits.preserved.start;
                 while (i <= topReg) : (i += 1) {
-                    const scale = i - vmInfo.PRESERVE_REGISTER_START;
+                    const scale = i - vmInfo.bytecodeRegLimits.preserved.start;
                     const location = sp - offset + (8 * scale);
                     const byteValue: [8]u8 = @bitCast(runtimeInfo.registers[i]);
                     @memcpy(
@@ -543,9 +543,9 @@ fn interpretBytecode(
                 const offset = bytecode[current + 2];
                 const sp = runtimeInfo.ptrs.sp;
 
-                var i: usize = vmInfo.PRESERVE_REGISTER_START;
+                var i: usize = vmInfo.bytecodeRegLimits.preserved.start;
                 while (i <= topReg) : (i += 1) {
-                    const scale = i - vmInfo.PRESERVE_REGISTER_START;
+                    const scale = i - vmInfo.bytecodeRegLimits.preserved.start;
                     const location = sp - offset + (8 * scale);
                     const byteValue = runtimeInfo.stack.items[location .. location + 8];
                     const intValue = std.mem.readInt(u64, @ptrCast(byteValue), .little);
@@ -696,7 +696,7 @@ fn postPopRegNegOffset(
     );
     const sp = runtimeInfo.ptrs.sp;
 
-    var i: u8 = vmInfo.PRESERVE_REGISTER_START;
+    var i: u8 = vmInfo.bytecodeRegLimits.preserved.start;
     while (i <= topReg) : (i += 1) {
         const intData = runtimeInfo.stack.items[sp - offset + (8 * i) .. sp - offset + (8 * i) + 8];
         const intValue = std.mem.readInt(u64, @ptrCast(intData), .little);
@@ -719,7 +719,7 @@ fn prePushRegNegOffset(
     );
     const sp = runtimeInfo.ptrs.sp;
 
-    var i: u8 = vmInfo.PRESERVE_REGISTER_START;
+    var i: u8 = vmInfo.bytecodeRegLimits.preserved.start;
     while (i <= topReg) : (i += 1) {
         const byteData: [8]u8 = @bitCast(runtimeInfo.registers[i]);
         @memcpy(

@@ -42,18 +42,7 @@ fn initMetadata(allocator: Allocator, context: *Context) !void {
     // remaining register space equally
     // (256 - 8) / 2 = 124
 
-    context.genInfo.registerLimits.params = .{
-        .start = 0,
-        .end = 8,
-    };
-    context.genInfo.registerLimits.temporary = .{
-        .start = 8,
-        .end = 8 + 124,
-    };
-    context.genInfo.registerLimits.preserved = .{
-        .start = 8 + 124,
-        .end = 8 + 124 + 124,
-    };
+    context.genInfo.registerLimits = vmInfo.bytecodeRegLimits;
 
     // // test limits for register allocation
     // context.genInfo.registerLimits.params = .{
