@@ -1777,11 +1777,14 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
         }
 
         try scanFuncBodyAndReturn(allocator, context, func, toScanItem.withGenDef);
-        const cloned = try clone.cloneAstNodePtrMut(allocator, context, func.body, true);
-        try func.genericState.Generic.genericInstances.append(
-            allocator,
-            .{ .funcRootNode = cloned },
-        );
+
+        if (func.genericState == .Generic) {
+            const cloned = try clone.cloneAstNodePtrMut(allocator, context, func.body, true);
+            try func.genericState.Generic.genericInstances.append(
+                allocator,
+                .{ .funcRootNode = cloned },
+            );
+        }
     }
 }
 
