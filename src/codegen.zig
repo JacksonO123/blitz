@@ -30,6 +30,7 @@ const CodeGenError = error{
     AccessTargetDoesNotHaveStructName,
     LabelDoesNotExist,
     MainFunctionNotFound,
+    ResultOfAccessRegNotFound,
 };
 const GenBytecodeError = CodeGenError ||
     Allocator.Error ||
@@ -2277,8 +2278,10 @@ fn adjustProc(
         );
     }
 
+    var spInstrByteCountOffset: u32 = 0;
     if (frameSize.* + stackOffset > 0) {
         const spInstrs = try getSpIncInstructions(frameSize.* + stackOffset);
+        spInstrByteCountOffset += spInstrs.sub.getInstrLen();
 
         context.genInfo.instrList.items[context.genInfo.currentProc.startIndex] = spInstrs.add;
         try context.genInfo.instrList.append(allocator, spInstrs.sub);
@@ -2288,7 +2291,7 @@ fn adjustProc(
 
     const finishInstr = if (isRoot) Instr{ .End = {} } else Instr{ .Ret = {} };
     try context.genInfo.instrList.append(allocator, finishInstr);
-    context.genInfo.byteCounter += 1;
+    context.genInfo.byteCounter += 1 + spInstrByteCountOffset;
 
     context.genInfo.instrActions.resetIter();
     context.genInfo.currentProc.preProcVirtualReg = @intCast(context.genInfo.registers.items.len);
@@ -3583,7 +3586,11 @@ pub fn genBytecodeUtil(
             const fromName = node.typeInfo.accessingFrom orelse
                 return CodeGenError.AccessTargetDoesNotHaveStructName;
             const dec = context.compInfo.getStructDec(fromName).?;
-            const loc = (try dec.getMemberLocation(context, accessNode.property)).?;
+            const isFunction = dec.isPropFunction(accessNode.property);
+            const loc = if (isFunction)
+                @as(u64, 0)
+            else
+                (try dec.getMemberLocation(context, accessNode.property)).?;
 
             const reg = try calculateAccessOffset(
                 allocator,
@@ -3592,6 +3599,8 @@ pub fn genBytecodeUtil(
                 @intCast(loc),
             );
             const outReg = try context.genInfo.getNextRegister(allocator);
+
+            if (isFunction) return outReg;
 
             const instr = loadAtReg(reg, outReg, node.typeInfo.size);
             try context.genInfo.appendChunk(allocator, instr);
@@ -3660,6 +3669,21 @@ pub fn genBytecodeUtil(
                 break :a labelId;
             };
 
+            const hasSelf = func.params.selfInfo != null;
+
+            if (hasSelf) {
+                const srcReg = try genBytecode(allocator, context, call.func) orelse return CodeGenError.ResultOfAccessRegNotFound;
+                const destReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
+
+                const movInstr = Instr{
+                    .Mov = .{
+                        .src = srcReg,
+                        .dest = destReg,
+                    },
+                };
+                try context.genInfo.appendChunk(allocator, movInstr);
+            }
+
             for (call.params, 0..) |param, index| {
                 const reg = try genBytecode(allocator, context, param) orelse
                     return CodeGenError.ReturnedRegisterNotFound;
@@ -3716,26 +3740,43 @@ fn codegenFunctions(
         const func = funcPtr.*;
 
         if (utils.compString(func.name, constants.MAIN_FN_NAME)) continue;
-
-        switch (func.genericState) {
-            .Generic => |generic| {
-                for (generic.genericInstances.items) |*instance| {
-                    try functionSetupBytecode(allocator, context, func, &instance.labelId);
-                    try context.genInfo.newProc(allocator);
-                    _ = try genBytecode(allocator, context, instance.funcRootNode);
-                    try context.genInfo.finishProc(allocator, context, false, backend);
-                }
-            },
-            .Normal => |*normal| {
-                try functionSetupBytecode(allocator, context, func, &normal.labelId);
-                try context.genInfo.newProc(allocator);
-                _ = try genBytecode(allocator, context, func.body);
-                try context.genInfo.finishProc(allocator, context, false, backend);
-            },
-        }
-
-        func.labelsGenerated = true;
+        try generateFunction(allocator, context, backend, func);
     }
+
+    var structIt = context.compInfo.hoistedDecs.structs.valueIterator();
+    while (structIt.next()) |decOrNull| {
+        const dec = decOrNull.* orelse continue;
+        for (dec.attributes) |attr| {
+            if (attr.attr != .Function) continue;
+            try generateFunction(allocator, context, backend, attr.attr.Function);
+        }
+    }
+}
+
+fn generateFunction(
+    allocator: Allocator,
+    context: *Context,
+    comptime backend: BackendInterface,
+    func: *ast.FuncDecNode,
+) !void {
+    switch (func.genericState) {
+        .Generic => |generic| {
+            for (generic.genericInstances.items) |*instance| {
+                try functionSetupBytecode(allocator, context, func, &instance.labelId);
+                try context.genInfo.newProc(allocator);
+                _ = try genBytecode(allocator, context, instance.funcRootNode);
+                try context.genInfo.finishProc(allocator, context, false, backend);
+            }
+        },
+        .Normal => |*normal| {
+            try functionSetupBytecode(allocator, context, func, &normal.labelId);
+            try context.genInfo.newProc(allocator);
+            _ = try genBytecode(allocator, context, func.body);
+            try context.genInfo.finishProc(allocator, context, false, backend);
+        },
+    }
+
+    func.labelsGenerated = true;
 }
 
 fn functionSetupBytecode(

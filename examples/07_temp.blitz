@@ -1,9 +1,12 @@
-fn thing2() {}
+struct M {
+    data: u32;
 
-fn thing() {
-    thing2();
+    pub fn getData(self) u32 {
+        return self.data;
+    }
 }
 
 fn main() {
-    thing();
+    let am = (M { data = 10 }).getData();
+    //let b = am.getData();
 }

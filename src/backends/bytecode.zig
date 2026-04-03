@@ -38,25 +38,7 @@ const InactiveRegResult = union(InactiveRegResultVariants) {
 };
 
 fn initMetadata(allocator: Allocator, context: *Context) !void {
-    // temporary and preserved registers split
-    // remaining register space equally
-    // (256 - 8) / 2 = 124
-
     context.genInfo.registerLimits = vmInfo.bytecodeRegLimits;
-
-    // // test limits for register allocation
-    // context.genInfo.registerLimits.params = .{
-    //     .start = 0,
-    //     .end = 8,
-    // };
-    // context.genInfo.registerLimits.temporary = .{
-    //     .start = 8,
-    //     .end = 11,
-    // };
-    // context.genInfo.registerLimits.preserved = .{
-    //     .start = 13,
-    //     .end = 15,
-    // };
 
     try context.genInfo.registerStatus.ensureTotalCapacityPrecise(
         allocator,

@@ -350,19 +350,22 @@ pub const CompInfo = struct {
             while (structIt.next()) |s| {
                 const structPtr = s.*.?;
                 const attributes = structPtr.*.attributes;
-                var members = try ArrayList(ast.StructAttribute).initCapacity(
-                    allocator,
-                    attributes.len,
-                );
+                var members: ArrayList(ast.StructAttribute) = .empty;
+                var methods: ArrayList(ast.StructAttribute) = .empty;
 
                 for (attributes) |attr| {
-                    if (attr.attr != .Member) continue;
-                    try members.append(allocator, attr);
+                    switch (attr.attr) {
+                        .Member => {
+                            try members.append(allocator, attr);
+                        },
+                        .Function => {
+                            try methods.append(allocator, attr);
+                        },
+                    }
                 }
 
-                const arr = try members.toOwnedSlice(allocator);
-
-                structPtr.*.totalMemberList = arr;
+                structPtr.*.totalMemberList = members.items;
+                structPtr.*.totalMethodList = methods.items;
             }
         }
 

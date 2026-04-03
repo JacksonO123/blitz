@@ -18,6 +18,9 @@ pub const VM_INFO_BYTECODE_LEN = @sizeOf(@TypeOf(version)) + START_STACK_TYPE_SI
 pub const TempRegister = u32;
 pub const LabelType = u32;
 
+// temporary and preserved registers split
+// remaining register space equally
+// (256 - 8) / 2 = 124
 pub const bytecodeRegLimits: codegen.BackendRegLimits = .{
     .params = .{
         .start = 0,

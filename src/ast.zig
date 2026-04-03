@@ -13,6 +13,7 @@ const pools = blitz.allocPools;
 const TokenError = tokenizer.TokenError;
 const Context = blitz.context.Context;
 const constants = blitz.constants;
+const vmInfo = blitz.vmInfo;
 
 const AstNumberVariantsStrRel = struct {
     str: []const u8,
@@ -440,7 +441,8 @@ pub const StructDecNode = struct {
     name: []const u8,
     generics: []GenericType,
     attributes: []StructAttribute,
-    totalMemberList: []StructAttribute,
+    totalMemberList: []StructAttribute = &[_]StructAttribute{},
+    totalMethodList: []StructAttribute = &[_]StructAttribute{},
     toScanTypes: *ToScanTypesList,
     endPos: usize,
 
@@ -452,7 +454,6 @@ pub const StructDecNode = struct {
         var loc: u64 = 0;
 
         for (self.totalMemberList) |item| {
-            if (item.attr != .Member) continue;
             const size = try item.attr.Member.astType.getSize(context);
             const alignment = item.attr.Member.astType.getAlignment(context);
             const padding = utils.calculatePadding(
@@ -466,6 +467,14 @@ pub const StructDecNode = struct {
         }
 
         return null;
+    }
+
+    pub fn isPropFunction(self: Self, property: []const u8) bool {
+        for (self.totalMethodList) |member| {
+            if (utils.compString(member.name, property)) return true;
+        }
+
+        return false;
     }
 };
 
@@ -1311,7 +1320,6 @@ fn parseStructDec(allocator: Allocator, context: *Context) !*AstNode {
             .name = structName,
             .generics = generics,
             .attributes = attributes,
-            .totalMemberList = &[_]StructAttribute{},
             .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
             .endPos = context.tokenUtil.pos,
         }),
