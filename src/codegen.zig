@@ -3743,34 +3743,10 @@ fn codegenFunctions(
         try context.compInfo.pushGenScope(allocator, false);
         defer context.compInfo.popGenScope(context);
 
-        const onGenericStruct = a: {
-            const methodOn = func.func.methodOn orelse break :a false;
-            const structDec = context.compInfo.getStructDec(methodOn) orelse break :a false;
-            break :a structDec.generics.len > 0;
-        };
-
-        const isGeneric = func.func.genericState == .Generic or onGenericStruct;
-        if (isGeneric and !func.withGenDef) continue;
+        if (!func.withGenDef) continue;
 
         try generateFunction(allocator, context, backend, func.func);
     }
-
-    // var funcIter = context.compInfo.functions.valueIterator();
-    // while (funcIter.next()) |funcPtr| {
-    //     const func = funcPtr.*;
-
-    //     if (utils.compString(func.name, constants.MAIN_FN_NAME)) continue;
-    //     try generateFunction(allocator, context, backend, func);
-    // }
-
-    // var structIt = context.compInfo.hoistedDecs.structs.valueIterator();
-    // while (structIt.next()) |decOrNull| {
-    //     const dec = decOrNull.* orelse continue;
-    //     for (dec.attributes) |attr| {
-    //         if (attr.attr != .Function) continue;
-    //         try generateFunction(allocator, context, backend, attr.attr.Function);
-    //     }
-    // }
 }
 
 fn generateFunction(

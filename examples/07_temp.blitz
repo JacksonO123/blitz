@@ -7,6 +7,6 @@ struct M [T] {
 }
 
 fn main() {
-    let am = M<u32>{ data = 10 };
+    let am = M<u16> { data = 10u16 };
     let b = am.getData();
 }
