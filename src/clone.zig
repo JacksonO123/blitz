@@ -592,23 +592,6 @@ fn cloneNodeArrMut(
     return newNodes;
 }
 
-pub fn cloneGenerics(
-    allocator: Allocator,
-    context: *Context,
-    generics: []ast.GenericType,
-    withGenDef: bool,
-) ![]ast.GenericType {
-    var clonedGenerics = try allocator.alloc(ast.GenericType, generics.len);
-    try context.deferCleanup.genericTypeSlices.append(allocator, clonedGenerics);
-
-    for (generics, 0..) |generic, index| {
-        const newGeneric = try cloneGeneric(allocator, context, generic, withGenDef);
-        clonedGenerics[index] = newGeneric;
-    }
-
-    return clonedGenerics;
-}
-
 fn cloneGeneric(
     allocator: Allocator,
     context: *Context,
@@ -624,42 +607,6 @@ fn cloneGeneric(
     return .{
         .name = generic.name,
         .restriction = restriction,
-    };
-}
-
-fn cloneStructAttrDec(
-    allocator: Allocator,
-    context: *Context,
-    attrs: []ast.StructAttribute,
-    withGenDef: bool,
-) ![]ast.StructAttribute {
-    var attributes = try allocator.alloc(ast.StructAttribute, attrs.len);
-
-    for (attrs, 0..) |attr, index| {
-        const newAttr: ast.StructAttribute = .{
-            .static = attr.static,
-            .attr = try cloneStructAttributeUnion(allocator, context, attr.attr, withGenDef),
-            .name = attr.name,
-            .visibility = attr.visibility,
-        };
-
-        attributes[index] = newAttr;
-    }
-
-    return attributes;
-}
-
-pub fn cloneStructAttributeUnion(
-    allocator: Allocator,
-    context: *Context,
-    structAttrUnion: ast.StructAttributeUnion,
-    withGenDef: bool,
-) !ast.StructAttributeUnion {
-    return switch (structAttrUnion) {
-        .Member => |member| .{
-            .Member = try cloneAstTypeInfo(allocator, context, member, withGenDef),
-        },
-        .Function => structAttrUnion,
     };
 }
 

@@ -686,6 +686,7 @@ pub fn scanNode(
                                     .func = func,
                                 },
                             });
+                            allocPools.recursiveReleaseType(context, propType.info.astType);
                             break :b structMethodType.toAllocInfo(
                                 propType.info.mutState,
                                 propType.allocState,
@@ -1134,13 +1135,6 @@ pub fn scanNode(
                 else => return ScanError.CannotCallNonFunctionNode,
             };
             node.typeInfo.resolvesToFunc = func;
-
-            if (call.func.typeInfo.accessingFrom) |from| a: {
-                const structDec = context.compInfo.getStructDec(from) orelse break :a;
-                for (structDec.generics) |generic| {
-                    _ = generic;
-                }
-            }
 
             if (call.callGenerics) |callGenerics| {
                 switch (func.genericState) {
@@ -1601,16 +1595,6 @@ pub fn scanNode(
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
     }
-}
-
-fn genInGenInfoRels(rels: []ast.StrToTypeInfoRel, name: []const u8) bool {
-    for (rels) |rel| {
-        if (utils.compString(name, rel.gen)) {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 fn escapeVarInfo(
@@ -2167,36 +2151,6 @@ fn scanFuncBodyAndReturn(
     }
 }
 
-fn validateSelfProps(
-    allocator: Allocator,
-    context: *Context,
-    name: []const u8,
-    prop: []const u8,
-    inOwnedMethod: bool,
-) !?ast.AstTypeInfo {
-    const structDec = context.compInfo.getStructDec(name);
-
-    if (structDec) |dec| {
-        for (dec.attributes) |attr| {
-            const nameMatches = utils.compString(attr.name, prop);
-            if (nameMatches) {
-                if (attr.visibility == .Public or attr.visibility == .Protected or inOwnedMethod) {
-                    return try clone.cloneStructAttributeUnion(
-                        allocator,
-                        context,
-                        attr.attr,
-                        false,
-                    );
-                }
-            }
-        }
-
-        return null;
-    }
-
-    return ScanError.StructDoesNotExist;
-}
-
 fn validateStaticStructProps(
     allocator: Allocator,
     context: *Context,
@@ -2267,26 +2221,6 @@ fn scanAttributes(allocator: Allocator, context: *Context, dec: *ast.StructDecNo
             },
         }
     }
-}
-
-fn isInt(astType: *const ast.AstTypes) bool {
-    return switch (astType.*) {
-        .Number => |num| switch (num) {
-            .U8,
-            .U16,
-            .U32,
-            .U64,
-            .U128,
-            .I8,
-            .I16,
-            .I32,
-            .I64,
-            .I128,
-            => true,
-            else => false,
-        },
-        else => false,
-    };
 }
 
 pub fn matchTypes(
@@ -2701,70 +2635,6 @@ pub fn isPrimitive(astType: *const ast.AstTypes) bool {
         .Nullable => |inner| isPrimitive(inner.astType),
         else => false,
     };
-}
-
-fn getPropertyType(
-    allocator: Allocator,
-    context: *Context,
-    source: ast.AstTypes,
-    prop: []const u8,
-) !ast.AstTypes {
-    return switch (source) {
-        .StaticStructInstance => |inst| try getStructPropType(context, false, inst, prop),
-        .ArrayDec => try builtins.getArrayDecPropTypes(prop),
-        .String => try builtins.getStringPropTypes(prop),
-        .Custom => |custom| getCustomPropType(allocator, context, custom, prop),
-        else => ScanError.UnsupportedFeature,
-    };
-}
-
-fn getCustomPropType(
-    allocator: Allocator,
-    context: *Context,
-    custom: ast.CustomType,
-    prop: []const u8,
-) !ast.AstTypes {
-    const dec = context.compInfo.getStructDec(custom.name);
-    if (dec) |structDec| {
-        for (structDec.attributes) |attr| {
-            if (!utils.compString(attr.name, prop)) continue;
-            if (attr.static) return ScanError.StaticAccessFromStructInstance;
-
-            if (attr.visibility != .Public) return ScanError.RestrictedPropertyAccess;
-
-            return try clone.cloneStructAttributeUnion(allocator, context, attr.attr, false);
-        }
-
-        return ScanError.InvalidProperty;
-    }
-
-    return ScanError.InvalidPropertySource;
-}
-
-fn getStructPropType(
-    context: *Context,
-    allowNonStatic: bool,
-    inst: []const u8,
-    prop: []const u8,
-) !ast.AstTypes {
-    const dec = context.compInfo.getStructDec(inst) orelse return ScanError.InvalidPropertySource;
-
-    for (dec.?.attributes) |attr| {
-        if (!attr.static and allowNonStatic) continue;
-        if (!utils.compString(attr.name, prop)) continue;
-
-        switch (attr.visibility) {
-            .Public => {},
-            else => return ScanError.UnsupportedFeature,
-        }
-
-        switch (attr.attr) {
-            .Member => |member| return member.*,
-            .Function => |func| return .{ .Function = func },
-        }
-    }
-
-    return ScanError.InvalidProperty;
 }
 
 fn inferArrayDecType(

@@ -1,12 +1,12 @@
 struct M [T] {
-    data: T;
+    data: u32;
 
-    pub fn getData(self) T {
-        return self.data;
+    pub fn getData[G](self, a: G) G {
+        return self.data + a;
     }
 }
 
 fn main() {
-    let am = M<u16> { data = 10u16 };
-    let b = am.getData();
+    let am = M<u32> { data = 10 };
+    let b = am.getData(2);
 }
