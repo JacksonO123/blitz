@@ -174,6 +174,11 @@ const ErrorAstType = struct {
     payload: ?AstTypeInfo,
 };
 
+const StructMethodInfo = struct {
+    customSrc: CustomType,
+    func: *FuncDecNode,
+};
+
 const Types = enum {
     String,
     Bool,
@@ -190,6 +195,7 @@ const Types = enum {
     Custom,
     Generic,
     Function,
+    StructMethod,
     StaticStructInstance,
     Error,
     EnumVariant,
@@ -216,6 +222,7 @@ pub const AstTypes = union(Types) {
     Custom: CustomType,
     Generic: []const u8,
     Function: *FuncDecNode,
+    StructMethod: StructMethodInfo,
     StaticStructInstance: []const u8,
     Error: ErrorAstType,
     EnumVariant: EnumVariantType,
@@ -244,7 +251,7 @@ pub const AstTypes = union(Types) {
         };
     }
 
-    pub fn getAlignment(self: Self, context: *Context) u8 {
+    pub fn getAlignment(self: Self, allocator: Allocator, context: *Context) !u8 {
         return switch (self) {
             .Null,
             .RawNumber,
@@ -257,17 +264,23 @@ pub const AstTypes = union(Types) {
 
             .Void,
             .Any,
-            .Generic,
             .Function,
+            .StructMethod,
             .Error,
             .Enum,
             => 0,
 
+            .Generic => |name| {
+                const genType = try context.compInfo.getGeneric(allocator, context, name) orelse
+                    return 0;
+                return try genType.info.astType.getAlignment(allocator, context);
+            },
+
             .ArrayDec, .String, .StaticStructInstance, .Pointer => 8,
 
-            .VarInfo => |inner| inner.info.astType.getAlignment(context),
+            .VarInfo => |inner| try inner.info.astType.getAlignment(allocator, context),
 
-            .Nullable => |inner| inner.astType.getAlignment(context),
+            .Nullable => |inner| try inner.astType.getAlignment(allocator, context),
             .Custom => |custom| {
                 const dec = context.compInfo.getStructDec(custom.name).?;
 
@@ -275,7 +288,10 @@ pub const AstTypes = union(Types) {
                 for (dec.totalMemberList) |member| {
                     if (member.attr != .Member) continue;
 
-                    const itemAlignment = member.attr.Member.astType.getAlignment(context);
+                    const itemAlignment = try member.attr.Member.astType.getAlignment(
+                        allocator,
+                        context,
+                    );
                     maxAlignment = @max(maxAlignment, itemAlignment);
                 }
 
@@ -284,10 +300,10 @@ pub const AstTypes = union(Types) {
         };
     }
 
-    pub fn getSize(self: Self, context: *Context) !u64 {
+    pub fn getSize(self: Self, allocator: Allocator, context: *Context) !u64 {
         return switch (self) {
             .Null, .RawNumber, .Undef => unreachable,
-            .Void, .Any, .Generic, .Function, .Error, .Enum => 0,
+            .Void, .Any, .Function, .StructMethod, .Error, .Enum => 0,
             .String => 16,
             .Bool, .Char, .EnumVariant, .ErrorVariant => 1,
             .Number => |num| num.getSize(),
@@ -298,15 +314,20 @@ pub const AstTypes = union(Types) {
                 return 8;
             },
             .StaticStructInstance => 8,
+            .Generic => |name| {
+                const genType = try context.compInfo.getGeneric(allocator, context, name) orelse
+                    return 0;
+                return try genType.info.astType.getSize(allocator, context);
+            },
             // TODO - maybe optimize for unused states (0 for pointer etc)
-            .Nullable => |inner| try inner.astType.getSize(context) + 1,
+            .Nullable => |inner| try inner.astType.getSize(allocator, context) + 1,
             .ArrayDec => |dec| {
                 if (dec.size) |size| {
                     const arrSize = scanner.indexNumberFromNode(size) catch {
                         return AstTypeError.ExpectedU64OrU32ForArrayDecSize;
                     };
 
-                    const itemSize = try dec.type.info.astType.getSize(context);
+                    const itemSize = try dec.type.info.astType.getSize(allocator, context);
                     return arrSize * itemSize;
                 }
 
@@ -319,27 +340,30 @@ pub const AstTypes = union(Types) {
                 for (dec.totalMemberList) |member| {
                     if (member.attr != .Member) continue;
 
-                    const itemAlignment = member.attr.Member.astType.getAlignment(context);
+                    const itemAlignment = try member.attr.Member.astType.getAlignment(
+                        allocator,
+                        context,
+                    );
                     var prePadding = if (itemAlignment == 0)
                         0
                     else
                         itemAlignment - (size % itemAlignment);
                     if (prePadding == itemAlignment) prePadding = 0;
 
-                    const memberSize = try member.attr.Member.astType.getSize(context);
+                    const memberSize = try member.attr.Member.astType.getSize(allocator, context);
                     size += prePadding + memberSize;
                 }
 
                 return size;
             },
-            .VarInfo => |inner| try inner.info.astType.getSize(context),
+            .VarInfo => |inner| try inner.info.astType.getSize(allocator, context),
         };
     }
 
-    pub fn getNodeTypeInfo(self: Self, context: *Context) !AstNodeTypeInfo {
+    pub fn getNodeTypeInfo(self: Self, allocator: Allocator, context: *Context) !AstNodeTypeInfo {
         return .{
-            .size = try self.getSize(context),
-            .alignment = self.getAlignment(context),
+            .size = try self.getSize(allocator, context),
+            .alignment = try self.getAlignment(allocator, context),
         };
     }
 };
@@ -448,14 +472,15 @@ pub const StructDecNode = struct {
 
     pub fn getMemberLocation(
         self: Self,
+        allocator: Allocator,
         context: *Context,
         member: []const u8,
     ) !?u64 {
         var loc: u64 = 0;
 
         for (self.totalMemberList) |item| {
-            const size = try item.attr.Member.astType.getSize(context);
-            const alignment = item.attr.Member.astType.getAlignment(context);
+            const size = try item.attr.Member.astType.getSize(allocator, context);
+            const alignment = try item.attr.Member.astType.getAlignment(allocator, context);
             const padding = utils.calculatePadding(
                 loc,
                 alignment,
@@ -555,10 +580,13 @@ const FuncGenericState = union(FuncGenericStateVariants) {
 };
 
 pub const FuncDecNode = struct {
+    const Self = @This();
+
     labelsGenerated: bool = false,
     capturedTypes: ?*compInfo.TypeScope = null,
     capturedFuncs: ?*compInfo.StringListScope = null,
     capturedVariables: ?*compInfo.CaptureScope = null,
+    methodOn: ?[]const u8 = null,
     visited: bool = false,
     name: []const u8,
     params: ParseParamsResult,
@@ -570,10 +598,17 @@ pub const FuncDecNode = struct {
     funcType: FuncType,
     globallyDefined: bool,
     genericState: FuncGenericState,
+
+    pub fn onGenericStruct(self: Self, context: *Context) bool {
+        const methodOn = self.methodOn orelse return false;
+        const structDec = context.compInfo.getStructDec(methodOn) orelse return false;
+        return structDec.generics.len > 0;
+    }
 };
 
 const FuncParseStructInfo = struct {
     name: []const u8,
+    isGeneric: bool,
     isStatic: bool,
 };
 
@@ -1217,18 +1252,16 @@ fn handleParseFunction(allocator: Allocator, context: *Context) !*AstNode {
     const name = try context.tokenUtil.peak();
     if (name.type != .Identifier) return AstError.UnexpectedToken;
 
-    const func =
-        if (context.compInfo.getFunctionAsGlobal(context.getTokString(name))) |func| a: {
-            const tokens = func.bodyTokens;
-            const last = tokens[tokens.len - 1];
-            context.tokenUtil.pos = last.end;
-
-            break :a func;
-        } else a: {
-            const func = try parseFuncDef(allocator, context, null);
-            try context.compInfo.addFunction(func.name, func);
-            break :a func;
-        };
+    const func = if (context.compInfo.getFunctionAsGlobal(context.getTokString(name))) |func| a: {
+        const tokens = func.bodyTokens;
+        const last = tokens[tokens.len - 1];
+        context.tokenUtil.pos = last.end;
+        break :a func;
+    } else a: {
+        const func = try parseFuncDef(allocator, context, null);
+        try context.compInfo.addFunction(func.name, func);
+        break :a func;
+    };
 
     const funcDecVariant = AstNodeUnion{
         .FuncDec = func.name,
@@ -1297,22 +1330,25 @@ fn parseStructDec(allocator: Allocator, context: *Context) !*AstNode {
 
     var generics: []GenericType = &[_]GenericType{};
 
-    var first = try context.tokenUtil.take();
-    if (first.type == .LBracket) {
-        generics = try parseGenerics(allocator, context);
-        first = try context.tokenUtil.take();
-    } else if (first.type != .Identifier) {
+    var current = try context.tokenUtil.take();
+    if (current.type != .Identifier) {
         return AstError.ExpectedIdentifierForStructName;
     }
+    const identToken = current;
+    current = try context.tokenUtil.take();
 
-    const structName = context.getTokString(first);
+    if (current.type == .LBracket) {
+        generics = try parseGenerics(allocator, context);
+        current = try context.tokenUtil.take();
+    }
 
-    const next = try context.tokenUtil.take();
-    if (next.type != .LBrace) {
+    const structName = context.getTokString(identToken);
+
+    if (current.type != .LBrace) {
         return TokenError.UnexpectedToken;
     }
 
-    const attributes = try parseStructAttributes(allocator, context, structName);
+    const attributes = try parseStructAttributes(allocator, context, structName, generics.len > 0);
     context.compInfo.attributeSet.clearRetainingCapacity();
 
     const structDecVariant = AstNodeUnion{
@@ -1331,13 +1367,14 @@ fn parseStructAttributes(
     allocator: Allocator,
     context: *Context,
     structName: []const u8,
+    isGeneric: bool,
 ) ![]StructAttribute {
     var attributes: ArrayList(StructAttribute) = .empty;
 
     var current = try context.tokenUtil.peak();
     while (current.type != .RBrace) {
         const prePos = context.tokenUtil.pos;
-        const attr = try parseStructAttribute(allocator, context, structName);
+        const attr = try parseStructAttribute(allocator, context, structName, isGeneric);
         try attributes.append(allocator, attr);
 
         if (context.compInfo.attributeSet.contains(attr.name)) {
@@ -1368,15 +1405,28 @@ fn parseStructAttribute(
     allocator: Allocator,
     context: *Context,
     structName: []const u8,
+    isGeneric: bool,
 ) !StructAttribute {
     const first = try context.tokenUtil.take();
     switch (first.type) {
         .Identifier, .Fn => {
             context.tokenUtil.returnToken();
-            return parseStructAttributeUtil(allocator, context, structName, .Private);
+            return parseStructAttributeUtil(allocator, context, structName, .Private, isGeneric);
         },
-        .Prot => return parseStructAttributeUtil(allocator, context, structName, .Protected),
-        .Pub => return parseStructAttributeUtil(allocator, context, structName, .Public),
+        .Prot => return parseStructAttributeUtil(
+            allocator,
+            context,
+            structName,
+            .Protected,
+            isGeneric,
+        ),
+        .Pub => return parseStructAttributeUtil(
+            allocator,
+            context,
+            structName,
+            .Public,
+            isGeneric,
+        ),
         else => {
             return TokenError.UnexpectedToken;
         },
@@ -1388,6 +1438,7 @@ fn parseStructAttributeUtil(
     context: *Context,
     structName: []const u8,
     visibility: MemberVisibility,
+    isGeneric: bool,
 ) !StructAttribute {
     var first = try context.tokenUtil.take();
     var static = false;
@@ -1417,6 +1468,7 @@ fn parseStructAttributeUtil(
                 context,
                 .{
                     .name = structName,
+                    .isGeneric = isGeneric,
                     .isStatic = static,
                 },
             );
@@ -2227,6 +2279,26 @@ fn parseFuncDef(
 
     try context.tokenUtil.expectToken(.RBrace);
 
+    const fromGenericStruct = if (structInfoOrNull) |info| info.isGeneric else false;
+    const genericState: FuncGenericState = if (fromGenericStruct or genericsOrNull != null) a: {
+        const generics: []GenericType = if (genericsOrNull) |generics|
+            generics
+        else
+            &[_]GenericType{};
+        break :a .{
+            .Generic = .{
+                .generics = generics,
+                .genericInstances = try utils.createMut(
+                    ArrayList(GenericFuncInstance),
+                    allocator,
+                    .empty,
+                ),
+            },
+        };
+    } else .{
+        .Normal = .{},
+    };
+
     return try utils.createMut(FuncDecNode, allocator, .{
         .name = nameStr,
         .params = params,
@@ -2237,18 +2309,8 @@ fn parseFuncDef(
         .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
         .funcType = if (structInfoOrNull == null) .Normal else .StructMethod,
         .globallyDefined = context.compInfo.getScopeDepth() == 1,
-        .genericState = if (genericsOrNull) |generics| .{
-            .Generic = .{
-                .generics = generics,
-                .genericInstances = try utils.createMut(
-                    ArrayList(GenericFuncInstance),
-                    allocator,
-                    .empty,
-                ),
-            },
-        } else .{
-            .Normal = .{},
-        },
+        .methodOn = if (structInfoOrNull) |info| info.name else null,
+        .genericState = genericState,
     });
 }
 
@@ -2763,8 +2825,8 @@ pub fn hoistRelevantNodes(
     }
 
     return .{
-        .structs = try structDecs.toOwnedSlice(allocator),
-        .errors = try errorDecs.toOwnedSlice(allocator),
-        .enums = try enumDecs.toOwnedSlice(allocator),
+        .structs = structDecs.items,
+        .errors = errorDecs.items,
+        .enums = enumDecs.items,
     };
 }

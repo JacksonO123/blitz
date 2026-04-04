@@ -13,7 +13,7 @@ const allocPools = blitz.allocPools;
 const Context = blitz.context.Context;
 const constants = blitz.constants;
 
-pub const ScanInfo = struct {
+pub const ScanBehavior = struct {
     allowErrorWithoutVariants: bool = false,
     allowStaticStructInstance: bool = false,
 };
@@ -163,6 +163,7 @@ pub const ScanError = error{
     ConflictingGenericParameters,
     GenericRestrictionConflict,
     UnexpectedRecursiveGeneric,
+    GenericNotFound,
 
     // errors
     ExpectedUseOfErrorVariants,
@@ -205,7 +206,7 @@ pub fn scanNode(
         },
         .UndefValue => return context.staticPtrs.types.undefType.toAllocInfo(.Recycled),
         .StaticStructInstance => |inst| {
-            if (!context.scanInfo.allowStaticStructInstance) {
+            if (!context.scanBehavior.allowStaticStructInstance) {
                 return ScanError.StaticStructInstanceCannotBeUsedAsVariable;
             }
 
@@ -278,8 +279,14 @@ pub fn scanNode(
                         },
                     });
 
-                    const inferredTypeSize = try inferredType.info.astType.getSize(context);
-                    node.typeInfo.alignment = inferredType.info.astType.getAlignment(context);
+                    const inferredTypeSize = try inferredType.info.astType.getSize(
+                        allocator,
+                        context,
+                    );
+                    node.typeInfo.alignment = try inferredType.info.astType.getAlignment(
+                        allocator,
+                        context,
+                    );
                     const itemPadding = utils.calculatePadding(
                         inferredTypeSize,
                         node.typeInfo.alignment,
@@ -291,7 +298,7 @@ pub fn scanNode(
             };
 
             const valueType = try context.pools.newType(context, valueRes);
-            node.typeInfo = try valueType.getNodeTypeInfo(context);
+            node.typeInfo = try valueType.getNodeTypeInfo(allocator, context);
             return valueType.toAllocInfo(.Mut, .Allocated);
         },
         .IndexValue => |indexInfo| {
@@ -331,8 +338,11 @@ pub fn scanNode(
                     arr.type,
                     withGenDef,
                 );
-                node.typeInfo.size = try resType.info.astType.getSize(context);
-                node.typeInfo.alignment = resType.info.astType.getAlignment(context);
+                node.typeInfo.size = try resType.info.astType.getSize(allocator, context);
+                node.typeInfo.alignment = try resType.info.astType.getAlignment(
+                    allocator,
+                    context,
+                );
                 return resType;
             }
 
@@ -363,8 +373,11 @@ pub fn scanNode(
                         left,
                         withGenDef,
                     );
-                    node.typeInfo.size = try resType.info.astType.getSize(context);
-                    node.typeInfo.alignment = resType.info.astType.getAlignment(context);
+                    node.typeInfo.size = try resType.info.astType.getSize(allocator, context);
+                    node.typeInfo.alignment = try resType.info.astType.getAlignment(
+                        allocator,
+                        context,
+                    );
                     return resType;
                 },
                 .And, .Or => {
@@ -402,8 +415,11 @@ pub fn scanNode(
                                 withGenDef,
                             );
                             res.info.mutState = .Mut;
-                            node.typeInfo.size = try res.info.astType.getSize(context);
-                            node.typeInfo.alignment = res.info.astType.getAlignment(context);
+                            node.typeInfo.size = try res.info.astType.getSize(allocator, context);
+                            node.typeInfo.alignment = try res.info.astType.getAlignment(
+                                allocator,
+                                context,
+                            );
                             return res;
                         } else {
                             return ScanError.MathOpTypeMismatch;
@@ -428,8 +444,14 @@ pub fn scanNode(
                                 left,
                                 withGenDef,
                             );
-                            node.typeInfo.size = try resType.info.astType.getSize(context);
-                            const alignment = resType.info.astType.getAlignment(context);
+                            node.typeInfo.size = try resType.info.astType.getSize(
+                                allocator,
+                                context,
+                            );
+                            const alignment = try resType.info.astType.getAlignment(
+                                allocator,
+                                context,
+                            );
                             node.typeInfo.alignment = alignment;
                             return resType;
                         } else {
@@ -513,8 +535,8 @@ pub fn scanNode(
         .Group,
         => |val| {
             const resType = try scanNode(allocator, context, val, withGenDef);
-            node.typeInfo.size = try resType.info.astType.getSize(context);
-            node.typeInfo.alignment = resType.info.astType.getAlignment(context);
+            node.typeInfo.size = try resType.info.astType.getSize(allocator, context);
+            node.typeInfo.alignment = try resType.info.astType.getAlignment(allocator, context);
             return resType;
         },
         .ReturnNode => |ret| {
@@ -567,18 +589,18 @@ pub fn scanNode(
         },
         .PropertyAccess => |access| {
             if (access.value.variant == .Error) {
-                context.scanInfo.allowErrorWithoutVariants = true;
+                context.scanBehavior.allowErrorWithoutVariants = true;
             }
 
             if (access.value.variant == .StaticStructInstance) {
-                context.scanInfo.allowStaticStructInstance = true;
+                context.scanBehavior.allowStaticStructInstance = true;
             }
 
             const origValueInfo = try scanNode(allocator, context, access.value, withGenDef);
             defer releaseIfAllocated(context, origValueInfo);
             const valueInfo = try escapeVarInfo(origValueInfo);
-            context.scanInfo.allowStaticStructInstance = false;
-            context.scanInfo.allowErrorWithoutVariants = false;
+            context.scanBehavior.allowStaticStructInstance = false;
+            context.scanBehavior.allowErrorWithoutVariants = false;
 
             const valid: bool = switch (valueInfo.info.astType.*) {
                 .Generic => {
@@ -591,8 +613,11 @@ pub fn scanNode(
                         context,
                         access.property,
                     );
-                    node.typeInfo.size = try propType.astType.getSize(context);
-                    node.typeInfo.alignment = propType.astType.getAlignment(context);
+                    node.typeInfo.size = try propType.astType.getSize(allocator, context);
+                    node.typeInfo.alignment = try propType.astType.getAlignment(
+                        allocator,
+                        context,
+                    );
                     return propType.toAllocInfo(.Recycled);
                 },
                 .String => {
@@ -600,22 +625,23 @@ pub fn scanNode(
                         context,
                         access.property,
                     );
-                    node.typeInfo.size = try propType.astType.getSize(context);
-                    node.typeInfo.alignment = propType.astType.getAlignment(context);
+                    node.typeInfo.size = try propType.astType.getSize(allocator, context);
+                    node.typeInfo.alignment = try propType.astType.getAlignment(allocator, context);
                     return propType.toAllocInfo(.Recycled);
                 },
                 .Custom => |custom| a: {
-                    const def = context.compInfo.getStructDec(custom.name) orelse break :a false;
+                    const structDec = context.compInfo.getStructDec(custom.name) orelse
+                        break :a false;
                     node.typeInfo.accessingFrom = custom.name;
 
-                    try context.compInfo.pushGenScope(allocator, false);
+                    try context.compInfo.pushGenScope(allocator, true);
                     defer context.compInfo.popGenScope(context);
 
-                    if (def.generics.len < custom.generics.len) {
+                    if (structDec.generics.len < custom.generics.len) {
                         return ScanError.GenericCountMismatch;
                     }
 
-                    const defGenerics = def.generics[0..custom.generics.len];
+                    const defGenerics = structDec.generics[0..custom.generics.len];
                     for (custom.generics, defGenerics) |customGen, genDef| {
                         const clonedGenType = try clone.replaceGenericsOnTypeInfo(
                             allocator,
@@ -626,42 +652,55 @@ pub fn scanNode(
                         try context.compInfo.setGeneric(genDef.name, clonedGenType);
                     }
 
-                    const propTypeOrNull = try validateCustomProps(
+                    const propType = (try validateCustomProps(
                         allocator,
                         context,
                         custom,
                         access.property,
                         withGenDef,
-                    );
+                    )) orelse break :a false;
 
-                    if (propTypeOrNull) |propType| {
-                        if (propType.info.astType.* == .Function) {
-                            const func = propType.info.astType.Function;
-                            const strictMutState = valueInfo.info.mutState.orConst(
-                                origValueInfo.info.mutState,
-                            );
-                            if (func.params.selfInfo) |info| {
-                                if (info.mutState == .Mut and strictMutState == .Const) {
-                                    return ScanError.ExpectedMutableStructInstance;
-                                }
+                    if (propType.info.astType.* == .Function) {
+                        const func = propType.info.astType.Function;
+                        const strictMutState = valueInfo.info.mutState.orConst(
+                            origValueInfo.info.mutState,
+                        );
+                        if (func.params.selfInfo) |info| {
+                            if (info.mutState == .Mut and strictMutState == .Const) {
+                                return ScanError.ExpectedMutableStructInstance;
                             }
                         }
-
-                        node.typeInfo.size = try propType.info.astType.getSize(context);
-                        node.typeInfo.alignment = propType.info.astType.getAlignment(context);
-
-                        var copy = propType;
-                        copy.info.mutState = valueInfo.info.mutState;
-                        const varInfo = try context.pools.newType(context, .{
-                            .VarInfo = copy,
-                        });
-                        return varInfo.toAllocInfo(
-                            origValueInfo.info.mutState.orConst(valueInfo.info.mutState),
-                            .Allocated,
-                        );
                     }
 
-                    break :a false;
+                    node.typeInfo.size = try propType.info.astType.getSize(allocator, context);
+                    node.typeInfo.alignment = try propType.info.astType.getAlignment(
+                        allocator,
+                        context,
+                    );
+
+                    var copy = switch (propType.info.astType.*) {
+                        .Function => |func| b: {
+                            const structMethodType = try context.pools.newType(context, .{
+                                .StructMethod = .{
+                                    .customSrc = custom,
+                                    .func = func,
+                                },
+                            });
+                            break :b structMethodType.toAllocInfo(
+                                propType.info.mutState,
+                                propType.allocState,
+                            );
+                        },
+                        else => propType,
+                    };
+                    copy.info.mutState = valueInfo.info.mutState;
+                    const varInfo = try context.pools.newType(context, .{
+                        .VarInfo = copy,
+                    });
+                    return varInfo.toAllocInfo(
+                        origValueInfo.info.mutState.orConst(valueInfo.info.mutState),
+                        .Allocated,
+                    );
                 },
                 .StaticStructInstance => |name| a: {
                     try context.compInfo.pushGenScope(allocator, false);
@@ -894,8 +933,8 @@ pub fn scanNode(
                     info,
                     withGenDef,
                 );
-                node.typeInfo.size = try info.info.astType.getSize(context);
-                node.typeInfo.alignment = info.info.astType.getAlignment(context);
+                node.typeInfo.size = try info.info.astType.getSize(allocator, context);
+                node.typeInfo.alignment = try info.info.astType.getAlignment(allocator, context);
 
                 try context.compInfo.setVariableLastUsedNode(name, node);
 
@@ -1073,12 +1112,35 @@ pub fn scanNode(
             const tempDec = try scanNode(allocator, context, call.func, withGenDef);
             defer releaseIfAllocated(context, tempDec);
             const dec = try escapeVarInfo(tempDec);
-            if (dec.info.astType.* != .Function) return ScanError.CannotCallNonFunctionNode;
-            const func = dec.info.astType.Function;
-            node.typeInfo.resolvesToFunc = func;
 
             try context.compInfo.pushGenScope(allocator, true);
             defer context.compInfo.popGenScope(context);
+
+            var forceGeneric = false;
+            const func = switch (dec.info.astType.*) {
+                .Function => |func| func,
+                .StructMethod => |method| a: {
+                    forceGeneric = true;
+                    const structDec = context.compInfo.getStructDec(method.customSrc.name).?;
+                    for (structDec.generics, method.customSrc.generics) |decGen, customGen| {
+                        try context.compInfo.setGeneric(
+                            decGen.name,
+                            customGen.toAllocInfo(.Recycled),
+                        );
+                    }
+
+                    break :a method.func;
+                },
+                else => return ScanError.CannotCallNonFunctionNode,
+            };
+            node.typeInfo.resolvesToFunc = func;
+
+            if (call.func.typeInfo.accessingFrom) |from| a: {
+                const structDec = context.compInfo.getStructDec(from) orelse break :a;
+                for (structDec.generics) |generic| {
+                    _ = generic;
+                }
+            }
 
             if (call.callGenerics) |callGenerics| {
                 switch (func.genericState) {
@@ -1197,7 +1259,7 @@ pub fn scanNode(
                 }
             }
 
-            if (func.genericState == .Generic) {
+            if (func.genericState == .Generic or forceGeneric) {
                 const genScope = context.compInfo.genericScopes.getCurrentScope().?;
                 const scannedBefore = try fnHasScannedWithSameGenTypes(
                     allocator,
@@ -1227,8 +1289,8 @@ pub fn scanNode(
                 func.returnType.toAllocInfo(.Recycled),
                 withGenDef,
             );
-            node.typeInfo.size = try resType.info.astType.getSize(context);
-            node.typeInfo.alignment = resType.info.astType.getAlignment(context);
+            node.typeInfo.size = try resType.info.astType.getSize(allocator, context);
+            node.typeInfo.alignment = try resType.info.astType.getAlignment(allocator, context);
             return resType;
         },
         .StructInit => |init| {
@@ -1343,10 +1405,10 @@ pub fn scanNode(
                 }
 
                 const attrType = attrRel.initInfo.info.astType;
-                const attrAlignment = attrType.getAlignment(context);
+                const attrAlignment = try attrType.getAlignment(allocator, context);
 
                 const padding = utils.calculatePadding(node.typeInfo.size, attrAlignment);
-                node.typeInfo.size += try attrType.getSize(context) + padding;
+                node.typeInfo.size += try attrType.getSize(allocator, context) + padding;
                 initAlignment = @max(initAlignment, attrAlignment);
             }
             node.typeInfo.alignment = initAlignment;
@@ -1383,7 +1445,7 @@ pub fn scanNode(
         },
         .Error => |err| {
             const dec = context.compInfo.getErrorDec(err).?;
-            if (dec.variants.len > 0 and !context.scanInfo.allowErrorWithoutVariants) {
+            if (dec.variants.len > 0 and !context.scanBehavior.allowErrorWithoutVariants) {
                 return ScanError.ExpectedUseOfErrorVariants;
             }
 
@@ -1460,8 +1522,8 @@ pub fn scanNode(
             }
 
             const pointer = ptrType.info.astType.Pointer;
-            node.typeInfo.size = try pointer.info.astType.getSize(context);
-            node.typeInfo.alignment = pointer.info.astType.getAlignment(context);
+            node.typeInfo.size = try pointer.info.astType.getSize(allocator, context);
+            node.typeInfo.alignment = try pointer.info.astType.getAlignment(allocator, context);
 
             if (ptrType.allocState == .Allocated) {
                 const res = ptrType.info.astType.Pointer;
@@ -1564,9 +1626,9 @@ pub fn scanNode(
 
             const arrSize = std.fmt.parseInt(u64, init.size, 10) catch
                 return ScanError.InvalidNumber;
-            const initTypeSize = try initTypeClone.info.astType.getSize(context);
+            const initTypeSize = try initTypeClone.info.astType.getSize(allocator, context);
             node.typeInfo.size = initTypeSize * arrSize;
-            node.typeInfo.alignment = initTypeClone.info.astType.getAlignment(context);
+            node.typeInfo.alignment = try initTypeClone.info.astType.getAlignment(allocator, context);
 
             return arrayDecType.toAllocInfo(.Mut, .Allocated);
         },
@@ -1734,8 +1796,9 @@ fn checkUndefVars(context: *Context, node: *const ast.AstNode, allowSelf: bool) 
 
 fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
     const functions = context.compInfo.functionsToScan;
-    while (functions.items.len > 0) {
-        const toScanItem = functions.pop().?;
+    var i: usize = 0;
+    while (i < functions.items.len) : (i += 1) {
+        const toScanItem = functions.items[i];
         const func = toScanItem.func;
 
         try context.compInfo.pushGenScope(allocator, false);
@@ -1778,7 +1841,10 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
 
         try scanFuncBodyAndReturn(allocator, context, func, toScanItem.withGenDef);
 
-        if (func.genericState == .Generic) {
+        if (toScanItem.withGenDef and
+            (func.genericState == .Generic or
+                func.onGenericStruct(context)))
+        {
             const cloned = try clone.cloneAstNodePtrMut(allocator, context, func.body, true);
             try func.genericState.Generic.genericInstances.append(
                 allocator,
@@ -2007,9 +2073,7 @@ fn matchParamGenericTypes(
 
             var hasGeneric = false;
 
-            for (custom.generics, 0..) |gen, index| {
-                const paramGen = paramCustom.generics[index];
-
+            for (custom.generics, paramCustom.generics) |gen, paramGen| {
                 switch (gen.astType.*) {
                     .Generic => |generic| {
                         const typeClone = try clone.replaceGenericsOnTypeInfo(

@@ -85,23 +85,8 @@ pub fn printType(
             try writer.writeAll(digits);
             try writer.writeByte(']');
         },
-        .Custom => |*custom| {
-            try writer.writeAll(custom.name);
-            if (custom.generics.len > 0) {
-                try writer.writeByte('<');
-            }
-
-            for (custom.generics, 0..) |generic, index| {
-                try printTypeInfo(context, generic, writer);
-
-                if (index < custom.generics.len - 1) {
-                    try writer.writeAll(", ");
-                }
-            }
-
-            if (custom.generics.len > 0) {
-                try writer.writeByte('>');
-            }
+        .Custom => |custom| {
+            try printCustomType(context, custom, writer);
         },
         .Generic => |gen| {
             try writer.writeAll("[generic](");
@@ -109,35 +94,13 @@ pub fn printType(
             try writer.writeByte(')');
         },
         .Function => |func| {
-            try writer.writeAll("[function](\"");
-            try writer.writeAll("func.name");
-            try writer.writeByte('\"');
-
-            switch (func.genericState) {
-                .Generic => |generic| {
-                    try printGenerics(context, generic.generics, writer);
-                },
-                else => {},
-            }
-
-            try writer.writeAll(" (");
-
-            for (func.params.params, 0..) |param, index| {
-                try writer.writeByte('(');
-                try writer.writeAll(param.name);
-                try writer.writeAll(")[");
-                try printTypeInfo(context, param.type, writer);
-                try writer.writeByte(']');
-
-                if (index < func.params.params.len - 1) {
-                    try writer.writeAll(", ");
-                }
-            }
-
-            try writer.writeByte(' ');
-            try printTypeInfo(context, func.returnType, writer);
-
-            try writer.writeByte(')');
+            try printFunction(context, func, writer);
+        },
+        .StructMethod => |method| {
+            try writer.writeAll("[method call] on ");
+            try printCustomType(context, method.customSrc, writer);
+            try writer.writeAll(" with ");
+            try printFunction(context, method.func, writer);
         },
         .StaticStructInstance => |instr| {
             try writer.writeAll("[static struct instance](");
@@ -177,6 +140,57 @@ pub fn printType(
             try writer.writeAll("undef");
         },
     };
+}
+
+fn printCustomType(context: *Context, custom: ast.CustomType, writer: *Writer) !void {
+    try writer.writeAll(custom.name);
+    if (custom.generics.len > 0) {
+        try writer.writeByte('<');
+    }
+
+    for (custom.generics, 0..) |generic, index| {
+        try printTypeInfo(context, generic, writer);
+
+        if (index < custom.generics.len - 1) {
+            try writer.writeAll(", ");
+        }
+    }
+
+    if (custom.generics.len > 0) {
+        try writer.writeByte('>');
+    }
+}
+
+fn printFunction(context: *Context, func: *ast.FuncDecNode, writer: *Writer) !void {
+    try writer.writeAll("[function](\"");
+    try writer.writeAll("func.name");
+    try writer.writeByte('\"');
+
+    switch (func.genericState) {
+        .Generic => |generic| {
+            try printGenerics(context, generic.generics, writer);
+        },
+        else => {},
+    }
+
+    try writer.writeAll(" (");
+
+    for (func.params.params, 0..) |param, index| {
+        try writer.writeByte('(');
+        try writer.writeAll(param.name);
+        try writer.writeAll(")[");
+        try printTypeInfo(context, param.type, writer);
+        try writer.writeByte(']');
+
+        if (index < func.params.params.len - 1) {
+            try writer.writeAll(", ");
+        }
+    }
+
+    try writer.writeByte(' ');
+    try printTypeInfo(context, func.returnType, writer);
+
+    try writer.writeByte(')');
 }
 
 fn printValue(

@@ -180,7 +180,7 @@ pub fn cloneAstTypes(
             };
         },
         .Generic => return CloneError.BadGenericClone,
-        .Function => return CloneError.CannotCloneFunction,
+        .Function, .StructMethod => return CloneError.CannotCloneFunction,
     }
 }
 

@@ -17,6 +17,8 @@ const TempRegister = vmInfo.TempRegister;
 const Context = blitz.context.Context;
 const constants = blitz.constants;
 const backendUtils = blitz.backendUtils;
+const scanner = blitz.scanner;
+const clone = blitz.clone;
 
 const CodeGenError = error{
     RawNumberIsTooBig,
@@ -35,7 +37,9 @@ const CodeGenError = error{
 const GenBytecodeError = CodeGenError ||
     Allocator.Error ||
     std.fmt.ParseIntError ||
-    ast.AstTypeError;
+    ast.AstTypeError ||
+    scanner.ScanError ||
+    clone.CloneError;
 
 pub const BackendTypes = enum {
     Bytecode,
@@ -3330,8 +3334,8 @@ pub fn genBytecodeUtil(
                 writeLocInfo,
             );
 
-            const itemAlignment = init.initType.astType.getAlignment(context);
-            const itemSize = try init.initType.astType.getSize(context);
+            const itemAlignment = try init.initType.astType.getAlignment(allocator, context);
+            const itemSize = try init.initType.astType.getSize(allocator, context);
             const itemPadding = utils.calculatePadding(itemSize, itemAlignment);
             if (nodeIsPrimitive(init.initNode)) {
                 const resReg = resRegOrNull orelse return CodeGenError.ReturnedRegisterNotFound;
@@ -3590,7 +3594,7 @@ pub fn genBytecodeUtil(
             const loc = if (isFunction)
                 @as(u64, 0)
             else
-                (try dec.getMemberLocation(context, accessNode.property)).?;
+                (try dec.getMemberLocation(allocator, context, accessNode.property)).?;
 
             const reg = try calculateAccessOffset(
                 allocator,
@@ -3735,22 +3739,38 @@ fn codegenFunctions(
     context: *Context,
     comptime backend: BackendInterface,
 ) !void {
-    var funcIter = context.compInfo.functions.valueIterator();
-    while (funcIter.next()) |funcPtr| {
-        const func = funcPtr.*;
+    for (context.compInfo.functionsToScan.items) |func| {
+        try context.compInfo.pushGenScope(allocator, false);
+        defer context.compInfo.popGenScope(context);
 
-        if (utils.compString(func.name, constants.MAIN_FN_NAME)) continue;
-        try generateFunction(allocator, context, backend, func);
+        const onGenericStruct = a: {
+            const methodOn = func.func.methodOn orelse break :a false;
+            const structDec = context.compInfo.getStructDec(methodOn) orelse break :a false;
+            break :a structDec.generics.len > 0;
+        };
+
+        const isGeneric = func.func.genericState == .Generic or onGenericStruct;
+        if (isGeneric and !func.withGenDef) continue;
+
+        try generateFunction(allocator, context, backend, func.func);
     }
 
-    var structIt = context.compInfo.hoistedDecs.structs.valueIterator();
-    while (structIt.next()) |decOrNull| {
-        const dec = decOrNull.* orelse continue;
-        for (dec.attributes) |attr| {
-            if (attr.attr != .Function) continue;
-            try generateFunction(allocator, context, backend, attr.attr.Function);
-        }
-    }
+    // var funcIter = context.compInfo.functions.valueIterator();
+    // while (funcIter.next()) |funcPtr| {
+    //     const func = funcPtr.*;
+
+    //     if (utils.compString(func.name, constants.MAIN_FN_NAME)) continue;
+    //     try generateFunction(allocator, context, backend, func);
+    // }
+
+    // var structIt = context.compInfo.hoistedDecs.structs.valueIterator();
+    // while (structIt.next()) |decOrNull| {
+    //     const dec = decOrNull.* orelse continue;
+    //     for (dec.attributes) |attr| {
+    //         if (attr.attr != .Function) continue;
+    //         try generateFunction(allocator, context, backend, attr.attr.Function);
+    //     }
+    // }
 }
 
 fn generateFunction(
@@ -3902,7 +3922,7 @@ fn calculateAccessOffset(
             const fromName = node.typeInfo.accessingFrom orelse
                 return CodeGenError.AccessTargetDoesNotHaveStructName;
             const dec = context.compInfo.getStructDec(fromName).?;
-            const loc = (try dec.getMemberLocation(context, accessNode.property)).?;
+            const loc = (try dec.getMemberLocation(allocator, context, accessNode.property)).?;
             return try calculateAccessOffset(
                 allocator,
                 context,

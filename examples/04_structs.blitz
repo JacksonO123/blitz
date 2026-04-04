@@ -8,16 +8,8 @@ struct Box {
     }
 }
 
-// init the struct on the stacks
-let myBox = Box { size = 10 };
-let sizePlusOne = myBox.getSizePlusOne();
-
-// init the struct on the heap
-let heapBox: *Box = new Box { size = 2 };
-delete heapBox;
-
 // declare generic struct
-struct [T] GenBox {
+struct GenBox [T] {
     data: T;
 
     pub fn getData(self) T {
@@ -25,12 +17,8 @@ struct [T] GenBox {
     }
 }
 
-// init generic struct
-let myGenBox = GenBox<u32> { data = 4 };
-//let myGenBoxData = myGenBox.getData();
-
 // structs can be defined to have factory style initializors
-struct [T] SomeData {
+struct SomeData [T] {
     data: T;
 
     pub static fn create(initial: T) SomeData<T> {
@@ -40,4 +28,18 @@ struct [T] SomeData {
     }
 }
 
-let someData: SomeData<u32> = SomeData.create(4);
+fn main() {
+    // init the struct on the stacks
+    let myBox = Box { size = 10 };
+    let sizePlusOne = myBox.getSizePlusOne();
+
+//    // init the struct on the heap
+//    let heapBox: *Box = new Box { size = 2 };
+//    delete heapBox;
+
+    // init generic struct
+    let myGenBox = GenBox<u32> { data = 4 };
+    //let myGenBoxData = myGenBox.getData();
+
+    let someData: SomeData<u32> = SomeData.create(4);
+}

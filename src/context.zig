@@ -42,7 +42,7 @@ pub const Context = struct {
     logger: *logger.Logger,
     tokenUtil: *tokenizer.TokenUtil,
     compInfo: *blitzCompInfo.CompInfo,
-    scanInfo: *scanner.ScanInfo,
+    scanBehavior: scanner.ScanBehavior = .{},
     genInfo: *codegen.GenInfo,
     deferCleanup: *DeferCleanup,
     staticPtrs: *StaticPtrs,
@@ -71,8 +71,6 @@ pub const Context = struct {
         const compInfo = try blitzCompInfo.CompInfo.init(allocator, names);
         const compInfoPtr = try utils.createMut(blitzCompInfo.CompInfo, allocator, compInfo);
 
-        const scanInfoPtr = try utils.createMut(scanner.ScanInfo, allocator, .{});
-
         const genInfo = try codegen.GenInfo.init(allocator);
         const genInfoPtr = try utils.createMut(codegen.GenInfo, allocator, genInfo);
         genInfoPtr.vmInfo.stackStartSize = compInfoPtr.stackSizeEstimate;
@@ -92,7 +90,6 @@ pub const Context = struct {
             .tokens = tokens,
             .tokenUtil = tokenUtilPtr,
             .compInfo = compInfoPtr,
-            .scanInfo = scanInfoPtr,
             .genInfo = genInfoPtr,
             .deferCleanup = deferCleanupPtr,
             .staticPtrs = constTypeInfosPtr,
