@@ -273,6 +273,18 @@ pub const AstTypes = union(Types) {
             .Generic => |name| {
                 const genType = try context.compInfo.getGeneric(allocator, context, name) orelse
                     return 0;
+
+                // generic loop detection, if generic loops become indirect, this
+                // should be more involved
+                if (genType.info.astType.* == .Generic) {
+                    const nextType = try context.compInfo.getGeneric(
+                        allocator,
+                        context,
+                        genType.info.astType.Generic,
+                    ) orelse return 0;
+                    if (genType.info.astType == nextType.info.astType) return 0;
+                }
+
                 return try genType.info.astType.getAlignment(allocator, context);
             },
 
@@ -317,6 +329,18 @@ pub const AstTypes = union(Types) {
             .Generic => |name| {
                 const genType = try context.compInfo.getGeneric(allocator, context, name) orelse
                     return 0;
+
+                // generic loop detection, if generic loops become indirect, this
+                // should be more involved
+                if (genType.info.astType.* == .Generic) {
+                    const nextType = try context.compInfo.getGeneric(
+                        allocator,
+                        context,
+                        genType.info.astType.Generic,
+                    ) orelse return 0;
+                    if (genType.info.astType == nextType.info.astType) return 0;
+                }
+
                 return try genType.info.astType.getSize(allocator, context);
             },
             // TODO - maybe optimize for unused states (0 for pointer etc)

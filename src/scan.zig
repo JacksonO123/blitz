@@ -1316,53 +1316,6 @@ pub fn scanNode(
                 return ScanError.StructInitAttributeCountMismatch;
             }
 
-            const genScope = context.compInfo.genericScopes.getCurrentScope();
-            if (structDec.generics.len > 0) a: {
-                const scope = genScope orelse break :a;
-
-                for (structDec.attributes) |attr| {
-                    if (attr.attr != .Function) continue;
-
-                    const func = attr.attr.Function;
-                    if (func.genericState == .Normal) {
-                        const scannedBefore = try fnHasScannedWithSameGenTypes(
-                            allocator,
-                            context,
-                            func,
-                            scope,
-                            withGenDef,
-                        );
-                        // TODO - account for generic struct methods
-                        if (scannedBefore != null) continue;
-                    }
-
-                    const scopeRels = try genScopeToRels(
-                        allocator,
-                        context,
-                        scope,
-                        withGenDef,
-                    );
-                    defer allocator.free(scopeRels);
-
-                    var typeCaptures = func.capturedTypes orelse b: {
-                        const captures = try utils.initMutPtrT(
-                            compInfo.CaptureScope,
-                            allocator,
-                        );
-                        func.capturedTypes = captures;
-                        break :b captures;
-                    };
-
-                    for (scopeRels) |rel| {
-                        if (!typeCaptures.contains(rel.str)) {
-                            try typeCaptures.put(rel.str, rel.info.toAllocInfo(.Allocated));
-                        } else {
-                            allocPools.recursiveReleaseType(context, rel.info.astType);
-                        }
-                    }
-                }
-            }
-
             // TODO - store number of attributes before getting here (probably exists already)
             var initAttrRel: ArrayList(StructInitMemberInfo) = .empty;
             defer {

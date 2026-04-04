@@ -164,7 +164,7 @@ fn printCustomType(context: *Context, custom: ast.CustomType, writer: *Writer) !
 fn printFunction(context: *Context, func: *ast.FuncDecNode, writer: *Writer) !void {
     try writer.writeAll("[function](\"");
     try writer.writeAll("func.name");
-    try writer.writeByte('\"');
+    try writer.writeAll("\")");
 
     switch (func.genericState) {
         .Generic => |generic| {
