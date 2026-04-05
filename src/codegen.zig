@@ -3627,11 +3627,6 @@ pub fn genBytecodeUtil(
                 node.typeInfo.alignment,
             );
 
-            const dbg1 = Instr{
-                .DbgReg = reg,
-            };
-            try context.genInfo.appendChunk(allocator, dbg1);
-
             const mulAdd = Instr{
                 .MulReg16AddReg = .{
                     .dest = reg,
@@ -3641,11 +3636,6 @@ pub fn genBytecodeUtil(
                 },
             };
             try context.genInfo.appendChunk(allocator, mulAdd);
-
-            const dbg2 = Instr{
-                .DbgReg = reg,
-            };
-            try context.genInfo.appendChunk(allocator, dbg2);
 
             if (context.genInfo.settings.propertyAccessReturnsPointer) {
                 return reg;
