@@ -3925,7 +3925,7 @@ fn calculateAccessOffset(
             return offsetReg;
         },
         else => {
-            const reg = try genBytecode(allocator, context, node) orelse
+            var reg = try genBytecode(allocator, context, node) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
 
             const isVar = context.genInfo.isRegVariable(reg);
@@ -3939,6 +3939,7 @@ fn calculateAccessOffset(
                     },
                 };
                 try context.genInfo.appendChunk(allocator, derefInstr);
+                reg = outReg;
             }
 
             if (offset == 0) {

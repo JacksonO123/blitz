@@ -68,7 +68,7 @@ pub const ScanError = error{
     ExpectedBooleanBang,
     ExpectedBooleanIfCondition,
     UnsupportedFeature,
-    ExpectedU64ForIndex,
+    ExpectedU64OrU32ForIndex,
     StaticStructInstanceCannotBeUsedAsVariable,
     InvalidNumber,
     IfStatementMayOnlyHaveOneElse,
@@ -309,8 +309,12 @@ pub fn scanNode(
             defer releaseIfAllocated(context, origTargetType);
             const targetType = try escapeVarInfo(origTargetType);
 
-            if (indexType.info.astType.* == .Number and indexType.info.astType.Number != .U64) {
-                return ScanError.ExpectedU64ForIndex;
+            if (indexType.info.astType.* == .Number) {
+                const allowedIndexType = switch (indexType.info.astType.Number) {
+                    .U64, .U32 => true,
+                    else => false,
+                };
+                if (!allowedIndexType) return ScanError.ExpectedU64OrU32ForIndex;
             }
 
             const arrOrNull = switch (targetType.info.astType.*) {
