@@ -1,4 +1,8 @@
+struct M {
+    pub data: char[1];
+}
+
 fn main() {
-    let arr = ['a'];
-    let slice = &arr;
+    let m = M { data = ['a'] };
+    let ptr = &m.data;
 }
