@@ -630,7 +630,10 @@ pub fn scanNode(
                         access.property,
                     );
                     node.typeInfo.size = try propType.astType.getSize(allocator, context);
-                    node.typeInfo.alignment = try propType.astType.getAlignment(allocator, context);
+                    node.typeInfo.alignment = try propType.astType.getAlignment(
+                        allocator,
+                        context,
+                    );
                     return propType.toAllocInfo(.Recycled);
                 },
                 .Custom => |custom| a: {
@@ -1579,7 +1582,10 @@ pub fn scanNode(
                 return ScanError.InvalidNumber;
             const initTypeSize = try initTypeClone.info.astType.getSize(allocator, context);
             node.typeInfo.size = initTypeSize * arrSize;
-            node.typeInfo.alignment = try initTypeClone.info.astType.getAlignment(allocator, context);
+            node.typeInfo.alignment = try initTypeClone.info.astType.getAlignment(
+                allocator,
+                context,
+            );
 
             return arrayDecType.toAllocInfo(.Mut, .Allocated);
         },

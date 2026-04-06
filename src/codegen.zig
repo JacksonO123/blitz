@@ -1708,7 +1708,12 @@ pub const GenInfo = struct {
             },
             .MovSpNegOffset16 => |inner| try func(self, allocator, inner.reg, value),
             .MovSpNegOffset32 => |inner| try func(self, allocator, inner.reg, value),
-            .MovSpNegOffset64, .MovSpNegOffsetAny => |inner| try func(self, allocator, inner.reg, value),
+            .MovSpNegOffset64, .MovSpNegOffsetAny => |inner| try func(
+                self,
+                allocator,
+                inner.reg,
+                value,
+            ),
             .Xor, .BitAnd, .BitOr, .AndSetReg, .OrSetReg => |inner| {
                 try func(self, allocator, inner.reg1, value);
                 try func(self, allocator, inner.reg2, value);
@@ -2322,7 +2327,8 @@ fn adjustInstructions(
                 frameSize,
                 stackOffset,
             );
-            context.genInfo.byteCounter += context.genInfo.instrList.items[i + instrStartIndex].getInstrLen();
+            const instrLen = context.genInfo.instrList.items[i + instrStartIndex].getInstrLen();
+            context.genInfo.byteCounter += instrLen;
         }
 
         while (context.genInfo.handleInsertInstr(i + instrStartIndex)) |instr| {
@@ -3666,7 +3672,8 @@ pub fn genBytecodeUtil(
             const hasSelf = func.params.selfInfo != null;
 
             if (hasSelf) {
-                const srcReg = try genBytecode(allocator, context, call.func) orelse return CodeGenError.ResultOfAccessRegNotFound;
+                const srcReg = try genBytecode(allocator, context, call.func) orelse
+                    return CodeGenError.ResultOfAccessRegNotFound;
                 const destReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
 
                 const movInstr = Instr{
@@ -3681,7 +3688,10 @@ pub fn genBytecodeUtil(
             for (call.params, 0..) |param, index| {
                 const reg = try genBytecode(allocator, context, param) orelse
                     return CodeGenError.ReturnedRegisterNotFound;
-                const regUsage: RegisterUsage = if (index == 0) .Param else .ParamNext;
+                const regUsage: RegisterUsage = if (index == 0 and !hasSelf)
+                    .Param
+                else
+                    .ParamNext;
                 const resReg = try context.genInfo.getNextRegisterUtil(allocator, regUsage);
                 const movInstr = Instr{
                     .Mov = .{
@@ -3729,13 +3739,16 @@ fn codegenFunctions(
     context: *Context,
     comptime backend: BackendInterface,
 ) !void {
+    // TODO - store these in different places to save iterating twice
     for (context.compInfo.functionsToScan.items) |func| {
-        try context.compInfo.pushGenScope(allocator, false);
-        defer context.compInfo.popGenScope(context);
-
-        if (!func.withGenDef) continue;
-
+        if (!func.withGenDef or func.func.methodOn == null) continue;
         try generateFunction(allocator, context, backend, func.func);
+    }
+
+    var funcIter = context.compInfo.functions.valueIterator();
+    while (funcIter.next()) |func| {
+        if (utils.compString(func.*.name, constants.MAIN_FN_NAME)) continue;
+        try generateFunction(allocator, context, backend, func.*);
     }
 }
 
