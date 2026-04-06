@@ -412,7 +412,9 @@ pub fn recursiveReleaseTypeUtil(
         },
         .ArrayDec => |slice| {
             if (slice.size) |size| {
-                recursiveReleaseNodeUtil(context, size, releaseType);
+                if (size == .Node) {
+                    recursiveReleaseNodeUtil(context, size.Node, releaseType);
+                }
             }
 
             if (slice.type.allocState == .Allocated or releaseType == .All) {

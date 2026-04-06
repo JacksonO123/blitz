@@ -1468,6 +1468,7 @@ pub const GenInfo = struct {
     const Self = @This();
 
     instrList: *ArrayList(Instr),
+    dataSection: *ArrayList(u8),
     currentProc: Proc,
     vmInfo: struct {
         stackStartSize: u32,
@@ -1510,8 +1511,11 @@ pub const GenInfo = struct {
 
         const regNextUseIndexPtr = try utils.createMut(ArrayList(u32), allocator, .empty);
 
+        const dataSectionPtr = try utils.createMut(ArrayList(u8), allocator, .empty);
+
         return .{
             .instrList = instrListPtr,
+            .dataSection = dataSectionPtr,
             .currentProc = .{
                 .startIndex = 0,
             },
@@ -1798,36 +1802,29 @@ pub const GenInfo = struct {
         return self.varNameToReg.get(name).?;
     }
 
+    /// will override data about reg, only use this on newly assigned registers
     pub fn setVariableRegister(
         self: *Self,
-        allocator: Allocator,
         name: []const u8,
         reg: TempRegister,
     ) !void {
-        const regInfo = try utils.createMut(RegInfo, allocator, try RegInfo.init(allocator));
-
         try self.varNameToReg.put(name, reg);
-        if (self.registers.items[reg].varInfo) |*varInfo| {
-            varInfo.prevInfo = varInfo;
-            self.registers.items[reg] = regInfo;
-        }
     }
 
     // deactivates register and removes variable info
     pub fn removeVariableRegister(self: *Self, name: []const u8) void {
-        if (self.varNameToReg.get(name)) |reg| {
-            const varInfo = self.registers.items[reg].varInfo;
+        const reg = self.varNameToReg.get(name) orelse return;
+        const varInfo = self.registers.items[reg].varInfo;
 
-            if (varInfo) |info| {
-                const prevInfoOrNull = info.prevInfo;
-                if (prevInfoOrNull) |prevInfo| {
-                    self.registers.items[reg].varInfo = prevInfo.*;
-                } else {
-                    _ = self.varNameToReg.remove(name);
-                }
+        if (varInfo) |info| {
+            const prevInfoOrNull = info.prevInfo;
+            if (prevInfoOrNull) |prevInfo| {
+                self.registers.items[reg].varInfo = prevInfo.*;
             } else {
                 _ = self.varNameToReg.remove(name);
             }
+        } else {
+            _ = self.varNameToReg.remove(name);
         }
     }
 
@@ -1870,17 +1867,11 @@ pub const GenInfo = struct {
         return self.registers.items[reg];
     }
 
-    pub fn getVarGenInfoFromName(self: Self, name: []const u8) ?struct {
-        varInfo: *RegInfo,
-        reg: TempRegister,
-    } {
+    pub fn getVarGenInfoFromName(self: Self, name: []const u8) ?struct { *RegInfo, TempRegister } {
         if (self.varNameToReg.get(name)) |reg| {
             const infoOrNull = self.registers.items[reg];
             if (infoOrNull) |info| {
-                return .{
-                    .varInfo = info,
-                    .reg = reg,
-                };
+                return .{ info, reg };
             }
         }
 
@@ -2652,6 +2643,8 @@ pub fn genBytecodeUtil(
                 return null;
             }
 
+            // std.debug.print("HERE :: {}\n", .{context.genInfo.registers.items[0]});
+
             const varReg = if (context.genInfo.isRegVariable(reg)) a: {
                 const newReg = try context.genInfo.getNextRegister(allocator);
 
@@ -2662,6 +2655,9 @@ pub fn genBytecodeUtil(
                     },
                 };
                 try context.genInfo.appendChunk(allocator, instr);
+
+                context.genInfo.registers.items[newReg].varInfo =
+                    context.genInfo.registers.items[reg].varInfo;
 
                 break :a newReg;
             } else a: {
@@ -2677,16 +2673,18 @@ pub fn genBytecodeUtil(
                 };
                 try context.genInfo.appendChunk(allocator, movInstr);
 
+                context.genInfo.registers.items[outReg].varInfo =
+                    context.genInfo.registers.items[reg].varInfo;
+
                 break :a outReg;
             };
 
             if (!node.typeInfo.lastVarUse) {
-                try context.genInfo.setVariableRegister(allocator, dec.name, varReg);
+                try context.genInfo.setVariableRegister(dec.name, varReg);
             }
         },
         .Value => |value| {
             switch (value) {
-                .Null => {},
                 .RawNumber => |num| {
                     const reg = try context.genInfo.getNextRegister(allocator);
 
@@ -2814,6 +2812,17 @@ pub fn genBytecodeUtil(
                             .value = context.genInfo.currentProc.stackFrameSize,
                         };
 
+                        const prevInfoOrNull = context.genInfo.registers.items[ptrReg].varInfo;
+                        const prevInfoPtr = if (prevInfoOrNull) |prevInfo| try utils.createMut(
+                            RegInfoVarInfo,
+                            allocator,
+                            prevInfo,
+                        ) else null;
+                        context.genInfo.registers.items[ptrReg].varInfo = .{
+                            .prevInfo = prevInfoPtr,
+                            .stackLocation = context.genInfo.currentProc.stackFrameSize,
+                        };
+
                         context.genInfo.currentProc.stackFrameSize += node.typeInfo.size;
 
                         break :a newWriteLoc;
@@ -2869,7 +2878,7 @@ pub fn genBytecodeUtil(
                         return writeLocInfo.reg;
                     }
                 },
-                else => {},
+                else => utils.unimplemented(),
             }
         },
         .OpExpr => |expr| {
@@ -3294,7 +3303,7 @@ pub fn genBytecodeUtil(
 
             if (init.indexIdent) |ident| {
                 indexReg = try context.genInfo.getNextRegister(allocator);
-                try context.genInfo.setVariableRegister(allocator, ident, indexReg.?);
+                try context.genInfo.setVariableRegister(ident, indexReg.?);
 
                 const setZeroInstr = Instr{
                     .SetReg8 = .{
@@ -3307,7 +3316,7 @@ pub fn genBytecodeUtil(
 
             if (init.ptrIdent) |ident| {
                 ptrReg = try context.genInfo.getNextRegister(allocator);
-                try context.genInfo.setVariableRegister(allocator, ident, ptrReg.?);
+                try context.genInfo.setVariableRegister(ident, ptrReg.?);
 
                 const movWriteReg = Instr{
                     .Mov = .{
@@ -3802,12 +3811,12 @@ fn functionSetupBytecode(
     for (func.params.params, 0..) |param, index| {
         const usage: RegisterUsage = if (index == 0) .Param else .ParamNext;
         const paramReg = try context.genInfo.getNextRegisterUtil(allocator, usage);
-        try context.genInfo.setVariableRegister(allocator, param.name, paramReg);
+        try context.genInfo.setVariableRegister(param.name, paramReg);
     }
 
     if (func.params.selfInfo != null) {
         const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
-        try context.genInfo.setVariableRegister(allocator, constants.SELF_NAME, paramReg);
+        try context.genInfo.setVariableRegister(constants.SELF_NAME, paramReg);
     }
 }
 
@@ -4196,6 +4205,7 @@ fn initArraySliceBytecode(
 ) !?TempRegister {
     var paddedSpLoc: u64 = 0;
     var arrayStartLoc: u64 = 0;
+    var movPtrInstr: *Instr = undefined;
 
     const writeLocInfo = if (writeLoc != null) a: {
         const scratchReg = try context.genInfo.getNextRegister(allocator);
@@ -4207,13 +4217,13 @@ fn initArraySliceBytecode(
         context.genInfo.currentProc.stackFrameSize += padding;
         arrayStartLoc = context.genInfo.currentProc.stackFrameSize;
 
-        const movSpInstr2 = Instr{
+        const movSpInstr = Instr{
             .MovSpNegOffsetAny = .{
                 .reg = scratchReg,
                 .offset = arrayStartLoc,
             },
         };
-        try context.genInfo.appendChunk(allocator, movSpInstr2);
+        movPtrInstr = try context.genInfo.appendChunkAndReturn(allocator, movSpInstr);
 
         break :a WriteLocInfo{
             .reg = scratchReg,
@@ -4231,13 +4241,13 @@ fn initArraySliceBytecode(
         context.genInfo.currentProc.stackFrameSize += vmInfo.POINTER_SIZE * 2;
         arrayStartLoc = context.genInfo.currentProc.stackFrameSize;
 
-        const movSpInstr2 = Instr{
+        const movSpInstr = Instr{
             .MovSpNegOffsetAny = .{
                 .reg = writeReg,
                 .offset = arrayStartLoc,
             },
         };
-        try context.genInfo.appendChunk(allocator, movSpInstr2);
+        movPtrInstr = try context.genInfo.appendChunkAndReturn(allocator, movSpInstr);
 
         break :a WriteLocInfo{
             .reg = writeReg,
@@ -4246,6 +4256,7 @@ fn initArraySliceBytecode(
     };
 
     const arrRegOrNull = try genBytecodeUtil(allocator, context, node, writeLocInfo);
+    std.debug.print("(::) {?d}\n", .{arrRegOrNull});
 
     const sliceStartPtr = if (writeLoc) |loc| loc.reg else a: {
         const movInstr = Instr{
@@ -4266,6 +4277,7 @@ fn initArraySliceBytecode(
         const varInfo = info.varInfo orelse break :a null;
         break :a varInfo.stackLocation;
     };
+    std.debug.print(":: {?d}\n", .{regLocationOrNull});
     const regLocation = regLocationOrNull orelse arrayStartLoc;
 
     const setReg = Instr{

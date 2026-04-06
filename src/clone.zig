@@ -71,7 +71,6 @@ pub fn cloneAstTypes(
     withGenDef: bool,
 ) (Allocator.Error || CloneError)!ast.AstTypes {
     switch (types) {
-        .String,
         .Bool,
         .Char,
         .Void,
@@ -101,9 +100,19 @@ pub fn cloneAstTypes(
                 arr.type.info,
                 withGenDef,
             )).toAllocInfo(.Allocated);
-            var sizeClone: ?*ast.AstNode = null;
+            var sizeClone: ?ast.NodeIndexOrU64 = null;
             if (arr.size) |size| {
-                sizeClone = try cloneAstNodePtrMut(allocator, context, size, withGenDef);
+                sizeClone = switch (size) {
+                    .Node => |nodeSize| .{
+                        .Node = try cloneAstNodePtrMut(
+                            allocator,
+                            context,
+                            nodeSize,
+                            withGenDef,
+                        ),
+                    },
+                    .U64 => |val| .{ .U64 = val },
+                };
             }
 
             return .{

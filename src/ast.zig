@@ -148,9 +148,19 @@ pub const AstNumber = union(AstNumberVariants) {
     }
 };
 
+const NodeIndexOrU64Variants = enum {
+    Node,
+    U64,
+};
+
+pub const NodeIndexOrU64 = union(NodeIndexOrU64Variants) {
+    Node: *AstNode,
+    U64: u64,
+};
+
 pub const AstArrayDecType = struct {
     type: scanner.TypeAndAllocInfo,
-    size: ?*AstNode,
+    size: ?NodeIndexOrU64,
 };
 
 pub const CustomType = struct {
@@ -180,7 +190,6 @@ const StructMethodInfo = struct {
 };
 
 const Types = enum {
-    String,
     Bool,
     Char,
     Void,
@@ -207,7 +216,6 @@ const Types = enum {
 pub const AstTypes = union(Types) {
     const Self = @This();
 
-    String,
     Bool,
     Char,
     Void,
@@ -288,7 +296,7 @@ pub const AstTypes = union(Types) {
                 return try genType.info.astType.getAlignment(allocator, context);
             },
 
-            .ArrayDec, .String, .StaticStructInstance, .Pointer => 8,
+            .ArrayDec, .StaticStructInstance, .Pointer => 8,
 
             .VarInfo => |inner| try inner.info.astType.getAlignment(allocator, context),
 
@@ -316,7 +324,6 @@ pub const AstTypes = union(Types) {
         return switch (self) {
             .Null, .RawNumber, .Undef => unreachable,
             .Void, .Any, .Function, .StructMethod, .Error, .Enum => 0,
-            .String => 16,
             .Bool, .Char, .EnumVariant, .ErrorVariant => 1,
             .Number => |num| num.getSize(),
             .Pointer => |ptr| {
@@ -2638,7 +2645,6 @@ fn parseType(
 
     var astType: AstTypes = switch (first.type) {
         .Bool => .Bool,
-        .StringType => .String,
         .U8 => .{ .Number = .U8 },
         .U16 => .{ .Number = .U16 },
         .U32 => .{ .Number = .U32 },
@@ -2741,7 +2747,7 @@ fn parseType(
         const newAstType = AstTypes{
             .ArrayDec = .{
                 .type = sliceType.toAllocInfo(.Recycled),
-                .size = size,
+                .size = if (size) |sizeNode| .{ .Node = sizeNode } else null,
             },
         };
 

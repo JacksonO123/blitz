@@ -104,7 +104,6 @@ const TokenVariants = enum {
     I128,
     F32,
     F64,
-    StringType,
     Bool,
     Null,
     True,
@@ -153,7 +152,6 @@ const TokenVariants = enum {
             .I128 => "i128",
             .F32 => "f32",
             .F64 => "f64",
-            .StringType => "string",
             .Bool => "bool",
             .Null => "null",
             .True => "true",
@@ -288,7 +286,6 @@ pub const TokenType = union(TokenVariants) {
     I128,
     F32,
     F64,
-    StringType,
     Bool,
     Null,
     True,
@@ -795,7 +792,6 @@ fn isValidNameChar(char: u8) bool {
 fn isDatatype(chars: []const u8) ?TokenType {
     const datatypes = .{
         .CharType,
-        .StringType,
         .Bool,
         .U8,
         .U16,

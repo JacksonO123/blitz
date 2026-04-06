@@ -246,8 +246,18 @@ pub fn scanNode(
         },
         .Value => |val| {
             const valueRes: ast.AstTypes = switch (val) {
+                .String => |str| a: {
+                    const charType = try context.pools.newType(context, .{ .Char = {} });
+                    const charTypeInfo = charType.toAllocInfo(.Const, .Allocated);
+
+                    break :a .{
+                        .ArrayDec = .{
+                            .size = .{ .U64 = str.len },
+                            .type = charTypeInfo,
+                        },
+                    };
+                },
                 .Null => .Null,
-                .String => .String,
                 .Bool => .Bool,
                 .Char => .Char,
                 .Number => |num| a: {
@@ -267,15 +277,10 @@ pub fn scanNode(
                         arr,
                         withGenDef,
                     );
-                    const valueVariant: ast.AstNodeUnion = .{
-                        .Value = .{
-                            .Number = .{ .U64 = arr.len },
-                        },
-                    };
                     const arrayDecType = try context.pools.newType(context, .{
                         .ArrayDec = .{
                             .type = inferredType,
-                            .size = try context.pools.newNode(context, valueVariant.toAstNode()),
+                            .size = .{ .U64 = arr.len },
                         },
                     });
 
@@ -614,18 +619,6 @@ pub fn scanNode(
                 },
                 .ArrayDec => {
                     const propType = try builtins.getArrayDecPropType(
-                        context,
-                        access.property,
-                    );
-                    node.typeInfo.size = try propType.astType.getSize(allocator, context);
-                    node.typeInfo.alignment = try propType.astType.getAlignment(
-                        allocator,
-                        context,
-                    );
-                    return propType.toAllocInfo(.Recycled);
-                },
-                .String => {
-                    const propType = try builtins.getStringPropType(
                         context,
                         access.property,
                     );
@@ -1574,7 +1567,9 @@ pub fn scanNode(
             const arrayDecType = try context.pools.newType(context, .{
                 .ArrayDec = .{
                     .type = initTypeClone,
-                    .size = try context.pools.newNode(context, valueVariant.toAstNode()),
+                    .size = .{
+                        .Node = try context.pools.newNode(context, valueVariant.toAstNode()),
+                    },
                 },
             });
 
@@ -2370,7 +2365,6 @@ pub fn matchTypesUtil(
     }
 
     return switch (type1) {
-        .String => type2 == .String,
         .Bool => type2 == .Bool,
         .Char => type2 == .Char,
         .Void => type2 == .Void,
@@ -2621,27 +2615,30 @@ fn matchMutState(
     return true;
 }
 
-pub fn indexNumberFromNode(node: *ast.AstNode) !u64 {
-    return switch (node.variant) {
-        .Value => |val| switch (val) {
-            .RawNumber => |num| switch (num.numType) {
-                .U32, .U64 => try std.fmt.parseInt(u64, num.digits, 10),
-                else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
-            },
-            .Number => |num| switch (num) {
-                .U32 => |u32Num| @as(u64, @intCast(u32Num)),
-                .U64 => |u64Num| u64Num,
+pub fn indexNumberFromNode(node: ast.NodeIndexOrU64) !u64 {
+    return switch (node) {
+        .Node => |nodeSize| switch (nodeSize.variant) {
+            .Value => |val| switch (val) {
+                .RawNumber => |num| switch (num.numType) {
+                    .U32, .U64 => try std.fmt.parseInt(u64, num.digits, 10),
+                    else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
+                },
+                .Number => |num| switch (num) {
+                    .U32 => |u32Num| @as(u64, @intCast(u32Num)),
+                    .U64 => |u64Num| u64Num,
+                    else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
+                },
                 else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
             },
             else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
         },
-        else => return ScanError.ExpectedU64OrU32ForArrayDecSize,
+        .U64 => |val| val,
     };
 }
 
 pub fn isPrimitive(astType: *const ast.AstTypes) bool {
     return switch (astType.*) {
-        .String, .Bool, .Char, .Number, .Null, .RawNumber => true,
+        .Bool, .Char, .Number, .Null, .RawNumber => true,
         .Nullable => |inner| isPrimitive(inner.astType),
         else => false,
     };

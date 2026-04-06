@@ -1,12 +1,4 @@
-struct M [T] {
-    data: u32;
-
-    pub fn getData[G](self, a: G) G {
-        return self.data + a;
-    }
-}
-
 fn main() {
-    let am = M<u32> { data = 10 };
-    let b = am.getData(2);
+    let arr = ['a'];
+    let slice = &arr;
 }

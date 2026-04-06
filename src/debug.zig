@@ -51,7 +51,6 @@ pub fn printType(
         .Any => try writer.writeAll("any"),
         .Null => try writer.writeAll("null"),
         .Void => try writer.writeAll("void"),
-        .String => try writer.writeAll("string"),
         .Char => try writer.writeAll("char"),
         .Bool => try writer.writeAll("bool"),
         .VarInfo => |info| {
@@ -61,7 +60,12 @@ pub fn printType(
         .ArrayDec => |arr| {
             try writer.writeAll("ArrayDec<");
             if (arr.size) |size| {
-                try printNode(context, size, writer);
+                switch (size) {
+                    .Node => |nodeSize| try printNode(context, nodeSize, writer),
+                    .U64 => |val| {
+                        try writer.print("{d}", .{val});
+                    },
+                }
             } else {
                 try writer.writeAll("unknown");
             }

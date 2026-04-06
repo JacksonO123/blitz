@@ -16,18 +16,6 @@ const PropTypeMap = struct {
     mutState: scanner.MutState,
 };
 
-pub fn getStringPropType(context: *Context, prop: []const u8) !ast.AstTypeInfo {
-    const props = &[_]PropTypeMap{
-        .{
-            .prop = "len",
-            .type = context.staticPtrs.types.u64Type.astType,
-            .mutState = .Const,
-        },
-    };
-
-    return try getPropType(context, props, prop);
-}
-
 pub fn getArrayDecPropType(context: *Context, prop: []const u8) !ast.AstTypeInfo {
     const props = &[_]PropTypeMap{
         .{
