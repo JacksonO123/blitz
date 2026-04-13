@@ -1,8 +1,7 @@
-struct M {
-    pub data: char[1];
-}
-
 fn main() {
-    let m = M { data = ['a'] };
-    let ptr = &m.data;
+    let a = 2;
+    let p = &a;
+    p.* = 5;
+    let b = a - 1;
+    let c = b;
 }

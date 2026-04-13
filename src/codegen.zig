@@ -1805,10 +1805,19 @@ pub const GenInfo = struct {
     /// will override data about reg, only use this on newly assigned registers
     pub fn setVariableRegister(
         self: *Self,
+        allocator: Allocator,
         name: []const u8,
         reg: TempRegister,
     ) !void {
         try self.varNameToReg.put(name, reg);
+
+        const prevInfoOrNull = self.registers.items[reg].varInfo;
+        self.registers.items[reg].varInfo = RegInfoVarInfo{
+            .prevInfo = if (prevInfoOrNull) |prevInfo|
+                try utils.createMut(RegInfoVarInfo, allocator, prevInfo)
+            else
+                null,
+        };
     }
 
     // deactivates register and removes variable info
@@ -2678,7 +2687,7 @@ pub fn genBytecodeUtil(
             };
 
             if (!node.typeInfo.lastVarUse) {
-                try context.genInfo.setVariableRegister(dec.name, varReg);
+                try context.genInfo.setVariableRegister(allocator, dec.name, varReg);
             }
         },
         .Value => |value| {
@@ -3028,9 +3037,19 @@ pub fn genBytecodeUtil(
         },
         .Variable => |name| {
             const resReg = context.genInfo.getVariableRegister(name);
+
             if (node.typeInfo.lastVarUse) {
                 context.genInfo.removeVariableRegister(name);
             }
+
+            if (context.genInfo.getRegInfo(resReg)) |regInfo| a: {
+                if (regInfo.varInfo) |varInfo| {
+                    const location = varInfo.stackLocation orelse break :a;
+                    const instr = loadAtSpNegOffset(resReg, location, node.typeInfo.size);
+                    try context.genInfo.appendChunk(allocator, instr);
+                }
+            }
+
             return resReg;
         },
         .IfStatement => |statement| {
@@ -3304,7 +3323,7 @@ pub fn genBytecodeUtil(
 
             if (init.indexIdent) |ident| {
                 indexReg = try context.genInfo.getNextRegister(allocator);
-                try context.genInfo.setVariableRegister(ident, indexReg.?);
+                try context.genInfo.setVariableRegister(allocator, ident, indexReg.?);
 
                 const setZeroInstr = Instr{
                     .SetReg8 = .{
@@ -3317,7 +3336,7 @@ pub fn genBytecodeUtil(
 
             if (init.ptrIdent) |ident| {
                 ptrReg = try context.genInfo.getNextRegister(allocator);
-                try context.genInfo.setVariableRegister(ident, ptrReg.?);
+                try context.genInfo.setVariableRegister(allocator, ident, ptrReg.?);
 
                 const movWriteReg = Instr{
                     .Mov = .{
@@ -3812,12 +3831,12 @@ fn functionSetupBytecode(
     for (func.params.params, 0..) |param, index| {
         const usage: RegisterUsage = if (index == 0) .Param else .ParamNext;
         const paramReg = try context.genInfo.getNextRegisterUtil(allocator, usage);
-        try context.genInfo.setVariableRegister(param.name, paramReg);
+        try context.genInfo.setVariableRegister(allocator, param.name, paramReg);
     }
 
     if (func.params.selfInfo != null) {
         const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
-        try context.genInfo.setVariableRegister(constants.SELF_NAME, paramReg);
+        try context.genInfo.setVariableRegister(allocator, constants.SELF_NAME, paramReg);
     }
 }
 
@@ -4058,6 +4077,36 @@ fn loadAtReg(regPtr: TempRegister, outReg: TempRegister, size: u64) Instr {
             .Load64AtReg = .{
                 .dest = outReg,
                 .fromRegPtr = regPtr,
+            },
+        },
+        else => unreachable,
+    };
+}
+
+fn loadAtSpNegOffset(outReg: TempRegister, offset: u64, size: u64) Instr {
+    return switch (size) {
+        1 => Instr{
+            .Load8AtSpNegOffset16 = .{
+                .reg = outReg,
+                .offset = @intCast(offset),
+            },
+        },
+        2 => Instr{
+            .Load16AtSpNegOffset16 = .{
+                .reg = outReg,
+                .offset = @intCast(offset),
+            },
+        },
+        3, 4 => Instr{
+            .Load32AtSpNegOffset16 = .{
+                .reg = outReg,
+                .offset = @intCast(offset),
+            },
+        },
+        5...8 => Instr{
+            .Load64AtSpNegOffset16 = .{
+                .reg = outReg,
+                .offset = @intCast(offset),
             },
         },
         else => unreachable,

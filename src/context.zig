@@ -29,8 +29,8 @@ const ContextSettings = struct {
         printSkippedInstrs: bool = true,
         printInsertedTag: bool = true,
 
-        // allocateRegisters: bool = true,
-        allocateRegisters: bool = false,
+        allocateRegisters: bool = true,
+        // allocateRegisters: bool = false,
     } = .{},
 };
 
