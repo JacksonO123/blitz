@@ -1,7 +1,9 @@
 fn main() {
-    let a = 2;
-    let p = &a;
-    p.* = 5;
-    let b = a - 1;
-    let c = b;
+    let a = thing(2, 4);
+    let b = thing(2, 5);
+    let c = thing(2, 6);
+}
+
+fn thing[T](p1: T, p2: T) T {
+    return p1 + p2;
 }

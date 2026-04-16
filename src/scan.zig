@@ -1793,6 +1793,10 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
                 .{ .funcRootNode = cloned },
             );
         }
+
+        if (toScanItem.withGenDef and toScanItem.func.methodOn != null) {
+            try context.compInfo.methodFunctions.append(allocator, toScanItem.func);
+        }
     }
 }
 

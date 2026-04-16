@@ -85,6 +85,7 @@ pub const CompInfo = struct {
     attributeSet: *StringHashMap(void),
     scopeTypes: *ArrayList(ScopeType),
     functions: *StringHashMap(*ast.FuncDecNode),
+    methodFunctions: *ArrayList(*ast.FuncDecNode),
     functionsInScope: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
     functionsToScan: *ToScanStack,
     genericScopes: *ScopeUtil(*TypeScope, pools.releaseGenericScope),
@@ -102,6 +103,8 @@ pub const CompInfo = struct {
         try scopeTypesPtr.append(allocator, .Normal);
 
         const functions = try utils.initMutPtrT(StringHashMap(*ast.FuncDecNode), allocator);
+
+        const methodFunctions = try utils.createMut(ArrayList(*ast.FuncDecNode), allocator, .empty);
 
         const genericScopes = try initScopeUtil(
             TypeScope,
@@ -187,6 +190,7 @@ pub const CompInfo = struct {
             .attributeSet = attributeSetPtr,
             .scopeTypes = scopeTypesPtr,
             .functions = functions,
+            .methodFunctions = methodFunctions,
             .functionsInScope = functionsInScope,
             .functionsToScan = functionsToScan,
             .genericScopes = genericScopes,

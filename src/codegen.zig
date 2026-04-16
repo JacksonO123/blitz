@@ -3768,10 +3768,8 @@ fn codegenFunctions(
     context: *Context,
     comptime backend: BackendInterface,
 ) !void {
-    // TODO - store these in different places to save iterating twice
-    for (context.compInfo.functionsToScan.items) |func| {
-        if (!func.withGenDef or func.func.methodOn == null) continue;
-        try generateFunction(allocator, context, backend, func.func);
+    for (context.compInfo.methodFunctions.items) |func| {
+        try generateFunction(allocator, context, backend, func);
     }
 
     var funcIter = context.compInfo.functions.valueIterator();
