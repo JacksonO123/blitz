@@ -19,22 +19,20 @@ const TypePool = MemPool(ast.AstTypes);
 pub const Pools = struct {
     const Self = @This();
 
-    nodes: *NodePool,
-    types: *TypePool,
+    nodes: NodePool,
+    types: TypePool,
 
-    pub fn init(allocator: Allocator) !Self {
+    pub inline fn init(allocator: Allocator) !Self {
         const nodePool = try NodePool.initPreheated(allocator, POOL_SIZE);
-        const nodePoolPtr = try utils.createMut(NodePool, allocator, nodePool);
         const typePool = try TypePool.initPreheated(allocator, POOL_SIZE);
-        const typePoolPtr = try utils.createMut(TypePool, allocator, typePool);
 
         return .{
-            .nodes = nodePoolPtr,
-            .types = typePoolPtr,
+            .nodes = nodePool,
+            .types = typePool,
         };
     }
 
-    pub fn newType(self: Self, context: *Context, data: ast.AstTypes) !*ast.AstTypes {
+    pub fn newType(self: *Self, context: *Context, data: ast.AstTypes) !*ast.AstTypes {
         const ptr = try self.newTypeUntracked(data);
         if (context.settings.debug.trackPoolMem) {
             try context.utils.reserveTypeAddress(ptr);
@@ -42,7 +40,7 @@ pub const Pools = struct {
         return ptr;
     }
 
-    pub fn newNode(self: Self, context: *Context, data: ast.AstNode) !*ast.AstNode {
+    pub fn newNode(self: *Self, context: *Context, data: ast.AstNode) !*ast.AstNode {
         const ptr = try self.newNodeUntracked(data);
         if (context.settings.debug.trackPoolMem) {
             try context.utils.reserveNodeAddress(ptr);
@@ -50,13 +48,13 @@ pub const Pools = struct {
         return ptr;
     }
 
-    pub fn newTypeUntracked(self: Self, data: ast.AstTypes) !*ast.AstTypes {
+    pub fn newTypeUntracked(self: *Self, data: ast.AstTypes) !*ast.AstTypes {
         const ptr = try self.types.create();
         ptr.* = data;
         return ptr;
     }
 
-    pub fn newNodeUntracked(self: Self, data: ast.AstNode) !*ast.AstNode {
+    pub fn newNodeUntracked(self: *Self, data: ast.AstNode) !*ast.AstNode {
         const ptr = try self.nodes.create();
         ptr.* = data;
         return ptr;

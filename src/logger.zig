@@ -24,10 +24,10 @@ const SurroundingBounds = struct {
 pub const Logger = struct {
     const Self = @This();
 
-    tokens: *TokenUtil,
+    tokens: TokenUtil,
     code: []const u8,
 
-    pub fn init(tokens: *TokenUtil, code: []const u8) Self {
+    pub fn init(tokens: TokenUtil, code: []const u8) Self {
         return Self{
             .tokens = tokens,
             .code = code,

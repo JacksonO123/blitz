@@ -791,7 +791,7 @@ pub fn printTokens(tokens: []const tokenizer.Token, code: []u8, writer: *Writer)
     }
 }
 
-pub fn printBytecodeChunks(context: *const Context, writer: *Writer) !void {
+pub fn printBytecodeChunks(context: *Context, writer: *Writer) !void {
     try writer.writeAll("blitz bytecode version ");
     try writer.printInt(context.genInfo.vmInfo.version, 10, .lower, .{});
     try writer.writeByte('\n');

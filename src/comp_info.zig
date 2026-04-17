@@ -20,16 +20,15 @@ fn ScopeDeinitFn(comptime T: type) type {
     return fn (*Context, T, pools.ReleaseType) void;
 }
 
-fn initScopeUtil(
+inline fn initScopeUtil(
     comptime T: type,
     comptime Fn: ScopeDeinitFn(*T),
     allocator: Allocator,
-) !*ScopeUtil(*T, Fn) {
+) !ScopeUtil(*T, Fn) {
     const baseScope = try utils.initMutPtrT(T, allocator);
-    const scopeUtil = try ScopeUtil(*T, Fn).init(allocator);
-    const scopePtr = try utils.createMut(ScopeUtil(*T, Fn), allocator, scopeUtil);
-    try scopePtr.add(allocator, baseScope, false);
-    return scopePtr;
+    var scopeUtil: ScopeUtil(*T, Fn) = .empty;
+    try scopeUtil.add(allocator, baseScope, false);
+    return scopeUtil;
 }
 
 fn initScopeUtilWithBase(
@@ -37,12 +36,11 @@ fn initScopeUtilWithBase(
     comptime Fn: ScopeDeinitFn(*T),
     allocator: Allocator,
     base: T,
-) !*ScopeUtil(*T, Fn) {
+) !ScopeUtil(*T, Fn) {
     const baseScope = try utils.createMut(T, allocator, base);
-    const scopeUtil = try ScopeUtil(*T, Fn).init(allocator);
-    const scopePtr = try utils.createMut(ScopeUtil(*T, Fn), allocator, scopeUtil);
-    try scopePtr.add(allocator, baseScope, false);
-    return scopePtr;
+    var scopeUtil: ScopeUtil(*T, Fn) = .empty;
+    try scopeUtil.add(allocator, baseScope, false);
+    return scopeUtil;
 }
 
 const VarTypeAndUsedInfo = struct {
@@ -73,38 +71,35 @@ pub const CompInfo = struct {
 
     preAst: bool,
     hoistedDecs: struct {
-        structs: *StringHashMap(?*ast.StructDecNode),
-        errors: *StringHashMap(?*const ast.ErrorOrEnumDecNode),
-        enums: *StringHashMap(?*const ast.ErrorOrEnumDecNode),
+        structs: StringHashMap(?*ast.StructDecNode),
+        errors: StringHashMap(?*const ast.ErrorOrEnumDecNode),
+        enums: StringHashMap(?*const ast.ErrorOrEnumDecNode),
     },
     // variableScopes store VarInfo as allocated, but return as recycled to preserve source
-    variableScopes: *ScopeUtil(*VarScope, pools.releaseVariableScope),
-    genericCaptures: *ScopeUtil(*TypeScope, pools.releaseGenericCaptures),
-    functionCaptures: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
-    parsedGenerics: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
-    attributeSet: *StringHashMap(void),
-    scopeTypes: *ArrayList(ScopeType),
-    functions: *StringHashMap(*ast.FuncDecNode),
-    methodFunctions: *ArrayList(*ast.FuncDecNode),
-    functionsInScope: *ScopeUtil(*StringListScope, pools.NoopReleaseScope),
-    functionsToScan: *ToScanStack,
-    genericScopes: *ScopeUtil(*TypeScope, pools.releaseGenericScope),
+    variableScopes: ScopeUtil(*VarScope, pools.releaseVariableScope),
+    genericCaptures: ScopeUtil(*TypeScope, pools.releaseGenericCaptures),
+    functionCaptures: ScopeUtil(*StringListScope, pools.NoopReleaseScope),
+    parsedGenerics: ScopeUtil(*StringListScope, pools.NoopReleaseScope),
+    attributeSet: StringHashMap(void),
+    scopeTypes: ArrayList(ScopeType),
+    functions: StringHashMap(*ast.FuncDecNode),
+    methodFunctions: ArrayList(*ast.FuncDecNode),
+    functionsInScope: ScopeUtil(*StringListScope, pools.NoopReleaseScope),
+    functionsToScan: ToScanStack,
+    genericScopes: ScopeUtil(*TypeScope, pools.releaseGenericScope),
     currentFuncReturn: ?ast.AstTypeInfo,
-    returnInfo: *ReturnInfo,
+    returnInfo: ReturnInfo,
     builtins: builtins.BuiltinFuncMemo,
     stackSizeEstimate: vmInfo.StartStackType,
 
-    pub fn init(
+    pub inline fn init(
         allocator: Allocator,
         names: ast.HoistedNames,
     ) !Self {
-        const functionsToScan = try utils.createMut(ToScanStack, allocator, .empty);
-        const scopeTypesPtr = try utils.createMut(ArrayList(ScopeType), allocator, .empty);
+        var scopeTypesPtr: ArrayList(ScopeType) = .empty;
         try scopeTypesPtr.append(allocator, .Normal);
 
-        const functions = try utils.initMutPtrT(StringHashMap(*ast.FuncDecNode), allocator);
-
-        const methodFunctions = try utils.createMut(ArrayList(*ast.FuncDecNode), allocator, .empty);
+        const functions = StringHashMap(*ast.FuncDecNode).init(allocator);
 
         const genericScopes = try initScopeUtil(
             TypeScope,
@@ -140,24 +135,11 @@ pub const CompInfo = struct {
             .empty,
         );
 
-        const returnInfoUtil = try ReturnInfo.init(allocator);
-        const returnInfo = try utils.createMut(ReturnInfo, allocator, returnInfoUtil);
+        const returnInfo = try ReturnInfo.init(allocator);
 
-        const hoistedStructNames = try utils.createMut(
-            StringHashMap(?*ast.StructDecNode),
-            allocator,
-            StringHashMap(?*ast.StructDecNode).init(allocator),
-        );
-        const hoistedErrorNames = try utils.createMut(
-            StringHashMap(?*const ast.ErrorOrEnumDecNode),
-            allocator,
-            StringHashMap(?*const ast.ErrorOrEnumDecNode).init(allocator),
-        );
-        const hoistedEnumNames = try utils.createMut(
-            StringHashMap(?*const ast.ErrorOrEnumDecNode),
-            allocator,
-            StringHashMap(?*const ast.ErrorOrEnumDecNode).init(allocator),
-        );
+        var hoistedStructNames = StringHashMap(?*ast.StructDecNode).init(allocator);
+        var hoistedErrorNames = StringHashMap(?*const ast.ErrorOrEnumDecNode).init(allocator);
+        var hoistedEnumNames = StringHashMap(?*const ast.ErrorOrEnumDecNode).init(allocator);
 
         for (names.structNames) |name| {
             try hoistedStructNames.put(name, null);
@@ -171,11 +153,7 @@ pub const CompInfo = struct {
             try hoistedEnumNames.put(name, null);
         }
 
-        const attributeSetPtr = try utils.createMut(
-            StringHashMap(void),
-            allocator,
-            StringHashMap(void).init(allocator),
-        );
+        const attributeSetPtr = StringHashMap(void).init(allocator);
 
         return Self{
             .hoistedDecs = .{
@@ -190,9 +168,9 @@ pub const CompInfo = struct {
             .attributeSet = attributeSetPtr,
             .scopeTypes = scopeTypesPtr,
             .functions = functions,
-            .methodFunctions = methodFunctions,
+            .methodFunctions = .empty,
             .functionsInScope = functionsInScope,
-            .functionsToScan = functionsToScan,
+            .functionsToScan = .empty,
             .genericScopes = genericScopes,
             .preAst = true,
             .returnInfo = returnInfo,
@@ -321,7 +299,7 @@ pub const CompInfo = struct {
         }
     }
 
-    pub fn hasParsedGeneric(self: Self, gen: []const u8) bool {
+    pub fn hasParsedGeneric(self: *Self, gen: []const u8) bool {
         var scope: ?*StringListScope = self.parsedGenerics.getCurrentScope();
         defer self.parsedGenerics.resetLeakIndex();
 
@@ -400,11 +378,7 @@ pub const CompInfo = struct {
                     }
 
                     const prevTokenUtil = context.tokenUtil;
-                    const tempTokens = try utils.createMut(
-                        tokenizer.TokenUtil,
-                        allocator,
-                        tokenizer.TokenUtil.init(f.bodyTokens),
-                    );
+                    const tempTokens = tokenizer.TokenUtil.init(f.bodyTokens);
                     context.tokenUtil = tempTokens;
                     pools.recursiveReleaseNodeAll(context, f.body);
                     f.body = ast.parseSequence(allocator, context, true) catch |e| {
@@ -643,7 +617,7 @@ pub const CompInfo = struct {
         });
     }
 
-    pub fn getFunction(self: Self, allocator: Allocator, name: []const u8) !?*ast.FuncDecNode {
+    pub fn getFunction(self: *Self, allocator: Allocator, name: []const u8) !?*ast.FuncDecNode {
         const func = self.getFunctionAsGlobal(name);
         const captureScope = self.functionCaptures.getCurrentScope();
         if (func) |funcDec| a: {
@@ -762,23 +736,17 @@ fn ScopeUtil(comptime T: type, freeFn: ScopeDeinitFn(T)) type {
     return struct {
         const Self = @This();
 
-        scopes: *ArrayList(T),
-        captureIndexes: *ArrayList(usize),
-        leaks: *ArrayList(usize),
+        scopes: ArrayList(T),
+        captureIndexes: ArrayList(usize),
+        leaks: ArrayList(usize),
         current: usize,
 
-        pub fn init(allocator: Allocator) !Self {
-            const leaks = try utils.createMut(ArrayList(usize), allocator, .empty);
-            const scopes = try utils.createMut(ArrayList(T), allocator, .empty);
-            const captureIndexes = try utils.createMut(ArrayList(usize), allocator, .empty);
-
-            return Self{
-                .scopes = scopes,
-                .leaks = leaks,
-                .captureIndexes = captureIndexes,
-                .current = 0,
-            };
-        }
+        pub const empty: Self = .{
+            .scopes = .empty,
+            .leaks = .empty,
+            .captureIndexes = .empty,
+            .current = 0,
+        };
 
         pub fn deinit(self: *Self, context: *Context) void {
             for (self.scopes.items) |item| {

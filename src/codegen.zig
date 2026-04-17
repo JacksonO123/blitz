@@ -1315,18 +1315,15 @@ const LabelByteInfo = struct {
     const WaitingLabelsList = ArrayList(u32);
     const WaitingLabels = std.AutoHashMap(vmInfo.LabelType, *WaitingLabelsList);
 
-    labelInfo: *ArrayList(LabelInfo),
-    waitingLabels: *WaitingLabels,
+    labelInfo: ArrayList(LabelInfo),
+    waitingLabels: WaitingLabels,
 
-    pub fn init(allocator: Allocator) !Self {
+    pub inline fn init(allocator: Allocator) !Self {
         const waitingLabels = WaitingLabels.init(allocator);
-        const waitingLabelsPtr = try utils.createMut(WaitingLabels, allocator, waitingLabels);
-
-        const labelInfoPtr = try utils.createMut(ArrayList(LabelInfo), allocator, .empty);
 
         return .{
-            .labelInfo = labelInfoPtr,
-            .waitingLabels = waitingLabelsPtr,
+            .labelInfo = .empty,
+            .waitingLabels = waitingLabels,
         };
     }
 
@@ -1467,27 +1464,27 @@ pub const BackendRegLimits = struct {
 pub const GenInfo = struct {
     const Self = @This();
 
-    instrList: *ArrayList(Instr),
-    dataSection: *ArrayList(u8),
+    instrList: ArrayList(Instr),
+    dataSection: ArrayList(u8),
     currentProc: Proc,
     vmInfo: struct {
         stackStartSize: u32,
         version: u8,
     },
-    varNameToReg: *StringHashMap(TempRegister),
+    varNameToReg: StringHashMap(TempRegister),
     settings: GenInfoSettings,
-    loopInfo: *ArrayList(*LoopInfo),
+    loopInfo: ArrayList(*LoopInfo),
     byteCounter: u64,
     currentLabelId: vmInfo.LabelType,
-    registers: *ArrayList(*RegInfo),
-    registerStatus: *ArrayList(RegStatus),
+    registers: ArrayList(*RegInfo),
+    registerStatus: ArrayList(RegStatus),
     registerLimits: BackendRegLimits = .{},
-    labelByteInfo: *LabelByteInfo,
+    labelByteInfo: LabelByteInfo,
     instrActions: InstrActions,
     regAllocateUtils: struct {
         furthestInstrReach: u32,
         /// 0 for invalid state
-        regNextUseIndex: *ArrayList(u32),
+        regNextUseIndex: ArrayList(u32),
         pendingDeactivations: utils.StaticBufferList(
             vmInfo.TempRegister,
             InstructionVariants.maxOpCount(),
@@ -1498,24 +1495,13 @@ pub const GenInfo = struct {
         ),
     },
 
-    pub fn init(allocator: Allocator) !Self {
-        const varNameReg = try utils.initMutPtrT(StringHashMap(TempRegister), allocator);
-        const loopInfoPtr = try utils.createMut(ArrayList(*LoopInfo), allocator, .empty);
-
+    pub inline fn init(allocator: Allocator) !Self {
+        const varNameReg = StringHashMap(TempRegister).init(allocator);
         const labelByteInfo = try LabelByteInfo.init(allocator);
-        const labelByteInfoPtr = try utils.createMut(LabelByteInfo, allocator, labelByteInfo);
-
-        const instrListPtr = try utils.createMut(ArrayList(Instr), allocator, .empty);
-        const registersPtr = try utils.createMut(ArrayList(*RegInfo), allocator, .empty);
-        const activeRegistersPtr = try utils.createMut(ArrayList(RegStatus), allocator, .empty);
-
-        const regNextUseIndexPtr = try utils.createMut(ArrayList(u32), allocator, .empty);
-
-        const dataSectionPtr = try utils.createMut(ArrayList(u8), allocator, .empty);
 
         return .{
-            .instrList = instrListPtr,
-            .dataSection = dataSectionPtr,
+            .instrList = .empty,
+            .dataSection = .empty,
             .currentProc = .{
                 .startIndex = 0,
             },
@@ -1526,15 +1512,15 @@ pub const GenInfo = struct {
             .varNameToReg = varNameReg,
             .byteCounter = vmInfo.VM_INFO_BYTECODE_LEN,
             .settings = .{},
-            .loopInfo = loopInfoPtr,
+            .loopInfo = .empty,
             .currentLabelId = 0,
-            .registers = registersPtr,
-            .registerStatus = activeRegistersPtr,
-            .labelByteInfo = labelByteInfoPtr,
+            .registers = .empty,
+            .registerStatus = .empty,
+            .labelByteInfo = labelByteInfo,
             .instrActions = try InstrActions.init(allocator),
             .regAllocateUtils = .{
                 .furthestInstrReach = 0,
-                .regNextUseIndex = regNextUseIndexPtr,
+                .regNextUseIndex = .empty,
                 .pendingDeactivations = .{},
                 .protectedRegisters = .{},
             },

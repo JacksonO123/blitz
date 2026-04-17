@@ -38,63 +38,50 @@ pub const Context = struct {
     const Self = @This();
 
     tokens: []tokenizer.Token,
-    pools: *allocPools.Pools,
-    logger: *logger.Logger,
-    tokenUtil: *tokenizer.TokenUtil,
-    compInfo: *blitzCompInfo.CompInfo,
+    pools: allocPools.Pools,
+    logger: logger.Logger,
+    tokenUtil: tokenizer.TokenUtil,
+    compInfo: blitzCompInfo.CompInfo,
     scanBehavior: scanner.ScanBehavior = .{},
-    genInfo: *codegen.GenInfo,
-    deferCleanup: *DeferCleanup,
-    staticPtrs: *StaticPtrs,
+    genInfo: codegen.GenInfo,
+    deferCleanup: DeferCleanup,
+    staticPtrs: StaticPtrs,
     code: []const u8,
-    utils: *ContextUtils,
+    utils: ContextUtils,
     settings: ContextSettings,
 
-    pub fn init(
+    pub inline fn init(
         allocator: Allocator,
         code: []const u8,
         writer: *Writer,
         settings: ContextSettings,
     ) !Self {
-        const pools = try allocPools.Pools.init(allocator);
-        const poolsPtr = try utils.createMut(allocPools.Pools, allocator, pools);
-
+        var pools = try allocPools.Pools.init(allocator);
         const tokens = try tokenizer.tokenize(allocator, code, writer);
-
         const names = try ast.findHoistedInfo(allocator, tokens, code);
 
         const tokenUtil = tokenizer.TokenUtil.init(tokens);
-        const tokenUtilPtr = try utils.createMut(tokenizer.TokenUtil, allocator, tokenUtil);
-        const loggerUtil = logger.Logger.init(tokenUtilPtr, code);
-        const loggerUtilPtr = try utils.createMut(logger.Logger, allocator, loggerUtil);
+        const loggerUtil = logger.Logger.init(tokenUtil, code);
 
         const compInfo = try blitzCompInfo.CompInfo.init(allocator, names);
-        const compInfoPtr = try utils.createMut(blitzCompInfo.CompInfo, allocator, compInfo);
 
-        const genInfo = try codegen.GenInfo.init(allocator);
-        const genInfoPtr = try utils.createMut(codegen.GenInfo, allocator, genInfo);
-        genInfoPtr.vmInfo.stackStartSize = compInfoPtr.stackSizeEstimate;
+        var genInfo = try codegen.GenInfo.init(allocator);
+        genInfo.vmInfo.stackStartSize = compInfo.stackSizeEstimate;
 
-        const deferCleanup = try DeferCleanup.init(allocator);
-        const deferCleanupPtr = try utils.createMut(DeferCleanup, allocator, deferCleanup);
-
-        const constTypeInfos = try StaticPtrs.init(poolsPtr);
-        const constTypeInfosPtr = try utils.createMut(StaticPtrs, allocator, constTypeInfos);
-
-        const contextUtils = try ContextUtils.init(allocator);
-        const contextUtilsPtr = try utils.createMut(ContextUtils, allocator, contextUtils);
+        const constTypeInfos = try StaticPtrs.init(&pools);
+        const contextUtils = ContextUtils.init(allocator);
 
         return .{
-            .pools = poolsPtr,
-            .logger = loggerUtilPtr,
+            .pools = pools,
+            .logger = loggerUtil,
             .tokens = tokens,
-            .tokenUtil = tokenUtilPtr,
-            .compInfo = compInfoPtr,
-            .genInfo = genInfoPtr,
-            .deferCleanup = deferCleanupPtr,
-            .staticPtrs = constTypeInfosPtr,
+            .tokenUtil = tokenUtil,
+            .compInfo = compInfo,
+            .genInfo = genInfo,
+            .deferCleanup = .empty,
+            .staticPtrs = constTypeInfos,
             .code = code,
-            .utils = contextUtilsPtr,
+            .utils = contextUtils,
             .settings = settings,
         };
     }
@@ -112,13 +99,13 @@ pub const Context = struct {
         return self.code[tok.start + 1 .. tok.end - 1];
     }
 
-    pub fn releasePoolType(self: Self, ptr: *ast.AstTypes) void {
+    pub fn releasePoolType(self: *Self, ptr: *ast.AstTypes) void {
         if (self.settings.debug.trackPoolMem) {
             self.utils.releaseTypeAddress(ptr);
         }
     }
 
-    pub fn releasePoolNode(self: Self, ptr: *ast.AstNode) void {
+    pub fn releasePoolNode(self: *Self, ptr: *ast.AstNode) void {
         if (self.settings.debug.trackPoolMem) {
             self.utils.releaseNodeAddress(ptr);
         }
@@ -130,16 +117,16 @@ pub const ContextUtils = struct {
     const UsedNodeAddresses = std.AutoHashMap(*ast.AstNode, void);
     const UsedTypeAddresses = std.AutoHashMap(*ast.AstTypes, void);
 
-    usedNodes: *UsedNodeAddresses,
-    usedTypes: *UsedTypeAddresses,
+    usedNodes: UsedNodeAddresses,
+    usedTypes: UsedTypeAddresses,
 
-    pub fn init(allocator: Allocator) !Self {
+    pub inline fn init(allocator: Allocator) Self {
         const usedNodes = UsedNodeAddresses.init(allocator);
         const usedTypes = UsedTypeAddresses.init(allocator);
 
         return .{
-            .usedNodes = try utils.createMut(UsedNodeAddresses, allocator, usedNodes),
-            .usedTypes = try utils.createMut(UsedTypeAddresses, allocator, usedTypes),
+            .usedNodes = usedNodes,
+            .usedTypes = usedTypes,
         };
     }
 
@@ -243,27 +230,17 @@ pub const StaticPtrs = struct {
 pub const DeferCleanup = struct {
     const Self = @This();
 
-    strings: *ArrayList([]const u8),
-    nodeSlices: *ArrayList([]*ast.AstNode),
-    typeInfoSlices: *ArrayList([]ast.AstTypeInfo),
-    genericTypeSlices: *ArrayList([]ast.GenericType),
-    attrDefSlices: *ArrayList([]ast.AttributeDefinition),
+    strings: ArrayList([]const u8),
+    nodeSlices: ArrayList([]*ast.AstNode),
+    typeInfoSlices: ArrayList([]ast.AstTypeInfo),
+    genericTypeSlices: ArrayList([]ast.GenericType),
+    attrDefSlices: ArrayList([]ast.AttributeDefinition),
 
-    pub fn init(allocator: Allocator) !Self {
-        return .{
-            .strings = try utils.createMut(ArrayList([]const u8), allocator, .empty),
-            .nodeSlices = try utils.createMut(ArrayList([]*ast.AstNode), allocator, .empty),
-            .typeInfoSlices = try utils.createMut(ArrayList([]ast.AstTypeInfo), allocator, .empty),
-            .genericTypeSlices = try utils.createMut(
-                ArrayList([]ast.GenericType),
-                allocator,
-                .empty,
-            ),
-            .attrDefSlices = try utils.createMut(
-                ArrayList([]ast.AttributeDefinition),
-                allocator,
-                .empty,
-            ),
-        };
-    }
+    pub const empty: Self = .{
+        .strings = .empty,
+        .nodeSlices = .empty,
+        .typeInfoSlices = .empty,
+        .genericTypeSlices = .empty,
+        .attrDefSlices = .empty,
+    };
 };
