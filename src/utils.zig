@@ -14,10 +14,8 @@ pub inline fn createMut(comptime T: type, allocator: Allocator, obj: T) Allocato
     return ptr;
 }
 
-pub fn readRelativeFile(allocator: Allocator, path: []const u8) ![]u8 {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    return try file.readToEndAlloc(allocator, std.math.maxInt(usize));
+pub fn readRelativeFile(allocator: Allocator, io: std.Io, path: []const u8) ![]u8 {
+    return try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .unlimited);
 }
 
 pub fn initMutPtrT(comptime T: type, allocator: Allocator) !*T {
@@ -92,7 +90,7 @@ fn formatFlagStructure(comptime structure: anytype) [structure.len]FlagInfo {
 
 /// returns flag if flag is unknown
 pub fn scanUnknownFlags(
-    flags: [][:0]u8,
+    flags: []const [:0]const u8,
     flagMap: *const std.StaticStringMap(usize),
     baseFlagStart: u32,
 ) ?[]const u8 {
@@ -106,7 +104,7 @@ pub fn scanUnknownFlags(
 }
 
 pub inline fn createFlagMap(
-    args: [][:0]u8,
+    args: []const [:0]const u8,
     comptime flagStructure: anytype,
     writer: *Writer,
     baseFlagStart: u32,
@@ -124,7 +122,7 @@ pub inline fn createFlagMap(
 }
 
 pub fn searchFlagMap(
-    arr: [][:0]u8,
+    arr: []const [:0]const u8,
     value: []const u8,
     flagMap: *const std.StaticStringMap(usize),
 ) ?usize {

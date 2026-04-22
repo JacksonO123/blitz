@@ -21,17 +21,15 @@ const TERMINAL_COLORS = .{
     .green = "\x1b[30;42m",
 };
 
-pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.arena.allocator();
 
     var buf: [1024]u8 = undefined;
-    var stdio = std.fs.File.stdout().writer(&buf);
+    var stdio = std.Io.File.stdout().writer(init.io, &buf);
     const writer = &stdio.interface;
     defer writer.flush() catch {};
 
-    const args = try std.process.argsAlloc(allocator);
+    const args = try init.minimal.args.toSlice(allocator);
     if (args.len < 2) {
         try writer.writeAll("No input file");
         return error.NoInputFile;
@@ -67,38 +65,39 @@ pub fn main() !void {
         return error.CannotSaveFromObjdump;
     }
 
-    try diffBytecode(allocator, recordPath, args[1], saveNew, fromObjDump);
+    try diffBytecode(allocator, init.io, recordPath, args[1], saveNew, fromObjDump);
 }
 
 pub fn diffBytecode(
     allocator: Allocator,
+    io: std.Io,
     recordPath: []const u8,
     path: []const u8,
     saveNew: bool,
     fromObjDump: bool,
 ) !void {
     var printBuf: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&printBuf);
+    var stdout = std.Io.File.stdout().writer(io, &printBuf);
     defer stdout.end() catch {};
     const printWriter = &stdout.interface;
 
     try printWriter.print("opening [{s}]\n", .{path});
-    const code = try utils.readRelativeFile(allocator, path);
+    const code = try utils.readRelativeFile(allocator, io, path);
 
     const outName = try getRefName(allocator, path, printWriter);
 
-    var recordsDir = try std.fs.cwd().openDir(recordPath, .{});
-    defer recordsDir.close();
+    var recordsDir = try std.Io.Dir.cwd().openDir(io, recordPath, .{});
+    defer recordsDir.close(io);
 
     var buf: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
 
     if (saveNew) {
         try printWriter.print("Saving [{s}]\n", .{outName});
 
-        const outFile = try recordsDir.createFile(outName, .{});
-        defer outFile.close();
+        const outFile = try recordsDir.createFile(io, outName, .{});
+        defer outFile.close(io);
 
-        var fileBufferedWriter = outFile.writer(&buf);
+        var fileBufferedWriter = outFile.writer(io, &buf);
         defer fileBufferedWriter.end() catch {};
         const fileWriter = &fileBufferedWriter.interface;
 
@@ -130,12 +129,10 @@ pub fn diffBytecode(
         break :a try textAllocating.toOwnedSlice();
     };
 
-    const outFile = recordsDir.openFile(outName, .{}) catch |err| {
+    const origContents = recordsDir.readFileAlloc(io, outName, allocator, .unlimited) catch |err| {
         try printWriter.print("{s} :: {s}/{s}\n", .{ @errorName(err), recordPath, outName });
         return;
     };
-    defer outFile.close();
-    const origContents = try outFile.readToEndAlloc(allocator, std.math.maxInt(usize));
 
     try writeDiff(newContents, origContents, printWriter);
     try printWriter.writeByte('\n');

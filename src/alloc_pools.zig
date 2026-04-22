@@ -19,20 +19,40 @@ const TypePool = MemPool(ast.AstTypes);
 pub const Pools = struct {
     const Self = @This();
 
+    nodeArena: std.heap.ArenaAllocator,
+    typeArena: std.heap.ArenaAllocator,
     nodes: NodePool,
     types: TypePool,
 
     pub inline fn init(allocator: Allocator) !Self {
-        const nodePool = try NodePool.initPreheated(allocator, POOL_SIZE);
-        const typePool = try TypePool.initPreheated(allocator, POOL_SIZE);
+        var nodeArena = std.heap.ArenaAllocator.init(allocator);
+        const nodeAlloc = nodeArena.allocator();
+        var typeArena = std.heap.ArenaAllocator.init(allocator);
+        const typeAlloc = typeArena.allocator();
+
+        const nodePool = try NodePool.initCapacity(nodeAlloc, POOL_SIZE);
+        const typePool = try TypePool.initCapacity(typeAlloc, POOL_SIZE);
 
         return .{
+            .nodeArena = nodeArena,
+            .typeArena = typeArena,
             .nodes = nodePool,
             .types = typePool,
         };
     }
 
-    pub fn newType(self: *Self, context: *Context, data: ast.AstTypes) !*ast.AstTypes {
+    pub fn deinit(self: *Self) void {
+        self.nodes.deinit(self.nodeArena);
+        self.types.deinit(self.nodeArena);
+        self.nodeArena.deinit();
+        self.typeArena.deinit();
+    }
+
+    pub fn newType(
+        self: *Self,
+        context: *Context,
+        data: ast.AstTypes,
+    ) !*ast.AstTypes {
         const ptr = try self.newTypeUntracked(data);
         if (context.settings.debug.trackPoolMem) {
             try context.utils.reserveTypeAddress(ptr);
@@ -40,7 +60,11 @@ pub const Pools = struct {
         return ptr;
     }
 
-    pub fn newNode(self: *Self, context: *Context, data: ast.AstNode) !*ast.AstNode {
+    pub fn newNode(
+        self: *Self,
+        context: *Context,
+        data: ast.AstNode,
+    ) !*ast.AstNode {
         const ptr = try self.newNodeUntracked(data);
         if (context.settings.debug.trackPoolMem) {
             try context.utils.reserveNodeAddress(ptr);
@@ -49,20 +73,20 @@ pub const Pools = struct {
     }
 
     pub fn newTypeUntracked(self: *Self, data: ast.AstTypes) !*ast.AstTypes {
-        const ptr = try self.types.create();
+        const ptr = try self.types.create(self.typeArena.allocator());
         ptr.* = data;
         return ptr;
     }
 
     pub fn newNodeUntracked(self: *Self, data: ast.AstNode) !*ast.AstNode {
-        const ptr = try self.nodes.create();
+        const ptr = try self.nodes.create(self.nodeArena.allocator());
         ptr.* = data;
         return ptr;
     }
 
     pub fn writeStats(self: Self, context: *Context, verbose: bool, writer: *Writer) !void {
-        const nodesCapacity = self.nodes.arena.queryCapacity();
-        const typesCapacity = self.types.arena.queryCapacity();
+        const nodesCapacity = self.nodeArena.queryCapacity();
+        const typesCapacity = self.typeArena.queryCapacity();
         const usedNodeCount = context.utils.usedNodes.count();
         const usedTypesCount = context.utils.usedTypes.count();
 

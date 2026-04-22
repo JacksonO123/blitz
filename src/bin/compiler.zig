@@ -30,16 +30,14 @@ const BytecodeFormat = enum {
     PlainText,
 };
 
-// const compilerPrintState: DebugPrintState = .All;
-const compilerPrintState: DebugPrintState = .None;
+const compilerPrintState: DebugPrintState = .All;
+// const compilerPrintState: DebugPrintState = .None;
 
-pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.arena.allocator();
 
     // TODO - extend later
-    const args = try std.process.argsAlloc(allocator);
+    const args = try init.minimal.args.toSlice(allocator);
     if (args.len < 2) {
         return error.NoInputFile;
     }
@@ -47,14 +45,14 @@ pub fn main() !void {
     const path = args[1];
 
     var buffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&buffer);
+    var stdout = std.Io.File.stdout().writer(init.io, &buffer);
     defer stdout.end() catch {};
     const writer = &stdout.interface;
 
-    const outFile = try std.fs.cwd().createFile("out.bzc", .{});
-    defer outFile.close();
+    const outFile = try std.Io.Dir.cwd().createFile(init.io, "out.bzc", .{});
+    defer outFile.close(init.io);
     var fileBuffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
-    var fileBufferedWriter = outFile.writer(&fileBuffer);
+    var fileBufferedWriter = outFile.writer(init.io, &fileBuffer);
     defer fileBufferedWriter.end() catch {};
     const fileWriter = &fileBufferedWriter.interface;
 
@@ -62,7 +60,7 @@ pub fn main() !void {
     try writer.writeAll(path);
     try writer.writeAll("\n");
 
-    const code = try utils.readRelativeFile(allocator, path);
+    const code = try utils.readRelativeFile(allocator, init.io, path);
     try compile(allocator, code, writer, fileWriter, compilerPrintState, .Binary);
 }
 

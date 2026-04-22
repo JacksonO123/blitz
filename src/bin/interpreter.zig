@@ -15,12 +15,10 @@ const InterpreterError = error{
     IncompatibleInterpreterVersions,
 };
 
-pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.arena.allocator();
+    const args = try init.minimal.args.toSlice(allocator);
 
-    const args = try std.process.argsAlloc(allocator);
     if (args.len < 2) {
         return InterpreterError.NoInputFile;
     }
@@ -30,7 +28,7 @@ pub fn main() !void {
     @memcpy(bzcFilename[0..filename.len], filename);
     @memcpy(bzcFilename[filename.len .. filename.len + 4], ".bzc");
 
-    const bytecode = try utils.readRelativeFile(allocator, bzcFilename);
+    const bytecode = try utils.readRelativeFile(allocator, init.io, bzcFilename);
     const bytecodeVersion = bytecode[0];
     if (bytecodeVersion != version.VERSION) {
         return InterpreterError.IncompatibleInterpreterVersions;
@@ -40,7 +38,7 @@ pub fn main() !void {
     var runtimeInfo = try RuntimeInfo.init(allocator, stackSize);
 
     var buffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&buffer);
+    var stdout = std.Io.File.stdout().writer(init.io, &buffer);
     defer stdout.end() catch {};
     const writer = &stdout.interface;
     defer writer.flush() catch {};

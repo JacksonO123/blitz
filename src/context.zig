@@ -172,10 +172,18 @@ pub const StaticPtrs = struct {
                 .voidType = (try pools.newTypeUntracked(.Void)).toTypeInfo(.Const),
                 .boolType = (try pools.newTypeUntracked(.Bool)).toTypeInfo(.Mut),
                 .anyType = (try pools.newTypeUntracked(.Any)).toTypeInfo(.Mut),
-                .f32Type = (try pools.newTypeUntracked(.{ .Number = .F32 })).toTypeInfo(.Mut),
-                .u64Type = (try pools.newTypeUntracked(.{ .Number = .U64 })).toTypeInfo(.Mut),
-                .undefType = (try pools.newTypeUntracked(.{ .Undef = {} })).toTypeInfo(.Mut),
-                .charType = (try pools.newTypeUntracked(.{ .Char = {} })).toTypeInfo(.Mut),
+                .f32Type = (try pools.newTypeUntracked(
+                    .{ .Number = .F32 },
+                )).toTypeInfo(.Mut),
+                .u64Type = (try pools.newTypeUntracked(
+                    .{ .Number = .U64 },
+                )).toTypeInfo(.Mut),
+                .undefType = (try pools.newTypeUntracked(
+                    .{ .Undef = {} },
+                )).toTypeInfo(.Mut),
+                .charType = (try pools.newTypeUntracked(
+                    .{ .Char = {} },
+                )).toTypeInfo(.Mut),
             },
             .nodes = .{
                 .noOp = try pools.newNodeUntracked((ast.AstNodeUnion{
