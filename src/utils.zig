@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 
-pub const BUFFERED_WRITER_SIZE = 1024 * 32;
+pub const BUFFERED_WRITER_SIZE = 1024 * 256;
 
 pub inline fn create(comptime T: type, allocator: Allocator, obj: T) Allocator.Error!*const T {
     return createMut(T, allocator, obj);

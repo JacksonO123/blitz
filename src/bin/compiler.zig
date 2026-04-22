@@ -133,7 +133,11 @@ pub fn compile(
             } else {
                 try debug.printBytecodeChunks(&context, fWriter);
             }
+
+            try fWriter.flush();
         }
+
+        try printWriter.flush();
     }
 
     if (printState == .All) {
