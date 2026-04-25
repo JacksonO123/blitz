@@ -1,9 +1,3 @@
 fn main() {
-    let a = thing(2, 4);
-    let b = thing(2, 5);
-    let c = thing(2, 6);
-}
-
-fn thing[T](p1: T, p2: T) T {
-    return p1 + p2;
+    let str = "this is a string and a string";
 }

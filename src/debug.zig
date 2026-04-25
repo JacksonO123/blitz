@@ -797,7 +797,7 @@ pub fn printBytecodeChunks(context: *Context, writer: *Writer) !void {
     try writer.writeByte('\n');
 
     try writer.writeAll("MakeStack ");
-    try writeHexDecNumber(vmInfo.StartStackType, context.genInfo.vmInfo.stackStartSize, writer);
+    try writeHexDecNumber(u32, context.genInfo.vmInfo.stackStartSize, writer);
     try writer.writeByte('\n');
 
     const numDigits = utils.getNumberDigitCount(u64, context.genInfo.byteCounter);
@@ -1186,12 +1186,16 @@ fn printInstName(inst: u8, writer: *Writer) !void {
     try writer.writeAll(name);
 }
 
-pub fn writeHexDecNumber(comptime T: type, num: T, writer: *Writer) !void {
+pub fn writeHexNumber(comptime T: type, num: T, writer: *Writer) !void {
     try writer.writeAll("0x");
     try writer.printInt(num, 16, .lower, .{
         .width = @sizeOf(T) * 2,
         .fill = '0',
     });
+}
+
+pub fn writeHexDecNumber(comptime T: type, num: T, writer: *Writer) !void {
+    try writeHexNumber(T, num, writer);
     try writer.writeByte('(');
     try writer.printInt(num, 10, .lower, .{});
     try writer.writeByte(')');

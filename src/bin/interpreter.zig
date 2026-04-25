@@ -31,12 +31,22 @@ pub fn main() !void {
     @memcpy(bzcFilename[filename.len .. filename.len + 4], ".bzc");
 
     const bytecode = try utils.readRelativeFile(allocator, bzcFilename);
-    const bytecodeVersion = bytecode[0];
+    const bytecodeVersion = bytecode[vmInfo.VERSION_LOCATION];
     if (bytecodeVersion != version.VERSION) {
         return InterpreterError.IncompatibleInterpreterVersions;
     }
 
-    const stackSize = std.mem.readInt(u32, @ptrCast(bytecode[1..5]), .little);
+    const instrStart = std.mem.readInt(
+        u32,
+        @ptrCast(bytecode[vmInfo.INSTR_START_PTR_LOCATION .. vmInfo.INSTR_START_PTR_LOCATION + 4]),
+        .little,
+    );
+
+    const stackSize = std.mem.readInt(
+        u32,
+        @ptrCast(bytecode[vmInfo.STACK_START_LOCATION .. vmInfo.STACK_START_LOCATION + 4]),
+        .little,
+    );
     var runtimeInfo = try RuntimeInfo.init(allocator, stackSize);
 
     var buffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
@@ -45,7 +55,7 @@ pub fn main() !void {
     const writer = &stdout.interface;
     defer writer.flush() catch {};
 
-    interpretBytecode(allocator, &runtimeInfo, bytecode, writer) catch |e| {
+    interpretBytecode(allocator, &runtimeInfo, bytecode, instrStart, writer) catch |e| {
         try writer.writeAll("Error: ");
         try writer.writeAll(@errorName(e));
         try writer.writeByte('\n');
@@ -121,9 +131,10 @@ fn interpretBytecode(
     allocator: Allocator,
     runtimeInfo: *RuntimeInfo,
     bytecode: []const u8,
+    instrLocation: u32,
     writer: *Writer,
 ) !void {
-    var current: u64 = vmInfo.VM_INFO_BYTECODE_LEN;
+    var current: u64 = instrLocation;
     while (current < bytecode.len) {
         const inst = @as(codegen.InstructionVariants, @enumFromInt(bytecode[current]));
         const instLen = inst.getInstrLen();

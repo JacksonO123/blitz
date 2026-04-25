@@ -90,7 +90,7 @@ pub const CompInfo = struct {
     currentFuncReturn: ?ast.AstTypeInfo,
     returnInfo: ReturnInfo,
     builtins: builtins.BuiltinFuncMemo,
-    stackSizeEstimate: vmInfo.StartStackType,
+    stackSizeEstimate: u32,
 
     pub inline fn init(
         allocator: Allocator,

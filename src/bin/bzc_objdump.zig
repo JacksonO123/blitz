@@ -35,7 +35,13 @@ pub fn main() !void {
 
 pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
     try printVMStartInfo(bytecode[0..vmInfo.VM_INFO_BYTECODE_LEN], writer);
-    var current: u64 = vmInfo.VM_INFO_BYTECODE_LEN;
+    var current: u64 = std.mem.readInt(
+        u32,
+        bytecode[vmInfo.INSTR_START_PTR_LOCATION .. vmInfo.INSTR_START_PTR_LOCATION + 4],
+        .little,
+    );
+
+    try printHexViewer(bytecode[vmInfo.PADDED_VM_INFO_BYTECODE_LEN..current], writer);
 
     const byteCountFloat: f64 = @floatFromInt(bytecode.len);
     const numDigits: u64 = @intFromFloat(@floor(@log10(byteCountFloat)) + 1);
@@ -56,11 +62,67 @@ pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
     }
 }
 
+fn printHexViewer(bytes: []const u8, writer: *Writer) !void {
+    const WIDTH = 16; // bytes
+
+    try writer.writeByte('\n');
+
+    var i: usize = 0;
+    while (i < bytes.len) : (i += WIDTH) {
+        const row = bytes[i..@min(i + WIDTH, bytes.len)];
+
+        try writer.writeAll("0x");
+        try writer.printInt(i, 16, .lower, .{ .width = 4, .fill = '0' });
+        try writer.writeAll("  ");
+
+        var gotTo: usize = 0;
+        for (row, 0..) |byte, index| {
+            try writer.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+            try writer.writeByte(' ');
+            gotTo = index;
+        }
+
+        while (gotTo < WIDTH) : (gotTo += 1) {
+            try writer.writeAll("   ");
+        }
+
+        try writer.writeByte(' ');
+
+        gotTo = 0;
+        for (row, 0..) |byte, index| {
+            if (byte != 0) {
+                try writer.writeByte(byte);
+                try writer.writeByte(' ');
+            } else {
+                try writer.writeAll(". ");
+            }
+
+            gotTo = index;
+        }
+
+        while (gotTo < WIDTH) : (gotTo += 1) {
+            try writer.writeAll(". ");
+        }
+
+        try writer.writeByte('\n');
+    }
+
+    try writer.writeByte('\n');
+}
+
 pub fn printVMStartInfo(info: []u8, writer: *Writer) !void {
     try writer.writeAll("blitz bytecode version ");
-    try writer.printInt(info[0], 10, .lower, .{});
+    try writer.printInt(info[vmInfo.VERSION_LOCATION], 10, .lower, .{});
+    try writer.writeAll("\nFirst instr: ");
+    try writeHexNumberSlice(
+        info[vmInfo.INSTR_START_PTR_LOCATION .. vmInfo.INSTR_START_PTR_LOCATION + 4],
+        writer,
+    );
     try writer.writeAll("\nMakeStack ");
-    try writeHexDecNumberSlice(info[1..5], writer);
+    try writeHexDecNumberSlice(
+        info[vmInfo.STACK_START_LOCATION .. vmInfo.STACK_START_LOCATION + 4],
+        writer,
+    );
     try writer.writeByte('\n');
 }
 
@@ -376,4 +438,19 @@ fn writeHexDecNumberSlice(constStr: []const u8, writer: *Writer) !void {
 fn formatHexDecNumberUtil(comptime T: type, str: []const u8, writer: *Writer) !void {
     const num = std.mem.readInt(T, @ptrCast(str), .little);
     try blitz.debug.writeHexDecNumber(T, num, writer);
+}
+
+fn writeHexNumberSlice(constStr: []const u8, writer: *Writer) !void {
+    switch (constStr.len) {
+        1 => try formatHexNumberSlice(u8, constStr, writer),
+        2 => try formatHexNumberSlice(u16, constStr, writer),
+        4 => try formatHexNumberSlice(u32, constStr, writer),
+        8 => try formatHexNumberSlice(u64, constStr, writer),
+        else => utils.unimplemented(),
+    }
+}
+
+fn formatHexNumberSlice(comptime T: type, str: []const u8, writer: *Writer) !void {
+    const num = std.mem.readInt(T, @ptrCast(str), .little);
+    try blitz.debug.writeHexNumber(T, num, writer);
 }

@@ -1461,11 +1461,38 @@ pub const BackendRegLimits = struct {
     preserved: RegisterRange = .{},
 };
 
+const DataSection = struct {
+    const Self = @This();
+
+    data: ArrayList(u8),
+    strPtrMap: StringHashMap(u64),
+
+    pub inline fn init(allocator: Allocator) !Self {
+        const strPtrMap = StringHashMap(u64).init(allocator);
+
+        return .{
+            .data = .empty,
+            .strPtrMap = strPtrMap,
+        };
+    }
+
+    fn adjustPtrToBytecodeLocation(ptr: u64) u64 {
+        return ptr + vmInfo.PADDED_VM_INFO_BYTECODE_LEN;
+    }
+
+    pub fn appendString(self: *Self, allocator: Allocator, str: []const u8) !u64 {
+        const ptr = adjustPtrToBytecodeLocation(self.data.items.len);
+        try self.data.appendSlice(allocator, str);
+        try self.strPtrMap.put(str, ptr);
+        return ptr;
+    }
+};
+
 pub const GenInfo = struct {
     const Self = @This();
 
     instrList: ArrayList(Instr),
-    dataSection: ArrayList(u8),
+    dataSection: DataSection,
     currentProc: Proc,
     vmInfo: struct {
         stackStartSize: u32,
@@ -1478,7 +1505,7 @@ pub const GenInfo = struct {
     currentLabelId: vmInfo.LabelType,
     registers: ArrayList(*RegInfo),
     registerStatus: ArrayList(RegStatus),
-    registerLimits: BackendRegLimits = .{},
+    registerLimits: BackendRegLimits,
     labelByteInfo: LabelByteInfo,
     instrActions: InstrActions,
     regAllocateUtils: struct {
@@ -1501,13 +1528,13 @@ pub const GenInfo = struct {
 
         return .{
             .instrList = .empty,
-            .dataSection = .empty,
+            .dataSection = try DataSection.init(allocator),
             .currentProc = .{
                 .startIndex = 0,
             },
             .vmInfo = .{
                 .stackStartSize = 0,
-                .version = 0,
+                .version = version.VERSION,
             },
             .varNameToReg = varNameReg,
             .byteCounter = vmInfo.VM_INFO_BYTECODE_LEN,
@@ -1524,16 +1551,45 @@ pub const GenInfo = struct {
                 .pendingDeactivations = .{},
                 .protectedRegisters = .{},
             },
+            .registerLimits = .{},
         };
     }
 
     pub fn writeChunks(self: *Self, writer: *Writer) !void {
-        try writer.writeByte(self.vmInfo.version);
-        var buf: [vmInfo.START_STACK_TYPE_SIZE]u8 = undefined;
-        std.mem.writeInt(vmInfo.StartStackType, &buf, self.vmInfo.stackStartSize, .little);
+        var binHeadSize = @as(u32, @intCast(
+            vmInfo.PADDED_VM_INFO_BYTECODE_LEN + self.dataSection.data.items.len,
+        ));
+        const padding = utils.calculatePadding(binHeadSize, vmInfo.POINTER_SIZE);
+        binHeadSize += padding;
+
+        var buf: [vmInfo.VM_INFO_BYTECODE_LEN]u8 = undefined;
+        buf[vmInfo.VERSION_LOCATION] = self.vmInfo.version;
+        std.mem.writeInt(
+            u32,
+            buf[vmInfo.INSTR_START_PTR_LOCATION .. vmInfo.INSTR_START_PTR_LOCATION + 4],
+            binHeadSize,
+            .little,
+        );
+        std.mem.writeInt(
+            u32,
+            buf[vmInfo.STACK_START_LOCATION .. vmInfo.STACK_START_LOCATION + 4],
+            self.vmInfo.stackStartSize,
+            .little,
+        );
         try writer.writeAll(&buf);
 
-        var i: usize = 0;
+        var pad: [vmInfo.PADDED_VM_INFO_BYTECODE_LEN - vmInfo.VM_INFO_BYTECODE_LEN]u8 =
+            undefined;
+        @memset(&pad, 0);
+        try writer.writeAll(&pad);
+
+        try writer.writeAll(self.dataSection.data.items);
+        var i = vmInfo.PADDED_VM_INFO_BYTECODE_LEN + self.dataSection.data.items.len;
+        while (i < binHeadSize) : (i += 1) {
+            try writer.writeByte(@as(u8, 0));
+        }
+
+        i = 0;
         while (i < self.instrList.items.len) : (i += 1) {
             const skipped = self.handleSkipInstruction(i);
             if (!skipped) {
@@ -2570,8 +2626,6 @@ pub fn codegenAst(
     context: *Context,
     comptime backendType: BackendTypes,
 ) !void {
-    context.genInfo.vmInfo.version = version.VERSION;
-
     const backend = switch (backendType) {
         .Bytecode => bytecodeBackend.backend,
     };
@@ -2873,6 +2927,14 @@ pub fn genBytecodeUtil(
                         try context.genInfo.appendChunk(allocator, movSpInstr);
                         return writeLocInfo.reg;
                     }
+                },
+                .String => |str| {
+                    const ptr = try context.genInfo.dataSection.appendString(
+                        allocator,
+                        // remove quotes
+                        str[1 .. str.len - 1],
+                    );
+                    return try sliceBytecodeFromPtr(allocator, context, ptr, str.len);
                 },
                 else => utils.unimplemented(),
             }
@@ -4239,7 +4301,6 @@ fn initArraySliceBytecode(
 ) !?TempRegister {
     var paddedSpLoc: u64 = 0;
     var arrayStartLoc: u64 = 0;
-    var movPtrInstr: *Instr = undefined;
 
     const writeLocInfo = if (writeLoc != null) a: {
         const scratchReg = try context.genInfo.getNextRegister(allocator);
@@ -4257,7 +4318,7 @@ fn initArraySliceBytecode(
                 .offset = arrayStartLoc,
             },
         };
-        movPtrInstr = try context.genInfo.appendChunkAndReturn(allocator, movSpInstr);
+        try context.genInfo.appendChunk(allocator, movSpInstr);
 
         break :a WriteLocInfo{
             .reg = scratchReg,
@@ -4281,7 +4342,7 @@ fn initArraySliceBytecode(
                 .offset = arrayStartLoc,
             },
         };
-        movPtrInstr = try context.genInfo.appendChunkAndReturn(allocator, movSpInstr);
+        try context.genInfo.appendChunk(allocator, movSpInstr);
 
         break :a WriteLocInfo{
             .reg = writeReg,
@@ -4293,11 +4354,6 @@ fn initArraySliceBytecode(
     context.genInfo.settings.propAccessReturnsPtr = true;
     const arrRegOrNull = try genBytecodeUtil(allocator, context, node, writeLocInfo);
     context.genInfo.settings.propAccessReturnsPtr = prevRetPtrBehavior;
-
-    // if (arrRegOrNull) |arrReg| {
-    //     const dbgInstr = Instr{ .DbgReg = arrReg };
-    //     try context.genInfo.appendChunk(allocator, dbgInstr);
-    // }
 
     const sliceStartPtr = if (writeLoc) |loc| loc.reg else a: {
         const movInstr = Instr{
@@ -4386,6 +4442,68 @@ fn initArraySliceBytecode(
     }
 
     return null;
+}
+
+fn sliceBytecodeFromPtr(
+    allocator: Allocator,
+    context: *Context,
+    ptr: u64,
+    len: u64,
+) !vmInfo.TempRegister {
+    const scratch = try context.genInfo.getNextRegister(allocator);
+
+    const padding = utils.calculatePadding(
+        context.genInfo.currentProc.stackFrameSize,
+        vmInfo.POINTER_SIZE,
+    );
+    context.genInfo.currentProc.stackFrameSize += padding;
+
+    const movPtrInstr = Instr{
+        .SetReg64 = .{
+            .reg = scratch,
+            .data = ptr,
+        },
+    };
+    try context.genInfo.appendChunk(allocator, movPtrInstr);
+
+    const storePtrInstr = Instr{
+        .Store64AtSpNegOffset16 = .{
+            .reg = scratch,
+            .offset = @intCast(context.genInfo.currentProc.stackFrameSize),
+        },
+    };
+    try context.genInfo.appendChunk(allocator, storePtrInstr);
+
+    context.genInfo.currentProc.stackFrameSize += vmInfo.POINTER_SIZE;
+
+    const movLenInstr = Instr{
+        .SetReg64 = .{
+            .reg = scratch,
+            .data = len,
+        },
+    };
+    try context.genInfo.appendChunk(allocator, movLenInstr);
+
+    const storeLenInstr = Instr{
+        .Store64AtSpNegOffset16 = .{
+            .reg = scratch,
+            .offset = @intCast(context.genInfo.currentProc.stackFrameSize),
+        },
+    };
+    try context.genInfo.appendChunk(allocator, storeLenInstr);
+
+    context.genInfo.currentProc.stackFrameSize += vmInfo.POINTER_SIZE;
+
+    const subInstr = Instr{
+        .Sub8 = .{
+            .reg = scratch,
+            .dest = scratch,
+            .data = vmInfo.POINTER_SIZE * 2,
+        },
+    };
+    try context.genInfo.appendChunk(allocator, subInstr);
+
+    return scratch;
 }
 
 fn prepForLoopCondition(context: *Context, condition: *ast.AstNode) LoopCondInfo {
