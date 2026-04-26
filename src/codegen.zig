@@ -1481,6 +1481,10 @@ const DataSection = struct {
     }
 
     pub fn appendString(self: *Self, allocator: Allocator, str: []const u8) !u64 {
+        if (self.strPtrMap.get(str)) |ptr| {
+            return ptr;
+        }
+
         const ptr = adjustPtrToBytecodeLocation(self.data.items.len);
         try self.data.appendSlice(allocator, str);
         try self.strPtrMap.put(str, ptr);
