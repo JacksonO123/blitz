@@ -1200,3 +1200,58 @@ pub fn writeHexDecNumber(comptime T: type, num: T, writer: *Writer) !void {
     try writer.printInt(num, 10, .lower, .{});
     try writer.writeByte(')');
 }
+
+pub fn printHexViewer(bytes: []const u8, writer: *Writer) !void {
+    const WIDTH = 16; // bytes
+
+    try writer.writeByte('\n');
+
+    var i: usize = 0;
+    while (i < bytes.len) : (i += WIDTH) {
+        const row = bytes[i..@min(i + WIDTH, bytes.len)];
+
+        try writer.writeAll("0x");
+        try writer.printInt(
+            i + vmInfo.PADDED_VM_INFO_BYTECODE_LEN,
+            16,
+            .lower,
+            .{ .width = 4, .fill = '0' },
+        );
+        try writer.writeByte('(');
+        try writer.printInt(i + vmInfo.PADDED_VM_INFO_BYTECODE_LEN, 10, .lower, .{});
+        try writer.writeAll(")  ");
+
+        var gotTo: usize = 0;
+        for (row, 0..) |byte, index| {
+            try writer.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+            try writer.writeByte(' ');
+            gotTo = index;
+        }
+
+        while (gotTo < WIDTH) : (gotTo += 1) {
+            try writer.writeAll("   ");
+        }
+
+        try writer.writeByte(' ');
+
+        gotTo = 0;
+        for (row, 0..) |byte, index| {
+            if (byte != 0) {
+                try writer.writeByte(byte);
+                try writer.writeByte(' ');
+            } else {
+                try writer.writeAll(". ");
+            }
+
+            gotTo = index;
+        }
+
+        while (gotTo < WIDTH) : (gotTo += 1) {
+            try writer.writeAll(". ");
+        }
+
+        try writer.writeByte('\n');
+    }
+
+    try writer.writeByte('\n');
+}

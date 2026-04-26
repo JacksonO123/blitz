@@ -47,7 +47,7 @@ pub fn main() !void {
         @ptrCast(bytecode[vmInfo.STACK_START_LOCATION .. vmInfo.STACK_START_LOCATION + 4]),
         .little,
     );
-    var runtimeInfo = try RuntimeInfo.init(allocator, stackSize);
+    var runtimeInfo = try RuntimeInfo.init(allocator, bytecode, stackSize, instrStart);
 
     var buffer: [utils.BUFFERED_WRITER_SIZE]u8 = undefined;
     var stdout = std.fs.File.stdout().writer(&buffer);
@@ -84,21 +84,29 @@ const RuntimeInfo = struct {
 
     registers: [vmInfo.NUM_REGISTERS]RegisterType = [_]RegisterType{0} ** vmInfo.NUM_REGISTERS,
     flags: Flags,
-    stack: *std.ArrayListAligned(u8, .@"64"),
+    programData: std.ArrayListAligned(u8, .@"64"),
     ptrs: RuntimePtrs,
+    bytecodeLen: usize,
+    instrStart: u32,
 
-    pub fn init(allocator: Allocator, stackSize: u32) !Self {
-        const tempStack = try std.ArrayListAligned(u8, .@"64").initCapacity(allocator, stackSize);
-        const stack = try utils.createMut(std.ArrayListAligned(u8, .@"64"), allocator, tempStack);
-        stack.items.len = stackSize;
+    pub inline fn init(
+        allocator: Allocator,
+        bytecode: []align(64) u8,
+        stackSize: u32,
+        instrStart: u32,
+    ) !Self {
+        var programData = std.ArrayListAligned(u8, .@"64").fromOwnedSlice(bytecode);
+        try programData.ensureTotalCapacity(allocator, bytecode.len + stackSize);
 
         return .{
             .flags = Flags{},
-            .stack = stack,
+            .programData = programData,
             .ptrs = .{
-                .sp = 0,
+                .sp = bytecode.len,
                 .lr = 0,
             },
+            .bytecodeLen = bytecode.len,
+            .instrStart = instrStart,
         };
     }
 
@@ -115,15 +123,23 @@ const RuntimeInfo = struct {
         try writer.writeAll("##REG_END##\n");
 
         try writer.writeAll("##STACK_START##\n");
-        i = 0;
-        while (i < untilStack) : (i += 1) {
-            if (i == untilStack) break;
-            try writer.printInt(i, 10, .lower, .{});
+
+        const stackMem = self.programData.items[self.bytecodeLen..@min(
+            self.programData.items.len,
+            self.bytecodeLen + untilStack,
+        )];
+        for (stackMem, 0..) |byte, index| {
+            try writer.printInt(index + self.bytecodeLen, 10, .lower, .{});
             try writer.writeAll(") ");
-            try writer.printInt(self.stack.items[i], 10, .lower, .{});
+            try writer.printInt(byte, 10, .lower, .{});
             try writer.writeAll("\n");
         }
         try writer.writeAll("##STACK_END##\n");
+
+        try blitz.debug.printHexViewer(
+            self.programData.items[vmInfo.PADDED_VM_INFO_BYTECODE_LEN..self.instrStart],
+            writer,
+        );
     }
 };
 
@@ -316,7 +332,7 @@ fn interpretBytecode(
                 runtimeInfo.ptrs.sp += amount;
                 try ensureStackCapacityAndLength(
                     allocator,
-                    runtimeInfo.stack,
+                    &runtimeInfo.programData,
                     runtimeInfo.ptrs.sp,
                 );
             },
@@ -366,10 +382,10 @@ fn interpretBytecode(
                 const dest = runtimeInfo.registers[ptrReg];
                 try ensureStackCapacityAndLength(
                     allocator,
-                    runtimeInfo.stack,
+                    &runtimeInfo.programData,
                     dest + 1,
                 );
-                runtimeInfo.stack.items[dest] = byteData;
+                runtimeInfo.programData.items[dest] = byteData;
             },
             .Store64AtRegPostInc16 => {
                 try storeAtRegPostInc(u64, u16, allocator, runtimeInfo, bytecode, current);
@@ -391,10 +407,10 @@ fn interpretBytecode(
                 );
                 try ensureStackCapacityAndLength(
                     allocator,
-                    runtimeInfo.stack,
+                    &runtimeInfo.programData,
                     dest + 1,
                 );
-                runtimeInfo.stack.items[dest] = byteData;
+                runtimeInfo.programData.items[dest] = byteData;
                 runtimeInfo.registers[ptrReg] += inc;
             },
             .Store64AtSpNegOffset16 => {
@@ -416,10 +432,10 @@ fn interpretBytecode(
                 const dest = runtimeInfo.ptrs.sp - offset;
                 try ensureStackCapacityAndLength(
                     allocator,
-                    runtimeInfo.stack,
+                    &runtimeInfo.programData,
                     dest + 1,
                 );
-                runtimeInfo.stack.items[dest] = byteData[0];
+                runtimeInfo.programData.items[dest] = byteData[0];
             },
             .Load64AtSpNegOffset16 => {
                 loadAtSpNegOffset(u64, u16, runtimeInfo, bytecode, current);
@@ -433,7 +449,7 @@ fn interpretBytecode(
             .Load8AtSpNegOffset16 => {
                 const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 2 .. current + 4]), .little);
                 const location = runtimeInfo.ptrs.sp - offset;
-                const byteData = runtimeInfo.stack.items[location];
+                const byteData = runtimeInfo.programData.items[location];
                 runtimeInfo.registers[bytecode[current + 1]] = byteData;
             },
             .Load64AtReg => {
@@ -447,7 +463,7 @@ fn interpretBytecode(
             },
             .Load8AtReg => {
                 const source = runtimeInfo.registers[bytecode[current + 2]];
-                runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.stack.items[source];
+                runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.programData.items[source];
             },
             .Load8AtRegOffset16 => {
                 const source = runtimeInfo.registers[bytecode[current + 2]];
@@ -456,7 +472,7 @@ fn interpretBytecode(
                     @ptrCast(bytecode[current + 3 .. current + 5]),
                     .little,
                 );
-                const byteData = runtimeInfo.stack.items[source + offset];
+                const byteData = runtimeInfo.programData.items[source + offset];
                 runtimeInfo.registers[bytecode[current + 1]] = byteData;
             },
             .Load16AtRegOffset16 => {
@@ -535,7 +551,7 @@ fn interpretBytecode(
                     const location = sp - offset + (8 * scale);
                     const byteValue: [8]u8 = @bitCast(runtimeInfo.registers[i]);
                     @memcpy(
-                        runtimeInfo.stack.items[location .. location + 8],
+                        runtimeInfo.programData.items[location .. location + 8],
                         &byteValue,
                     );
                 }
@@ -558,7 +574,7 @@ fn interpretBytecode(
                 while (i <= topReg) : (i += 1) {
                     const scale = i - vmInfo.bytecodeRegLimits.preserved.start;
                     const location = sp - offset + (8 * scale);
-                    const byteValue = runtimeInfo.stack.items[location .. location + 8];
+                    const byteValue = runtimeInfo.programData.items[location .. location + 8];
                     const intValue = std.mem.readInt(u64, @ptrCast(byteValue), .little);
                     runtimeInfo.registers[i] = intValue;
                 }
@@ -601,7 +617,7 @@ fn interpretBytecode(
                 const sp = runtimeInfo.ptrs.sp;
                 const offset = bytecode[current + 1];
                 const byteData: [8]u8 = @bitCast(runtimeInfo.ptrs.lr);
-                @memcpy(runtimeInfo.stack.items[sp - offset .. sp - offset + 8], &byteData);
+                @memcpy(runtimeInfo.programData.items[sp - offset .. sp - offset + 8], &byteData);
             },
             .PostPopLRNegOffset8 => {
                 const sp = runtimeInfo.ptrs.sp;
@@ -609,7 +625,7 @@ fn interpretBytecode(
 
                 const temp = std.mem.readInt(
                     u64,
-                    @ptrCast(runtimeInfo.stack.items[sp - offset .. sp - offset + 8]),
+                    @ptrCast(runtimeInfo.programData.items[sp - offset .. sp - offset + 8]),
                     .little,
                 );
                 runtimeInfo.ptrs.lr = temp;
@@ -650,7 +666,7 @@ fn loadAtSpNegOffset(
 
     const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 2 .. current + 2 + offsetByteLen]), .little);
     const location = runtimeInfo.ptrs.sp - offset;
-    const byteData: T = std.mem.readInt(T, @ptrCast(runtimeInfo.stack.items[location .. location + resultByteLen]), .little);
+    const byteData: T = std.mem.readInt(T, @ptrCast(runtimeInfo.programData.items[location .. location + resultByteLen]), .little);
     runtimeInfo.registers[bytecode[current + 1]] = byteData;
 }
 
@@ -669,7 +685,7 @@ fn postPopLRNegOffset(
     );
     runtimeInfo.ptrs.lr = std.mem.readInt(
         u64,
-        @ptrCast(runtimeInfo.stack.items[sp - offset .. sp - offset + 8]),
+        @ptrCast(runtimeInfo.programData.items[sp - offset .. sp - offset + 8]),
         .little,
     );
 }
@@ -689,7 +705,7 @@ fn prePushLRNegOffset(
         .little,
     );
     const byteData: [8]u8 = @bitCast(runtimeInfo.ptrs.lr);
-    @memcpy(runtimeInfo.stack.items[sp - offset .. sp - offset + 8], &byteData);
+    @memcpy(runtimeInfo.programData.items[sp - offset .. sp - offset + 8], &byteData);
 }
 
 fn postPopRegNegOffset(
@@ -709,7 +725,7 @@ fn postPopRegNegOffset(
 
     var i: u8 = vmInfo.bytecodeRegLimits.preserved.start;
     while (i <= topReg) : (i += 1) {
-        const intData = runtimeInfo.stack.items[sp - offset + (8 * i) .. sp - offset + (8 * i) + 8];
+        const intData = runtimeInfo.programData.items[sp - offset + (8 * i) .. sp - offset + (8 * i) + 8];
         const intValue = std.mem.readInt(u64, @ptrCast(intData), .little);
         runtimeInfo.registers[i] = intValue;
     }
@@ -734,7 +750,7 @@ fn prePushRegNegOffset(
     while (i <= topReg) : (i += 1) {
         const byteData: [8]u8 = @bitCast(runtimeInfo.registers[i]);
         @memcpy(
-            runtimeInfo.stack.items[sp - offset + (8 * i) .. sp - offset + (8 * i) + 8],
+            runtimeInfo.programData.items[sp - offset + (8 * i) .. sp - offset + (8 * i) + 8],
             &byteData,
         );
     }
@@ -772,7 +788,7 @@ fn addSp(
     runtimeInfo.ptrs.sp += amount;
     try ensureStackCapacityAndLength(
         allocator,
-        runtimeInfo.stack,
+        &runtimeInfo.programData,
         runtimeInfo.ptrs.sp,
     );
 }
@@ -808,10 +824,10 @@ fn storeAtReg(
     const end = dest + storeTypeBytes;
     try ensureStackCapacityAndLength(
         allocator,
-        runtimeInfo.stack,
+        &runtimeInfo.programData,
         end,
     );
-    @memcpy(runtimeInfo.stack.items[dest..end], &byteData);
+    @memcpy(runtimeInfo.programData.items[dest..end], &byteData);
 }
 
 fn storeAtRegPostInc(
@@ -837,10 +853,10 @@ fn storeAtRegPostInc(
     const end = dest + storeTypeBytes;
     try ensureStackCapacityAndLength(
         allocator,
-        runtimeInfo.stack,
+        &runtimeInfo.programData,
         end,
     );
-    @memcpy(runtimeInfo.stack.items[dest..end], &byteData);
+    @memcpy(runtimeInfo.programData.items[dest..end], &byteData);
     runtimeInfo.registers[ptrReg] += inc;
 }
 
@@ -855,7 +871,7 @@ fn loadAtRegOffset16(
     const dest = bytecode[current + 1];
     const source = runtimeInfo.registers[bytecode[current + 2]];
     const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
-    const byteData: *const [tBytes]u8 = @ptrCast(runtimeInfo.stack.items[source + offset .. source + offset + tBytes]);
+    const byteData: *const [tBytes]u8 = @ptrCast(runtimeInfo.programData.items[source + offset .. source + offset + tBytes]);
     const resInt: T = @bitCast(byteData.*);
     runtimeInfo.registers[dest] = @intCast(resInt);
 }
@@ -870,7 +886,7 @@ fn loadAtReg(
 
     const dest = bytecode[current + 1];
     const source = runtimeInfo.registers[bytecode[current + 2]];
-    const byteData: *const [tBytes]u8 = @ptrCast(runtimeInfo.stack.items[source .. source + tBytes]);
+    const byteData: *const [tBytes]u8 = @ptrCast(runtimeInfo.programData.items[source .. source + tBytes]);
     const resInt: T = @bitCast(byteData.*);
     runtimeInfo.registers[dest] = @intCast(resInt);
 }
@@ -896,10 +912,10 @@ fn storeAtSpNegOffset(
     const dest = runtimeInfo.ptrs.sp - offset;
     try ensureStackCapacityAndLength(
         allocator,
-        runtimeInfo.stack,
+        &runtimeInfo.programData,
         dest + storeBytes,
     );
-    @memcpy(runtimeInfo.stack.items[dest .. dest + storeBytes], &byteData);
+    @memcpy(runtimeInfo.programData.items[dest .. dest + storeBytes], &byteData);
 }
 
 fn getFlagFromJump(jump: codegen.InstructionVariants, flags: Flags) bool {

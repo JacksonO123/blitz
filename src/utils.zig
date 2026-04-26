@@ -14,10 +14,10 @@ pub inline fn createMut(comptime T: type, allocator: Allocator, obj: T) Allocato
     return ptr;
 }
 
-pub fn readRelativeFile(allocator: Allocator, path: []const u8) ![]u8 {
+pub fn readRelativeFile(allocator: Allocator, path: []const u8) ![]align(64) u8 {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
-    return try file.readToEndAlloc(allocator, std.math.maxInt(usize));
+    return try file.readToEndAllocOptions(allocator, std.math.maxInt(usize), null, .@"64", null);
 }
 
 pub fn initMutPtrT(comptime T: type, allocator: Allocator) !*T {

@@ -41,7 +41,7 @@ pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
         .little,
     );
 
-    try printHexViewer(bytecode[vmInfo.PADDED_VM_INFO_BYTECODE_LEN..current], writer);
+    try blitz.debug.printHexViewer(bytecode[vmInfo.PADDED_VM_INFO_BYTECODE_LEN..current], writer);
 
     const byteCountFloat: f64 = @floatFromInt(bytecode.len);
     const numDigits: u64 = @intFromFloat(@floor(@log10(byteCountFloat)) + 1);
@@ -60,54 +60,6 @@ pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
         try printBytecodeSlice(bytecode[current .. current + size], writer);
         current += size;
     }
-}
-
-fn printHexViewer(bytes: []const u8, writer: *Writer) !void {
-    const WIDTH = 16; // bytes
-
-    try writer.writeByte('\n');
-
-    var i: usize = 0;
-    while (i < bytes.len) : (i += WIDTH) {
-        const row = bytes[i..@min(i + WIDTH, bytes.len)];
-
-        try writer.writeAll("0x");
-        try writer.printInt(i, 16, .lower, .{ .width = 4, .fill = '0' });
-        try writer.writeAll("  ");
-
-        var gotTo: usize = 0;
-        for (row, 0..) |byte, index| {
-            try writer.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
-            try writer.writeByte(' ');
-            gotTo = index;
-        }
-
-        while (gotTo < WIDTH) : (gotTo += 1) {
-            try writer.writeAll("   ");
-        }
-
-        try writer.writeByte(' ');
-
-        gotTo = 0;
-        for (row, 0..) |byte, index| {
-            if (byte != 0) {
-                try writer.writeByte(byte);
-                try writer.writeByte(' ');
-            } else {
-                try writer.writeAll(". ");
-            }
-
-            gotTo = index;
-        }
-
-        while (gotTo < WIDTH) : (gotTo += 1) {
-            try writer.writeAll(". ");
-        }
-
-        try writer.writeByte('\n');
-    }
-
-    try writer.writeByte('\n');
 }
 
 pub fn printVMStartInfo(info: []u8, writer: *Writer) !void {

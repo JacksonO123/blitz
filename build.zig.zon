@@ -2,7 +2,7 @@
     .name = .blitz,
     .version = "0.0.1",
     .fingerprint = 0xe8a54ff4502196ec,
-    .minimum_zig_version = "0.14.0",
+    .minimum_zig_version = "0.15.2",
     .dependencies = .{},
     .paths = .{
         "build.zig",
