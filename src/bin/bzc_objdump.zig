@@ -6,6 +6,73 @@ const blitz = @import("blitz");
 const utils = blitz.utils;
 const codegen = blitz.codegen;
 const vmInfo = blitz.vmInfo;
+const debug = blitz.debug;
+
+const InstrSegmentVariant = enum {
+    const Self = @This();
+
+    Reg,
+    Immediate8,
+    Immediate16,
+    Immediate32,
+    Immediate64,
+
+    pub fn getSize(self: Self) u8 {
+        return switch (self) {
+            .Register => 1,
+            .Immediate8 => 1,
+            .Immediate16 => 2,
+            .Immediate32 => 4,
+            .Immediate64 => 8,
+        };
+    }
+};
+
+const InstrPrintUtil = struct {
+    const Self = @This();
+
+    bytes: []const u8,
+    currentByte: usize = 0,
+    currentInstr: usize = 0,
+    currentInstrByte: usize = 0,
+
+    pub fn init(instrs: []const u8) InstrPrintUtil {
+        return .{ .bytes = instrs };
+    }
+
+    pub fn take(self: *Self, bytes: u32) []const u8 {
+        const slice = self.bytes[self.currentByte .. self.currentByte + bytes];
+        // + 1 for whitespace
+        self.currentByte += bytes + 1;
+        return slice;
+    }
+
+    pub fn takeOrLast(self: *Self, bytes: u32, isLast: bool) []const u8 {
+        const slice = self.bytes[self.currentByte .. self.currentByte + bytes];
+        // + 1 for whitespace
+        self.currentByte += bytes + if (isLast) @as(u8, 0) else @as(u8, 1);
+        return slice;
+    }
+
+    pub fn hasNext(self: *Self) bool {
+        return self.currentByte < self.bytes.len;
+    }
+
+    pub fn nextInstr(self: *Self) void {
+        self.currentInstr += 1;
+        const instr = @as(
+            codegen.InstructionVariants,
+            @enumFromInt(self.bytes[self.currentInstrByte]),
+        );
+        self.currentInstrByte += @max(instr.getInstrLen(), 1);
+        self.currentByte = self.currentInstrByte;
+    }
+
+    pub fn printInstr(ptr: *anyopaque, writer: *Writer) !void {
+        const self: *Self = @ptrCast(@alignCast(ptr));
+        try printBytecodeInstr(self, writer);
+    }
+};
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -35,30 +102,25 @@ pub fn main() !void {
 
 pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
     try printVMStartInfo(bytecode[0..vmInfo.VM_INFO_BYTECODE_LEN], writer);
-    var current: u64 = std.mem.readInt(
+    const instrStart: u64 = std.mem.readInt(
         u32,
         bytecode[vmInfo.INSTR_START_PTR_LOCATION .. vmInfo.INSTR_START_PTR_LOCATION + 4],
         .little,
     );
 
-    try blitz.debug.printHexViewer(bytecode[vmInfo.PADDED_VM_INFO_BYTECODE_LEN..current], writer);
+    try blitz.debug.printHexViewer(bytecode[vmInfo.PADDED_VM_INFO_BYTECODE_LEN..instrStart], writer);
 
     const byteCountFloat: f64 = @floatFromInt(bytecode.len);
     const numDigits: u64 = @intFromFloat(@floor(@log10(byteCountFloat)) + 1);
     const numInstrLenDigits = utils.getNumberDigitCount(u8, codegen.Instr.maxInstrSize());
 
-    while (current < bytecode.len) {
-        const instr = @as(codegen.InstructionVariants, @enumFromInt(bytecode[current]));
-        const size = instr.getInstrLen();
+    const instrs = bytecode[instrStart..];
+    var printUtil = InstrPrintUtil.init(instrs);
+    var current: usize = 0;
 
-        try writer.writeByte('[');
-        try writer.printInt(current, 10, .lower, .{ .width = numDigits, .fill = '.' });
-        try writer.writeAll("] (");
-        try writer.printInt(size, 10, .lower, .{ .width = numInstrLenDigits, .fill = '.' });
-        try writer.writeAll(") ");
-
-        try printBytecodeSlice(bytecode[current .. current + size], writer);
-        current += size;
+    while (printUtil.hasNext()) : (current += 1) {
+        try printBytecodeInstr(&printUtil, numDigits, numInstrLenDigits, current, writer);
+        printUtil.nextInstr();
     }
 }
 
@@ -76,6 +138,77 @@ pub fn printVMStartInfo(info: []u8, writer: *Writer) !void {
         writer,
     );
     try writer.writeByte('\n');
+}
+
+fn printBytecodeInstr(
+    printUtil: *InstrPrintUtil,
+    numDigits: u64,
+    numInstrLenDigits: u8,
+    current: usize,
+    writer: *Writer,
+) !void {
+    const instrByte = printUtil.take(1)[0];
+    const instr = @as(codegen.InstructionVariants, @enumFromInt(instrByte));
+
+    try writer.writeByte('[');
+    try writer.printInt(current, 10, .lower, .{ .width = numDigits, .fill = '.' });
+    try writer.writeAll("] (");
+    try writer.printInt(
+        instr.getInstrLen(),
+        10,
+        .lower,
+        .{ .width = numInstrLenDigits, .fill = '.' },
+    );
+    try writer.writeAll(") ");
+
+    try writer.writeAll(instr.toString());
+    try writer.writeByte(' ');
+
+    switch (instr) {
+        .Label, .NoOp, .Ret, .End => {},
+        .SetReg64 => {
+            try printSegments(printUtil, .{ .Reg, .Immediate64 }, writer);
+        },
+        else => {},
+    }
+
+    try writer.writeByte('\n');
+}
+
+fn printSegments(
+    printUtil: *InstrPrintUtil,
+    comptime segments: anytype,
+    writer: *Writer,
+) !void {
+    inline for (segments, 0..) |segment, index| {
+        const isLast = index + 1 == segments.len;
+
+        switch (segment) {
+            .Reg => {
+                const regByte = printUtil.takeOrLast(1, isLast)[0];
+                try writer.writeByte('r');
+                try writer.printInt(regByte, 10, .lower, .{});
+            },
+            .Immediate8 => {
+                const str = printUtil.takeOrLast(1, isLast)[0..];
+                try formatHexDecNumber(u8, str, writer);
+            },
+            .Immediate16 => {
+                const str = printUtil.takeOrLast(2, isLast)[0..];
+                try formatHexDecNumber(u16, str, writer);
+            },
+            .Immediate32 => {
+                const str = printUtil.takeOrLast(4, isLast)[0..];
+                try formatHexDecNumber(u32, str, writer);
+            },
+            .Immediate64 => {
+                const str = printUtil.takeOrLast(8, isLast)[0..];
+                try formatHexDecNumber(u64, str, writer);
+            },
+            else => @compileError("Unexpected enum"),
+        }
+        try writer.writeByte(' ');
+    }
 }
 
 fn printBytecodeSlice(bytecode: []u8, writer: *Writer) !void {
@@ -379,15 +512,15 @@ fn printPushOrPopRegNegOffset(comptime T: type, bytecode: []const u8, writer: *W
 
 fn writeHexDecNumberSlice(constStr: []const u8, writer: *Writer) !void {
     switch (constStr.len) {
-        1 => try formatHexDecNumberUtil(u8, constStr, writer),
-        2 => try formatHexDecNumberUtil(u16, constStr, writer),
-        4 => try formatHexDecNumberUtil(u32, constStr, writer),
-        8 => try formatHexDecNumberUtil(u64, constStr, writer),
+        1 => try formatHexDecNumber(u8, constStr, writer),
+        2 => try formatHexDecNumber(u16, constStr, writer),
+        4 => try formatHexDecNumber(u32, constStr, writer),
+        8 => try formatHexDecNumber(u64, constStr, writer),
         else => utils.unimplemented(),
     }
 }
 
-fn formatHexDecNumberUtil(comptime T: type, str: []const u8, writer: *Writer) !void {
+fn formatHexDecNumber(comptime T: type, str: []const u8, writer: *Writer) !void {
     const num = std.mem.readInt(T, @ptrCast(str), .little);
     try blitz.debug.writeHexDecNumber(T, num, writer);
 }
