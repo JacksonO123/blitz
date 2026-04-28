@@ -1,4 +1,4 @@
 fn main() {
     let str = "this is a string and a string";
-    let str2 = "this is a string and a string";
+    let str2 = "this is a string and a string.";
 }
