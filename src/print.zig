@@ -1050,8 +1050,8 @@ fn printUnionInstr(instr: codegen.Instr, writer: *Writer) !void {
 }
 
 fn printSegments(data: anytype, comptime segments: anytype, writer: *Writer) !void {
-    const fieldsType = @TypeOf(data);
-    const info = @typeInfo(fieldsType);
+    const FieldsType = @TypeOf(data);
+    const info = @typeInfo(FieldsType);
     switch (info) {
         .@"struct" => |structInfo| {
             inline for (structInfo.fields, segments) |field, segment| {
@@ -1066,7 +1066,7 @@ fn printSegments(data: anytype, comptime segments: anytype, writer: *Writer) !vo
     return;
 }
 
-fn printSegment(data: anytype, segment: anytype, writer: *Writer) !void {
+fn printSegment(data: anytype, comptime segment: anytype, writer: *Writer) !void {
     switch (segment) {
         .Reg => {
             try writer.writeByte('r');

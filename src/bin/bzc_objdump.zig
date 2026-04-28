@@ -171,7 +171,7 @@ fn printInstrFromSliceUtil(
         .JumpBackLT,
         .JumpBackGTE,
         .JumpBackLTE,
-        => try printSegments(printUtil, .{.Immediate32}, writer),
+        => try printSegments(printUtil, .Immediate32, writer),
 
         .Cmp => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
         .CmpSetRegEQ,
@@ -197,16 +197,16 @@ fn printInstrFromSliceUtil(
 
         .AddSp8,
         .SubSp8,
-        => try printSegments(printUtil, .{.Immediate8}, writer),
+        => try printSegments(printUtil, .Immediate8, writer),
         .AddSp16,
         .SubSp16,
-        => try printSegments(printUtil, .{.Immediate16}, writer),
+        => try printSegments(printUtil, .Immediate16, writer),
         .AddSp32,
         .SubSp32,
-        => try printSegments(printUtil, .{.Immediate32}, writer),
+        => try printSegments(printUtil, .Immediate32, writer),
         .AddSp64,
         .SubSp64,
-        => try printSegments(printUtil, .{.Immediate64}, writer),
+        => try printSegments(printUtil, .Immediate64, writer),
 
         .Store64AtReg,
         .Store32AtReg,
@@ -248,7 +248,7 @@ fn printInstrFromSliceUtil(
             writer,
         ),
 
-        .DbgReg => try printSegments(printUtil, .{.Reg}, writer),
+        .DbgReg => try printSegments(printUtil, .Reg, writer),
 
         .BitAnd, .BitOr => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
 
@@ -271,18 +271,18 @@ fn printInstrFromSliceUtil(
 
         .PrePushLRNegOffset8,
         .PostPopLRNegOffset8,
-        => try printSegments(printUtil, .{.Immediate8}, writer),
+        => try printSegments(printUtil, .Immediate8, writer),
         .PrePushLRNegOffset16,
         .PostPopLRNegOffset16,
-        => try printSegments(printUtil, .{.Immediate16}, writer),
+        => try printSegments(printUtil, .Immediate16, writer),
         .PrePushLRNegOffset32,
         .PostPopLRNegOffset32,
-        => try printSegments(printUtil, .{.Immediate32}, writer),
+        => try printSegments(printUtil, .Immediate32, writer),
         .PrePushLRNegOffset64,
         .PostPopLRNegOffset64,
-        => try printSegments(printUtil, .{.Immediate64}, writer),
+        => try printSegments(printUtil, .Immediate64, writer),
 
-        .BranchLink, .BranchLinkBack => try printSegments(printUtil, .{.Immediate32}, writer),
+        .BranchLink, .BranchLinkBack => try printSegments(printUtil, .Immediate32, writer),
     }
 
     try writer.writeByte('\n');
@@ -293,33 +293,46 @@ fn printSegments(
     comptime segments: anytype,
     writer: *Writer,
 ) !void {
-    inline for (segments) |segment| {
-        switch (segment) {
-            .Reg => {
-                const regByte = printUtil.take(1)[0];
-                try writer.writeByte('r');
-                try writer.printInt(regByte, 10, .lower, .{});
-            },
-            .Immediate8 => {
-                const str = printUtil.take(1);
-                try formatHexDecNumber(u8, str, writer);
-            },
-            .Immediate16 => {
-                const str = printUtil.take(2);
-                try formatHexDecNumber(u16, str, writer);
-            },
-            .Immediate32 => {
-                const str = printUtil.take(4);
-                try formatHexDecNumber(u32, str, writer);
-            },
-            .Immediate64 => {
-                const str = printUtil.take(8);
-                try formatHexDecNumber(u64, str, writer);
-            },
-            else => @compileError("Unexpected enum"),
-        }
-        try writer.writeByte(' ');
+    const SegmentsType = @TypeOf(segments);
+    const info = @typeInfo(SegmentsType);
+
+    switch (info) {
+        .enum_literal => try printSegment(printUtil, segments, writer),
+        .@"struct" => {
+            inline for (segments) |segment| {
+                try printSegment(printUtil, segment, writer);
+            }
+        },
+        else => @compileError("Unsupported type"),
     }
+}
+
+fn printSegment(printUtil: *InstrPrintUtil, comptime segment: anytype, writer: *Writer) !void {
+    switch (segment) {
+        .Reg => {
+            const regByte = printUtil.take(1)[0];
+            try writer.writeByte('r');
+            try writer.printInt(regByte, 10, .lower, .{});
+        },
+        .Immediate8 => {
+            const str = printUtil.take(1);
+            try formatHexDecNumber(u8, str, writer);
+        },
+        .Immediate16 => {
+            const str = printUtil.take(2);
+            try formatHexDecNumber(u16, str, writer);
+        },
+        .Immediate32 => {
+            const str = printUtil.take(4);
+            try formatHexDecNumber(u32, str, writer);
+        },
+        .Immediate64 => {
+            const str = printUtil.take(8);
+            try formatHexDecNumber(u64, str, writer);
+        },
+        else => @compileError("Unexpected enum"),
+    }
+    try writer.writeByte(' ');
 }
 
 fn writeHexDecNumberSlice(constStr: []const u8, writer: *Writer) !void {
