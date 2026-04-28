@@ -30,7 +30,7 @@ pub fn analyze(childAllocator: Allocator, context: *Context, writer: *Writer) !v
 
     const numDigits = utils.getNumberDigitCount(u64, context.genInfo.byteCounter);
     const numInstrLenDigits = utils.getNumberDigitCount(u8, codegen.Instr.maxInstrSize());
-    const fmtSettings = blitz.debug.ChunkPrintFmtSettings{
+    const fmtSettings = blitz.print.ChunkPrintFmtSettings{
         .numDigits = numDigits,
         .numInstrLenDigits = numInstrLenDigits,
     };
@@ -105,7 +105,7 @@ fn fmtAnalysisLine(
     instr: *const codegen.Instr,
     instrRegs: *ArrayList(vmInfo.TempRegister),
     instrIndex: usize,
-    fmtSettings: blitz.debug.ChunkPrintFmtSettings,
+    fmtSettings: blitz.print.ChunkPrintFmtSettings,
     byteCounter: *usize,
     totalIndex: usize,
     actionType: ?codegen.InstrActions.ActionTypes,
@@ -145,7 +145,7 @@ fn fmtAnalysisLine(
     var arrWriter = line.writer(allocator).adaptToNewApi(&[_]u8{});
     const interface = &arrWriter.new_interface;
 
-    byteCounter.* += try blitz.debug.printChunkDetailed(
+    byteCounter.* += try blitz.print.printChunkDetailed(
         instr.*,
         totalIndex,
         byteCounter.*,

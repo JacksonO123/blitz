@@ -12,7 +12,7 @@ const scanner = blitz.scanner;
 const utils = blitz.utils;
 const codegen = blitz.codegen;
 const blitzCompInfo = blitz.compInfo;
-const debug = blitz.debug;
+const print = blitz.print;
 const logger = blitz.logger;
 const allocPools = blitz.allocPools;
 const CompInfo = blitzCompInfo.CompInfo;
@@ -87,8 +87,8 @@ pub fn compile(
     try context.compInfo.setHoistedNodes(hoistedNodes);
 
     if (printState == .All) {
-        try debug.printRegisteredStructs(&context, hoistedNodes.structs, printWriter);
-        try debug.printRegisteredErrors(hoistedNodes.errors, printWriter);
+        try print.printRegisteredStructs(&context, hoistedNodes.structs, printWriter);
+        try print.printRegisteredErrors(hoistedNodes.errors, printWriter);
     }
 
     try context.compInfo.prepareForAst(allocator, &context, printWriter);
@@ -110,7 +110,7 @@ pub fn compile(
             try printWriter.writeAll("--- code ---\n");
             try printWriter.writeAll(code);
             try printWriter.writeAll("\n------------\n\n");
-            // try debug.printAst(&context, tree, printWriter);
+            // try print.printAst(&context, tree, printWriter);
         }
 
         try scanner.typeScan(allocator, &context, tree);
@@ -124,14 +124,14 @@ pub fn compile(
 
         if (printState == .All) {
             try printWriter.writeAll("\n------------\n\n");
-            try debug.printBytecodeChunks(&context, printWriter);
+            try print.printBytecodeChunks(&context, printWriter);
         }
 
         if (fileWriter) |fWriter| {
             if (format == .Binary) {
                 try context.genInfo.writeChunks(fWriter);
             } else {
-                try debug.printBytecodeChunks(&context, fWriter);
+                try print.printBytecodeChunks(&context, fWriter);
             }
 
             try fWriter.flush();

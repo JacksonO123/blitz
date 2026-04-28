@@ -7,7 +7,7 @@ const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
 const blitzContext = blitz.context;
-const debug = blitz.debug;
+const print = blitz.print;
 const compInfo = blitz.compInfo;
 const Context = blitzContext.Context;
 
@@ -87,7 +87,7 @@ pub const Pools = struct {
             while (usedNodeIt.next()) |item| {
                 try writer.writeAll("|-- ");
                 try writer.print(" (0x{x}) ", .{@intFromPtr(item.*)});
-                try debug.printNode(context, item.*, writer);
+                try print.printNode(context, item.*, writer);
                 try writer.writeAll("\n");
             }
         }
@@ -109,7 +109,7 @@ pub const Pools = struct {
             while (usedTypesIt.next()) |item| {
                 try writer.writeAll("|-- ");
                 try writer.print(" (0x{x}) ", .{@intFromPtr(item.*)});
-                try debug.printType(context, item.*, writer);
+                try print.printType(context, item.*, writer);
                 try writer.writeAll("\n");
             }
         }

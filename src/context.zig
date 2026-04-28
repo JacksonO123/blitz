@@ -13,7 +13,7 @@ const scanner = blitz.scanner;
 const codegen = blitz.codegen;
 const allocPools = blitz.allocPools;
 const utils = blitz.utils;
-const debug = blitz.debug;
+const print = blitz.print;
 
 const ContextSettings = struct {
     debug: struct {

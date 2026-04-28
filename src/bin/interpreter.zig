@@ -136,7 +136,7 @@ const RuntimeInfo = struct {
         }
         try writer.writeAll("##STACK_END##\n");
 
-        try blitz.debug.printHexViewer(
+        try blitz.print.printHexViewer(
             self.programData.items[vmInfo.PADDED_VM_INFO_BYTECODE_LEN..self.instrStart],
             writer,
         );

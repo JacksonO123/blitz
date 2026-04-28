@@ -7,7 +7,7 @@ const blitz = @import("blitz");
 const ast = blitz.ast;
 const utils = blitz.utils;
 const blitzContext = blitz.context;
-const debug = blitz.debug;
+const print = blitz.print;
 const compiler = @import("compiler.zig");
 const objdump = @import("bzc_objdump.zig");
 

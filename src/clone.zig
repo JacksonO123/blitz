@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
-const debug = blitz.debug;
+const print = blitz.print;
 const scanner = blitz.scanner;
 const pools = blitz.allocPools;
 const Context = blitz.context.Context;

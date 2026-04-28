@@ -6,7 +6,7 @@ const blitz = @import("blitz");
 const utils = blitz.utils;
 const codegen = blitz.codegen;
 const vmInfo = blitz.vmInfo;
-const debug = blitz.debug;
+const print = blitz.print;
 
 const InstrSegmentVariant = enum {
     const Self = @This();
@@ -95,7 +95,7 @@ pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
         .little,
     );
 
-    try blitz.debug.printHexViewer(bytecode[vmInfo.PADDED_VM_INFO_BYTECODE_LEN..instrStart], writer);
+    try print.printHexViewer(bytecode[vmInfo.PADDED_VM_INFO_BYTECODE_LEN..instrStart], writer);
 
     const byteCountFloat: f64 = @floatFromInt(bytecode.len);
     const numDigits: u64 = @intFromFloat(@floor(@log10(byteCountFloat)) + 1);
@@ -361,7 +361,7 @@ fn writeHexDecNumberSlice(constStr: []const u8, writer: *Writer) !void {
 
 fn formatHexDecNumber(comptime T: type, str: []const u8, writer: *Writer) !void {
     const num = std.mem.readInt(T, @ptrCast(str), .little);
-    try blitz.debug.writeHexDecNumber(T, num, writer);
+    try print.writeHexDecNumber(T, num, writer);
 }
 
 fn writeHexNumberSlice(constStr: []const u8, writer: *Writer) !void {
@@ -376,5 +376,5 @@ fn writeHexNumberSlice(constStr: []const u8, writer: *Writer) !void {
 
 fn formatHexNumberSlice(comptime T: type, str: []const u8, writer: *Writer) !void {
     const num = std.mem.readInt(T, @ptrCast(str), .little);
-    try blitz.debug.writeHexNumber(T, num, writer);
+    try print.writeHexNumber(T, num, writer);
 }
