@@ -104,7 +104,6 @@ pub const instrDataArr = getTestArr();
 inline fn getTestArr() [@typeInfo(InstructionVariants).@"enum".fields.len]InstrInfo {
     const info = @typeInfo(InstructionVariants).@"enum";
     var arr: [info.fields.len]InstrInfo = undefined;
-    // @compileLog(info.fields);
 
     for (info.fields, 0..) |field, index| {
         const enumVariant: InstructionVariants = @enumFromInt(field.value);
