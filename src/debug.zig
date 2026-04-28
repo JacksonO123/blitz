@@ -1228,7 +1228,7 @@ pub fn printHexViewer(bytes: []const u8, writer: *Writer) !void {
             gotTo = index;
         }
 
-        while (gotTo < WIDTH) : (gotTo += 1) {
+        while (gotTo < WIDTH - 1) : (gotTo += 1) {
             try writer.writeAll("   ");
         }
 
@@ -1240,13 +1240,13 @@ pub fn printHexViewer(bytes: []const u8, writer: *Writer) !void {
                 try writer.writeByte(byte);
                 try writer.writeByte(' ');
             } else {
-                try writer.writeAll(". ");
+                try writer.writeAll("\x1b[41m.\x1b[0m ");
             }
 
             gotTo = index;
         }
 
-        while (gotTo < WIDTH) : (gotTo += 1) {
+        while (gotTo < WIDTH - 1) : (gotTo += 1) {
             try writer.writeAll(". ");
         }
 
