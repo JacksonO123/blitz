@@ -884,90 +884,38 @@ pub fn printChunkDetailed(
         try writer.writeAll(") ");
     }
 
-    try printChunk(instr, writer);
+    try printUnionInstr(instr, writer);
 
     return chunkLen;
 }
 
-fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
+fn printUnionInstr(instr: codegen.Instr, writer: *Writer) !void {
     try writer.writeAll(instr.toString());
+    try writer.writeByte(' ');
 
     switch (instr) {
+        .MovSpNegOffsetAny,
+        .PrePushRegNegOffsetAny,
+        .PostPopRegNegOffsetAny,
+        .PrePushLRNegOffsetAny,
+        .PostPopLRNegOffsetAny,
+        => unreachable,
+
         .Label, .NoOp, .Ret, .End => {},
-        .SetReg64 => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u64, inner.data, writer);
-        },
-        .SetReg32 => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u32, inner.data, writer);
-        },
-        .SetReg16 => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u16, inner.data, writer);
-        },
-        .SetReg8 => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u8, inner.data, writer);
-        },
-        .CmpConst8 => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u8, inner.data, writer);
-        },
-        .Cmp => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg1, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg2, 10, .lower, .{});
-        },
-        .CmpSetRegEQ,
-        .CmpSetRegNE,
-        .CmpSetRegGT,
-        .CmpSetRegLT,
-        .CmpSetRegGTE,
-        .CmpSetRegLTE,
-        => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.dest, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg1, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg2, 10, .lower, .{});
-        },
-        .Add, .Sub, .Mult, .Xor => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.dest, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg1, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg2, 10, .lower, .{});
-        },
-        .Add8, .Sub8 => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.dest, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u8, inner.data, writer);
-        },
-        .Add16, .Sub16 => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.dest, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u16, inner.data, writer);
-        },
+
+        .SetReg64 => |fields| try printSegments(fields, .{ .Reg, .Immediate64 }, writer),
+        .SetReg32 => |fields| try printSegments(fields, .{ .Reg, .Immediate32 }, writer),
+        .SetReg16 => |fields| try printSegments(fields, .{ .Reg, .Immediate16 }, writer),
+        .SetReg8 => |fields| try printSegments(fields, .{ .Reg, .Immediate8 }, writer),
+
+        .Add, .Sub, .Mult => |fields| try printSegments(fields, .{ .Reg, .Reg, .Reg }, writer),
+
+        .Add8, .Sub8 => |fields| try printSegments(fields, .{ .Reg, .Reg, .Immediate8 }, writer),
+
+        .Add16,
+        .Sub16,
+        => |fields| try printSegments(fields, .{ .Reg, .Reg, .Immediate16 }, writer),
+
         .Jump,
         .JumpEQ,
         .JumpNE,
@@ -982,89 +930,55 @@ fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
         .JumpBackLT,
         .JumpBackGTE,
         .JumpBackLTE,
-        => |inner| {
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u32, @intCast(inner), writer);
-        },
+        => |fields| try printSegments(fields, .Immediate32, writer),
+
+        .Cmp => |fields| try printSegments(fields, .{ .Reg, .Reg }, writer),
+        .CmpSetRegEQ,
+        .CmpSetRegNE,
+        .CmpSetRegGT,
+        .CmpSetRegLT,
+        .CmpSetRegGTE,
+        .CmpSetRegLTE,
+        => |fields| try printSegments(fields, .{ .Reg, .Reg, .Reg }, writer),
+        .CmpConst8 => |fields| try printSegments(fields, .{ .Reg, .Immediate8 }, writer),
+
         .IncConst8,
         .DecConst8,
-        => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u8, inner.data, writer);
-        },
-        .Mov => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.dest, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.src, 10, .lower, .{});
-        },
-        .MovSpNegOffsetAny => unreachable,
-        .MovSpNegOffset16 => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u16, inner.offset, writer);
-        },
-        .MovSpNegOffset32 => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u32, inner.offset, writer);
-        },
-        .MovSpNegOffset64 => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u64, inner.offset, writer);
-        },
-        .XorConst8 => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.dest, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u8, inner.byte, writer);
-        },
-        .AddSp8, .SubSp8 => |inner| {
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u8, inner, writer);
-        },
-        .AddSp16, .SubSp16 => |inner| {
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u16, inner, writer);
-        },
-        .AddSp32, .SubSp32 => |inner| {
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u32, inner, writer);
-        },
-        .AddSp64, .SubSp64 => |inner| {
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u64, inner, writer);
-        },
+        => |fields| try printSegments(fields, .{ .Reg, .Immediate8 }, writer),
+
+        .Mov => |fields| try printSegments(fields, .{ .Reg, .Reg }, writer),
+        .MovSpNegOffset16 => |fields| try printSegments(fields, .{ .Reg, .Immediate16 }, writer),
+        .MovSpNegOffset32 => |fields| try printSegments(fields, .{ .Reg, .Immediate32 }, writer),
+        .MovSpNegOffset64 => |fields| try printSegments(fields, .{ .Reg, .Immediate64 }, writer),
+
+        .Xor => |fields| try printSegments(fields, .{ .Reg, .Reg, .Reg }, writer),
+        .XorConst8 => |fields| try printSegments(fields, .{ .Reg, .Reg, .Immediate8 }, writer),
+
+        .AddSp8,
+        .SubSp8,
+        => |fields| try printSegments(fields, .Immediate8, writer),
+        .AddSp16,
+        .SubSp16,
+        => |fields| try printSegments(fields, .Immediate16, writer),
+        .AddSp32,
+        .SubSp32,
+        => |fields| try printSegments(fields, .Immediate32, writer),
+        .AddSp64,
+        .SubSp64,
+        => |fields| try printSegments(fields, .Immediate64, writer),
+
         .Store64AtReg,
         .Store32AtReg,
         .Store16AtReg,
         .Store8AtReg,
-        => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.fromReg, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.toRegPtr, 10, .lower, .{});
-        },
+        => |fields| try printSegments(fields, .{ .Reg, .Reg }, writer),
+
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,
         .Store16AtRegPostInc16,
         .Store8AtRegPostInc16,
-        => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.fromReg, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.toRegPtr, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u16, inner.inc, writer);
-        },
+        => |fields| try printSegments(fields, .{ .Reg, .Reg, .Immediate16 }, writer),
+
         .Store64AtSpNegOffset16,
         .Store32AtSpNegOffset16,
         .Store16AtSpNegOffset16,
@@ -1073,117 +987,97 @@ fn printChunk(instr: codegen.Instr, writer: *Writer) !void {
         .Load32AtSpNegOffset16,
         .Load16AtSpNegOffset16,
         .Load8AtSpNegOffset16,
-        => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u16, inner.offset, writer);
-        },
-        .Load64AtReg, .Load32AtReg, .Load16AtReg, .Load8AtReg => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.dest, 10, .lower, .{});
-            try writer.writeAll(" [r");
-            try writer.printInt(inner.fromRegPtr, 10, .lower, .{});
-            try writer.writeByte(']');
-        },
+        => |fields| try printSegments(fields, .{ .Reg, .Immediate16 }, writer),
+
         .Load64AtRegOffset16,
         .Load32AtRegOffset16,
         .Load16AtRegOffset16,
         .Load8AtRegOffset16,
-        => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.dest, 10, .lower, .{});
-            try writer.writeAll(" [r");
-            try writer.printInt(inner.fromRegPtr, 10, .lower, .{});
-            try writer.writeAll(", ");
-            try writeHexDecNumber(u16, inner.offset, writer);
-            try writer.writeByte(']');
-        },
-        .MulReg16AddReg => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.dest, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.addReg, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.mulReg, 10, .lower, .{});
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u16, inner.data, writer);
-        },
-        .DbgReg => |reg| {
-            try writer.writeAll(" r");
-            try writer.printInt(reg, 10, .lower, .{});
-        },
-        .BitAnd, .BitOr => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.dest, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg1, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg2, 10, .lower, .{});
-        },
-        .And, .Or => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg1, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg2, 10, .lower, .{});
-        },
-        .AndSetReg, .OrSetReg => |inner| {
-            try writer.writeAll(" r");
-            try writer.printInt(inner.dest, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg1, 10, .lower, .{});
-            try writer.writeAll(" r");
-            try writer.printInt(inner.reg2, 10, .lower, .{});
-        },
-        .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
+        => |fields| try printSegments(fields, .{ .Reg, .Reg, .Immediate16 }, writer),
+
+        .Load64AtReg,
+        .Load32AtReg,
+        .Load16AtReg,
+        .Load8AtReg,
+        => |fields| try printSegments(fields, .{ .Reg, .Reg }, writer),
+
+        .MulReg16AddReg => |fields| try printSegments(
+            fields,
+            .{ .Reg, .Reg, .Reg, .Immediate16 },
+            writer,
+        ),
+
+        .DbgReg => |fields| try printSegments(fields, .Reg, writer),
+
+        .BitAnd, .BitOr => |fields| try printSegments(fields, .{ .Reg, .Reg, .Reg }, writer),
+
+        .And, .Or => |fields| try printSegments(fields, .{ .Reg, .Reg }, writer),
+
+        .AndSetReg, .OrSetReg => |fields| try printSegments(fields, .{ .Reg, .Reg, .Reg }, writer),
+
         .PrePushRegNegOffset8,
         .PostPopRegNegOffset8,
-        => |inner| try printPushOrPopNRegNegOffset(u8, inner, writer),
+        => |fields| try printSegments(fields, .{ .Reg, .Immediate8 }, writer),
         .PrePushRegNegOffset16,
         .PostPopRegNegOffset16,
-        => |inner| try printPushOrPopNRegNegOffset(u16, inner, writer),
+        => |fields| try printSegments(fields, .{ .Reg, .Immediate16 }, writer),
         .PrePushRegNegOffset32,
         .PostPopRegNegOffset32,
-        => |inner| try printPushOrPopNRegNegOffset(u32, inner, writer),
+        => |fields| try printSegments(fields, .{ .Reg, .Immediate32 }, writer),
         .PrePushRegNegOffset64,
         .PostPopRegNegOffset64,
-        => |inner| try printPushOrPopNRegNegOffset(u64, inner, writer),
-        .BranchLink, .BranchLinkBack => |inner| {
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u32, @intCast(inner), writer);
-        },
-        .PrePushLRNegOffsetAny, .PostPopLRNegOffsetAny => unreachable,
-        .PrePushLRNegOffset8, .PostPopLRNegOffset8 => |inner| {
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u8, inner, writer);
-        },
-        .PrePushLRNegOffset16, .PostPopLRNegOffset16 => |inner| {
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u16, inner, writer);
-        },
-        .PrePushLRNegOffset32, .PostPopLRNegOffset32 => |inner| {
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u32, inner, writer);
-        },
-        .PrePushLRNegOffset64, .PostPopLRNegOffset64 => |inner| {
-            try writer.writeByte(' ');
-            try writeHexDecNumber(u64, inner, writer);
-        },
+        => |fields| try printSegments(fields, .{ .Reg, .Immediate64 }, writer),
+
+        .PrePushLRNegOffset8,
+        .PostPopLRNegOffset8,
+        => |fields| try printSegments(fields, .Immediate8, writer),
+        .PrePushLRNegOffset16,
+        .PostPopLRNegOffset16,
+        => |fields| try printSegments(fields, .Immediate16, writer),
+        .PrePushLRNegOffset32,
+        .PostPopLRNegOffset32,
+        => |fields| try printSegments(fields, .Immediate32, writer),
+        .PrePushLRNegOffset64,
+        .PostPopLRNegOffset64,
+        => |fields| try printSegments(fields, .Immediate64, writer),
+
+        .BranchLink,
+        .BranchLinkBack,
+        => |fields| try printSegments(fields, .Immediate32, writer),
     }
 
     try writer.writeByte('\n');
 }
 
-fn printPushOrPopNRegNegOffset(comptime T: type, instr: anytype, writer: *Writer) !void {
-    try writer.writeAll(" r");
-    try writer.printInt(instr.reg, 10, .lower, .{});
-    try writer.writeByte(' ');
-    try writeHexDecNumber(T, instr.offset, writer);
+fn printSegments(data: anytype, comptime segments: anytype, writer: *Writer) !void {
+    const fieldsType = @TypeOf(data);
+    const info = @typeInfo(fieldsType);
+    switch (info) {
+        .@"struct" => |structInfo| {
+            inline for (structInfo.fields, segments) |field, segment| {
+                const value = @field(data, field.name);
+                try printSegment(value, segment, writer);
+            }
+        },
+        .int => try printSegment(data, segments, writer),
+        else => @compileError("Unsupported type"),
+    }
+
+    return;
 }
 
-fn printInstName(inst: u8, writer: *Writer) !void {
-    const name = @tagName(@as(codegen.Instr, @enumFromInt(inst)));
-    try writer.writeAll(name);
+fn printSegment(data: anytype, segment: anytype, writer: *Writer) !void {
+    switch (segment) {
+        .Reg => {
+            try writer.writeByte('r');
+            try writer.printInt(data, 10, .lower, .{});
+        },
+        .Immediate8 => try writeHexDecNumber(u8, @intCast(data), writer),
+        .Immediate16 => try writeHexDecNumber(u16, @intCast(data), writer),
+        .Immediate32 => try writeHexDecNumber(u32, @intCast(data), writer),
+        .Immediate64 => try writeHexDecNumber(u64, @intCast(data), writer),
+        else => @compileError("Unexpected segment type"),
+    }
 }
 
 pub fn writeHexNumber(comptime T: type, num: T, writer: *Writer) !void {

@@ -8,26 +8,6 @@ const codegen = blitz.codegen;
 const vmInfo = blitz.vmInfo;
 const print = blitz.print;
 
-const InstrSegmentVariant = enum {
-    const Self = @This();
-
-    Reg,
-    Immediate8,
-    Immediate16,
-    Immediate32,
-    Immediate64,
-
-    pub fn getSize(self: Self) u8 {
-        return switch (self) {
-            .Register => 1,
-            .Immediate8 => 1,
-            .Immediate16 => 2,
-            .Immediate32 => 4,
-            .Immediate64 => 8,
-        };
-    }
-};
-
 const InstrPrintUtil = struct {
     const Self = @This();
 
@@ -105,7 +85,7 @@ pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
     var printUtil = InstrPrintUtil.init(bytes);
 
     while (printUtil.hasNext()) {
-        try printBytecodeInstr(
+        try printInstrFromSliceUtil(
             &printUtil,
             numDigits,
             numInstrLenDigits,
@@ -132,7 +112,7 @@ pub fn printVMStartInfo(info: []u8, writer: *Writer) !void {
     try writer.writeByte('\n');
 }
 
-fn printBytecodeInstr(
+fn printInstrFromSliceUtil(
     printUtil: *InstrPrintUtil,
     numDigits: u64,
     numInstrLenDigits: u8,
@@ -171,42 +151,41 @@ fn printBytecodeInstr(
         .SetReg16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
         .SetReg8 => try printSegments(printUtil, .{ .Reg, .Immediate8 }, writer),
 
-        .Add => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
-        .Sub => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
-        .Mult => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
+        .Add, .Sub, .Mult => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
 
-        .Add8 => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate8 }, writer),
-        .Sub8 => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate8 }, writer),
+        .Add8, .Sub8 => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate8 }, writer),
 
-        .Add16 => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate16 }, writer),
-        .Sub16 => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate16 }, writer),
+        .Add16, .Sub16 => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate16 }, writer),
 
-        .Jump => try printSegments(printUtil, .{.Immediate32}, writer),
-        .JumpEQ => try printSegments(printUtil, .{.Immediate32}, writer),
-        .JumpNE => try printSegments(printUtil, .{.Immediate32}, writer),
-        .JumpGT => try printSegments(printUtil, .{.Immediate32}, writer),
-        .JumpLT => try printSegments(printUtil, .{.Immediate32}, writer),
-        .JumpGTE => try printSegments(printUtil, .{.Immediate32}, writer),
-        .JumpLTE => try printSegments(printUtil, .{.Immediate32}, writer),
-        .JumpBack => try printSegments(printUtil, .{.Immediate32}, writer),
-        .JumpBackEQ => try printSegments(printUtil, .{.Immediate32}, writer),
-        .JumpBackNE => try printSegments(printUtil, .{.Immediate32}, writer),
-        .JumpBackGT => try printSegments(printUtil, .{.Immediate32}, writer),
-        .JumpBackLT => try printSegments(printUtil, .{.Immediate32}, writer),
-        .JumpBackGTE => try printSegments(printUtil, .{.Immediate32}, writer),
-        .JumpBackLTE => try printSegments(printUtil, .{.Immediate32}, writer),
+        .Jump,
+        .JumpEQ,
+        .JumpNE,
+        .JumpGT,
+        .JumpLT,
+        .JumpGTE,
+        .JumpLTE,
+        .JumpBack,
+        .JumpBackEQ,
+        .JumpBackNE,
+        .JumpBackGT,
+        .JumpBackLT,
+        .JumpBackGTE,
+        .JumpBackLTE,
+        => try printSegments(printUtil, .{.Immediate32}, writer),
 
         .Cmp => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
-        .CmpSetRegEQ => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
-        .CmpSetRegNE => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
-        .CmpSetRegGT => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
-        .CmpSetRegLT => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
-        .CmpSetRegGTE => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
-        .CmpSetRegLTE => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
+        .CmpSetRegEQ,
+        .CmpSetRegNE,
+        .CmpSetRegGT,
+        .CmpSetRegLT,
+        .CmpSetRegGTE,
+        .CmpSetRegLTE,
+        => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
         .CmpConst8 => try printSegments(printUtil, .{ .Reg, .Immediate8 }, writer),
 
-        .IncConst8 => try printSegments(printUtil, .{ .Reg, .Immediate8 }, writer),
-        .DecConst8 => try printSegments(printUtil, .{ .Reg, .Immediate8 }, writer),
+        .IncConst8,
+        .DecConst8,
+        => try printSegments(printUtil, .{ .Reg, .Immediate8 }, writer),
 
         .Mov => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
         .MovSpNegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
@@ -216,60 +195,52 @@ fn printBytecodeInstr(
         .Xor => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
         .XorConst8 => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate8 }, writer),
 
-        .AddSp8 => try printSegments(printUtil, .{.Immediate8}, writer),
-        .SubSp8 => try printSegments(printUtil, .{.Immediate8}, writer),
-        .AddSp16 => try printSegments(printUtil, .{.Immediate16}, writer),
-        .SubSp16 => try printSegments(printUtil, .{.Immediate16}, writer),
-        .AddSp32 => try printSegments(printUtil, .{.Immediate32}, writer),
-        .SubSp32 => try printSegments(printUtil, .{.Immediate32}, writer),
-        .AddSp64 => try printSegments(printUtil, .{.Immediate64}, writer),
-        .SubSp64 => try printSegments(printUtil, .{.Immediate64}, writer),
+        .AddSp8,
+        .SubSp8,
+        => try printSegments(printUtil, .{.Immediate8}, writer),
+        .AddSp16,
+        .SubSp16,
+        => try printSegments(printUtil, .{.Immediate16}, writer),
+        .AddSp32,
+        .SubSp32,
+        => try printSegments(printUtil, .{.Immediate32}, writer),
+        .AddSp64,
+        .SubSp64,
+        => try printSegments(printUtil, .{.Immediate64}, writer),
 
-        .Store64AtReg => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
-        .Store32AtReg => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
-        .Store16AtReg => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
-        .Store8AtReg => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
+        .Store64AtReg,
+        .Store32AtReg,
+        .Store16AtReg,
+        .Store8AtReg,
+        => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
 
-        .Store64AtRegPostInc16 => try printSegments(
-            printUtil,
-            .{ .Reg, .Reg, .Immediate16 },
-            writer,
-        ),
-        .Store32AtRegPostInc16 => try printSegments(
-            printUtil,
-            .{ .Reg, .Reg, .Immediate16 },
-            writer,
-        ),
-        .Store16AtRegPostInc16 => try printSegments(
-            printUtil,
-            .{ .Reg, .Reg, .Immediate16 },
-            writer,
-        ),
-        .Store8AtRegPostInc16 => try printSegments(
-            printUtil,
-            .{ .Reg, .Reg, .Immediate16 },
-            writer,
-        ),
+        .Store64AtRegPostInc16,
+        .Store32AtRegPostInc16,
+        .Store16AtRegPostInc16,
+        .Store8AtRegPostInc16,
+        => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate16 }, writer),
 
-        .Store64AtSpNegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
-        .Store32AtSpNegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
-        .Store16AtSpNegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
-        .Store8AtSpNegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
+        .Store64AtSpNegOffset16,
+        .Store32AtSpNegOffset16,
+        .Store16AtSpNegOffset16,
+        .Store8AtSpNegOffset16,
+        .Load64AtSpNegOffset16,
+        .Load32AtSpNegOffset16,
+        .Load16AtSpNegOffset16,
+        .Load8AtSpNegOffset16,
+        => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
 
-        .Load64AtRegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
-        .Load32AtRegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
-        .Load16AtRegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
-        .Load8AtRegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
+        .Load64AtRegOffset16,
+        .Load32AtRegOffset16,
+        .Load16AtRegOffset16,
+        .Load8AtRegOffset16,
+        => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate16 }, writer),
 
-        .Load64AtSpNegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
-        .Load32AtSpNegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
-        .Load16AtSpNegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
-        .Load8AtSpNegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
-
-        .Load64AtReg => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
-        .Load32AtReg => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
-        .Load16AtReg => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
-        .Load8AtReg => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
+        .Load64AtReg,
+        .Load32AtReg,
+        .Load16AtReg,
+        .Load8AtReg,
+        => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
 
         .MulReg16AddReg => try printSegments(
             printUtil,
@@ -279,37 +250,39 @@ fn printBytecodeInstr(
 
         .DbgReg => try printSegments(printUtil, .{.Reg}, writer),
 
-        .BitAnd => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
-        .BitOr => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
+        .BitAnd, .BitOr => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
 
-        .And => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
-        .Or => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
+        .And, .Or => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
 
-        .AndSetReg => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
-        .OrSetReg => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
+        .AndSetReg, .OrSetReg => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
 
-        .PrePushRegNegOffset8 => try printSegments(printUtil, .{ .Reg, .Immediate8 }, writer),
-        .PrePushRegNegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
-        .PrePushRegNegOffset32 => try printSegments(printUtil, .{ .Reg, .Immediate32 }, writer),
-        .PrePushRegNegOffset64 => try printSegments(printUtil, .{ .Reg, .Immediate64 }, writer),
+        .PrePushRegNegOffset8,
+        .PostPopRegNegOffset8,
+        => try printSegments(printUtil, .{ .Reg, .Immediate8 }, writer),
+        .PrePushRegNegOffset16,
+        .PostPopRegNegOffset16,
+        => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
+        .PrePushRegNegOffset32,
+        .PostPopRegNegOffset32,
+        => try printSegments(printUtil, .{ .Reg, .Immediate32 }, writer),
+        .PrePushRegNegOffset64,
+        .PostPopRegNegOffset64,
+        => try printSegments(printUtil, .{ .Reg, .Immediate64 }, writer),
 
-        .PostPopRegNegOffset8 => try printSegments(printUtil, .{ .Reg, .Immediate8 }, writer),
-        .PostPopRegNegOffset16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
-        .PostPopRegNegOffset32 => try printSegments(printUtil, .{ .Reg, .Immediate32 }, writer),
-        .PostPopRegNegOffset64 => try printSegments(printUtil, .{ .Reg, .Immediate64 }, writer),
+        .PrePushLRNegOffset8,
+        .PostPopLRNegOffset8,
+        => try printSegments(printUtil, .{.Immediate8}, writer),
+        .PrePushLRNegOffset16,
+        .PostPopLRNegOffset16,
+        => try printSegments(printUtil, .{.Immediate16}, writer),
+        .PrePushLRNegOffset32,
+        .PostPopLRNegOffset32,
+        => try printSegments(printUtil, .{.Immediate32}, writer),
+        .PrePushLRNegOffset64,
+        .PostPopLRNegOffset64,
+        => try printSegments(printUtil, .{.Immediate64}, writer),
 
-        .PrePushLRNegOffset8 => try printSegments(printUtil, .{.Immediate8}, writer),
-        .PrePushLRNegOffset16 => try printSegments(printUtil, .{.Immediate16}, writer),
-        .PrePushLRNegOffset32 => try printSegments(printUtil, .{.Immediate32}, writer),
-        .PrePushLRNegOffset64 => try printSegments(printUtil, .{.Immediate64}, writer),
-
-        .PostPopLRNegOffset8 => try printSegments(printUtil, .{.Immediate8}, writer),
-        .PostPopLRNegOffset16 => try printSegments(printUtil, .{.Immediate16}, writer),
-        .PostPopLRNegOffset32 => try printSegments(printUtil, .{.Immediate32}, writer),
-        .PostPopLRNegOffset64 => try printSegments(printUtil, .{.Immediate64}, writer),
-
-        .BranchLink => try printSegments(printUtil, .{.Immediate32}, writer),
-        .BranchLinkBack => try printSegments(printUtil, .{.Immediate32}, writer),
+        .BranchLink, .BranchLinkBack => try printSegments(printUtil, .{.Immediate32}, writer),
     }
 
     try writer.writeByte('\n');
