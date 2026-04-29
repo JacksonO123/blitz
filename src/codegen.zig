@@ -3127,6 +3127,7 @@ pub fn genBytecodeUtil(
             if (context.genInfo.getRegInfo(resReg)) |regInfo| a: {
                 if (regInfo.varInfo) |varInfo| {
                     const location = varInfo.stackLocation orelse break :a;
+                    std.debug.print(":: {}\n", .{node});
                     const instr = loadAtSpNegOffset(resReg, location, node.typeInfo.size);
                     try context.genInfo.appendChunk(allocator, instr);
                 }
@@ -3704,14 +3705,12 @@ pub fn genBytecodeUtil(
             }
         },
         .PropertyAccess => |accessNode| {
-            const fromName = node.typeInfo.accessingFrom orelse
-                return CodeGenError.AccessTargetDoesNotHaveStructName;
-            const dec = context.compInfo.getStructDec(fromName).?;
-            const isFunction = dec.isPropFunction(accessNode.property);
-            const loc = if (isFunction)
-                @as(u64, 0)
-            else
-                (try dec.getMemberLocation(allocator, context, accessNode.property)).?;
+            const loc, const isFunction = try getPropLocation(
+                allocator,
+                context,
+                node,
+                accessNode.property,
+            );
 
             const reg = try calculateAccessOffset(
                 allocator,
@@ -3843,6 +3842,27 @@ pub fn genBytecodeUtil(
     }
 
     return null;
+}
+
+fn getPropLocation(
+    allocator: Allocator,
+    context: *Context,
+    node: *const ast.AstNode,
+    prop: []const u8,
+) !struct { u64, bool } {
+    if (node.variant.PropertyAccess.value.typeInfo.isSlice) {
+        return .{ builtins.getSlicePropLocations(prop).?, false };
+    }
+
+    const fromName = node.typeInfo.accessingFrom orelse
+        return CodeGenError.AccessTargetDoesNotHaveStructName;
+    const dec = context.compInfo.getStructDec(fromName).?;
+    const isFunction = dec.isPropFunction(prop);
+
+    return if (isFunction)
+        .{ @as(u64, 0), isFunction }
+    else
+        .{ (try dec.getMemberLocation(allocator, context, prop)).?, isFunction };
 }
 
 fn codegenFunctions(

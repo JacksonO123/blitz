@@ -1,10 +1,4 @@
 fn main() {
-    let a = 2;
-    let b = a + 1;
-    let c = b + 1;
-    let d = a + b + c;
-    let e = a + b + c + d;
-    let f = a + b + c + d + e;
-    let g = a + b + c + d + e + f;
-    let h = a + b + c + d + e + f + g;
+    let mut arr = [1, 2, 3];
+    let len = arr.len;
 }

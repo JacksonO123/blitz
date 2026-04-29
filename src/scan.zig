@@ -925,24 +925,22 @@ pub fn scanNode(
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
         .Variable => |name| {
-            const varInfo = try context.compInfo.getVariableType(name);
+            const varInfo = try context.compInfo.getVariableType(name) orelse
+                return ScanError.VariableIsUndefined;
 
-            if (varInfo) |info| {
-                const res = try clone.replaceGenericsOnTypeInfo(
-                    allocator,
-                    context,
-                    info,
-                    withGenDef,
-                );
-                node.typeInfo.size = try info.info.astType.getSize(allocator, context);
-                node.typeInfo.alignment = try info.info.astType.getAlignment(allocator, context);
+            const res = try clone.replaceGenericsOnTypeInfo(
+                allocator,
+                context,
+                varInfo,
+                withGenDef,
+            );
+            node.typeInfo.size = try varInfo.info.astType.getSize(allocator, context);
+            node.typeInfo.alignment = try varInfo.info.astType.getAlignment(allocator, context);
+            node.typeInfo.isSlice = varInfo.info.astType.VarInfo.info.astType.* == .ArrayDec;
 
-                try context.compInfo.setVariableLastUsedNode(name, node);
+            try context.compInfo.setVariableLastUsedNode(name, node);
 
-                return res;
-            }
-
-            return ScanError.VariableIsUndefined;
+            return res;
         },
         .StructPlaceholder => return context.staticPtrs.types.voidType.toAllocInfo(.Recycled),
         .StructDec => |dec| {
