@@ -1083,6 +1083,8 @@ fn printSegment(data: anytype, comptime segment: anytype, writer: *Writer) !void
         .Immediate64 => try writeHexDecNumber(u64, @intCast(data), writer),
         else => @compileError("Unexpected segment type"),
     }
+
+    try writer.writeByte(' ');
 }
 
 pub fn writeHexNumber(comptime T: type, num: T, writer: *Writer) !void {

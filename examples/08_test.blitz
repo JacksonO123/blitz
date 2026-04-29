@@ -1,4 +1,13 @@
 fn main() {
-    let mut arr = [1, 2, 3];
-    let len = arr.len;
+    let mut arr = &[3, 1, 8, 4, 2, 6, 3, 5];
+
+    for (let mut i = 0u64; i < arr.len - 1u64; i++) {
+        for (let mut j = 0u64; j < arr.len - i - 1u64; j++) {
+            if (arr[j] > arr[j + 1u64]) {
+                let tmp = arr[j];
+                arr[j] = arr[j + 1u64];
+                arr[j + 1u64] = tmp;
+            }
+        }
+    }
 }

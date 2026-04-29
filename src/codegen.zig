@@ -1209,6 +1209,7 @@ const GenInfoSettings = struct {
     outputCmpAsRegister: bool = true,
 
     propAccessReturnsPtr: bool = false,
+    sliceAccessGoToSlicePtr: bool = false,
 };
 
 const RegInfoVarInfo = struct {
@@ -3127,7 +3128,6 @@ pub fn genBytecodeUtil(
             if (context.genInfo.getRegInfo(resReg)) |regInfo| a: {
                 if (regInfo.varInfo) |varInfo| {
                     const location = varInfo.stackLocation orelse break :a;
-                    std.debug.print(":: {}\n", .{node});
                     const instr = loadAtSpNegOffset(resReg, location, node.typeInfo.size);
                     try context.genInfo.appendChunk(allocator, instr);
                 }
@@ -3731,12 +3731,18 @@ pub fn genBytecodeUtil(
             const indexReg = try genBytecode(allocator, context, indexNode.index) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
 
-            const reg = try calculateAccessOffset(
-                allocator,
-                context,
-                indexNode.target,
-                0,
-            );
+            const reg = a: {
+                const prev = context.genInfo.settings.sliceAccessGoToSlicePtr;
+                context.genInfo.settings.sliceAccessGoToSlicePtr = true;
+                defer context.genInfo.settings.sliceAccessGoToSlicePtr = prev;
+
+                break :a try calculateAccessOffset(
+                    allocator,
+                    context,
+                    indexNode.target,
+                    0,
+                );
+            };
 
             const itemPadding = utils.calculatePadding(
                 node.typeInfo.size,
@@ -4072,7 +4078,7 @@ fn calculateAccessOffset(
 
             const isVar = context.genInfo.isRegVariable(reg);
 
-            if (node.typeInfo.isSlice) {
+            if (node.typeInfo.isSlice and context.genInfo.settings.sliceAccessGoToSlicePtr) {
                 const outReg = try context.genInfo.getNextRegister(allocator);
                 const derefInstr = Instr{
                     .Load64AtReg = .{

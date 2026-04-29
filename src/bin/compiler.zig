@@ -109,7 +109,7 @@ pub fn compile(
         if (printState == .All) {
             try printWriter.writeAll("--- code ---\n");
             try printWriter.writeAll(code);
-            try printWriter.writeAll("\n------------\n\n");
+            // try printWriter.writeAll("\n------------\n\n");
             // try print.printAst(&context, tree, printWriter);
         }
 
