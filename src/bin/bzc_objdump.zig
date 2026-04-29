@@ -16,8 +16,15 @@ const InstrPrintUtil = struct {
     currentInstr: usize = 0,
     currentInstrByte: usize = 0,
 
-    pub fn init(instrs: []const u8) InstrPrintUtil {
-        return .{ .bytes = instrs };
+    pub fn init(
+        bytes: []const u8,
+        instrOffset: usize,
+    ) InstrPrintUtil {
+        return .{
+            .bytes = bytes,
+            .currentInstrByte = instrOffset,
+            .currentByte = instrOffset,
+        };
     }
 
     pub fn take(self: *Self, bytes: u32) []const u8 {
@@ -68,21 +75,20 @@ pub fn main() !void {
 }
 
 pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
-    try printVMStartInfo(bytecode[0..vmInfo.VM_INFO_BYTECODE_LEN], writer);
+    try printVMStartInfo(bytecode[0..vmInfo.VM_INFO_BYTECODE_HEADER_LEN], writer);
     const instrStart: u64 = std.mem.readInt(
         u32,
         bytecode[vmInfo.INSTR_START_PTR_LOCATION .. vmInfo.INSTR_START_PTR_LOCATION + 4],
         .little,
     );
 
-    try print.printHexViewer(bytecode[vmInfo.PADDED_VM_INFO_BYTECODE_LEN..instrStart], writer);
+    try print.printHexViewer(bytecode[vmInfo.PADDED_VM_INFO_BYTECODE_HEADER_LEN..instrStart], writer);
 
     const byteCountFloat: f64 = @floatFromInt(bytecode.len);
     const numDigits: u64 = @intFromFloat(@floor(@log10(byteCountFloat)) + 1);
     const numInstrLenDigits = utils.getNumberDigitCount(u8, codegen.Instr.maxInstrSize());
 
-    const bytes = bytecode[instrStart..];
-    var printUtil = InstrPrintUtil.init(bytes);
+    var printUtil = InstrPrintUtil.init(bytecode, instrStart);
 
     while (printUtil.hasNext()) {
         try printInstrFromSliceUtil(
@@ -100,11 +106,11 @@ pub fn printVMStartInfo(info: []u8, writer: *Writer) !void {
     try writer.writeAll("blitz bytecode version ");
     try writer.printInt(info[vmInfo.VERSION_LOCATION], 10, .lower, .{});
     try writer.writeAll("\nFirst instr: ");
-    try writeHexNumberSlice(
+    try writeHexDecNumberSlice(
         info[vmInfo.INSTR_START_PTR_LOCATION .. vmInfo.INSTR_START_PTR_LOCATION + 4],
         writer,
     );
-    try writer.writeAll("\nMakeStack ");
+    try writer.writeAll("\nInit stack size: ");
     try writeHexDecNumberSlice(
         info[vmInfo.STACK_START_LOCATION .. vmInfo.STACK_START_LOCATION + 4],
         writer,
@@ -116,14 +122,16 @@ fn printInstrFromSliceUtil(
     printUtil: *InstrPrintUtil,
     numDigits: u64,
     numInstrLenDigits: u8,
-    current: usize,
+    index: usize,
     writer: *Writer,
 ) !void {
     const instrByte = printUtil.take(1)[0];
+    const instrPos = printUtil.currentInstrByte;
     const instr = @as(codegen.InstructionVariants, @enumFromInt(instrByte));
 
-    try writer.writeByte('[');
-    try writer.printInt(current, 10, .lower, .{ .width = numDigits, .fill = '.' });
+    try writer.printInt(index, 10, .lower, .{ .width = 3, .fill = ' ', .alignment = .right });
+    try writer.writeAll(") [");
+    try writer.printInt(instrPos, 10, .lower, .{ .width = numDigits, .fill = '.' });
     try writer.writeAll("] (");
     try writer.printInt(
         instr.getInstrLen(),

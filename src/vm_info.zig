@@ -14,12 +14,12 @@ pub const RuntimeRegister = u8;
 pub const NUM_REGISTERS = std.math.maxInt(RuntimeRegister);
 
 // 4B (stack start size) + 4B (instr start ptr) + 1B (version)
-pub const VM_INFO_BYTECODE_LEN = 9;
+pub const VM_INFO_BYTECODE_HEADER_LEN = 9;
 pub const INSTR_START_PTR_LOCATION = 0;
 pub const STACK_START_LOCATION = 4;
 pub const VERSION_LOCATION = 8;
-pub const PADDED_VM_INFO_BYTECODE_LEN = VM_INFO_BYTECODE_LEN + utils.calculatePadding(
-    VM_INFO_BYTECODE_LEN,
+pub const PADDED_VM_INFO_BYTECODE_HEADER_LEN = VM_INFO_BYTECODE_HEADER_LEN + utils.calculatePadding(
+    VM_INFO_BYTECODE_HEADER_LEN,
     POINTER_SIZE,
 );
 pub const TempRegister = u32;

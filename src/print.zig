@@ -796,7 +796,12 @@ pub fn printBytecodeChunks(context: *Context, writer: *Writer) !void {
     try writer.printInt(context.genInfo.vmInfo.version, 10, .lower, .{});
     try writer.writeByte('\n');
 
-    try writer.writeAll("MakeStack ");
+    const instrStart = context.genInfo.calculateBytecodeHeaderSize();
+
+    try writer.writeAll("First instr: ");
+    try writeHexDecNumber(u32, instrStart, writer);
+
+    try writer.writeAll("Init stack size: ");
     try writeHexDecNumber(u32, context.genInfo.vmInfo.stackStartSize, writer);
     try writer.writeByte('\n');
 
@@ -807,7 +812,7 @@ pub fn printBytecodeChunks(context: *Context, writer: *Writer) !void {
         .numInstrLenDigits = numInstrLenDigits,
     };
 
-    var byteCounter: usize = vmInfo.VM_INFO_BYTECODE_LEN;
+    var byteCounter: usize = instrStart;
     var totalIndex: usize = 0;
     for (context.genInfo.instrList.items, 0..) |instr, index| {
         if (instr == .Label and !context.settings.debug.printLabels) continue;
@@ -846,7 +851,7 @@ pub fn printBytecodeChunks(context: *Context, writer: *Writer) !void {
     }
 
     try writer.print("total bytes: {d} ({d} vm info)\n", .{
-        context.genInfo.byteCounter, vmInfo.VM_INFO_BYTECODE_LEN,
+        context.genInfo.byteCounter, vmInfo.VM_INFO_BYTECODE_HEADER_LEN,
     });
 
     context.genInfo.instrActions.resetIter();
@@ -1106,13 +1111,13 @@ pub fn printHexViewer(bytes: []const u8, writer: *Writer) !void {
 
         try writer.writeAll("0x");
         try writer.printInt(
-            i + vmInfo.PADDED_VM_INFO_BYTECODE_LEN,
+            i + vmInfo.PADDED_VM_INFO_BYTECODE_HEADER_LEN,
             16,
             .lower,
             .{ .width = 4, .fill = '0' },
         );
         try writer.writeByte('(');
-        try writer.printInt(i + vmInfo.PADDED_VM_INFO_BYTECODE_LEN, 10, .lower, .{});
+        try writer.printInt(i + vmInfo.PADDED_VM_INFO_BYTECODE_HEADER_LEN, 10, .lower, .{});
         try writer.writeAll(")  ");
 
         var gotTo: usize = 0;

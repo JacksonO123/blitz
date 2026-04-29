@@ -89,7 +89,6 @@ pub const CompInfo = struct {
     genericScopes: ScopeUtil(*TypeScope, pools.releaseGenericScope),
     currentFuncReturn: ?ast.AstTypeInfo,
     returnInfo: ReturnInfo,
-    builtins: builtins.BuiltinFuncMemo,
     stackSizeEstimate: u32,
 
     pub inline fn init(
@@ -175,7 +174,6 @@ pub const CompInfo = struct {
             .preAst = true,
             .returnInfo = returnInfo,
             .currentFuncReturn = null,
-            .builtins = .{},
             .stackSizeEstimate = 1024, // 1kb
         };
     }
