@@ -2559,7 +2559,9 @@ fn rotatePrecedence(rootExprNode: *AstNode) ?*AstNode {
     const rightNode = rootExpr.right;
     const rightExpr = rightNode.variant.OpExpr;
 
-    if (@intFromEnum(rootExpr.type) < @intFromEnum(rightExpr.type)) {
+    if (@intFromEnum(rootExpr.type) < @intFromEnum(rightExpr.type) or
+        (rootExpr.type == .Sub and rightExpr.type == .Sub))
+    {
         const childLeft = rightExpr.left;
         rootExprNode.variant.OpExpr.right = childLeft;
         rightNode.variant.OpExpr.left = rootExprNode;
