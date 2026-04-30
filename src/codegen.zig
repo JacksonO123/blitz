@@ -3226,7 +3226,7 @@ pub fn genBytecodeUtil(
             const endVReg = context.genInfo.registers.items.len;
             for (startVReg..endVReg) |vReg| {
                 const useIndices = &context.genInfo.registers.items[vReg].useIndices;
-                const first = useIndices.first();
+                const first = useIndices.last();
                 if (first > forLoopStartInstrIndex) {
                     try useIndices.indices.append(allocator, @intCast(currentInstrIndex));
                 }
