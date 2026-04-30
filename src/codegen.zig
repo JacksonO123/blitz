@@ -3168,6 +3168,8 @@ pub fn genBytecodeUtil(
             }
         },
         .ForLoop => |loop| {
+            const forLoopStartInstrIndex = context.genInfo.instrList.items.len - 1;
+
             if (loop.initNode) |initNode| {
                 _ = try genBytecode(allocator, context, initNode);
             }
@@ -3218,6 +3220,17 @@ pub fn genBytecodeUtil(
 
             const loopEndLabel = Instr{ .Label = loopEndLabelId };
             try context.genInfo.appendChunk(allocator, loopEndLabel);
+
+            const currentInstrIndex = context.genInfo.instrList.items.len - 1;
+            const startVReg = context.genInfo.currentProc.preProcVirtualReg;
+            const endVReg = context.genInfo.registers.items.len;
+            for (startVReg..endVReg) |vReg| {
+                const useIndices = &context.genInfo.registers.items[vReg].useIndices;
+                const first = useIndices.first();
+                if (first > forLoopStartInstrIndex) {
+                    try useIndices.indices.append(allocator, @intCast(currentInstrIndex));
+                }
+            }
         },
         .WhileLoop => |loop| {
             try context.genInfo.pushLoopInfo(allocator);
