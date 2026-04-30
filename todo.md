@@ -1,0 +1,2 @@
+- [ ] ensure stack length at stack add only
+- [ ] keep registers used in while loop alive until end of loop

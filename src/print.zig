@@ -800,6 +800,7 @@ pub fn printBytecodeChunks(context: *Context, writer: *Writer) !void {
 
     try writer.writeAll("First instr: ");
     try writeHexDecNumber(u32, instrStart, writer);
+    try writer.writeByte('\n');
 
     try writer.writeAll("Init stack size: ");
     try writeHexDecNumber(u32, context.genInfo.vmInfo.stackStartSize, writer);
@@ -1108,6 +1109,11 @@ pub fn writeHexDecNumber(comptime T: type, num: T, writer: *Writer) !void {
 
 pub fn printHexViewer(bytes: []const u8, writer: *Writer) !void {
     const WIDTH = 16; // bytes
+
+    if (bytes.len == 0) {
+        try writer.writeAll("[No bytes]\n");
+        return;
+    }
 
     try writer.writeByte('\n');
 

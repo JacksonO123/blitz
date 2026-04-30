@@ -155,10 +155,14 @@ fn interpretBytecode(
         const inst = @as(codegen.InstructionVariants, @enumFromInt(bytecode[current]));
         const instLen = inst.getInstrLen();
         switch (inst) {
-            .Label, .NoOp => unreachable,
-            .PrePushRegNegOffsetAny, .PostPopRegNegOffsetAny => unreachable,
-            .MovSpNegOffsetAny => unreachable,
-            .PrePushLRNegOffsetAny, .PostPopLRNegOffsetAny => unreachable,
+            .Label,
+            .NoOp,
+            .PrePushRegNegOffsetAny,
+            .PostPopRegNegOffsetAny,
+            .MovSpNegOffsetAny,
+            .PrePushLRNegOffsetAny,
+            .PostPopLRNegOffsetAny,
+            => unreachable,
             .Mov => {
                 runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.registers[bytecode[current + 2]];
             },

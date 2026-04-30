@@ -4461,9 +4461,9 @@ fn initArraySliceBytecode(
         const regLocation = regLocationOrNull orelse arrayStartLoc;
 
         const setReg = Instr{
-            .SetReg64 = .{
+            .MovSpNegOffsetAny = .{
                 .reg = tempReg,
-                .data = regLocation,
+                .offset = regLocation,
             },
         };
         try context.genInfo.appendChunk(allocator, setReg);
