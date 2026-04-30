@@ -821,7 +821,7 @@ pub fn printBytecodeChunks(context: *Context, writer: *Writer) !void {
         const skipped = context.genInfo.handleSkipInstruction(index);
         const printSkippedChunk = !skipped or context.settings.debug.printSkippedInstrs;
         if (printSkippedChunk) {
-            byteCounter += try printChunkDetailed(
+            const bytes = try printChunkDetailed(
                 instr,
                 totalIndex,
                 byteCounter,
@@ -829,6 +829,10 @@ pub fn printBytecodeChunks(context: *Context, writer: *Writer) !void {
                 writer,
                 if (skipped) .Skip else null,
             );
+
+            if (!skipped) {
+                byteCounter += bytes;
+            }
         }
 
         while (context.genInfo.handleInsertInstr(index)) |insertedInstr| {
