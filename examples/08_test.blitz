@@ -1,10 +1,13 @@
 fn main() {
-    let a = 2;
-    let b = a + 1;
-    let c = b + 1;
-    let d = a + b + c;
-    let e = a + b + c + d;
-    let f = a + b + c + d + e;
-    let g = a + b + c + d + e + f;
-    let h = a + b + c + d + e + f + g;
+    let mut arr = &[3, 1, 8, 4, 2, 6, 3, 5];
+
+    for (let mut i = 0u64; i < arr.len - 1u64; i++) {
+        for (let mut j = 0u64; j < arr.len - i - 1u64; j++) {
+            if (arr[j] > arr[j + 1u64]) {
+                let tmp = arr[j];
+                arr[j] = arr[j + 1u64];
+                arr[j + 1u64] = tmp;
+            }
+        }
+    }
 }

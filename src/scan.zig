@@ -618,16 +618,7 @@ pub fn scanNode(
                     return anyType.toAllocInfo(.Recycled);
                 },
                 .ArrayDec => {
-                    const propType = try builtins.getArrayDecPropType(
-                        context,
-                        access.property,
-                    );
-                    node.typeInfo.size = try propType.astType.getSize(allocator, context);
-                    node.typeInfo.alignment = try propType.astType.getAlignment(
-                        allocator,
-                        context,
-                    );
-                    return propType.toAllocInfo(.Recycled);
+                    return try getArrayDecPropType(allocator, context, node, access.property);
                 },
                 .Custom => |custom| a: {
                     const structDec = context.compInfo.getStructDec(custom.name) orelse
@@ -769,6 +760,10 @@ pub fn scanNode(
                         },
                     });
                     return errOrEnumType.toAllocInfo(.Const, .Allocated);
+                },
+                .Pointer => |pointer| {
+                    if (pointer.info.astType.* != .ArrayDec) return ScanError.InvalidProperty;
+                    return try getArrayDecPropType(allocator, context, node, access.property);
                 },
                 else => false,
             };
@@ -925,24 +920,22 @@ pub fn scanNode(
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
         .Variable => |name| {
-            const varInfo = try context.compInfo.getVariableType(name);
+            const varInfo = try context.compInfo.getVariableType(name) orelse
+                return ScanError.VariableIsUndefined;
 
-            if (varInfo) |info| {
-                const res = try clone.replaceGenericsOnTypeInfo(
-                    allocator,
-                    context,
-                    info,
-                    withGenDef,
-                );
-                node.typeInfo.size = try info.info.astType.getSize(allocator, context);
-                node.typeInfo.alignment = try info.info.astType.getAlignment(allocator, context);
+            const res = try clone.replaceGenericsOnTypeInfo(
+                allocator,
+                context,
+                varInfo,
+                withGenDef,
+            );
+            node.typeInfo.size = try varInfo.info.astType.getSize(allocator, context);
+            node.typeInfo.alignment = try varInfo.info.astType.getAlignment(allocator, context);
+            node.typeInfo.isSlice = typeIsSlice(varInfo.info.astType.VarInfo);
 
-                try context.compInfo.setVariableLastUsedNode(name, node);
+            try context.compInfo.setVariableLastUsedNode(name, node);
 
-                return res;
-            }
-
-            return ScanError.VariableIsUndefined;
+            return res;
         },
         .StructPlaceholder => return context.staticPtrs.types.voidType.toAllocInfo(.Recycled),
         .StructDec => |dec| {
@@ -1001,10 +994,10 @@ pub fn scanNode(
                 return ScanError.ExpectedBooleanLoopCondition;
             }
 
-            const incNodeType = try scanNode(allocator, context, loop.incNode, withGenDef);
-            defer releaseIfAllocated(context, incNodeType);
             const bodyRes = try scanNode(allocator, context, loop.body, withGenDef);
             defer releaseIfAllocated(context, bodyRes);
+            const incNodeType = try scanNode(allocator, context, loop.incNode, withGenDef);
+            defer releaseIfAllocated(context, incNodeType);
 
             try context.compInfo.returnInfo.collapse(prev);
             if (context.compInfo.returnInfo.info.hasType) {
@@ -1600,6 +1593,26 @@ pub fn scanNode(
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
     }
+}
+
+fn typeIsSlice(valType: TypeAndAllocInfo) bool {
+    return (valType.info.astType.* == .Pointer and
+        valType.info.astType.Pointer.info.astType.* == .ArrayDec);
+}
+
+fn getArrayDecPropType(
+    allocator: Allocator,
+    context: *Context,
+    node: *ast.AstNode,
+    prop: []const u8,
+) !TypeAndAllocInfo {
+    const propType = try builtins.getArrayDecPropType(context, prop);
+    node.typeInfo.size = try propType.astType.getSize(allocator, context);
+    node.typeInfo.alignment = try propType.astType.getAlignment(
+        allocator,
+        context,
+    );
+    return propType.toAllocInfo(.Allocated);
 }
 
 fn escapeVarInfo(

@@ -34,6 +34,10 @@ const SlicePropLocation = struct {
 
 const slicePropLocations = &[_]SlicePropLocation{
     .{
+        .prop = "ptr",
+        .location = 0,
+    },
+    .{
         .prop = "len",
         .location = vmInfo.POINTER_SIZE,
     },

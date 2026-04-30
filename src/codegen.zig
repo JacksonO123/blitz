@@ -1209,6 +1209,7 @@ const GenInfoSettings = struct {
     outputCmpAsRegister: bool = true,
 
     propAccessReturnsPtr: bool = false,
+    sliceAccessGoToSlicePtr: bool = false,
 };
 
 const RegInfoVarInfo = struct {
@@ -3704,14 +3705,12 @@ pub fn genBytecodeUtil(
             }
         },
         .PropertyAccess => |accessNode| {
-            const fromName = node.typeInfo.accessingFrom orelse
-                return CodeGenError.AccessTargetDoesNotHaveStructName;
-            const dec = context.compInfo.getStructDec(fromName).?;
-            const isFunction = dec.isPropFunction(accessNode.property);
-            const loc = if (isFunction)
-                @as(u64, 0)
-            else
-                (try dec.getMemberLocation(allocator, context, accessNode.property)).?;
+            const loc, const isFunction = try getPropLocation(
+                allocator,
+                context,
+                node,
+                accessNode.property,
+            );
 
             const reg = try calculateAccessOffset(
                 allocator,
@@ -3732,12 +3731,18 @@ pub fn genBytecodeUtil(
             const indexReg = try genBytecode(allocator, context, indexNode.index) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
 
-            const reg = try calculateAccessOffset(
-                allocator,
-                context,
-                indexNode.target,
-                0,
-            );
+            const reg = a: {
+                const prev = context.genInfo.settings.sliceAccessGoToSlicePtr;
+                context.genInfo.settings.sliceAccessGoToSlicePtr = true;
+                defer context.genInfo.settings.sliceAccessGoToSlicePtr = prev;
+
+                break :a try calculateAccessOffset(
+                    allocator,
+                    context,
+                    indexNode.target,
+                    0,
+                );
+            };
 
             const itemPadding = utils.calculatePadding(
                 node.typeInfo.size,
@@ -3843,6 +3848,27 @@ pub fn genBytecodeUtil(
     }
 
     return null;
+}
+
+fn getPropLocation(
+    allocator: Allocator,
+    context: *Context,
+    node: *const ast.AstNode,
+    prop: []const u8,
+) !struct { u64, bool } {
+    if (node.variant.PropertyAccess.value.typeInfo.isSlice) {
+        return .{ builtins.getSlicePropLocations(prop).?, false };
+    }
+
+    const fromName = node.typeInfo.accessingFrom orelse
+        return CodeGenError.AccessTargetDoesNotHaveStructName;
+    const dec = context.compInfo.getStructDec(fromName).?;
+    const isFunction = dec.isPropFunction(prop);
+
+    return if (isFunction)
+        .{ @as(u64, 0), isFunction }
+    else
+        .{ (try dec.getMemberLocation(allocator, context, prop)).?, isFunction };
 }
 
 fn codegenFunctions(
@@ -4052,7 +4078,7 @@ fn calculateAccessOffset(
 
             const isVar = context.genInfo.isRegVariable(reg);
 
-            if (node.typeInfo.isSlice) {
+            if (node.typeInfo.isSlice and context.genInfo.settings.sliceAccessGoToSlicePtr) {
                 const outReg = try context.genInfo.getNextRegister(allocator);
                 const derefInstr = Instr{
                     .Load64AtReg = .{
