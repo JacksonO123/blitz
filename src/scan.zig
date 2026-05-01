@@ -1255,6 +1255,7 @@ pub fn scanNode(
                     genScope,
                     withGenDef,
                 );
+
                 if (scannedBefore) |at| {
                     node.typeInfo.funcGenInstanceIndex = @intCast(at);
                 } else {
@@ -1796,10 +1797,7 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
 
         try scanFuncBodyAndReturn(allocator, context, func, toScanItem.withGenDef);
 
-        if (toScanItem.withGenDef and
-            (func.genericState == .Generic or
-                func.onGenericStruct(context)))
-        {
+        if (func.genericState == .Generic or func.onGenericStruct(context)) {
             const cloned = try clone.cloneAstNodePtrMut(allocator, context, func.body, true);
             try func.genericState.Generic.genericInstances.append(
                 allocator,

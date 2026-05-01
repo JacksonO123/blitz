@@ -1,2 +1,3 @@
 - [ ] ensure stack length at stack add only
 - [ ] keep registers used in while loop alive until end of loop
+- [ ] track variables that exist around function calls in the parser, not in codegen

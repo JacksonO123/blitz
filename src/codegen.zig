@@ -1647,8 +1647,12 @@ pub const GenInfo = struct {
     pub fn appendChunkAndReturn(self: *Self, allocator: Allocator, instr: Instr) !*Instr {
         try self.instrList.append(allocator, instr);
         const instrIndex = self.instrList.items.len - 1;
-        try self.setInstrRegUseIndex(allocator, &self.instrList.items[instrIndex], instrIndex);
+        try self.runInstrAddEffects(allocator, instrIndex);
         return &self.instrList.items[instrIndex];
+    }
+
+    pub fn runInstrAddEffects(self: *Self, allocator: Allocator, instrIndex: usize) !void {
+        try self.setInstrRegUseIndex(allocator, &self.instrList.items[instrIndex], instrIndex);
     }
 
     pub fn setInstrRegActiveStatus(self: *Self, instr: *const Instr, instrIndex: usize) void {
