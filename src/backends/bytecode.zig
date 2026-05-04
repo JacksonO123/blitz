@@ -65,7 +65,7 @@ fn allocateRegisters(
 ) !void {
     var i: usize = 0;
     while (i < instrs.len) : (i += 1) {
-        try remapInstr(allocator, context, i + baseIndex, sp);
+        try remapInstr(allocator, context, baseIndex, i + baseIndex, sp);
     }
 }
 
@@ -77,7 +77,13 @@ fn flushPendingDeactivations(context: *Context) void {
     context.genInfo.regAllocateUtils.protectedRegisters.clear();
 }
 
-fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize, sp: *u64) !void {
+fn remapInstr(
+    allocator: Allocator,
+    context: *Context,
+    baseIndex: usize,
+    instrIndex: usize,
+    sp: *u64,
+) !void {
     defer flushPendingDeactivations(context);
 
     const instr = &context.genInfo.instrList.items[instrIndex];
@@ -122,31 +128,59 @@ fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize, sp: *u
         .PostPopLRNegOffset64,
         => {},
 
-        .DbgReg => |*inner| try remapReg(allocator, context, inner, instrIndex, sp),
+        .DbgReg => |*inner| try remapReg(allocator, context, inner, baseIndex, instrIndex, sp),
 
-        .SetReg64 => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
-        .SetReg32 => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
-        .SetReg16 => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
-        .SetReg8 => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
+        .SetReg64 => |*inner| try remapReg(
+            allocator,
+            context,
+            &inner.reg,
+            baseIndex,
+            instrIndex,
+            sp,
+        ),
+        .SetReg32 => |*inner| try remapReg(
+            allocator,
+            context,
+            &inner.reg,
+            baseIndex,
+            instrIndex,
+            sp,
+        ),
+        .SetReg16 => |*inner| try remapReg(
+            allocator,
+            context,
+            &inner.reg,
+            baseIndex,
+            instrIndex,
+            sp,
+        ),
+        .SetReg8 => |*inner| try remapReg(
+            allocator,
+            context,
+            &inner.reg,
+            baseIndex,
+            instrIndex,
+            sp,
+        ),
         .Add, .Sub, .Mult => |*inner| {
-            try remapReg(allocator, context, &inner.reg1, instrIndex, sp);
-            try remapReg(allocator, context, &inner.reg2, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg1, baseIndex, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg2, baseIndex, instrIndex, sp);
             flushPendingDeactivations(context);
-            try remapReg(allocator, context, &inner.dest, instrIndex, sp);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
         },
         .Add8, .Sub8 => |*inner| {
-            try remapReg(allocator, context, &inner.reg, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg, baseIndex, instrIndex, sp);
             flushPendingDeactivations(context);
-            try remapReg(allocator, context, &inner.dest, instrIndex, sp);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
         },
         .Add16, .Sub16 => |*inner| {
-            try remapReg(allocator, context, &inner.reg, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg, baseIndex, instrIndex, sp);
             flushPendingDeactivations(context);
-            try remapReg(allocator, context, &inner.dest, instrIndex, sp);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
         },
         .Cmp => |*inner| {
-            try remapReg(allocator, context, &inner.reg1, instrIndex, sp);
-            try remapReg(allocator, context, &inner.reg2, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg1, baseIndex, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg2, baseIndex, instrIndex, sp);
         },
         .CmpSetRegEQ,
         .CmpSetRegNE,
@@ -155,46 +189,60 @@ fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize, sp: *u
         .CmpSetRegGTE,
         .CmpSetRegLTE,
         => |*inner| {
-            try remapReg(allocator, context, &inner.reg1, instrIndex, sp);
-            try remapReg(allocator, context, &inner.reg2, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg1, baseIndex, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg2, baseIndex, instrIndex, sp);
             flushPendingDeactivations(context);
-            try remapReg(allocator, context, &inner.dest, instrIndex, sp);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
         },
         .CmpConst8, .IncConst8, .DecConst8 => |*inner| {
-            try remapReg(allocator, context, &inner.reg, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg, baseIndex, instrIndex, sp);
         },
         .Mov => |*inner| {
-            try remapReg(allocator, context, &inner.src, instrIndex, sp);
+            try remapReg(allocator, context, &inner.src, baseIndex, instrIndex, sp);
             flushPendingDeactivations(context);
-            try remapReg(allocator, context, &inner.dest, instrIndex, sp);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
         },
-        .MovSpNegOffset16 => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
-        .MovSpNegOffset32 => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
+        .MovSpNegOffset16 => |*inner| try remapReg(
+            allocator,
+            context,
+            &inner.reg,
+            baseIndex,
+            instrIndex,
+            sp,
+        ),
+        .MovSpNegOffset32 => |*inner| try remapReg(
+            allocator,
+            context,
+            &inner.reg,
+            baseIndex,
+            instrIndex,
+            sp,
+        ),
         .MovSpNegOffset64,
         .MovSpNegOffsetAny,
-        => |*inner| try remapReg(allocator, context, &inner.reg, instrIndex, sp),
+        => |*inner| try remapReg(allocator, context, &inner.reg, baseIndex, instrIndex, sp),
         .Xor, .BitAnd, .BitOr, .AndSetReg, .OrSetReg => |*inner| {
-            try remapReg(allocator, context, &inner.reg1, instrIndex, sp);
-            try remapReg(allocator, context, &inner.reg2, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg1, baseIndex, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg2, baseIndex, instrIndex, sp);
             flushPendingDeactivations(context);
-            try remapReg(allocator, context, &inner.dest, instrIndex, sp);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
         },
         .XorConst8 => |*inner| {
-            try remapReg(allocator, context, &inner.reg, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg, baseIndex, instrIndex, sp);
             flushPendingDeactivations(context);
-            try remapReg(allocator, context, &inner.dest, instrIndex, sp);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
         },
         .Store64AtReg, .Store32AtReg, .Store16AtReg, .Store8AtReg => |*inner| {
-            try remapReg(allocator, context, &inner.fromReg, instrIndex, sp);
-            try remapReg(allocator, context, &inner.toRegPtr, instrIndex, sp);
+            try remapReg(allocator, context, &inner.fromReg, baseIndex, instrIndex, sp);
+            try remapReg(allocator, context, &inner.toRegPtr, baseIndex, instrIndex, sp);
         },
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,
         .Store16AtRegPostInc16,
         .Store8AtRegPostInc16,
         => |*inner| {
-            try remapReg(allocator, context, &inner.fromReg, instrIndex, sp);
-            try remapReg(allocator, context, &inner.toRegPtr, instrIndex, sp);
+            try remapReg(allocator, context, &inner.fromReg, baseIndex, instrIndex, sp);
+            try remapReg(allocator, context, &inner.toRegPtr, baseIndex, instrIndex, sp);
         },
         .Store64AtSpNegOffset16,
         .Store32AtSpNegOffset16,
@@ -205,31 +253,31 @@ fn remapInstr(allocator: Allocator, context: *Context, instrIndex: usize, sp: *u
         .Load16AtSpNegOffset16,
         .Load8AtSpNegOffset16,
         => |*inner| {
-            try remapReg(allocator, context, &inner.reg, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg, baseIndex, instrIndex, sp);
         },
         .Load64AtRegOffset16,
         .Load32AtRegOffset16,
         .Load16AtRegOffset16,
         .Load8AtRegOffset16,
         => |*inner| {
-            try remapReg(allocator, context, &inner.fromRegPtr, instrIndex, sp);
+            try remapReg(allocator, context, &inner.fromRegPtr, baseIndex, instrIndex, sp);
             flushPendingDeactivations(context);
-            try remapReg(allocator, context, &inner.dest, instrIndex, sp);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
         },
         .Load64AtReg, .Load32AtReg, .Load16AtReg, .Load8AtReg => |*inner| {
-            try remapReg(allocator, context, &inner.fromRegPtr, instrIndex, sp);
+            try remapReg(allocator, context, &inner.fromRegPtr, baseIndex, instrIndex, sp);
             flushPendingDeactivations(context);
-            try remapReg(allocator, context, &inner.dest, instrIndex, sp);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
         },
         .MulReg16AddReg => |*inner| {
-            try remapReg(allocator, context, &inner.addReg, instrIndex, sp);
-            try remapReg(allocator, context, &inner.mulReg, instrIndex, sp);
+            try remapReg(allocator, context, &inner.addReg, baseIndex, instrIndex, sp);
+            try remapReg(allocator, context, &inner.mulReg, baseIndex, instrIndex, sp);
             flushPendingDeactivations(context);
-            try remapReg(allocator, context, &inner.dest, instrIndex, sp);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
         },
         .And, .Or => |*inner| {
-            try remapReg(allocator, context, &inner.reg1, instrIndex, sp);
-            try remapReg(allocator, context, &inner.reg2, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg1, baseIndex, instrIndex, sp);
+            try remapReg(allocator, context, &inner.reg2, baseIndex, instrIndex, sp);
         },
         .PrePushRegNegOffset8, .PostPopRegNegOffset8 => |*inner| {
             inner.reg += context.genInfo.registerLimits.preserved.start;
@@ -271,6 +319,7 @@ fn remapReg(
     allocator: Allocator,
     context: *Context,
     regPtr: *vmInfo.TempRegister,
+    baseIndex: usize,
     instrIndex: usize,
     sp: *u64,
 ) !void {
@@ -280,7 +329,15 @@ fn remapReg(
     switch (regInfo.regRemap) {
         .Unused => {
             @branchHint(.likely);
-            regPtr.* = try handleNewRegRemap(allocator, context, regInfo, regPtr, instrIndex, sp);
+            regPtr.* = try handleNewRegRemap(
+                allocator,
+                context,
+                regInfo,
+                regPtr,
+                baseIndex,
+                instrIndex,
+                sp,
+            );
         },
         .Normal => |remap| a: {
             @branchHint(.likely);
@@ -299,6 +356,7 @@ fn remapReg(
                     context,
                     regInfo,
                     regPtr,
+                    baseIndex,
                     instrIndex,
                     sp,
                 );
@@ -374,6 +432,7 @@ fn remapReg(
                         context,
                         regInfo,
                         regPtr,
+                        baseIndex,
                         instrIndex,
                         sp,
                     );
@@ -434,7 +493,15 @@ fn remapReg(
             regPtr.* = spillInfo.reg;
         },
         .Stored => |storedInfo| {
-            const reg = try handleNewRegRemap(allocator, context, regInfo, regPtr, instrIndex, sp);
+            const reg = try handleNewRegRemap(
+                allocator,
+                context,
+                regInfo,
+                regPtr,
+                baseIndex,
+                instrIndex,
+                sp,
+            );
 
             const loadInstr = codegen.Instr{
                 .Load64AtSpNegOffset16 = .{
@@ -508,11 +575,12 @@ fn handleNewRegRemap(
     context: *Context,
     regInfo: *codegen.RegInfo,
     regPtr: *vmInfo.TempRegister,
+    baseIndex: usize,
     instrIndex: usize,
     sp: *u64,
 ) !vmInfo.TempRegister {
     const currentVReg = regPtr.*;
-    const regResult = try getRegFromUsage(context, instrIndex, regInfo);
+    const regResult = try getRegFromUsage(allocator, context, baseIndex, instrIndex, regInfo);
 
     switch (regResult) {
         .Normal => |reg| {
@@ -589,16 +657,10 @@ fn handleNewRegRemap(
     }
 }
 
-fn getRegLimitsFromUsage(context: *Context, regInfo: *codegen.RegInfo) codegen.RegisterRange {
-    return switch (regInfo.usage) {
-        .Temporary => context.genInfo.registerLimits.temporary,
-        .Preserved => context.genInfo.registerLimits.preserved,
-        .Param, .Return, .ParamNext, .ReturnNext => context.genInfo.registerLimits.params,
-    };
-}
-
 fn getRegFromUsage(
+    allocator: Allocator,
     context: *Context,
+    baseIndex: usize,
     instrIndex: usize,
     regInfo: *codegen.RegInfo,
 ) !InactiveRegResult {
@@ -625,6 +687,59 @@ fn getRegFromUsage(
             instrIndex,
             context.genInfo.registerLimits.params,
         ),
+        .ParamPreserved => {
+            const start = context.genInfo.registerLimits.params.start;
+            const end = context.genInfo.registerLimits.params.end;
+            @memset(context.genInfo.registerStatus.items[start + 1 .. end], .{});
+            context.genInfo.registerStatus.items[0].active = true;
+
+            const preservedReg = try inactiveRegFromLimits(
+                context,
+                instrIndex,
+                context.genInfo.registerLimits.preserved,
+            );
+
+            const movInstr = codegen.Instr{
+                .Mov = .{
+                    .src = 0,
+                    .dest = preservedReg.Normal,
+                },
+            };
+
+            try insertInsertAction(allocator, context, .{
+                .instr = movInstr,
+                .pos = @intCast(baseIndex + vmInfo.PUSH_REG_BASE_OFFSET),
+            });
+
+            return preservedReg;
+        },
+        .ParamPreservedNext => {
+            const paramReg = try inactiveRegFromLimits(
+                context,
+                instrIndex,
+                context.genInfo.registerLimits.params,
+            );
+
+            const preservedReg = try inactiveRegFromLimits(
+                context,
+                instrIndex,
+                context.genInfo.registerLimits.preserved,
+            );
+
+            const movInstr = codegen.Instr{
+                .Mov = .{
+                    .src = paramReg.Normal,
+                    .dest = preservedReg.Normal,
+                },
+            };
+
+            try insertInsertAction(allocator, context, .{
+                .instr = movInstr,
+                .pos = @intCast(baseIndex + vmInfo.PUSH_REG_BASE_OFFSET),
+            });
+
+            return preservedReg;
+        },
     };
 }
 

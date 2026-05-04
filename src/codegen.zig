@@ -65,6 +65,8 @@ pub const RegisterUsage = enum {
     Return,
     ReturnNext,
     Preserved,
+    ParamPreserved,
+    ParamPreservedNext,
     Temporary,
 
     pub fn isParam(self: Self) bool {
@@ -2313,7 +2315,14 @@ fn adjustProc(
                     const lastUsed = regInfo.useIndices.last();
 
                     if (firstFound < i and i < lastUsed) {
-                        context.genInfo.registers.items[procReg].usage = .Preserved;
+                        const usage = context.genInfo.registers.items[procReg].usage;
+                        context.genInfo.registers.items[procReg].usage = if (usage == .Param)
+                            .ParamPreserved
+                        else if (usage == .ParamNext)
+                            .ParamPreservedNext
+                        else
+                            .Preserved;
+
                         if (context.genInfo.currentProc.maxPreserveReg) |*reg| {
                             reg.* += 1;
                         } else {
@@ -2345,7 +2354,8 @@ fn adjustProc(
             frameSize.* + stackOffset - startOffset,
         );
 
-        context.genInfo.instrList.items[instrStartIndex + 2] = pushLRInstr;
+        const index = instrStartIndex + vmInfo.PUSH_LR_BASE_OFFSET;
+        context.genInfo.instrList.items[index] = pushLRInstr;
         try context.genInfo.instrList.append(allocator, popLRInstr);
     }
 
@@ -2353,7 +2363,8 @@ fn adjustProc(
         const pushInstr = try pushRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
         const popInstr = try popRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
 
-        context.genInfo.instrList.items[instrStartIndex + 1] = pushInstr;
+        const index = instrStartIndex + vmInfo.PUSH_REG_BASE_OFFSET;
+        context.genInfo.instrList.items[index] = pushInstr;
         try context.genInfo.instrList.append(allocator, popInstr);
     }
 

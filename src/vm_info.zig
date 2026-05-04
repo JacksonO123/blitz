@@ -43,5 +43,9 @@ pub const bytecodeRegLimits: codegen.BackendRegLimits = .{
     },
 };
 
+pub const ADD_SP_BASE_OFFSET = 0;
+pub const PUSH_REG_BASE_OFFSET = 1;
+pub const PUSH_LR_BASE_OFFSET = 2;
+
 // behavior
 pub const ARRAY_INIT_UNROLL_LIMIT = 1024;
