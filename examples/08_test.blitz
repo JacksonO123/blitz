@@ -1,11 +1,8 @@
-fn outer[T](val: T) T {
-    fn inner[G](innerVal: G) G {
-        return innerVal;
+fn thing(src: u32[], dst: mut u32[], len: u32) {
+    for (let mut i = 0; i < len; i++) {
+        dst[i] = src[i];
     }
-
-    return val + inner(val);
 }
 
 fn main() {
-    let a = outer(2);
 }

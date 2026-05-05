@@ -675,24 +675,10 @@ fn getRegFromUsage(
             instrIndex,
             context.genInfo.registerLimits.preserved,
         ),
-        .Param, .Return => {
-            const start = context.genInfo.registerLimits.params.start;
-            const end = context.genInfo.registerLimits.params.end;
-            @memset(context.genInfo.registerStatus.items[start + 1 .. end], .{});
-            context.genInfo.registerStatus.items[0].active = true;
-            return .{ .Normal = 0 };
+        .Param, .Return => |num| {
+            return .{ .Normal = num };
         },
-        .ParamNext, .ReturnNext => try inactiveRegFromLimits(
-            context,
-            instrIndex,
-            context.genInfo.registerLimits.params,
-        ),
-        .ParamPreserved => {
-            const start = context.genInfo.registerLimits.params.start;
-            const end = context.genInfo.registerLimits.params.end;
-            @memset(context.genInfo.registerStatus.items[start + 1 .. end], .{});
-            context.genInfo.registerStatus.items[0].active = true;
-
+        .ParamPreserved => |num| {
             const preservedReg = try inactiveRegFromLimits(
                 context,
                 instrIndex,
@@ -701,34 +687,7 @@ fn getRegFromUsage(
 
             const movInstr = codegen.Instr{
                 .Mov = .{
-                    .src = 0,
-                    .dest = preservedReg.Normal,
-                },
-            };
-
-            try insertInsertAction(allocator, context, .{
-                .instr = movInstr,
-                .pos = @intCast(baseIndex + vmInfo.PUSH_REG_BASE_OFFSET),
-            });
-
-            return preservedReg;
-        },
-        .ParamPreservedNext => {
-            const paramReg = try inactiveRegFromLimits(
-                context,
-                instrIndex,
-                context.genInfo.registerLimits.params,
-            );
-
-            const preservedReg = try inactiveRegFromLimits(
-                context,
-                instrIndex,
-                context.genInfo.registerLimits.preserved,
-            );
-
-            const movInstr = codegen.Instr{
-                .Mov = .{
-                    .src = paramReg.Normal,
+                    .src = num,
                     .dest = preservedReg.Normal,
                 },
             };

@@ -37,7 +37,7 @@ pub fn getNumberDigitCount(comptime T: type, int: T) u8 {
 }
 
 pub inline fn unimplemented() void {
-    unreachable;
+    @panic("unimplemented");
 }
 
 pub inline fn compString(str1: []const u8, str2: []const u8) bool {

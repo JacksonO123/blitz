@@ -57,23 +57,35 @@ pub const BackendInterface = struct {
     ) Allocator.Error!void,
 };
 
-pub const RegisterUsage = enum {
+pub const RegisterUsageVariants = enum {
     const Self = @This();
 
     Param,
-    ParamNext,
     Return,
-    ReturnNext,
     Preserved,
     ParamPreserved,
-    ParamPreservedNext,
     Temporary,
 
     pub fn isParam(self: Self) bool {
         return switch (self) {
-            .Param, .ParamNext => true,
+            .Param, .ParamPreserved => true,
             else => false,
         };
+    }
+};
+
+pub const RegisterUsage = union(RegisterUsageVariants) {
+    const Self = @This();
+
+    Param: u8,
+    Return: u8,
+    Preserved,
+    ParamPreserved: u8,
+    Temporary,
+
+    pub fn isParam(self: Self) bool {
+        const tag: RegisterUsageVariants = std.meta.activeTag(self);
+        return tag.isParam();
     }
 };
 
@@ -289,542 +301,542 @@ pub const InstructionVariants = enum(u8) {
         }
 
         return switch (self) {
-            .NoOp => .{ // 0
+            .NoOp => .{
                 .len = 0,
                 .opCount = 0,
                 .text = "noop",
             },
-            .Label => .{ // 1
+            .Label => .{
                 .len = 0,
                 .opCount = 0,
                 .text = "(label)",
             },
-            .SetReg64 => .{ // 2
+            .SetReg64 => .{
                 .len = 10,
                 .opCount = 1,
                 .text = "set_reg_64",
             },
-            .SetReg32 => .{ // 3
+            .SetReg32 => .{
                 .len = 6,
                 .opCount = 1,
                 .text = "set_reg_32",
             },
-            .SetReg16 => .{ // 4
+            .SetReg16 => .{
                 .len = 4,
                 .opCount = 1,
                 .text = "set_reg_16",
             },
-            .SetReg8 => .{ // 5
+            .SetReg8 => .{
                 .len = 3,
                 .opCount = 1,
                 .text = "set_reg_8",
             },
-            .Add => .{ // 6
+            .Add => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "add",
             },
-            .Sub => .{ // 7
+            .Sub => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "sub",
             },
-            .Mult => .{ // 8
+            .Mult => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "mult",
             },
-            .Add8 => .{ // 9
+            .Add8 => .{
                 .len = 4,
                 .opCount = 2,
                 .text = "add_8",
             },
-            .Sub8 => .{ // 10
+            .Sub8 => .{
                 .len = 4,
                 .opCount = 2,
                 .text = "sub_8",
             },
-            .Add16 => .{ // 11
+            .Add16 => .{
                 .len = 5,
                 .opCount = 2,
                 .text = "add_16",
             },
-            .Sub16 => .{ // 12
+            .Sub16 => .{
                 .len = 5,
                 .opCount = 2,
                 .text = "sub_16",
             },
-            .Jump => .{ // 13
+            .Jump => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump",
             },
-            .JumpEQ => .{ // 14
+            .JumpEQ => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump_eq",
             },
-            .JumpNE => .{ // 15
+            .JumpNE => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump_ne",
             },
-            .JumpGT => .{ // 16
+            .JumpGT => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump_gt",
             },
-            .JumpLT => .{ // 17
+            .JumpLT => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump_lt",
             },
-            .JumpGTE => .{ // 18
+            .JumpGTE => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump_gte",
             },
-            .JumpLTE => .{ // 19
+            .JumpLTE => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump_lte",
             },
-            .JumpBack => .{ // 20
+            .JumpBack => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump_back",
             },
-            .JumpBackEQ => .{ // 21
+            .JumpBackEQ => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump_back_eq",
             },
-            .JumpBackNE => .{ // 22
+            .JumpBackNE => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump_back_ne",
             },
-            .JumpBackGT => .{ // 23
+            .JumpBackGT => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump_back_gt",
             },
-            .JumpBackLT => .{ // 24
+            .JumpBackLT => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump_back_lt",
             },
-            .JumpBackGTE => .{ // 25
+            .JumpBackGTE => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump_back_gte",
             },
-            .JumpBackLTE => .{ // 26
+            .JumpBackLTE => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "jump_back_lte",
             },
-            .Cmp => .{ // 27
+            .Cmp => .{
                 .len = 3,
                 .opCount = 2,
                 .text = "cmp",
             },
-            .CmpSetRegEQ => .{ // 28
+            .CmpSetRegEQ => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "cmp_set_reg_eq",
             },
-            .CmpSetRegNE => .{ // 29
+            .CmpSetRegNE => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "cmp_set_reg_ne",
             },
-            .CmpSetRegGT => .{ // 30
+            .CmpSetRegGT => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "cmp_set_reg_gt",
             },
-            .CmpSetRegLT => .{ // 31
+            .CmpSetRegLT => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "cmp_set_reg_lt",
             },
-            .CmpSetRegGTE => .{ // 32
+            .CmpSetRegGTE => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "cmp_set_reg_gte",
             },
-            .CmpSetRegLTE => .{ // 33
+            .CmpSetRegLTE => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "cmp_set_reg_lte",
             },
-            .CmpConst8 => .{ // 34
+            .CmpConst8 => .{
                 .len = 3,
                 .opCount = 1,
                 .text = "cmp_const_8",
             },
-            .IncConst8 => .{ // 35
+            .IncConst8 => .{
                 .len = 3,
                 .opCount = 1,
                 .text = "inc_const_8",
             },
-            .DecConst8 => .{ // 36
+            .DecConst8 => .{
                 .len = 3,
                 .opCount = 1,
                 .text = "dec_const_8",
             },
-            .Mov => .{ // 37
+            .Mov => .{
                 .len = 3,
                 .opCount = 2,
                 .text = "mov",
             },
-            .MovSpNegOffsetAny => .{ // 38
+            .MovSpNegOffsetAny => .{
                 .len = undefined, // SHOULD NOT EXIST FOR WRITER
                 .opCount = 1,
                 .text = "mov_sp_neg_offset_ANY",
             },
-            .MovSpNegOffset16 => .{ // 39
+            .MovSpNegOffset16 => .{
                 .len = 4,
                 .opCount = 1,
                 .text = "mov_sp_neg_offset_16",
             },
-            .MovSpNegOffset32 => .{ // 40
+            .MovSpNegOffset32 => .{
                 .len = 6,
                 .opCount = 1,
                 .text = "mov_sp_neg_offset_32",
             },
-            .MovSpNegOffset64 => .{ // 41
+            .MovSpNegOffset64 => .{
                 .len = 10,
                 .opCount = 1,
                 .text = "mov_sp_neg_offset_64",
             },
-            .Xor => .{ // 42
+            .Xor => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "xor",
             },
-            .XorConst8 => .{ // 43
+            .XorConst8 => .{
                 .len = 4,
                 .opCount = 2,
                 .text = "xor_const_8",
             },
-            .AddSp8 => .{ // 44
+            .AddSp8 => .{
                 .len = 2,
                 .opCount = 0,
                 .text = "add_sp_8",
             },
-            .SubSp8 => .{ // 45
+            .SubSp8 => .{
                 .len = 2,
                 .opCount = 0,
                 .text = "sub_sp_8",
             },
-            .AddSp16 => .{ // 46
+            .AddSp16 => .{
                 .len = 3,
                 .opCount = 0,
                 .text = "add_sp_16",
             },
-            .SubSp16 => .{ // 47
+            .SubSp16 => .{
                 .len = 3,
                 .opCount = 0,
                 .text = "sub_sp_16",
             },
-            .AddSp32 => .{ // 48
+            .AddSp32 => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "add_sp_32",
             },
-            .SubSp32 => .{ // 49
+            .SubSp32 => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "sub_sp_32",
             },
-            .AddSp64 => .{ // 50
+            .AddSp64 => .{
                 .len = 9,
                 .opCount = 0,
                 .text = "add_sp_64",
             },
-            .SubSp64 => .{ // 51
+            .SubSp64 => .{
                 .len = 9,
                 .opCount = 0,
                 .text = "sub_sp_64",
             },
-            .Store64AtReg => .{ // 52
+            .Store64AtReg => .{
                 .len = 3,
                 .opCount = 2,
                 .text = "store_64_at_reg",
             },
-            .Store32AtReg => .{ // 53
+            .Store32AtReg => .{
                 .len = 3,
                 .opCount = 2,
                 .text = "store_32_at_reg",
             },
-            .Store16AtReg => .{ // 54
+            .Store16AtReg => .{
                 .len = 3,
                 .opCount = 2,
                 .text = "store_16_at_reg",
             },
-            .Store8AtReg => .{ // 55
+            .Store8AtReg => .{
                 .len = 3,
                 .opCount = 2,
                 .text = "store_8_at_reg",
             },
-            .Store64AtRegPostInc16 => .{ // 56
+            .Store64AtRegPostInc16 => .{
                 .len = 5,
                 .opCount = 2,
                 .text = "store_64_at_reg_post_inc_16",
             },
-            .Store32AtRegPostInc16 => .{ // 57
+            .Store32AtRegPostInc16 => .{
                 .len = 5,
                 .opCount = 2,
                 .text = "store_32_at_reg_post_inc_16",
             },
-            .Store16AtRegPostInc16 => .{ // 58
+            .Store16AtRegPostInc16 => .{
                 .len = 5,
                 .opCount = 2,
                 .text = "store_16_at_reg_post_inc_16",
             },
-            .Store8AtRegPostInc16 => .{ // 59
+            .Store8AtRegPostInc16 => .{
                 .len = 5,
                 .opCount = 2,
                 .text = "store_8_at_reg_post_inc_16",
             },
-            .Store64AtSpNegOffset16 => .{ // 60
+            .Store64AtSpNegOffset16 => .{
                 .len = 4,
                 .opCount = 1,
                 .text = "store_64_at_sp_neg_offset_16",
             },
-            .Store32AtSpNegOffset16 => .{ // 61
+            .Store32AtSpNegOffset16 => .{
                 .len = 4,
                 .opCount = 1,
                 .text = "store_32_at_sp_neg_offset_16",
             },
-            .Store16AtSpNegOffset16 => .{ // 62
+            .Store16AtSpNegOffset16 => .{
                 .len = 4,
                 .opCount = 1,
                 .text = "store_16_at_sp_neg_offset_16",
             },
-            .Store8AtSpNegOffset16 => .{ // 63
+            .Store8AtSpNegOffset16 => .{
                 .len = 4,
                 .opCount = 1,
                 .text = "store_8_at_sp_neg_offset_16",
             },
-            .Load64AtRegOffset16 => .{ // 64
+            .Load64AtRegOffset16 => .{
                 .len = 5,
                 .opCount = 2,
                 .text = "load_64_at_reg_offset_16",
             },
-            .Load32AtRegOffset16 => .{ // 65
+            .Load32AtRegOffset16 => .{
                 .len = 5,
                 .opCount = 2,
                 .text = "load_32_at_reg_offset_16",
             },
-            .Load16AtRegOffset16 => .{ // 66
+            .Load16AtRegOffset16 => .{
                 .len = 5,
                 .opCount = 2,
                 .text = "load_16_at_reg_offset_16",
             },
-            .Load8AtRegOffset16 => .{ // 67
+            .Load8AtRegOffset16 => .{
                 .len = 5,
                 .opCount = 2,
                 .text = "load_8_at_reg_offset_16",
             },
-            .Load64AtSpNegOffset16 => .{ // 68
+            .Load64AtSpNegOffset16 => .{
                 .len = 4,
                 .opCount = 1,
                 .text = "load_64_at_sp_neg_offset_16",
             },
-            .Load32AtSpNegOffset16 => .{ // 69
+            .Load32AtSpNegOffset16 => .{
                 .len = 4,
                 .opCount = 1,
                 .text = "load_32_at_sp_neg_offset_16",
             },
-            .Load16AtSpNegOffset16 => .{ // 70
+            .Load16AtSpNegOffset16 => .{
                 .len = 4,
                 .opCount = 1,
                 .text = "load_16_at_sp_neg_offset_16",
             },
-            .Load8AtSpNegOffset16 => .{ // 71
+            .Load8AtSpNegOffset16 => .{
                 .len = 4,
                 .opCount = 1,
                 .text = "load_8_at_sp_neg_offset_16",
             },
-            .Load64AtReg => .{ // 72
+            .Load64AtReg => .{
                 .len = 3,
                 .opCount = 2,
                 .text = "load_64_at_reg",
             },
-            .Load32AtReg => .{ // 73
+            .Load32AtReg => .{
                 .len = 3,
                 .opCount = 2,
                 .text = "load_32_at_reg",
             },
-            .Load16AtReg => .{ // 74
+            .Load16AtReg => .{
                 .len = 3,
                 .opCount = 2,
                 .text = "load_16_at_reg",
             },
-            .Load8AtReg => .{ // 75
+            .Load8AtReg => .{
                 .len = 3,
                 .opCount = 2,
                 .text = "load_8_at_reg",
             },
-            .MulReg16AddReg => .{ // 76
+            .MulReg16AddReg => .{
                 .len = 6,
                 .opCount = 3,
                 .text = "mul_reg_16_add_reg",
             },
-            .DbgReg => .{ // 77
+            .DbgReg => .{
                 .len = 2,
                 .opCount = 1,
                 .text = "dbg_reg",
             },
-            .BitAnd => .{ // 78
+            .BitAnd => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "bit_and",
             },
-            .BitOr => .{ // 79
+            .BitOr => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "bit_or",
             },
-            .And => .{ // 80
+            .And => .{
                 .len = 3,
                 .opCount = 2,
                 .text = "and",
             },
-            .Or => .{ // 81
+            .Or => .{
                 .len = 3,
                 .opCount = 2,
                 .text = "or",
             },
-            .AndSetReg => .{ // 82
+            .AndSetReg => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "and_set_reg",
             },
-            .OrSetReg => .{ // 83
+            .OrSetReg => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "or_set_reg",
             },
-            .PrePushRegNegOffsetAny => .{ // 84
+            .PrePushRegNegOffsetAny => .{
                 .len = undefined, // SHOULD NOT EXIST FOR WRITER
                 .opCount = 1,
                 .text = "push_reg_neg_offset_ANY",
             },
-            .PrePushRegNegOffset8 => .{ // 85
+            .PrePushRegNegOffset8 => .{
                 .len = 3,
                 .opCount = 1,
                 .text = "push_reg_neg_offset_8",
             },
-            .PrePushRegNegOffset16 => .{ // 86
+            .PrePushRegNegOffset16 => .{
                 .len = 4,
                 .opCount = 1,
                 .text = "push_reg_neg_offset_16",
             },
-            .PrePushRegNegOffset32 => .{ // 87
+            .PrePushRegNegOffset32 => .{
                 .len = 6,
                 .opCount = 1,
                 .text = "push_reg_neg_offset_32",
             },
-            .PrePushRegNegOffset64 => .{ // 88
+            .PrePushRegNegOffset64 => .{
                 .len = 10,
                 .opCount = 1,
                 .text = "push_reg_neg_offset_64",
             },
-            .PostPopRegNegOffsetAny => .{ // 89
+            .PostPopRegNegOffsetAny => .{
                 .len = undefined, // SHOULD NOT EXIST FOR WRITER
                 .opCount = 0,
                 .text = "pop_reg_neg_offset_ANY",
             },
-            .PostPopRegNegOffset8 => .{ // 90
+            .PostPopRegNegOffset8 => .{
                 .len = 3,
                 .opCount = 0,
                 .text = "pop_reg_neg_offset_8",
             },
-            .PostPopRegNegOffset16 => .{ // 91
+            .PostPopRegNegOffset16 => .{
                 .len = 4,
                 .opCount = 0,
                 .text = "pop_reg_neg_offset_16",
             },
-            .PostPopRegNegOffset32 => .{ // 92
+            .PostPopRegNegOffset32 => .{
                 .len = 6,
                 .opCount = 0,
                 .text = "pop_reg_neg_offset_32",
             },
-            .PostPopRegNegOffset64 => .{ // 93
+            .PostPopRegNegOffset64 => .{
                 .len = 10,
                 .opCount = 0,
                 .text = "pop_reg_neg_offset_64",
             },
-            .PrePushLRNegOffsetAny => .{ // 94
+            .PrePushLRNegOffsetAny => .{
                 .len = undefined, // SHOULD NOT EXIST FOR WRITER
                 .opCount = 0,
                 .text = "pre_push_lr_neg_offset_any",
             },
-            .PrePushLRNegOffset8 => .{ // 95
+            .PrePushLRNegOffset8 => .{
                 .len = 2,
                 .opCount = 0,
                 .text = "pre_push_lr_neg_offset_8",
             },
-            .PrePushLRNegOffset16 => .{ // 96
+            .PrePushLRNegOffset16 => .{
                 .len = 3,
                 .opCount = 0,
                 .text = "pre_push_lr_neg_offset_16",
             },
-            .PrePushLRNegOffset32 => .{ // 97
+            .PrePushLRNegOffset32 => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "pre_push_lr_neg_offset_32",
             },
-            .PrePushLRNegOffset64 => .{ // 98
+            .PrePushLRNegOffset64 => .{
                 .len = 9,
                 .opCount = 0,
                 .text = "pre_push_lr_neg_offset_64",
             },
-            .PostPopLRNegOffsetAny => .{ // 99
+            .PostPopLRNegOffsetAny => .{
                 .len = undefined, // SHOULD NOT EXIST FOR WRITER
                 .opCount = 0,
                 .text = "post_pop_lr_neg_offset_any",
             },
-            .PostPopLRNegOffset8 => .{ // 100
+            .PostPopLRNegOffset8 => .{
                 .len = 2,
                 .opCount = 0,
                 .text = "post_pop_lr_neg_offset_8",
             },
-            .PostPopLRNegOffset16 => .{ // 101
+            .PostPopLRNegOffset16 => .{
                 .len = 3,
                 .opCount = 0,
                 .text = "post_pop_lr_neg_offset_16",
             },
-            .PostPopLRNegOffset32 => .{ // 102
+            .PostPopLRNegOffset32 => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "post_pop_lr_neg_offset_32",
             },
-            .PostPopLRNegOffset64 => .{ // 103
+            .PostPopLRNegOffset64 => .{
                 .len = 9,
                 .opCount = 0,
                 .text = "post_pop_lr_neg_offset_64",
             },
-            .Ret => .{ // 104
+            .Ret => .{
                 .len = 1,
                 .opCount = 0,
                 .text = "ret",
             },
-            .End => .{ // 105
+            .End => .{
                 .len = 1,
                 .opCount = 0,
                 .text = "end",
             },
-            .BranchLink => .{ // 106
+            .BranchLink => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "branch_link",
             },
-            .BranchLinkBack => .{ // 107
+            .BranchLinkBack => .{
                 .len = 5,
                 .opCount = 0,
                 .text = "branch_link_back",
@@ -2317,11 +2329,9 @@ fn adjustProc(
                     if (firstFound < i and i < lastUsed) {
                         const usage = context.genInfo.registers.items[procReg].usage;
                         context.genInfo.registers.items[procReg].usage = if (usage == .Param)
-                            .ParamPreserved
-                        else if (usage == .ParamNext)
-                            .ParamPreservedNext
+                            .{ .ParamPreserved = usage.Param }
                         else
-                            .Preserved;
+                            .{ .Preserved = {} };
 
                         if (context.genInfo.currentProc.maxPreserveReg) |*reg| {
                             reg.* += 1;
@@ -3818,7 +3828,10 @@ pub fn genBytecodeUtil(
             if (hasSelf) {
                 const srcReg = try genBytecode(allocator, context, call.func) orelse
                     return CodeGenError.ResultOfAccessRegNotFound;
-                const destReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
+                const destReg = try context.genInfo.getNextRegisterUtil(
+                    allocator,
+                    .{ .Param = 0 },
+                );
 
                 const movInstr = Instr{
                     .Mov = .{
@@ -3832,10 +3845,9 @@ pub fn genBytecodeUtil(
             for (call.params, 0..) |param, index| {
                 const reg = try genBytecode(allocator, context, param) orelse
                     return CodeGenError.ReturnedRegisterNotFound;
-                const regUsage: RegisterUsage = if (index == 0 and !hasSelf)
-                    .Param
-                else
-                    .ParamNext;
+                const regUsage: RegisterUsage = .{
+                    .Param = @intCast(if (hasSelf) index + 1 else index),
+                };
                 const resReg = try context.genInfo.getNextRegisterUtil(allocator, regUsage);
                 const movInstr = Instr{
                     .Mov = .{
@@ -3854,7 +3866,7 @@ pub fn genBytecodeUtil(
             try context.genInfo.appendChunk(allocator, branchInstr);
 
             if (func.returnType.astType.* != .Void) {
-                return try context.genInfo.getNextRegisterUtil(allocator, .Return);
+                return try context.genInfo.getNextRegisterUtil(allocator, .{ .Return = 0 });
             }
 
             return null;
@@ -3862,7 +3874,7 @@ pub fn genBytecodeUtil(
         .ReturnNode => |inner| {
             const reg = try genBytecode(allocator, context, inner) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
-            const resReg = try context.genInfo.getNextRegisterUtil(allocator, .Return);
+            const resReg = try context.genInfo.getNextRegisterUtil(allocator, .{ .Return = 0 });
 
             const movInstr = Instr{
                 .Mov = .{
@@ -3963,13 +3975,13 @@ fn functionSetupBytecode(
     context.genInfo.setLabelLocation(labelIdOrNew, context.genInfo.byteCounter);
 
     for (func.params.params, 0..) |param, index| {
-        const usage: RegisterUsage = if (index == 0) .Param else .ParamNext;
+        const usage: RegisterUsage = .{ .Param = @intCast(index) };
         const paramReg = try context.genInfo.getNextRegisterUtil(allocator, usage);
         try context.genInfo.setVariableRegister(allocator, param.name, paramReg);
     }
 
     if (func.params.selfInfo != null) {
-        const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .Param);
+        const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .{ .Param = 0 });
         try context.genInfo.setVariableRegister(allocator, constants.SELF_NAME, paramReg);
     }
 }
