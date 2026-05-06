@@ -14,6 +14,7 @@ const TokenError = tokenizer.TokenError;
 const Context = blitz.context.Context;
 const constants = blitz.constants;
 const vmInfo = blitz.vmInfo;
+const identStore = blitz.identStore;
 
 const AstNumberVariantsStrRel = struct {
     str: []const u8,
@@ -69,7 +70,7 @@ pub const AstNumberVariants = enum {
         };
 
         for (rels) |rel| {
-            if (utils.compString(rel.str, str)) return rel.val;
+            if (std.mem.eql(u8, rel.str, str)) return rel.val;
         }
 
         return null;
@@ -164,23 +165,23 @@ pub const AstArrayDecType = struct {
 };
 
 pub const CustomType = struct {
-    name: []const u8,
+    nameIdentId: identStore.IdentId,
     generics: []AstTypeInfo,
     allowPrivateReads: bool,
 };
 
 const EnumVariantType = struct {
-    from: ?[]const u8,
-    variant: []const u8,
+    fromIdentId: ?identStore.IdentId,
+    variantIdentId: identStore.IdentId,
 };
 
 const ErrorVariantType = struct {
-    from: []const u8,
-    variant: []const u8,
+    fromIdentId: identStore.IdentId,
+    variantIdentId: identStore.IdentId,
 };
 
 const ErrorAstType = struct {
-    name: []const u8,
+    nameIdentId: identStore.IdentId,
     payload: ?AstTypeInfo,
 };
 
@@ -228,14 +229,14 @@ pub const AstTypes = union(Types) {
     Pointer: scanner.TypeAndAllocInfo,
     Nullable: AstTypeInfo,
     Custom: CustomType,
-    Generic: []const u8,
+    Generic: identStore.IdentId,
     Function: *FuncDecNode,
     StructMethod: StructMethodInfo,
-    StaticStructInstance: []const u8,
+    StaticStructInstance: identStore.IdentId,
     Error: ErrorAstType,
     EnumVariant: EnumVariantType,
     ErrorVariant: ErrorVariantType,
-    Enum: []const u8,
+    Enum: identStore.IdentId,
     VarInfo: scanner.TypeAndAllocInfo,
 
     pub fn toTypeInfo(self: *Self, mutState: scanner.MutState) AstTypeInfo {
@@ -302,7 +303,7 @@ pub const AstTypes = union(Types) {
 
             .Nullable => |inner| try inner.astType.getAlignment(allocator, context),
             .Custom => |custom| {
-                const dec = context.compInfo.getStructDec(custom.name).?;
+                const dec = context.compInfo.getStructDec(custom.nameIdentId).?;
 
                 var maxAlignment: u8 = 0;
                 for (dec.totalMemberList) |member| {
@@ -365,7 +366,7 @@ pub const AstTypes = union(Types) {
                 return 16;
             },
             .Custom => |custom| {
-                const dec = context.compInfo.getStructDec(custom.name).?;
+                const dec = context.compInfo.getStructDec(custom.nameIdentId).?;
 
                 var size: u64 = 0;
                 for (dec.totalMemberList) |member| {
@@ -439,7 +440,7 @@ pub const AstValues = union(StaticTypes) {
 };
 
 const VarDecNode = struct {
-    name: []const u8,
+    nameIdentId: identStore.IdentId,
     mutState: scanner.MutState,
     setNode: *AstNode,
     annotation: ?AstTypeInfo,
@@ -477,14 +478,14 @@ pub const StructAttributeUnion = union(StructAttributeVariants) {
 };
 
 pub const StructAttribute = struct {
-    name: []const u8,
+    nameIdentId: identStore.IdentId,
     attr: StructAttributeUnion,
     visibility: MemberVisibility,
     static: bool,
 };
 
 pub const StrToTypeInfoRel = struct {
-    str: []const u8,
+    identId: identStore.IdentId,
     info: AstTypeInfo,
 };
 
@@ -493,7 +494,7 @@ pub const ToScanTypesList = ArrayList([]StrToTypeInfoRel);
 pub const StructDecNode = struct {
     const Self = @This();
 
-    name: []const u8,
+    nameIdentId: identStore.IdentId,
     generics: []GenericType,
     attributes: []StructAttribute,
     totalMemberList: []StructAttribute = &[_]StructAttribute{},
@@ -505,7 +506,7 @@ pub const StructDecNode = struct {
         self: Self,
         allocator: Allocator,
         context: *Context,
-        member: []const u8,
+        memberIdentId: identStore.IdentId,
     ) !?u64 {
         var loc: u64 = 0;
 
@@ -518,16 +519,16 @@ pub const StructDecNode = struct {
             );
             loc += padding;
 
-            if (utils.compString(item.name, member)) return loc;
+            if (item.nameIdentId == memberIdentId) return loc;
             loc += size;
         }
 
         return null;
     }
 
-    pub fn isPropFunction(self: Self, property: []const u8) bool {
+    pub fn isPropFunction(self: Self, propertyIdentId: identStore.IdentId) bool {
         for (self.totalMethodList) |member| {
-            if (utils.compString(member.name, property)) return true;
+            if (member.nameIdentId == propertyIdentId) return true;
         }
 
         return false;
@@ -535,22 +536,20 @@ pub const StructDecNode = struct {
 };
 
 pub const AttributeDefinition = struct {
-    name: []const u8,
+    nameIdentId: identStore.IdentId,
     value: *AstNode,
 };
 
 const StructInitNode = struct {
     const Self = @This();
 
-    name: []const u8,
+    nameIdentId: identStore.IdentId,
     attributes: []AttributeDefinition,
     generics: []AstTypeInfo,
 
-    pub fn findAttribute(self: Self, attrName: []const u8) ?AttributeDefinition {
+    pub fn findAttribute(self: Self, attrIdentId: identStore.IdentId) ?AttributeDefinition {
         for (self.attributes) |attr| {
-            if (utils.compString(attrName, attr.name)) {
-                return attr;
-            }
+            if (attrIdentId == attr.nameIdentId) return attr;
         }
 
         return null;
@@ -558,7 +557,7 @@ const StructInitNode = struct {
 };
 
 pub const GenericType = struct {
-    name: []const u8,
+    nameIdentId: identStore.IdentId,
     restriction: ?AstTypeInfo,
 };
 
@@ -574,7 +573,7 @@ const IfStatementNode = struct {
 };
 
 pub const Parameter = struct {
-    name: []const u8,
+    nameIdentId: identStore.IdentId,
     type: AstTypeInfo,
     mutState: scanner.MutState,
 };
@@ -615,11 +614,11 @@ pub const FuncDecNode = struct {
 
     labelsGenerated: bool = false,
     capturedTypes: ?*compInfo.TypeScope = null,
-    capturedFuncs: ?*compInfo.StringListScope = null,
+    capturedFuncs: ?*compInfo.IdentIdListScope = null,
     capturedVariables: ?*compInfo.CaptureScope = null,
-    methodOn: ?[]const u8 = null,
+    methodOn: ?identStore.IdentId = null,
     visited: bool = false,
-    name: []const u8,
+    nameIdentId: identStore.IdentId,
     params: ParseParamsResult,
     body: *AstNode,
     bodyTokens: []tokenizer.Token,
@@ -638,7 +637,7 @@ pub const FuncDecNode = struct {
 };
 
 const FuncParseStructInfo = struct {
-    name: []const u8,
+    nameIdentId: identStore.IdentId,
     isGeneric: bool,
     isStatic: bool,
 };
@@ -650,14 +649,14 @@ const FuncCallNode = struct {
 };
 
 const FuncCaptures = struct {
-    ident: []const u8,
+    identId: identStore.IdentId,
     isPtr: bool,
     mutState: scanner.MutState,
 };
 
 const PropertyAccess = struct {
     value: *AstNode,
-    property: []const u8,
+    property: identStore.IdentId,
 };
 
 const ParseContextType = enum {
@@ -709,8 +708,8 @@ const IndexValueNode = struct {
 };
 
 pub const ErrorOrEnumDecNode = struct {
-    name: []const u8,
-    variants: [][]const u8,
+    nameIdentId: identStore.IdentId,
+    variants: []identStore.IdentId,
 };
 
 const ValueSetNode = struct {
@@ -750,8 +749,8 @@ const ArrayInitNode = struct {
     size: []const u8,
     initType: AstTypeInfo,
     initNode: *AstNode,
-    indexIdent: ?[]const u8,
-    ptrIdent: ?[]const u8,
+    indexIdentId: ?identStore.IdentId,
+    ptrIdentId: ?identStore.IdentId,
 };
 
 const AstNodeVariants = enum {
@@ -810,24 +809,24 @@ pub const AstNodeUnion = union(AstNodeVariants) {
     VarEqOp: VarEqOpNode,
     Value: AstValues,
     Cast: CastNode,
-    Variable: []const u8,
+    Variable: identStore.IdentId,
     StructDec: *StructDecNode,
     IfStatement: IfStatementNode,
-    FuncDec: []const u8,
+    FuncDec: identStore.IdentId,
     FuncCall: FuncCallNode,
     ReturnNode: *AstNode,
     StructInit: StructInitNode,
     Bang: *AstNode,
     PropertyAccess: PropertyAccess,
-    StaticStructInstance: []const u8,
-    FuncReference: []const u8,
+    StaticStructInstance: identStore.IdentId,
+    FuncReference: identStore.IdentId,
     OpExpr: OpExpr,
     IndexValue: IndexValueNode,
     ErrorDec: *const ErrorOrEnumDecNode,
-    Error: []const u8,
-    InferEnumVariant: []const u8,
+    Error: identStore.IdentId,
+    InferEnumVariant: identStore.IdentId,
     EnumDec: *const ErrorOrEnumDecNode,
-    Enum: []const u8,
+    Enum: identStore.IdentId,
     Group: *AstNode,
     Scope: *AstNode,
     IncOne: *AstNode,
@@ -851,7 +850,7 @@ pub const AstNodeUnion = union(AstNodeVariants) {
 const AstNodeTypeInfo = struct {
     size: u64 = 0,
     alignment: u8 = 0,
-    accessingFrom: ?[]const u8 = null, // name of struct
+    accessingFrom: ?identStore.IdentId = null,
     lastVarUse: bool = false,
     makesSliceWithLen: ?u64 = null,
     isSlice: bool = false,
@@ -918,9 +917,9 @@ pub const HoistedNodes = struct {
 };
 
 pub const HoistedNames = struct {
-    structNames: [][]const u8,
-    errorNames: [][]const u8,
-    enumNames: [][]const u8,
+    structIdentIds: []identStore.IdentId,
+    errorIdentIds: []identStore.IdentId,
+    enumIdentIds: []identStore.IdentId,
 };
 
 const OpExprTokenMap = struct {
@@ -975,7 +974,7 @@ pub fn parseModule(allocator: Allocator, context: *Context) !*AstNode {
                 _ = try context.tokenUtil.take();
                 const name = try context.tokenUtil.take();
                 if (name.type != .Identifier) return AstError.UnexpectedToken;
-                const dec = context.compInfo.getStructDec(context.getTokString(name)).?;
+                const dec = context.compInfo.getStructDec(name.identId).?;
                 context.tokenUtil.pos = dec.endPos;
                 continue;
             },
@@ -1135,7 +1134,7 @@ fn parseStatement(
                         return AstError.ExpectedExpression;
 
                     const variableVariant = AstNodeUnion{
-                        .Variable = context.getTokString(first),
+                        .Variable = first.identId,
                     };
                     const valueSetVariant = AstNodeUnion{
                         .ValueSet = .{
@@ -1161,7 +1160,7 @@ fn parseStatement(
                         return AstError.ExpectedExpression;
 
                     const variableVariant = AstNodeUnion{
-                        .Variable = context.getTokString(first),
+                        .Variable = first.identId,
                     };
 
                     const varEqOpVariant = AstNodeUnion{
@@ -1179,11 +1178,10 @@ fn parseStatement(
                 .Period => {
                     context.tokenUtil.returnToken();
 
-                    const identStr = context.getTokString(first);
-                    const nodeVariant = if (context.compInfo.hasStruct(identStr)) AstNodeUnion{
-                        .StaticStructInstance = identStr,
+                    const nodeVariant = if (context.compInfo.hasStruct(first.identId)) AstNodeUnion{
+                        .StaticStructInstance = first.identId,
                     } else AstNodeUnion{
-                        .Variable = identStr,
+                        .Variable = first.identId,
                     };
                     const node = try context.pools.newNode(context, nodeVariant.toAstNode());
 
@@ -1192,7 +1190,7 @@ fn parseStatement(
                 .LBracket => {
                     context.tokenUtil.returnToken();
                     const variableVariant = AstNodeUnion{
-                        .Variable = context.getTokString(first),
+                        .Variable = first.identId,
                     };
                     const variableNode = try context.pools.newNode(
                         context,
@@ -1201,22 +1199,18 @@ fn parseStatement(
                     return parsePropertyAccess(allocator, context, variableNode, .Statement);
                 },
                 .LParen => {
-                    return try parseFuncCall(allocator, context, context.getTokString(first));
+                    return try parseFuncCall(allocator, context, first.identId);
                 },
                 .LAngle => {
                     const generics = try parseInitGenerics(allocator, context);
                     try context.tokenUtil.expectToken(.LParen);
-                    var funcCall = try parseFuncCall(
-                        allocator,
-                        context,
-                        context.getTokString(first),
-                    );
+                    var funcCall = try parseFuncCall(allocator, context, first.identId);
                     funcCall.variant.FuncCall.callGenerics = generics;
                     return funcCall;
                 },
                 else => {
                     const variableVariant = AstNodeUnion{
-                        .Variable = context.getTokString(first),
+                        .Variable = first.identId,
                     };
                     return try context.pools.newNode(context, variableVariant.toAstNode());
                 },
@@ -1283,19 +1277,19 @@ fn handleParseFunction(allocator: Allocator, context: *Context) !*AstNode {
     const name = try context.tokenUtil.peak();
     if (name.type != .Identifier) return AstError.UnexpectedToken;
 
-    const func = if (context.compInfo.getFunctionAsGlobal(context.getTokString(name))) |func| a: {
+    const func = if (context.compInfo.getFunctionAsGlobal(name.identId)) |func| a: {
         const tokens = func.bodyTokens;
         const last = tokens[tokens.len - 1];
         context.tokenUtil.pos = last.end;
         break :a func;
     } else a: {
         const func = try parseFuncDef(allocator, context, null);
-        try context.compInfo.addFunction(func.name, func);
+        try context.compInfo.addFunction(func.nameIdentId, func);
         break :a func;
     };
 
     const funcDecVariant = AstNodeUnion{
-        .FuncDec = func.name,
+        .FuncDec = func.nameIdentId,
     };
     return try context.pools.newNode(context, funcDecVariant.toAstNode());
 }
@@ -1310,7 +1304,7 @@ fn parseEnumDec(allocator: Allocator, context: *Context) !*const ErrorOrEnumDecN
     const variants = try parseVariants(allocator, context);
 
     return try utils.create(ErrorOrEnumDecNode, allocator, .{
-        .name = context.getTokString(name),
+        .nameIdentId = name.identId,
         .variants = variants,
     });
 }
@@ -1373,18 +1367,21 @@ fn parseStructDec(allocator: Allocator, context: *Context) !*AstNode {
         current = try context.tokenUtil.take();
     }
 
-    const structName = context.getTokString(identToken);
-
     if (current.type != .LBrace) {
         return TokenError.UnexpectedToken;
     }
 
-    const attributes = try parseStructAttributes(allocator, context, structName, generics.len > 0);
+    const attributes = try parseStructAttributes(
+        allocator,
+        context,
+        identToken.identId,
+        generics.len > 0,
+    );
     context.compInfo.attributeSet.clearRetainingCapacity();
 
     const structDecVariant = AstNodeUnion{
         .StructDec = try utils.createMut(StructDecNode, allocator, .{
-            .name = structName,
+            .nameIdentId = identToken.identId,
             .generics = generics,
             .attributes = attributes,
             .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
@@ -1397,7 +1394,7 @@ fn parseStructDec(allocator: Allocator, context: *Context) !*AstNode {
 fn parseStructAttributes(
     allocator: Allocator,
     context: *Context,
-    structName: []const u8,
+    structIdentId: identStore.IdentId,
     isGeneric: bool,
 ) ![]StructAttribute {
     var attributes: ArrayList(StructAttribute) = .empty;
@@ -1405,10 +1402,10 @@ fn parseStructAttributes(
     var current = try context.tokenUtil.peak();
     while (current.type != .RBrace) {
         const prePos = context.tokenUtil.pos;
-        const attr = try parseStructAttribute(allocator, context, structName, isGeneric);
+        const attr = try parseStructAttribute(allocator, context, structIdentId, isGeneric);
         try attributes.append(allocator, attr);
 
-        if (context.compInfo.attributeSet.contains(attr.name)) {
+        if (context.compInfo.attributeSet.contains(attr.nameIdentId)) {
             context.tokenUtil.pos = prePos;
             const next = try context.tokenUtil.take();
             if (next.type == .Pub or next.type == .Prot) {
@@ -1417,7 +1414,7 @@ fn parseStructAttributes(
             return AstError.ExpectedUniqueStructDecAttribute;
         }
 
-        try context.compInfo.attributeSet.put(attr.name, {});
+        try context.compInfo.attributeSet.put(attr.nameIdentId, {});
 
         if (attr.attr == .Member) {
             try context.tokenUtil.expectToken(.Semicolon);
@@ -1435,26 +1432,26 @@ fn parseStructAttributes(
 fn parseStructAttribute(
     allocator: Allocator,
     context: *Context,
-    structName: []const u8,
+    structIdentId: identStore.IdentId,
     isGeneric: bool,
 ) !StructAttribute {
     const first = try context.tokenUtil.take();
     switch (first.type) {
         .Identifier, .Fn => {
             context.tokenUtil.returnToken();
-            return parseStructAttributeUtil(allocator, context, structName, .Private, isGeneric);
+            return parseStructAttributeUtil(allocator, context, structIdentId, .Private, isGeneric);
         },
         .Prot => return parseStructAttributeUtil(
             allocator,
             context,
-            structName,
+            structIdentId,
             .Protected,
             isGeneric,
         ),
         .Pub => return parseStructAttributeUtil(
             allocator,
             context,
-            structName,
+            structIdentId,
             .Public,
             isGeneric,
         ),
@@ -1467,7 +1464,7 @@ fn parseStructAttribute(
 fn parseStructAttributeUtil(
     allocator: Allocator,
     context: *Context,
-    structName: []const u8,
+    structIdentId: identStore.IdentId,
     visibility: MemberVisibility,
     isGeneric: bool,
 ) !StructAttribute {
@@ -1485,7 +1482,7 @@ fn parseStructAttributeUtil(
             const attrType = try parseType(allocator, context);
 
             return .{
-                .name = context.getTokString(first),
+                .nameIdentId = first.identId,
                 .attr = .{
                     .Member = attrType,
                 },
@@ -1498,14 +1495,14 @@ fn parseStructAttributeUtil(
                 allocator,
                 context,
                 .{
-                    .name = structName,
+                    .nameIdentId = structIdentId,
                     .isGeneric = isGeneric,
                     .isStatic = static,
                 },
             );
 
             return .{
-                .name = def.name,
+                .nameIdentId = def.nameIdentId,
                 .attr = .{
                     .Function = def,
                 },
@@ -1525,7 +1522,7 @@ fn parseError(allocator: Allocator, context: *Context) !*const ErrorOrEnumDecNod
         return AstError.ExpectedIdentifierForErrorName;
     }
 
-    var variants: [][]const u8 = &[_][]const u8{};
+    var variants: []identStore.IdentId = &[_]identStore.IdentId{};
 
     const next = try context.tokenUtil.take();
     if (next.type == .LBrace) {
@@ -1535,13 +1532,13 @@ fn parseError(allocator: Allocator, context: *Context) !*const ErrorOrEnumDecNod
     }
 
     return try utils.create(ErrorOrEnumDecNode, allocator, .{
-        .name = context.getTokString(name),
+        .nameIdentId = name.identId,
         .variants = variants,
     });
 }
 
-fn parseVariants(allocator: Allocator, context: *Context) ![][]const u8 {
-    var variants: ArrayList([]const u8) = .empty;
+fn parseVariants(allocator: Allocator, context: *Context) ![]identStore.IdentId {
+    var variants: ArrayList(identStore.IdentId) = .empty;
 
     var variant = try context.tokenUtil.take();
     while (variant.type == .Identifier) {
@@ -1550,14 +1547,13 @@ fn parseVariants(allocator: Allocator, context: *Context) ![][]const u8 {
             return TokenError.UnexpectedToken;
         }
 
-        const variantClone = context.getTokString(variant);
-        try variants.append(allocator, variantClone);
+        try variants.append(allocator, variant.identId);
 
         if (comma.type == .RBrace) break;
         variant = try context.tokenUtil.take();
     }
 
-    return try variants.toOwnedSlice(allocator);
+    return variants.items;
 }
 
 fn parseExpression(allocator: Allocator, context: *Context) !?*AstNode {
@@ -1706,7 +1702,7 @@ fn parseExpressionUtil(
             }
 
             const errOrEnumVariant = AstNodeUnion{
-                .InferEnumVariant = context.getTokString(next),
+                .InferEnumVariant = next.identId,
             };
             return try context.pools.newNode(context, errOrEnumVariant.toAstNode());
         },
@@ -1789,48 +1785,43 @@ fn parseExpressionUtil(
                 .LParen => {
                     _ = try context.tokenUtil.take();
 
-                    return try parseFuncCall(allocator, context, context.getTokString(first));
+                    return try parseFuncCall(allocator, context, first.identId);
                 },
                 .LAngle => a: {
                     const tokPos = context.tokenUtil.pos;
                     _ = try context.tokenUtil.take();
-                    const tokString = context.getTokString(first);
                     const generics = parseInitGenerics(allocator, context) catch {
                         context.tokenUtil.pos = tokPos;
                         break :a;
                     };
                     const openToken = try context.tokenUtil.take();
                     if (openToken.type == .LParen) {
-                        var funcCall = try parseFuncCall(allocator, context, tokString);
+                        var funcCall = try parseFuncCall(allocator, context, first.identId);
                         funcCall.variant.FuncCall.callGenerics = generics;
                         return funcCall;
                     } else if (openToken.type == .LBrace) {
-                        return try parseStructInit(allocator, context, tokString, generics);
+                        return try parseStructInit(allocator, context, first.identId, generics);
                     }
                 },
                 .LBrace => {
                     _ = try context.tokenUtil.take();
-                    const structName = context.getTokString(first);
-                    if (context.compInfo.hasStruct(structName)) {
+                    if (context.compInfo.hasStruct(first.identId)) {
                         return try parseStructInit(
                             allocator,
                             context,
-                            context.getTokString(first),
+                            first.identId,
                             &[_]AstTypeInfo{},
                         );
                     }
                 },
                 .Period, .LBracket => {
-                    const identNode = try getIdentNode(
-                        context,
-                        context.getTokString(first),
-                    );
+                    const identNode = try getIdentNode(context, first.identId);
                     return try parsePropertyAccess(allocator, context, identNode, .Expression);
                 },
                 else => {},
             }
 
-            return try getIdentNode(context, context.getTokString(first));
+            return try getIdentNode(context, first.identId);
         },
         .LBracket => return parseArray(allocator, context),
         .True => return try createBoolNode(context, true),
@@ -1854,17 +1845,17 @@ fn parseExpressionUtil(
     }
 }
 
-fn getIdentNode(context: *Context, str: []const u8) !*AstNode {
+fn getIdentNode(context: *Context, identId: identStore.IdentId) !*AstNode {
     var node: AstNodeUnion = undefined;
 
-    if (context.compInfo.hasStruct(str)) {
-        node = .{ .StaticStructInstance = str };
-    } else if (context.compInfo.hasEnum(str)) {
-        node = .{ .Enum = str };
-    } else if (context.compInfo.hasError(str)) {
-        node = .{ .Error = str };
+    if (context.compInfo.hasStruct(identId)) {
+        node = .{ .StaticStructInstance = identId };
+    } else if (context.compInfo.hasEnum(identId)) {
+        node = .{ .Enum = identId };
+    } else if (context.compInfo.hasError(identId)) {
+        node = .{ .Error = identId };
     } else {
-        node = .{ .Variable = str };
+        node = .{ .Variable = identId };
     }
 
     return try context.pools.newNode(context, node.toAstNode());
@@ -1901,8 +1892,8 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
 
             try context.tokenUtil.expectToken(.With);
 
-            var indexIdent: ?[]const u8 = null;
-            var ptrIdent: ?[]const u8 = null;
+            var indexIdentId: ?identStore.IdentId = null;
+            var ptrIdentId: ?identStore.IdentId = null;
             var hasIdents = false;
             if ((try context.tokenUtil.peak()).type == .LParen) b: {
                 hasIdents = true;
@@ -1912,7 +1903,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
                 if (indexToken.type != .Identifier) {
                     return AstError.ExpectedIdentifierForArrayInitIndex;
                 }
-                indexIdent = context.getTokString(indexToken);
+                indexIdentId = indexToken.identId;
 
                 if ((try context.tokenUtil.peak()).type != .Comma) {
                     break :b;
@@ -1924,7 +1915,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
                 if (ptrToken.type != .Identifier) {
                     return AstError.ExpectedIdentifierForArrayInitPtr;
                 }
-                ptrIdent = context.getTokString(ptrToken);
+                ptrIdentId = ptrToken.identId;
             }
 
             if (hasIdents) {
@@ -1943,8 +1934,8 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
                     .size = context.getTokString(current),
                     .initType = arrType,
                     .initNode = initNode,
-                    .indexIdent = indexIdent,
-                    .ptrIdent = ptrIdent,
+                    .indexIdentId = indexIdentId,
+                    .ptrIdentId = ptrIdentId,
                 },
             };
             return context.pools.newNode(context, arrayInitVariant.toAstNode());
@@ -1983,14 +1974,14 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
 fn parseStructInit(
     allocator: Allocator,
     context: *Context,
-    name: []const u8,
+    nameIdentId: identStore.IdentId,
     generics: []AstTypeInfo,
 ) !*AstNode {
     const attributes = try parseStructInitAttributes(allocator, context);
 
     const structInitVariant = AstNodeUnion{
         .StructInit = .{
-            .name = name,
+            .nameIdentId = nameIdentId,
             .attributes = attributes,
             .generics = generics,
         },
@@ -2030,10 +2021,10 @@ fn parseStructInitAttribute(allocator: Allocator, context: *Context) !AttributeD
     const next = try context.tokenUtil.take();
     if (next.type == .Comma or next.type == .RBrace) {
         const variableVariant = AstNodeUnion{
-            .Variable = context.getTokString(first),
+            .Variable = first.identId,
         };
         const res = AttributeDefinition{
-            .name = context.getTokString(first),
+            .nameIdentId = first.identId,
             .value = try context.pools.newNode(context, variableVariant.toAstNode()),
         };
 
@@ -2047,7 +2038,7 @@ fn parseStructInitAttribute(allocator: Allocator, context: *Context) !AttributeD
         return AstError.ExpectedValueForStructProperty;
 
     return .{
-        .name = context.getTokString(first),
+        .nameIdentId = first.identId,
         .value = eqNode,
     };
 }
@@ -2166,7 +2157,7 @@ fn parsePropertyAccess(
             const propertyAccessVariant = AstNodeUnion{
                 .PropertyAccess = .{
                     .value = node,
-                    .property = context.getTokString(prop),
+                    .property = prop.identId,
                 },
             };
             const access = try context.pools.newNode(context, propertyAccessVariant.toAstNode());
@@ -2235,9 +2226,13 @@ fn parsePropertyAccess(
     }
 }
 
-fn parseFuncCall(allocator: Allocator, context: *Context, name: []const u8) !*AstNode {
+fn parseFuncCall(
+    allocator: Allocator,
+    context: *Context,
+    nameIdentId: identStore.IdentId,
+) !*AstNode {
     const funcRefVariant = AstNodeUnion{
-        .FuncReference = name,
+        .FuncReference = nameIdentId,
     };
     const func = try context.pools.newNode(context, funcRefVariant.toAstNode());
 
@@ -2261,12 +2256,12 @@ fn parseFuncDef(
     defer context.compInfo.popParsedGenericsScope(context);
 
     var next = try context.tokenUtil.take();
-    var nameStr: []const u8 = undefined;
+    var nameIdentId: identStore.IdentId = undefined;
     var genericsOrNull: ?[]GenericType = null;
     var captures: []FuncCaptures = &[_]FuncCaptures{};
 
     if (next.type == .Identifier) {
-        nameStr = context.getTokString(next);
+        nameIdentId = next.identId;
         next = try context.tokenUtil.peak();
     } else {
         return AstError.ExpectedIdentifierForFunctionName;
@@ -2331,7 +2326,7 @@ fn parseFuncDef(
     };
 
     return try utils.createMut(FuncDecNode, allocator, .{
-        .name = nameStr,
+        .nameIdentId = nameIdentId,
         .params = params,
         .body = body,
         .bodyTokens = bodyTokens,
@@ -2340,7 +2335,7 @@ fn parseFuncDef(
         .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
         .funcType = if (structInfoOrNull == null) .Normal else .StructMethod,
         .globallyDefined = context.compInfo.getScopeDepth() == 1,
-        .methodOn = if (structInfoOrNull) |info| info.name else null,
+        .methodOn = if (structInfoOrNull) |info| info.nameIdentId else null,
         .genericState = genericState,
     });
 }
@@ -2378,7 +2373,7 @@ fn parseFuncCaptures(allocator: Allocator, context: *Context) ![]FuncCaptures {
         }
 
         try res.append(allocator, .{
-            .ident = context.getTokString(current),
+            .identId = current.identId,
             .isPtr = isPtr,
             .mutState = mutState,
         });
@@ -2419,8 +2414,7 @@ fn parseGeneric(allocator: Allocator, context: *Context) !GenericType {
     if (first.type != .Identifier) {
         return AstError.ExpectedIdentifierForGenericType;
     }
-    const str = context.getTokString(first);
-    try context.compInfo.addParsedGeneric(allocator, str);
+    try context.compInfo.addParsedGeneric(allocator, first.identId);
 
     var restriction: ?AstTypeInfo = null;
     const current = try context.tokenUtil.peak();
@@ -2430,7 +2424,7 @@ fn parseGeneric(allocator: Allocator, context: *Context) !GenericType {
     }
 
     return .{
-        .name = context.getTokString(first),
+        .nameIdentId = first.identId,
         .restriction = restriction,
     };
 }
@@ -2457,7 +2451,7 @@ fn parseParams(
         const param = try parseParam(allocator, context, structInfoOrNull);
         try params.append(allocator, param);
 
-        if (utils.compString(param.name, constants.SELF_NAME)) {
+        if (param.nameIdentId == identStore.KNOWN_IDENT_IDS.self) {
             res.selfInfo = .{ .mutState = param.mutState };
         }
 
@@ -2489,8 +2483,7 @@ fn parseParam(
         return AstError.ExpectedIdentifierForParameterName;
     }
 
-    const tokString = context.getTokString(first);
-    if (utils.compString(tokString, constants.SELF_NAME)) {
+    if (first.identId == identStore.KNOWN_IDENT_IDS.self) {
         if (structInfoOrNull) |structInfo| {
             if (structInfo.isStatic) {
                 return AstError.UnexpectedSelfParamOnStaticFunction;
@@ -2498,14 +2491,14 @@ fn parseParam(
 
             const typeNode = try context.pools.newType(context, .{
                 .Custom = .{
-                    .name = structInfo.name,
+                    .nameIdentId = structInfo.nameIdentId,
                     .generics = &[_]AstTypeInfo{},
                     .allowPrivateReads = true,
                 },
             });
 
             return .{
-                .name = tokString,
+                .nameIdentId = first.identId,
                 .type = typeNode.toTypeInfo(if (isConst) .Const else .Mut),
                 .mutState = if (isConst) .Const else .Mut,
             };
@@ -2518,7 +2511,7 @@ fn parseParam(
     const paramType = try parseType(allocator, context);
 
     return .{
-        .name = tokString,
+        .nameIdentId = first.identId,
         .type = paramType,
         .mutState = if (isConst) .Const else .Mut,
     };
@@ -2626,7 +2619,7 @@ fn createVarDecNode(
 
     const varDecVariant = AstNodeUnion{
         .VarDec = .{
-            .name = context.getTokString(name),
+            .nameIdentId = name.identId,
             .mutState = mutState,
             .setNode = setValue,
             .annotation = annotation,
@@ -2673,8 +2666,7 @@ fn parseType(
             };
         },
         .Identifier => a: {
-            const str = context.getTokString(first);
-            if (context.compInfo.hasStruct(str)) {
+            if (context.compInfo.hasStruct(first.identId)) {
                 const next = try context.tokenUtil.peak();
                 var generics: []AstTypeInfo = &.{};
 
@@ -2685,16 +2677,16 @@ fn parseType(
 
                 break :a .{
                     .Custom = .{
-                        .name = str,
+                        .nameIdentId = first.identId,
                         .generics = generics,
                         .allowPrivateReads = false,
                     },
                 };
-            } else if (context.compInfo.hasEnum(str)) {
+            } else if (context.compInfo.hasEnum(first.identId)) {
                 break :a .{
-                    .Enum = str,
+                    .Enum = first.identId,
                 };
-            } else if (context.compInfo.hasError(str)) {
+            } else if (context.compInfo.hasError(first.identId)) {
                 const next = try context.tokenUtil.peak();
                 var generic: ?AstTypeInfo = null;
 
@@ -2715,18 +2707,18 @@ fn parseType(
 
                 break :a .{
                     .Error = .{
-                        .name = str,
+                        .nameIdentId = first.identId,
                         .payload = generic,
                     },
                 };
             }
 
-            if (!context.compInfo.hasParsedGeneric(str)) {
+            if (!context.compInfo.hasParsedGeneric(first.identId)) {
                 return AstError.UnexpectedGeneric;
             }
 
             break :a .{
-                .Generic = str,
+                .Generic = first.identId,
             };
         },
         else => return TokenError.UnexpectedToken,
@@ -2764,14 +2756,10 @@ fn parseType(
     return resType.toTypeInfo(mutState);
 }
 
-pub fn findHoistedInfo(
-    allocator: Allocator,
-    tokens: []tokenizer.Token,
-    code: []const u8,
-) !HoistedNames {
-    var structNames: ArrayList([]const u8) = .empty;
-    var errorNames: ArrayList([]const u8) = .empty;
-    var enumNames: ArrayList([]const u8) = .empty;
+pub fn findHoistedInfo(allocator: Allocator, tokens: []tokenizer.Token) !HoistedNames {
+    var structNames: ArrayList(identStore.IdentId) = .empty;
+    var errorNames: ArrayList(identStore.IdentId) = .empty;
+    var enumNames: ArrayList(identStore.IdentId) = .empty;
 
     var scopeCount: usize = 0;
     var i: usize = 0;
@@ -2789,8 +2777,7 @@ pub fn findHoistedInfo(
                     return AstError.ExpectedNameForStruct;
                 }
 
-                const str = tokens[i + 1].strFromCode(code);
-                try structNames.append(allocator, str);
+                try structNames.append(allocator, tokens[i + 1].identId);
             },
             .Error => {
                 if (scopeCount != 0) return AstError.ErrorDefinedInLowerScope;
@@ -2799,8 +2786,7 @@ pub fn findHoistedInfo(
                     return AstError.ExpectedNameForError;
                 }
 
-                const str = tokens[i + 1].strFromCode(code);
-                try errorNames.append(allocator, str);
+                try errorNames.append(allocator, tokens[i + 1].identId);
             },
             .Enum => {
                 if (scopeCount != 0) return AstError.EnumDefinedInLowerScope;
@@ -2809,8 +2795,7 @@ pub fn findHoistedInfo(
                     return AstError.ExpectedNameForEnum;
                 }
 
-                const str = tokens[i + 1].strFromCode(code);
-                try enumNames.append(allocator, str);
+                try enumNames.append(allocator, tokens[i + 1].identId);
             },
             .LBrace => scopeCount += 1,
             .RBrace => scopeCount -= 1,
@@ -2819,9 +2804,9 @@ pub fn findHoistedInfo(
     }
 
     return .{
-        .structNames = try structNames.toOwnedSlice(allocator),
-        .errorNames = try errorNames.toOwnedSlice(allocator),
-        .enumNames = try enumNames.toOwnedSlice(allocator),
+        .structIdentIds = structNames.items,
+        .errorIdentIds = errorNames.items,
+        .enumIdentIds = enumNames.items,
     };
 }
 

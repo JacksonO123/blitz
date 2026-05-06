@@ -1,6 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const StringHashMap = std.StringHashMap;
 const ArrayList = std.ArrayList;
 const Writer = std.Io.Writer;
 
@@ -15,6 +14,7 @@ const scanner = blitz.scanner;
 const vmInfo = blitz.vmInfo;
 const pools = blitz.allocPools;
 const Context = blitz.context.Context;
+const identStore = blitz.identStore;
 
 fn ScopeDeinitFn(comptime T: type) type {
     return fn (*Context, T, pools.ReleaseType) void;
@@ -48,10 +48,10 @@ const VarTypeAndUsedInfo = struct {
     lastUsedNode: ?*ast.AstNode,
 };
 
-pub const VarScope = StringHashMap(VarTypeAndUsedInfo);
-pub const CaptureScope = StringHashMap(scanner.TypeAndAllocInfo);
-pub const TypeScope = StringHashMap(scanner.TypeAndAllocInfo);
-pub const StringListScope = ArrayList([]const u8);
+pub const VarScope = std.AutoHashMap(identStore.IdentId, VarTypeAndUsedInfo);
+pub const CaptureScope = std.AutoHashMap(identStore.IdentId, scanner.TypeAndAllocInfo);
+pub const TypeScope = std.AutoHashMap(identStore.IdentId, scanner.TypeAndAllocInfo);
+pub const IdentIdListScope = ArrayList(identStore.IdentId);
 
 const ToScanItem = struct {
     func: *ast.FuncDecNode,
@@ -71,20 +71,20 @@ pub const CompInfo = struct {
 
     preAst: bool,
     hoistedDecs: struct {
-        structs: StringHashMap(?*ast.StructDecNode),
-        errors: StringHashMap(?*const ast.ErrorOrEnumDecNode),
-        enums: StringHashMap(?*const ast.ErrorOrEnumDecNode),
+        structs: std.AutoHashMap(identStore.IdentId, ?*ast.StructDecNode),
+        errors: std.AutoHashMap(identStore.IdentId, ?*const ast.ErrorOrEnumDecNode),
+        enums: std.AutoHashMap(identStore.IdentId, ?*const ast.ErrorOrEnumDecNode),
     },
     // variableScopes store VarInfo as allocated, but return as recycled to preserve source
     variableScopes: ScopeUtil(*VarScope, pools.releaseVariableScope),
     genericCaptures: ScopeUtil(*TypeScope, pools.releaseGenericCaptures),
-    functionCaptures: ScopeUtil(*StringListScope, pools.NoopReleaseScope),
-    parsedGenerics: ScopeUtil(*StringListScope, pools.NoopReleaseScope),
-    attributeSet: StringHashMap(void),
+    functionCaptures: ScopeUtil(*IdentIdListScope, pools.NoopReleaseScope),
+    parsedGenerics: ScopeUtil(*IdentIdListScope, pools.NoopReleaseScope),
+    attributeSet: std.AutoHashMap(identStore.IdentId, void),
     scopeTypes: ArrayList(ScopeType),
-    functions: StringHashMap(*ast.FuncDecNode),
+    functions: std.AutoHashMap(identStore.IdentId, *ast.FuncDecNode),
     methodFunctions: ArrayList(*ast.FuncDecNode),
-    functionsInScope: ScopeUtil(*StringListScope, pools.NoopReleaseScope),
+    functionsInScope: ScopeUtil(*IdentIdListScope, pools.NoopReleaseScope),
     functionsToScan: ToScanStack,
     genericScopes: ScopeUtil(*TypeScope, pools.releaseGenericScope),
     currentFuncReturn: ?ast.AstTypeInfo,
@@ -98,7 +98,7 @@ pub const CompInfo = struct {
         var scopeTypesPtr: ArrayList(ScopeType) = .empty;
         try scopeTypesPtr.append(allocator, .Normal);
 
-        const functions = StringHashMap(*ast.FuncDecNode).init(allocator);
+        const functions = std.AutoHashMap(identStore.IdentId, *ast.FuncDecNode).init(allocator);
 
         const genericScopes = try initScopeUtil(
             TypeScope,
@@ -116,19 +116,19 @@ pub const CompInfo = struct {
             allocator,
         );
         const functionCaptures = try initScopeUtilWithBase(
-            StringListScope,
+            IdentIdListScope,
             pools.NoopReleaseScope,
             allocator,
             .empty,
         );
         const parsedGenerics = try initScopeUtilWithBase(
-            StringListScope,
+            IdentIdListScope,
             pools.NoopReleaseScope,
             allocator,
             .empty,
         );
         const functionsInScope = try initScopeUtilWithBase(
-            StringListScope,
+            IdentIdListScope,
             pools.NoopReleaseScope,
             allocator,
             .empty,
@@ -136,23 +136,32 @@ pub const CompInfo = struct {
 
         const returnInfo = try ReturnInfo.init(allocator);
 
-        var hoistedStructNames = StringHashMap(?*ast.StructDecNode).init(allocator);
-        var hoistedErrorNames = StringHashMap(?*const ast.ErrorOrEnumDecNode).init(allocator);
-        var hoistedEnumNames = StringHashMap(?*const ast.ErrorOrEnumDecNode).init(allocator);
+        var hoistedStructNames = std.AutoHashMap(
+            identStore.IdentId,
+            ?*ast.StructDecNode,
+        ).init(allocator);
+        var hoistedErrorNames = std.AutoHashMap(
+            identStore.IdentId,
+            ?*const ast.ErrorOrEnumDecNode,
+        ).init(allocator);
+        var hoistedEnumNames = std.AutoHashMap(
+            identStore.IdentId,
+            ?*const ast.ErrorOrEnumDecNode,
+        ).init(allocator);
 
-        for (names.structNames) |name| {
+        for (names.structIdentIds) |name| {
             try hoistedStructNames.put(name, null);
         }
 
-        for (names.errorNames) |name| {
+        for (names.errorIdentIds) |name| {
             try hoistedErrorNames.put(name, null);
         }
 
-        for (names.enumNames) |name| {
+        for (names.enumIdentIds) |name| {
             try hoistedEnumNames.put(name, null);
         }
 
-        const attributeSetPtr = StringHashMap(void).init(allocator);
+        const attributeSet = std.AutoHashMap(identStore.IdentId, void).init(allocator);
 
         return Self{
             .hoistedDecs = .{
@@ -164,7 +173,7 @@ pub const CompInfo = struct {
             .functionCaptures = functionCaptures,
             .genericCaptures = genericCaptures,
             .parsedGenerics = parsedGenerics,
-            .attributeSet = attributeSetPtr,
+            .attributeSet = attributeSet,
             .scopeTypes = scopeTypesPtr,
             .functions = functions,
             .methodFunctions = .empty,
@@ -238,7 +247,7 @@ pub const CompInfo = struct {
         try self.variableScopes.addCaptureIndex(allocator);
         try self.functionsInScope.addCaptureIndex(allocator);
 
-        const newFuncScope = try utils.createMut(StringListScope, allocator, .empty);
+        const newFuncScope = try utils.createMut(IdentIdListScope, allocator, .empty);
 
         try self.functionCaptures.add(allocator, newFuncScope, false);
     }
@@ -261,12 +270,12 @@ pub const CompInfo = struct {
         return self.genericCaptures.release();
     }
 
-    pub fn consumeFunctionCaptures(self: *Self) ?*StringListScope {
+    pub fn consumeFunctionCaptures(self: *Self) ?*IdentIdListScope {
         return self.functionCaptures.release();
     }
 
     pub fn pushScopedFunctionScope(self: *Self, allocator: Allocator, leak: bool) !void {
-        const scope = try utils.createMut(StringListScope, allocator, .empty);
+        const scope = try utils.createMut(IdentIdListScope, allocator, .empty);
         try self.functionsInScope.add(allocator, scope, leak);
     }
 
@@ -274,15 +283,19 @@ pub const CompInfo = struct {
         self.functionsInScope.pop(context);
     }
 
-    pub fn addScopedFunction(self: *Self, allocator: Allocator, name: []const u8) !void {
+    pub fn addScopedFunction(
+        self: *Self,
+        allocator: Allocator,
+        nameIdentId: identStore.IdentId,
+    ) !void {
         const scope = self.functionsInScope.getCurrentScope();
         if (scope) |s| {
-            try s.append(allocator, name);
+            try s.append(allocator, nameIdentId);
         }
     }
 
     pub fn pushParsedGenericsScope(self: *Self, allocator: Allocator, leak: bool) !void {
-        const newScope = try utils.createMut(StringListScope, allocator, .empty);
+        const newScope = try utils.createMut(IdentIdListScope, allocator, .empty);
         try self.parsedGenerics.add(allocator, newScope, leak);
     }
 
@@ -290,19 +303,23 @@ pub const CompInfo = struct {
         self.parsedGenerics.pop(context);
     }
 
-    pub fn addParsedGeneric(self: *Self, allocator: Allocator, gen: []const u8) !void {
+    pub fn addParsedGeneric(
+        self: *Self,
+        allocator: Allocator,
+        genIdentId: identStore.IdentId,
+    ) !void {
         const scope = self.parsedGenerics.getCurrentScope();
         if (scope) |s| {
-            try s.append(allocator, gen);
+            try s.append(allocator, genIdentId);
         }
     }
 
-    pub fn hasParsedGeneric(self: *Self, gen: []const u8) bool {
-        var scope: ?*StringListScope = self.parsedGenerics.getCurrentScope();
+    pub fn hasParsedGeneric(self: *Self, genIdentId: identStore.IdentId) bool {
+        var scope: ?*IdentIdListScope = self.parsedGenerics.getCurrentScope();
         defer self.parsedGenerics.resetLeakIndex();
 
         while (scope) |s| {
-            if (utils.inStringArr(s.items, gen)) {
+            if (std.mem.indexOfScalar(identStore.IdentId, s.items, genIdentId) != null) {
                 return true;
             }
 
@@ -358,7 +375,7 @@ pub const CompInfo = struct {
                 defer self.popParsedGenericsScope(context);
 
                 for (structPtr.*.generics) |g| {
-                    try self.addParsedGeneric(allocator, g.name);
+                    try self.addParsedGeneric(allocator, g.nameIdentId);
                 }
 
                 for (attributes) |attr| {
@@ -369,7 +386,7 @@ pub const CompInfo = struct {
                     switch (f.genericState) {
                         .Generic => |generic| {
                             for (generic.generics) |gen| {
-                                try self.addParsedGeneric(allocator, gen.name);
+                                try self.addParsedGeneric(allocator, gen.nameIdentId);
                             }
                         },
                         else => {},
@@ -392,16 +409,16 @@ pub const CompInfo = struct {
         context.tokenUtil.reset();
     }
 
-    pub fn hasStruct(self: Self, name: []const u8) bool {
-        return self.hoistedDecs.structs.contains(name);
+    pub fn hasStruct(self: Self, nameIdentId: identStore.IdentId) bool {
+        return self.hoistedDecs.structs.contains(nameIdentId);
     }
 
-    pub fn hasError(self: Self, name: []const u8) bool {
-        return self.hoistedDecs.errors.contains(name);
+    pub fn hasError(self: Self, nameIdentId: identStore.IdentId) bool {
+        return self.hoistedDecs.errors.contains(nameIdentId);
     }
 
-    pub fn hasEnum(self: Self, name: []const u8) bool {
-        return self.hoistedDecs.enums.contains(name);
+    pub fn hasEnum(self: Self, nameIdentId: identStore.IdentId) bool {
+        return self.hoistedDecs.enums.contains(nameIdentId);
     }
 
     pub fn pushGenScope(self: *Self, allocator: Allocator, leak: bool) !void {
@@ -413,7 +430,11 @@ pub const CompInfo = struct {
         self.genericScopes.pop(context);
     }
 
-    pub fn setGeneric(self: *Self, name: []const u8, gType: scanner.TypeAndAllocInfo) !void {
+    pub fn setGeneric(
+        self: *Self,
+        nameIdentStr: identStore.IdentId,
+        gType: scanner.TypeAndAllocInfo,
+    ) !void {
         if (gType.info.astType.* == .VarInfo) {
             return scanner.ScanError.CannotSetGenericToVarInfo;
         }
@@ -421,7 +442,7 @@ pub const CompInfo = struct {
         const genScope = self.genericScopes.getCurrentScope();
 
         if (genScope) |scope| {
-            try scope.put(name, gType);
+            try scope.put(nameIdentStr, gType);
         }
     }
 
@@ -429,14 +450,14 @@ pub const CompInfo = struct {
         self: *Self,
         allocator: Allocator,
         context: *Context,
-        name: []const u8,
+        nameIdentId: identStore.IdentId,
     ) !?scanner.TypeAndAllocInfo {
         var genScope: ?*TypeScope = self.genericScopes.getCurrentScope();
         defer self.genericScopes.resetLeakIndex();
         var capture = false;
 
         while (genScope) |s| {
-            if (s.get(name)) |t| {
+            if (s.get(nameIdentId)) |t| {
                 var copy = t;
                 copy.allocState = .Recycled;
 
@@ -452,7 +473,7 @@ pub const CompInfo = struct {
                         copy.info,
                         true,
                     );
-                    try capScope.put(name, clonedType.toAllocInfo(.Recycled));
+                    try capScope.put(nameIdentId, clonedType.toAllocInfo(.Recycled));
                 }
 
                 return copy;
@@ -493,7 +514,7 @@ pub const CompInfo = struct {
     pub fn setVariableType(
         self: *Self,
         context: *Context,
-        name: []const u8,
+        name: identStore.IdentId,
         info: scanner.TypeAndAllocInfo,
         decNode: ?*ast.AstNode,
         mutState: scanner.MutState,
@@ -519,14 +540,14 @@ pub const CompInfo = struct {
 
     fn getVariableTypeInfo(
         self: *Self,
-        name: []const u8,
+        nameIdentId: identStore.IdentId,
     ) !?struct { scope: *VarScope, shouldCapture: bool, varTypeUsedInfo: VarTypeAndUsedInfo } {
         var scope: ?*VarScope = self.variableScopes.getCurrentScope();
         defer self.variableScopes.resetLeakIndex();
         var capture = false;
 
         while (scope) |s| {
-            if (s.get(name)) |t| {
+            if (s.get(nameIdentId)) |t| {
                 return .{
                     .scope = s,
                     .shouldCapture = capture,
@@ -546,8 +567,11 @@ pub const CompInfo = struct {
         return null;
     }
 
-    pub fn getVariableType(self: *Self, name: []const u8) !?scanner.TypeAndAllocInfo {
-        const varTypeInfo = (try self.getVariableTypeInfo(name)) orelse return null;
+    pub fn getVariableType(
+        self: *Self,
+        nameIdentId: identStore.IdentId,
+    ) !?scanner.TypeAndAllocInfo {
+        const varTypeInfo = (try self.getVariableTypeInfo(nameIdentId)) orelse return null;
 
         var copy = varTypeInfo.varTypeUsedInfo;
         copy.varTypeAndAllocInfo.allocState = .Recycled;
@@ -559,13 +583,17 @@ pub const CompInfo = struct {
         return copy.varTypeAndAllocInfo;
     }
 
-    pub fn setVariableLastUsedNode(self: *Self, name: []const u8, node: *ast.AstNode) !void {
-        var varTypeInfo = (try self.getVariableTypeInfo(name)) orelse return;
+    pub fn setVariableLastUsedNode(
+        self: *Self,
+        nameIdentId: identStore.IdentId,
+        node: *ast.AstNode,
+    ) !void {
+        var varTypeInfo = (try self.getVariableTypeInfo(nameIdentId)) orelse return;
         varTypeInfo.varTypeUsedInfo.lastUsedNode = node;
-        try varTypeInfo.scope.put(name, varTypeInfo.varTypeUsedInfo);
+        try varTypeInfo.scope.put(nameIdentId, varTypeInfo.varTypeUsedInfo);
     }
 
-    pub fn isVariableInScope(self: *Self, name: []const u8) bool {
+    pub fn isVariableInScope(self: *Self, name: identStore.IdentId) bool {
         var scope: ?*VarScope = self.variableScopes.getCurrentScope();
         defer self.variableScopes.resetLeakIndex();
 
@@ -585,11 +613,14 @@ pub const CompInfo = struct {
         return false;
     }
 
-    pub fn getVariableTypeFixed(self: *Self, name: []const u8) ?scanner.TypeAndAllocInfo {
+    pub fn getVariableTypeFixed(
+        self: *Self,
+        nameIdentId: identStore.IdentId,
+    ) ?scanner.TypeAndAllocInfo {
         const scope = self.variableScopes.getCurrentScope();
 
         if (scope) |s| {
-            if (s.get(name)) |t| {
+            if (s.get(nameIdentId)) |t| {
                 return t.varTypeAndAllocInfo;
             }
         }
@@ -597,8 +628,8 @@ pub const CompInfo = struct {
         return null;
     }
 
-    pub fn addFunction(self: *Self, name: []const u8, dec: *ast.FuncDecNode) !void {
-        try self.functions.put(name, dec);
+    pub fn addFunction(self: *Self, nameIdentId: identStore.IdentId, dec: *ast.FuncDecNode) !void {
+        try self.functions.put(nameIdentId, dec);
     }
 
     pub fn addFuncToScan(
@@ -615,14 +646,18 @@ pub const CompInfo = struct {
         });
     }
 
-    pub fn getFunction(self: *Self, allocator: Allocator, name: []const u8) !?*ast.FuncDecNode {
+    pub fn getFunction(
+        self: *Self,
+        allocator: Allocator,
+        name: identStore.IdentId,
+    ) !?*ast.FuncDecNode {
         const func = self.getFunctionAsGlobal(name);
         const captureScope = self.functionCaptures.getCurrentScope();
         if (func) |funcDec| a: {
             if (!funcDec.globallyDefined) break :a;
 
             if (captureScope) |capScope| {
-                if (!utils.inStringArr(capScope.items, name)) {
+                if (std.mem.indexOfScalar(identStore.IdentId, capScope.items, name) == null) {
                     try capScope.append(allocator, name);
                 }
             }
@@ -630,15 +665,13 @@ pub const CompInfo = struct {
             return func;
         }
 
-        var scope: ?*StringListScope = self.functionsInScope.getCurrentScope();
+        var scope: ?*IdentIdListScope = self.functionsInScope.getCurrentScope();
         defer self.functionsInScope.resetLeakIndex();
         var capture = false;
 
         while (scope) |s| {
             for (s.items) |item| {
-                if (!utils.compString(item, name)) {
-                    continue;
-                }
+                if (item != name) continue;
 
                 if (func) |funcDec| {
                     if (!capture) {
@@ -646,7 +679,11 @@ pub const CompInfo = struct {
                     }
 
                     if (captureScope) |capScope| {
-                        if (!utils.inStringArr(capScope.items, name)) {
+                        if (std.mem.indexOfScalar(
+                            identStore.IdentId,
+                            capScope.items,
+                            name,
+                        ) == null) {
                             try capScope.append(allocator, name);
                         }
                     }
@@ -669,37 +706,43 @@ pub const CompInfo = struct {
         return null;
     }
 
-    pub fn getFunctionAsGlobal(self: Self, name: []const u8) ?*ast.FuncDecNode {
-        return self.functions.get(name);
+    pub fn getFunctionAsGlobal(self: Self, nameIdentId: identStore.IdentId) ?*ast.FuncDecNode {
+        return self.functions.get(nameIdentId);
     }
 
     pub fn setHoistedNodes(self: *Self, hoistedNodes: ast.HoistedNodes) !void {
         for (hoistedNodes.structs) |node| {
             const structDec = node.variant.StructDec;
-            try self.hoistedDecs.structs.put(structDec.name, structDec);
+            try self.hoistedDecs.structs.put(structDec.nameIdentId, structDec);
         }
 
         for (hoistedNodes.errors) |dec| {
             const errorDec = dec.variant.ErrorDec;
-            try self.hoistedDecs.errors.put(errorDec.name, errorDec);
+            try self.hoistedDecs.errors.put(errorDec.nameIdentId, errorDec);
         }
 
         for (hoistedNodes.enums) |dec| {
             const enumDec = dec.variant.EnumDec;
-            try self.hoistedDecs.enums.put(enumDec.name, enumDec);
+            try self.hoistedDecs.enums.put(enumDec.nameIdentId, enumDec);
         }
     }
 
-    pub fn getStructDec(self: Self, name: []const u8) ?*const ast.StructDecNode {
-        return self.hoistedDecs.structs.get(name) orelse null;
+    pub fn getStructDec(self: Self, nameIdentId: identStore.IdentId) ?*const ast.StructDecNode {
+        return self.hoistedDecs.structs.get(nameIdentId) orelse null;
     }
 
-    pub fn getErrorDec(self: Self, name: []const u8) ?*const ast.ErrorOrEnumDecNode {
-        return self.hoistedDecs.errors.get(name) orelse null;
+    pub fn getErrorDec(
+        self: Self,
+        nameIdentId: identStore.IdentId,
+    ) ?*const ast.ErrorOrEnumDecNode {
+        return self.hoistedDecs.errors.get(nameIdentId) orelse null;
     }
 
-    pub fn getEnumDec(self: Self, name: []const u8) ?*const ast.ErrorOrEnumDecNode {
-        return self.hoistedDecs.enums.get(name) orelse null;
+    pub fn getEnumDec(
+        self: Self,
+        nameIdentId: identStore.IdentId,
+    ) ?*const ast.ErrorOrEnumDecNode {
+        return self.hoistedDecs.enums.get(nameIdentId) orelse null;
     }
 
     pub fn inLoopScope(self: Self) bool {

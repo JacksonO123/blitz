@@ -242,7 +242,7 @@ pub fn releaseGenericScope(
 
 pub fn NoopReleaseScope(
     context: *Context,
-    scope: *compInfo.StringListScope,
+    scope: *compInfo.IdentIdListScope,
     releaseType: ReleaseType,
 ) void {
     _ = scope;

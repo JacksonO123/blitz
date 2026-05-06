@@ -14,6 +14,7 @@ const codegen = blitz.codegen;
 const allocPools = blitz.allocPools;
 const utils = blitz.utils;
 const print = blitz.print;
+const identStoreMod = blitz.identStore;
 
 const ContextSettings = struct {
     debug: struct {
@@ -37,6 +38,7 @@ const ContextSettings = struct {
 pub const Context = struct {
     const Self = @This();
 
+    identStore: identStoreMod.IdentStore,
     tokens: []tokenizer.Token,
     pools: allocPools.Pools,
     logger: logger.Logger,
@@ -56,9 +58,11 @@ pub const Context = struct {
         writer: *Writer,
         settings: ContextSettings,
     ) !Self {
+        var identStore = try identStoreMod.IdentStore.init(allocator);
+
         var pools = try allocPools.Pools.init(allocator);
-        const tokens = try tokenizer.tokenize(allocator, code, writer);
-        const names = try ast.findHoistedInfo(allocator, tokens, code);
+        const tokens = try tokenizer.tokenize(allocator, &identStore, code, writer);
+        const names = try ast.findHoistedInfo(allocator, tokens);
 
         const tokenUtil = tokenizer.TokenUtil.init(tokens);
         const loggerUtil = logger.Logger.init(tokenUtil, code);
@@ -72,6 +76,7 @@ pub const Context = struct {
         const contextUtils = ContextUtils.init(allocator);
 
         return .{
+            .identStore = identStore,
             .pools = pools,
             .logger = loggerUtil,
             .tokens = tokens,
