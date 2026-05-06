@@ -332,10 +332,7 @@ pub fn scanNode(
                     break :a dec;
                 },
                 .Pointer => |inner| switch (inner.info.astType.*) {
-                    .ArrayDec => |dec| a: {
-                        indexInfo.target.typeInfo.isSlice = true;
-                        break :a dec;
-                    },
+                    .ArrayDec => |dec| dec,
                     else => null,
                 },
                 else => null,
@@ -624,7 +621,7 @@ pub fn scanNode(
                 .Custom => |custom| a: {
                     const structDec = context.compInfo.getStructDec(custom.nameIdentId) orelse
                         break :a false;
-                    node.typeInfo.accessingFrom = custom.nameIdentId;
+                    node.typeInfo.data = .{ .PropertyAccess = custom.name };
 
                     try context.compInfo.pushGenScope(allocator, true);
                     defer context.compInfo.popGenScope(context);
@@ -827,6 +824,8 @@ pub fn scanNode(
                 );
             }
 
+            node.typeInfo.data = .{ .VarOrVarDec = .{} };
+
             try context.compInfo.setVariableType(
                 context,
                 dec.nameIdentId,
@@ -947,6 +946,7 @@ pub fn scanNode(
             node.typeInfo.size = try varInfo.info.astType.getSize(allocator, context);
             node.typeInfo.alignment = try varInfo.info.astType.getAlignment(allocator, context);
             node.typeInfo.isSlice = typeIsSlice(varInfo.info.astType.VarInfo);
+            node.typeInfo.data = .{ .VarOrVarDec = .{} };
 
             try context.compInfo.setVariableLastUsedNode(name, node);
 
@@ -1142,7 +1142,7 @@ pub fn scanNode(
                 },
                 else => return ScanError.CannotCallNonFunctionNode,
             };
-            node.typeInfo.resolvesToFunc = func;
+            node.typeInfo.data.Others.resolvesToFunc = func;
 
             if (call.callGenerics) |callGenerics| {
                 switch (func.genericState) {
@@ -1272,7 +1272,7 @@ pub fn scanNode(
                 );
 
                 if (scannedBefore) |at| {
-                    node.typeInfo.funcGenInstanceIndex = @intCast(at);
+                    node.typeInfo.data.Others.funcGenInstanceIndex = @intCast(at);
                 } else {
                     const scopeRels = try genScopeToRels(
                         allocator,
@@ -1281,7 +1281,8 @@ pub fn scanNode(
                         withGenDef,
                     );
                     try func.toScanTypes.append(allocator, scopeRels);
-                    node.typeInfo.funcGenInstanceIndex = @intCast(func.toScanTypes.items.len - 1);
+                    const genInstanceIndex: u32 = @intCast(func.toScanTypes.items.len - 1);
+                    node.typeInfo.data.Others.funcGenInstanceIndex = genInstanceIndex;
                     try context.compInfo.addFuncToScan(allocator, func, scopeRels, withGenDef);
                 }
             }
@@ -1452,7 +1453,8 @@ pub fn scanNode(
             if (ptrTypeInfo.info.astType.* == .ArrayDec) {
                 if (ptrTypeInfo.info.astType.ArrayDec.size) |arrSizeNode| {
                     const arrSize = try indexNumberFromNode(arrSizeNode);
-                    node.typeInfo.makesSliceWithLen = arrSize;
+                    node.typeInfo.data = .{ .ArrDecPtr = .{ .makesSliceWithLen = arrSize } };
+                    node.typeInfo.isSlice = true;
                     makesSlice = true;
                 }
             }

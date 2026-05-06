@@ -847,15 +847,33 @@ pub const AstNodeUnion = union(AstNodeVariants) {
     }
 };
 
-const AstNodeTypeInfo = struct {
+const AstTypeInfoDataVariant = enum {
+    PropertyAccess,
+    VarOrVarDec,
+    ArrDecPtr,
+    Others,
+};
+
+const AstTypeInfoData = union(AstTypeInfoDataVariant) {
+    PropertyAccess: []const u8,
+    VarOrVarDec: struct {
+        lastVarUse: bool = false,
+    },
+    ArrDecPtr: struct {
+        makesSliceWithLen: ?u64 = null,
+    },
+    Others: struct {
+        resolvesToFunc: ?*FuncDecNode = null,
+        // -1 for none
+        funcGenInstanceIndex: ?u32 = null,
+    },
+};
+
+pub const AstNodeTypeInfo = struct {
     size: u64 = 0,
     alignment: u8 = 0,
-    accessingFrom: ?identStore.IdentId = null,
-    lastVarUse: bool = false,
-    makesSliceWithLen: ?u64 = null,
     isSlice: bool = false,
-    resolvesToFunc: ?*FuncDecNode = null,
-    funcGenInstanceIndex: ?u32 = null,
+    data: AstTypeInfoData = .{ .Others = .{} },
 };
 
 pub const AstNode = struct {

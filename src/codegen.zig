@@ -2748,7 +2748,7 @@ pub fn genBytecodeUtil(
             const reg = try genBytecode(allocator, context, dec.setNode) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
 
-            if (node.typeInfo.lastVarUse) {
+            if (node.typeInfo.data.VarOrVarDec.lastVarUse) {
                 return null;
             }
 
@@ -2786,7 +2786,7 @@ pub fn genBytecodeUtil(
                 break :a outReg;
             };
 
-            if (!node.typeInfo.lastVarUse) {
+            if (!node.typeInfo.data.VarOrVarDec.lastVarUse) {
                 try context.genInfo.setVariableRegister(allocator, dec.nameIdentId, varReg);
             }
         },
@@ -3146,7 +3146,7 @@ pub fn genBytecodeUtil(
         .Variable => |name| {
             const resReg = context.genInfo.getVariableRegister(name);
 
-            if (node.typeInfo.lastVarUse) {
+            if (node.typeInfo.data.VarOrVarDec.lastVarUse) {
                 context.genInfo.removeVariableRegister(name);
             }
 
@@ -3561,7 +3561,7 @@ pub fn genBytecodeUtil(
             return destReg;
         },
         .Pointer => |inner| {
-            if (node.typeInfo.makesSliceWithLen) |len| {
+            if (node.typeInfo.data.ArrDecPtr.makesSliceWithLen) |len| {
                 const slicePtrReg = try initArraySliceBytecode(
                     allocator,
                     context,
@@ -3809,11 +3809,11 @@ pub fn genBytecodeUtil(
             }
         },
         .FuncCall => |call| {
-            const func = node.typeInfo.resolvesToFunc.?;
+            const func = node.typeInfo.data.Others.resolvesToFunc.?;
             const labelIdPtr = switch (func.genericState) {
                 .Generic => |*generic| &generic
                     .genericInstances
-                    .items[node.typeInfo.funcGenInstanceIndex.?]
+                    .items[node.typeInfo.data.Others.funcGenInstanceIndex.?]
                     .labelId,
                 .Normal => |*normal| &normal.labelId,
             };
@@ -3900,8 +3900,7 @@ fn getPropLocation(
         return .{ builtins.getSlicePropLocations(propIdentId).?, false };
     }
 
-    const fromName = node.typeInfo.accessingFrom orelse
-        return CodeGenError.AccessTargetDoesNotHaveStructName;
+    const fromName = node.typeInfo.data.PropertyAccess;
     const dec = context.compInfo.getStructDec(fromName).?;
     const isFunction = dec.isPropFunction(propIdentId);
 
@@ -3994,7 +3993,7 @@ fn nodeIsPrimitive(node: *ast.AstNode) bool {
     return switch (node.variant) {
         .StructInit, .ArrayInit => false,
         .Value => |val| val != .ArrayDec,
-        .Pointer => node.typeInfo.makesSliceWithLen == null,
+        .Pointer => node.typeInfo.data.ArrDecPtr.makesSliceWithLen == null,
         else => true,
     };
 }
@@ -4077,8 +4076,7 @@ fn calculateAccessOffset(
 
     switch (node.variant) {
         .PropertyAccess => |accessNode| {
-            const fromName = node.typeInfo.accessingFrom orelse
-                return CodeGenError.AccessTargetDoesNotHaveStructName;
+            const fromName = node.typeInfo.data.PropertyAccess;
             const dec = context.compInfo.getStructDec(fromName).?;
             const loc = (try dec.getMemberLocation(allocator, context, accessNode.property)).?;
             return try calculateAccessOffset(

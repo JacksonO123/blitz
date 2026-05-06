@@ -196,7 +196,7 @@ pub fn releaseVariableScope(
 
         if (astType) |lastNode| {
             if (lastNode.variant == .Variable or lastNode.variant == .VarDec) {
-                lastNode.typeInfo.lastVarUse = true;
+                lastNode.typeInfo.data = .{ .VarOrVarDec = .{ .lastVarUse = true } };
             }
         }
 
