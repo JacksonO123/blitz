@@ -27,17 +27,20 @@ pub const IdentStore = struct {
     pub inline fn init(allocator: Allocator) !Self {
         var identToIdMap = std.StringHashMap(IdentId).init(allocator);
         var idents: std.ArrayList([]const u8) = .empty;
+        var currentId: IdentId = 0;
 
         const typeInfo = @typeInfo(@TypeOf(KNOWN_IDENT_IDS));
         inline for (typeInfo.@"struct".fields) |field| {
             try identToIdMap.put(field.name, @field(KNOWN_IDENT_IDS, field.name));
             try idents.append(allocator, field.name);
+            currentId += 1;
         }
 
         return .{
             .allocator = allocator,
             .identToIdMap = identToIdMap,
             .idents = idents,
+            .currentId = currentId,
         };
     }
 
