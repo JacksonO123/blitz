@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const IdentId = usize;
+pub const IdentId = u32;
 
 pub const IdentStoreError = error{
     IdentNotFound,

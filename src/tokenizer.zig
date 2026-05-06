@@ -310,7 +310,7 @@ pub const Token = struct {
     type: TokenType,
     start: usize,
     end: usize,
-    identId: usize = 0,
+    identId: identStoreMod.IdentId = 0,
 
     pub fn init(tokenType: TokenType, index: usize) Self {
         return Self{
@@ -328,7 +328,7 @@ pub const Token = struct {
         };
     }
 
-    pub fn initBoundsId(tokenType: TokenType, start: usize, end: usize, id: usize) Self {
+    pub fn initBoundsId(tokenType: TokenType, start: usize, end: usize, id: u32) Self {
         var res = initBounds(tokenType, start, end);
         res.identId = id;
         return res;
