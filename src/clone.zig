@@ -70,7 +70,7 @@ pub fn cloneAstTypes(
     types: ast.AstTypes,
     withGenDef: bool,
 ) (Allocator.Error || CloneError)!ast.AstTypes {
-    switch (types) {
+    return switch (types) {
         .Bool,
         .Char,
         .Void,
@@ -80,7 +80,7 @@ pub fn cloneAstTypes(
         .Any,
         .Undef,
         .Enum,
-        => return types,
+        => types,
 
         .VarInfo => |info| {
             const varInfo = try cloneAstTypeInfo(
@@ -122,25 +122,17 @@ pub fn cloneAstTypes(
                 },
             };
         },
-        .StaticStructInstance => |name| {
-            return .{
-                .StaticStructInstance = name,
-            };
+        .StaticStructInstance => |nameIdentId| .{ .StaticStructInstance = nameIdentId },
+        .Pointer => |ptr| .{
+            .Pointer = (try cloneAstTypeInfo(
+                allocator,
+                context,
+                ptr.info,
+                withGenDef,
+            )).toAllocInfo(.Allocated),
         },
-        .Pointer => |ptr| {
-            return .{
-                .Pointer = (try cloneAstTypeInfo(
-                    allocator,
-                    context,
-                    ptr.info,
-                    withGenDef,
-                )).toAllocInfo(.Allocated),
-            };
-        },
-        .Nullable => |t| {
-            return .{
-                .Nullable = try cloneAstTypeInfo(allocator, context, t, withGenDef),
-            };
+        .Nullable => |t| .{
+            .Nullable = try cloneAstTypeInfo(allocator, context, t, withGenDef),
         },
         .Custom => |custom| {
             const genericsSlice = try cloneCustomGenerics(
@@ -152,7 +144,7 @@ pub fn cloneAstTypes(
 
             return .{
                 .Custom = .{
-                    .name = custom.name,
+                    .nameIdentId = custom.nameIdentId,
                     .generics = genericsSlice,
                     .allowPrivateReads = custom.allowPrivateReads,
                 },
@@ -167,30 +159,26 @@ pub fn cloneAstTypes(
 
             return .{
                 .Error = .{
-                    .name = err.name,
+                    .nameIdentId = err.nameIdentId,
                     .payload = payload,
                 },
             };
         },
-        .EnumVariant => |enumVariant| {
-            return .{
-                .EnumVariant = .{
-                    .from = enumVariant.from,
-                    .variant = enumVariant.variant,
-                },
-            };
+        .EnumVariant => |enumVariant| .{
+            .EnumVariant = .{
+                .fromIdentId = enumVariant.fromIdentId,
+                .variantIdentId = enumVariant.variantIdentId,
+            },
         },
-        .ErrorVariant => |err| {
-            return .{
-                .ErrorVariant = .{
-                    .from = err.from,
-                    .variant = err.variant,
-                },
-            };
+        .ErrorVariant => |err| .{
+            .ErrorVariant = .{
+                .fromIdentId = err.fromIdentId,
+                .variantIdentId = err.variantIdentId,
+            },
         },
         .Generic => return CloneError.BadGenericClone,
         .Function, .StructMethod => return CloneError.CannotCloneFunction,
-    }
+    };
 }
 
 pub fn cloneAstNodePtrMut(
@@ -304,7 +292,7 @@ pub fn cloneAstNodeUnion(
 
             return .{
                 .VarDec = .{
-                    .name = dec.name,
+                    .nameIdentId = dec.nameIdentId,
                     .mutState = dec.mutState,
                     .setNode = nodePtr,
                     .annotation = clonedType,
@@ -480,7 +468,7 @@ pub fn cloneAstNodeUnion(
             }
             try context.deferCleanup.typeInfoSlices.append(allocator, generics);
 
-            const name = init.name;
+            const name = init.nameIdentId;
             const attributes = try cloneAttrDef(
                 allocator,
                 context,
@@ -491,7 +479,7 @@ pub fn cloneAstNodeUnion(
             return .{
                 .StructInit = .{
                     .attributes = attributes,
-                    .name = name,
+                    .nameIdentId = name,
                     .generics = generics,
                 },
             };
@@ -545,8 +533,8 @@ pub fn cloneAstNodeUnion(
                     init.initNode,
                     withGenDef,
                 ),
-                .indexIdent = init.indexIdent,
-                .ptrIdent = init.ptrIdent,
+                .indexIdentId = init.indexIdentId,
+                .ptrIdentId = init.ptrIdentId,
             },
         },
         .StructDec => return CloneError.CannotCloneStructDec,
@@ -614,7 +602,7 @@ fn cloneGeneric(
     }
 
     return .{
-        .name = generic.name,
+        .nameIdentId = generic.nameIdentId,
         .restriction = restriction,
     };
 }
@@ -646,8 +634,8 @@ fn cloneAttrDef(
     try context.deferCleanup.attrDefSlices.append(allocator, attributes);
 
     for (attrs, 0..) |attr, index| {
-        const newAttr: ast.AttributeDefinition = .{
-            .name = attr.name,
+        const newAttr = ast.AttributeDefinition{
+            .nameIdentId = attr.nameIdentId,
             .value = try cloneAstNodePtrMut(allocator, context, attr.value, withGenDef),
         };
 

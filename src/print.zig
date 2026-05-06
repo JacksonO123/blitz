@@ -11,6 +11,7 @@ const blitzCompInfo = blitz.compInfo;
 const vmInfo = blitz.vmInfo;
 const GenInfo = codegen.GenInfo;
 const Context = blitz.context.Context;
+const identStore = blitz.identStore;
 
 pub fn printAst(context: *Context, tree: ast.Ast, writer: *Writer) !void {
     try printNode(context, tree.root, writer);
@@ -18,13 +19,13 @@ pub fn printAst(context: *Context, tree: ast.Ast, writer: *Writer) !void {
 
 pub fn printStructAndErrorNames(names: ast.HoistedNames, writer: *Writer) !void {
     try writer.writeAll("------------\nstructs:\n");
-    for (names.structNames) |name| {
+    for (names.structIdentIds) |name| {
         try writer.writeAll(name);
         try writer.writeByte('\n');
     }
 
     try writer.writeAll("errors:\n");
-    for (names.errorNames) |name| {
+    for (names.errorIdentIds) |name| {
         try writer.writeAll(name);
         try writer.writeByte('\n');
     }
@@ -92,9 +93,10 @@ pub fn printType(
         .Custom => |custom| {
             try printCustomType(context, custom, writer);
         },
-        .Generic => |gen| {
+        .Generic => |genIdentId| {
             try writer.writeAll("[generic](");
-            try writer.writeAll(gen);
+            const genStr = context.identStore.getIdentFromId(genIdentId).?;
+            try writer.writeAll(genStr);
             try writer.writeByte(')');
         },
         .Function => |func| {
@@ -106,14 +108,16 @@ pub fn printType(
             try writer.writeAll(" with ");
             try printFunction(context, method.func, writer);
         },
-        .StaticStructInstance => |instr| {
+        .StaticStructInstance => |instIdentId| {
             try writer.writeAll("[static struct instance](");
-            try writer.writeAll(instr);
+            const instanceStr = context.identStore.getIdentFromId(instIdentId).?;
+            try writer.writeAll(instanceStr);
             try writer.writeByte(')');
         },
         .Error => |err| {
             try writer.writeAll("error (");
-            try writer.writeAll(err.name);
+            const errStr = context.identStore.getIdentFromId(err.nameIdentId).?;
+            try writer.writeAll(errStr);
             try writer.writeByte(')');
             if (err.payload) |payload| {
                 try writer.writeByte('[');
@@ -121,23 +125,30 @@ pub fn printType(
                 try writer.writeByte(']');
             }
         },
-        .Enum => |enumName| {
+        .Enum => |enumIdentId| {
             try writer.writeAll("enum (");
-            try writer.writeAll(enumName);
+            const enumStr = context.identStore.getIdentFromId(enumIdentId).?;
+            try writer.writeAll(enumStr);
             try writer.writeByte(')');
         },
         .EnumVariant => |enumVariant| {
             try writer.writeAll("variant [");
-            try writer.writeAll(enumVariant.variant);
+            const variantStr = context.identStore.getIdentFromId(enumVariant.variantIdentId).?;
+            try writer.writeAll(variantStr);
             try writer.writeAll("] from (");
-            try writer.writeAll(if (enumVariant.from) |from| from else "unknown");
+            try writer.writeAll(if (enumVariant.fromIdentId) |from|
+                context.identStore.getIdentFromId(from).?
+            else
+                "unknown");
             try writer.writeByte(')');
         },
         .ErrorVariant => |err| {
             try writer.writeAll("variant [");
-            try writer.writeAll(err.variant);
+            const variantStr = context.identStore.getIdentFromId(err.variantIdentId).?;
+            try writer.writeAll(variantStr);
             try writer.writeAll("] from (");
-            try writer.writeAll(err.from);
+            const fromStr = context.identStore.getIdentFromId(err.fromIdentId).?;
+            try writer.writeAll(fromStr);
             try writer.writeByte(')');
         },
         .Undef => {
@@ -147,7 +158,8 @@ pub fn printType(
 }
 
 fn printCustomType(context: *Context, custom: ast.CustomType, writer: *Writer) !void {
-    try writer.writeAll(custom.name);
+    const customStr = context.identStore.getIdentFromId(custom.nameIdentId).?;
+    try writer.writeAll(customStr);
     if (custom.generics.len > 0) {
         try writer.writeByte('<');
     }
@@ -167,7 +179,8 @@ fn printCustomType(context: *Context, custom: ast.CustomType, writer: *Writer) !
 
 fn printFunction(context: *Context, func: *ast.FuncDecNode, writer: *Writer) !void {
     try writer.writeAll("[function](\"");
-    try writer.writeAll(func.name);
+    const funcStr = context.identStore.getIdentFromId(func.nameIdentId).?;
+    try writer.writeAll(funcStr);
     try writer.writeAll("\")");
 
     switch (func.genericState) {
@@ -181,7 +194,8 @@ fn printFunction(context: *Context, func: *ast.FuncDecNode, writer: *Writer) !vo
 
     for (func.params.params, 0..) |param, index| {
         try writer.writeByte('(');
-        try writer.writeAll(param.name);
+        const paramStr = context.identStore.getIdentFromId(param.nameIdentId).?;
+        try writer.writeAll(paramStr);
         try writer.writeAll(")[");
         try printTypeInfo(context, param.type, writer);
         try writer.writeByte(']');
@@ -342,19 +356,22 @@ pub fn printNode(context: *Context, node: *ast.AstNode, writer: *Writer) anyerro
             try printNode(context, op.value, writer);
             try writer.writeByte(')');
         },
-        .FuncReference => |ref| {
+        .FuncReference => |funcIdentId| {
             try writer.writeAll("function (");
-            try writer.writeAll(ref);
+            const funcStr = context.identStore.getIdentFromId(funcIdentId).?;
+            try writer.writeAll(funcStr);
             try writer.writeByte(')');
         },
-        .StaticStructInstance => |instr| {
+        .StaticStructInstance => |inst| {
             try writer.writeAll("static struct (");
-            try writer.writeAll(instr);
+            const instanceStr = context.identStore.getIdentFromId(inst).?;
+            try writer.writeAll(instanceStr);
             try writer.writeByte(')');
         },
         .PropertyAccess => |access| {
             try writer.writeAll("accessing ");
-            try writer.writeAll(access.property);
+            const propStr = context.identStore.getIdentFromId(access.property).?;
+            try writer.writeAll(propStr);
             try writer.writeAll(" from ");
             try printNode(context, access.value, writer);
         },
@@ -362,7 +379,8 @@ pub fn printNode(context: *Context, node: *ast.AstNode, writer: *Writer) anyerro
             try writer.writeAll("declare (");
             try writer.writeAll(if (dec.mutState == .Const) "const" else "mutable");
             try writer.writeAll(") (");
-            try writer.writeAll(dec.name);
+            const decStr = context.identStore.getIdentFromId(dec.nameIdentId).?;
+            try writer.writeAll(decStr);
             try writer.writeAll(") = ");
 
             try printNode(context, dec.setNode, writer);
@@ -394,9 +412,10 @@ pub fn printNode(context: *Context, node: *ast.AstNode, writer: *Writer) anyerro
             try writer.writeAll(" to ");
             try printTypeInfo(context, cast.toType, writer);
         },
-        .Variable => |variable| {
+        .Variable => |varIdentId| {
             try writer.writeAll("[variable: (");
-            try writer.writeAll(variable);
+            const varStr = context.identStore.getIdentFromId(varIdentId).?;
+            try writer.writeAll(varStr);
             try writer.writeAll(")]");
         },
         .Pointer => |ptr| {
@@ -423,7 +442,8 @@ pub fn printNode(context: *Context, node: *ast.AstNode, writer: *Writer) anyerro
         },
         .StructDec => |dec| {
             try writer.writeAll("declare struct (");
-            try writer.writeAll(dec.name);
+            const decStr = context.identStore.getIdentFromId(dec.nameIdentId).?;
+            try writer.writeAll(decStr);
             try writer.writeByte(')');
 
             if (dec.generics.len > 0) {
@@ -501,7 +521,8 @@ pub fn printNode(context: *Context, node: *ast.AstNode, writer: *Writer) anyerro
         },
         .StructInit => |init| {
             try writer.writeAll("initializing (");
-            try writer.writeAll(init.name);
+            const initStr = context.identStore.getIdentFromId(init.nameIdentId).?;
+            try writer.writeAll(initStr);
             try writer.writeByte(')');
 
             if (init.generics.len > 0) {
@@ -521,7 +542,8 @@ pub fn printNode(context: *Context, node: *ast.AstNode, writer: *Writer) anyerro
             try writer.writeAll(" with {{");
 
             for (init.attributes, 0..) |attr, index| {
-                try writer.writeAll(attr.name);
+                const attrStr = context.identStore.getIdentFromId(attr.nameIdentId).?;
+                try writer.writeAll(attrStr);
                 try writer.writeAll(": ");
                 try printNode(context, attr.value, writer);
                 if (index < init.attributes.len - 1) {
@@ -534,16 +556,18 @@ pub fn printNode(context: *Context, node: *ast.AstNode, writer: *Writer) anyerro
             try writer.writeAll("(bang)!");
             try printNode(context, bang, writer);
         },
-        .ErrorDec => |def| try printRegisteredError(def, writer),
-        .EnumDec => |def| try printRegisteredEnum(def, writer),
-        .Error => |err| {
+        .ErrorDec => |def| try printRegisteredError(context, def, writer),
+        .EnumDec => |def| try printRegisteredEnum(context, def, writer),
+        .Error => |errIdentId| {
             try writer.writeAll("error type (");
-            try writer.writeAll(err);
+            const errStr = context.identStore.getIdentFromId(errIdentId).?;
+            try writer.writeAll(errStr);
             try writer.writeByte(')');
         },
-        .Enum => |enumName| {
+        .Enum => |enumIdentId| {
             try writer.writeAll("enum (");
-            try writer.writeAll(enumName);
+            const enumStr = context.identStore.getIdentFromId(enumIdentId).?;
+            try writer.writeAll(enumStr);
             try writer.writeByte(')');
         },
         .Group => |group| {
@@ -566,7 +590,8 @@ pub fn printNode(context: *Context, node: *ast.AstNode, writer: *Writer) anyerro
         },
         .InferEnumVariant => |variant| {
             try writer.writeAll("infer error from variant ");
-            try writer.writeAll(variant);
+            const variantStr = context.identStore.getIdentFromId(variant).?;
+            try writer.writeAll(variantStr);
         },
         .Continue => {
             try writer.writeAll("continue");
@@ -597,7 +622,8 @@ pub fn printFuncDec(
     try writer.writeAll("declare function [");
     try printTypeInfo(context, func.returnType, writer);
     try writer.writeAll("] (");
-    try writer.writeAll(func.name);
+    const funcNameStr = context.identStore.getIdentFromId(func.nameIdentId).?;
+    try writer.writeAll(funcNameStr);
     try writer.writeByte(')');
 
     switch (func.genericState) {
@@ -620,7 +646,8 @@ pub fn printFuncDec(
                 try writer.writeAll(" &");
             }
 
-            try writer.writeAll(capture.ident);
+            const captureStr = context.identStore.getIdentFromId(capture.identId).?;
+            try writer.writeAll(captureStr);
 
             if (index < func.definedCaptures.len - 1) {
                 try writer.writeAll(", ");
@@ -649,7 +676,8 @@ pub fn printAttributes(
 
         try writer.writeAll(attr.visibility.toString());
         try writer.writeAll(" (");
-        try writer.writeAll(attr.name);
+        const nameStr = context.identStore.getIdentFromId(attr.nameIdentId).?;
+        try writer.writeAll(nameStr);
         try writer.writeAll(") ");
 
         try switch (attr.attr) {
@@ -673,7 +701,8 @@ fn printParams(context: *Context, params: []ast.Parameter, writer: *Writer) !voi
         try writer.writeByte('[');
         try printTypeInfo(context, param.type, writer);
         try writer.writeAll("](");
-        try writer.writeAll(param.name);
+        const paramStr = context.identStore.getIdentFromId(param.nameIdentId).?;
+        try writer.writeAll(paramStr);
         try writer.writeByte(')');
 
         if (index < params.len - 1) {
@@ -697,7 +726,8 @@ pub fn printGenerics(
         }
 
         try writer.writeAll("](");
-        try writer.writeAll(generic.name);
+        const genericStr = context.identStore.getIdentFromId(generic.nameIdentId).?;
+        try writer.writeAll(genericStr);
         try writer.writeByte(')');
 
         if (index < generics.len - 1) {
@@ -713,10 +743,15 @@ fn printNodes(context: *Context, nodes: []*ast.AstNode, writer: *Writer) anyerro
     }
 }
 
-pub fn printErrorOrEnumVariants(variants: [][]const u8, writer: *Writer) !void {
+pub fn printErrorOrEnumVariants(
+    context: *Context,
+    variants: []identStore.IdentId,
+    writer: *Writer,
+) !void {
     try writer.writeByte('[');
-    for (variants, 0..) |variant, index| {
-        try writer.writeAll(variant);
+    for (variants, 0..) |variantIdentId, index| {
+        const variantStr = context.identStore.getIdentFromId(variantIdentId).?;
+        try writer.writeAll(variantStr);
         if (index < variants.len - 1) {
             try writer.writeAll(", ");
         }
@@ -724,20 +759,28 @@ pub fn printErrorOrEnumVariants(variants: [][]const u8, writer: *Writer) !void {
     try writer.writeByte(']');
 }
 
-pub fn printRegisteredError(err: *const ast.ErrorOrEnumDecNode, writer: *Writer) !void {
+pub fn printRegisteredError(
+    context: *Context,
+    err: *const ast.ErrorOrEnumDecNode,
+    writer: *Writer,
+) !void {
     try writer.writeAll("defining error: {s} with variants ");
-    try printErrorOrEnumVariants(err.variants, writer);
+    try printErrorOrEnumVariants(context, err.variants, writer);
 }
 
-pub fn printRegisteredEnum(enumNode: *const ast.ErrorOrEnumDecNode, writer: *Writer) !void {
+pub fn printRegisteredEnum(
+    context: *Context,
+    enumNode: *const ast.ErrorOrEnumDecNode,
+    writer: *Writer,
+) !void {
     try writer.writeAll("defining enum: {s} with variants ");
-    try printErrorOrEnumVariants(enumNode.variants, writer);
+    try printErrorOrEnumVariants(context, enumNode.variants, writer);
 }
 
-pub fn printRegisteredErrors(errors: []*ast.AstNode, writer: *Writer) !void {
+pub fn printRegisteredErrors(context: *Context, errors: []*ast.AstNode, writer: *Writer) !void {
     try writer.writeAll("--- errors ---\n");
     for (errors) |err| {
-        try printRegisteredError(err.variant.ErrorDec, writer);
+        try printRegisteredError(context, err.variant.ErrorDec, writer);
         try writer.writeAll(" ]\n");
     }
 }
@@ -752,7 +795,8 @@ pub fn printRegisteredStructs(
         const dec = node.variant.StructDec;
 
         try writer.writeAll("declaring ");
-        try writer.writeAll(dec.name);
+        const nameStr = context.identStore.getIdentFromId(dec.nameIdentId).?;
+        try writer.writeAll(nameStr);
 
         if (dec.generics.len > 0) {
             try writer.writeAll(" with generics [");

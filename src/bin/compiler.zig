@@ -1,6 +1,4 @@
 const std = @import("std");
-const ArrayList = std.ArrayList;
-const StringHashMap = std.StringHashMap;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 const builtin = @import("builtin");
@@ -88,7 +86,7 @@ pub fn compile(
 
     if (printState == .All) {
         try print.printRegisteredStructs(&context, hoistedNodes.structs, printWriter);
-        try print.printRegisteredErrors(hoistedNodes.errors, printWriter);
+        try print.printRegisteredErrors(&context, hoistedNodes.errors, printWriter);
     }
 
     try context.compInfo.prepareForAst(allocator, &context, printWriter);

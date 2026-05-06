@@ -6,6 +6,7 @@ const Writer = std.Io.Writer;
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
+const identStoreMod = blitz.identStore;
 
 const INIT_TOK_CAPACITY = 1024 * 10;
 
@@ -309,6 +310,7 @@ pub const Token = struct {
     type: TokenType,
     start: usize,
     end: usize,
+    identId: usize = 0,
 
     pub fn init(tokenType: TokenType, index: usize) Self {
         return Self{
@@ -324,6 +326,12 @@ pub const Token = struct {
             .start = start,
             .end = end,
         };
+    }
+
+    pub fn initBoundsId(tokenType: TokenType, start: usize, end: usize, id: usize) Self {
+        var res = initBounds(tokenType, start, end);
+        res.identId = id;
+        return res;
     }
 
     pub fn isOpenToken(self: Self, includeAngle: bool) bool {
@@ -440,13 +448,16 @@ const CharUtil = struct {
     }
 };
 
-pub fn tokenize(allocator: Allocator, input: []const u8, writer: *Writer) ![]Token {
+pub fn tokenize(allocator: Allocator, identStore: *identStoreMod.IdentStore, input: []const u8, writer: *Writer) ![]Token {
     var tokens = try ArrayList(Token).initCapacity(allocator, INIT_TOK_CAPACITY);
     var charUtil = CharUtil.init(input, writer);
 
     while (charUtil.hasNext()) {
-        const token = parseNextToken(&charUtil) catch |e| {
-            charUtil.logError(e);
+        const token = parseNextToken(&charUtil, identStore) catch |e| {
+            switch (e) {
+                error.OutOfMemory => {},
+                else => |err| charUtil.logError(err),
+            }
             return e;
         };
         if (token) |tok| {
@@ -457,7 +468,7 @@ pub fn tokenize(allocator: Allocator, input: []const u8, writer: *Writer) ![]Tok
     return try tokens.toOwnedSlice(allocator);
 }
 
-fn parseNextToken(chars: *CharUtil) !?Token {
+fn parseNextToken(chars: *CharUtil, identStore: *identStoreMod.IdentStore) !?Token {
     if (!chars.hasNext()) return null;
     const startIndex = chars.index;
     const first = try chars.take();
@@ -661,7 +672,7 @@ fn parseNextToken(chars: *CharUtil) !?Token {
             if (isIdent) {
                 chars.returnChar();
 
-                if (utils.compString(chars.chars[startIndex..endIndex], "null")) {
+                if (std.mem.eql(u8, chars.chars[startIndex..endIndex], "null")) {
                     return Token.init(.Null, startIndex);
                 }
 
@@ -675,7 +686,8 @@ fn parseNextToken(chars: *CharUtil) !?Token {
                     return Token.initBounds(dataType, startIndex, startIndex + len);
                 }
 
-                return Token.initBounds(.Identifier, startIndex, endIndex);
+                const id = try identStore.getIdentId(chars.chars[startIndex..endIndex]);
+                return Token.initBoundsId(.Identifier, startIndex, endIndex, id);
             }
 
             return TokenizeError.UnexpectedCharacter;
@@ -734,7 +746,7 @@ fn parseNumber(chars: *CharUtil) !ParsedNumberInfo {
             if (chars.index + str.len >= chars.chars.len) continue;
             const charSlice = chars.chars[chars.index .. chars.index + str.len];
 
-            if (utils.compString(str, charSlice)) {
+            if (std.mem.eql(u8, str, charSlice)) {
                 try chars.advance(str.len + 1);
                 const variant = ast.AstNumberVariants.fromStr(str).?;
                 return .{
@@ -842,7 +854,7 @@ fn isKeyword(chars: []const u8) ?TokenType {
 
 fn getTypeFromTuple(chars: []const u8, tuple: anytype) ?TokenType {
     inline for (tuple) |item| {
-        if (utils.compString(chars, @as(TokenType, item).toString())) {
+        if (std.mem.eql(u8, chars, @as(TokenType, item).toString())) {
             return item;
         }
     }

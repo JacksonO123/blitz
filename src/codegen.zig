@@ -1,6 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const StringHashMap = std.StringHashMap;
 const AutoHashMap = std.AutoHashMap;
 const ArrayList = std.ArrayList;
 const Writer = std.Io.Writer;
@@ -17,6 +16,7 @@ const backendUtils = blitz.backendUtils;
 const scanner = blitz.scanner;
 const clone = blitz.clone;
 const builtins = blitz.builtins;
+const identStore = blitz.identStore;
 const bytecodeBackend = blitz.backends.bytecode;
 const TempRegister = vmInfo.TempRegister;
 const Context = blitz.context.Context;
@@ -1505,10 +1505,10 @@ const DataSection = struct {
     const Self = @This();
 
     data: ArrayList(u8),
-    strPtrMap: StringHashMap(u64),
+    strPtrMap: std.StringHashMap(u64),
 
     pub inline fn init(allocator: Allocator) !Self {
-        const strPtrMap = StringHashMap(u64).init(allocator);
+        const strPtrMap = std.StringHashMap(u64).init(allocator);
 
         return .{
             .data = .empty,
@@ -1542,7 +1542,7 @@ pub const GenInfo = struct {
         stackStartSize: u32,
         version: u8,
     },
-    varNameToReg: StringHashMap(TempRegister),
+    varNameToReg: std.AutoHashMap(identStore.IdentId, TempRegister),
     settings: GenInfoSettings,
     loopInfo: ArrayList(*LoopInfo),
     byteCounter: u64,
@@ -1567,7 +1567,7 @@ pub const GenInfo = struct {
     },
 
     pub inline fn init(allocator: Allocator) !Self {
-        const varNameReg = StringHashMap(TempRegister).init(allocator);
+        const varNameReg = std.AutoHashMap(identStore.IdentId, TempRegister).init(allocator);
         const labelByteInfo = try LabelByteInfo.init(allocator);
 
         return .{
@@ -1893,18 +1893,18 @@ pub const GenInfo = struct {
         return @intCast(self.registers.items.len - 1);
     }
 
-    pub fn getVariableRegister(self: Self, name: []const u8) TempRegister {
-        return self.varNameToReg.get(name).?;
+    pub fn getVariableRegister(self: Self, nameIdentId: identStore.IdentId) TempRegister {
+        return self.varNameToReg.get(nameIdentId).?;
     }
 
     /// will override data about reg, only use this on newly assigned registers
     pub fn setVariableRegister(
         self: *Self,
         allocator: Allocator,
-        name: []const u8,
+        nameIdentId: identStore.IdentId,
         reg: TempRegister,
     ) !void {
-        try self.varNameToReg.put(name, reg);
+        try self.varNameToReg.put(nameIdentId, reg);
 
         const prevInfoOrNull = self.registers.items[reg].varInfo;
         self.registers.items[reg].varInfo = RegInfoVarInfo{
@@ -1916,8 +1916,8 @@ pub const GenInfo = struct {
     }
 
     // deactivates register and removes variable info
-    pub fn removeVariableRegister(self: *Self, name: []const u8) void {
-        const reg = self.varNameToReg.get(name) orelse return;
+    pub fn removeVariableRegister(self: *Self, nameIdentId: identStore.IdentId) void {
+        const reg = self.varNameToReg.get(nameIdentId) orelse return;
         const varInfo = self.registers.items[reg].varInfo;
 
         if (varInfo) |info| {
@@ -1925,10 +1925,10 @@ pub const GenInfo = struct {
             if (prevInfoOrNull) |prevInfo| {
                 self.registers.items[reg].varInfo = prevInfo.*;
             } else {
-                _ = self.varNameToReg.remove(name);
+                _ = self.varNameToReg.remove(nameIdentId);
             }
         } else {
-            _ = self.varNameToReg.remove(name);
+            _ = self.varNameToReg.remove(nameIdentId);
         }
     }
 
@@ -2692,7 +2692,7 @@ pub fn codegenAst(
 
     try backend.initMetadata(allocator, context);
 
-    const mainFn = context.compInfo.functions.get(constants.MAIN_FN_NAME) orelse
+    const mainFn = context.compInfo.functions.get(identStore.KNOWN_IDENT_IDS.main) orelse
         return CodeGenError.MainFunctionNotFound;
     try context.genInfo.newProc(allocator);
     _ = try genBytecode(allocator, context, mainFn.body);
@@ -2787,7 +2787,7 @@ pub fn genBytecodeUtil(
             };
 
             if (!node.typeInfo.lastVarUse) {
-                try context.genInfo.setVariableRegister(allocator, dec.name, varReg);
+                try context.genInfo.setVariableRegister(allocator, dec.nameIdentId, varReg);
             }
         },
         .Value => |value| {
@@ -3442,7 +3442,7 @@ pub fn genBytecodeUtil(
             var indexReg: ?TempRegister = null;
             var ptrReg: ?TempRegister = null;
 
-            if (init.indexIdent) |ident| {
+            if (init.indexIdentId) |ident| {
                 indexReg = try context.genInfo.getNextRegister(allocator);
                 try context.genInfo.setVariableRegister(allocator, ident, indexReg.?);
 
@@ -3455,7 +3455,7 @@ pub fn genBytecodeUtil(
                 try context.genInfo.appendChunk(allocator, setZeroInstr);
             }
 
-            if (init.ptrIdent) |ident| {
+            if (init.ptrIdentId) |ident| {
                 ptrReg = try context.genInfo.getNextRegister(allocator);
                 try context.genInfo.setVariableRegister(allocator, ident, ptrReg.?);
 
@@ -3690,12 +3690,12 @@ pub fn genBytecodeUtil(
                 break :a WriteLocInfo{ .reg = resReg, .value = writeVal };
             };
 
-            const def = context.compInfo.getStructDec(init.name).?;
+            const def = context.compInfo.getStructDec(init.nameIdentId).?;
 
             for (def.attributes, 0..) |defAttr, index| {
                 if (defAttr.attr != .Member) continue;
 
-                const attr = init.findAttribute(defAttr.name).?;
+                const attr = init.findAttribute(defAttr.nameIdentId).?;
 
                 const regOrNull = try genBytecodeUtil(
                     allocator,
@@ -3710,7 +3710,7 @@ pub fn genBytecodeUtil(
                 while (index + nextItemOffset < def.attributes.len) : (nextItemOffset += 1) {
                     if (def.attributes[index + nextItemOffset].attr != .Member) continue;
                     const nextAttr = def.attributes[index + nextItemOffset];
-                    const nextAttrDef = init.findAttribute(nextAttr.name).?;
+                    const nextAttrDef = init.findAttribute(nextAttr.nameIdentId).?;
                     const nextPadding = utils.calculatePadding(
                         writeLocInfo.value,
                         nextAttrDef.value.typeInfo.alignment,
@@ -3894,21 +3894,21 @@ fn getPropLocation(
     allocator: Allocator,
     context: *Context,
     node: *const ast.AstNode,
-    prop: []const u8,
+    propIdentId: identStore.IdentId,
 ) !struct { u64, bool } {
     if (node.variant.PropertyAccess.value.typeInfo.isSlice) {
-        return .{ builtins.getSlicePropLocations(prop).?, false };
+        return .{ builtins.getSlicePropLocations(propIdentId).?, false };
     }
 
     const fromName = node.typeInfo.accessingFrom orelse
         return CodeGenError.AccessTargetDoesNotHaveStructName;
     const dec = context.compInfo.getStructDec(fromName).?;
-    const isFunction = dec.isPropFunction(prop);
+    const isFunction = dec.isPropFunction(propIdentId);
 
     return if (isFunction)
         .{ @as(u64, 0), isFunction }
     else
-        .{ (try dec.getMemberLocation(allocator, context, prop)).?, isFunction };
+        .{ (try dec.getMemberLocation(allocator, context, propIdentId)).?, isFunction };
 }
 
 fn codegenFunctions(
@@ -3922,7 +3922,7 @@ fn codegenFunctions(
 
     var funcIter = context.compInfo.functions.valueIterator();
     while (funcIter.next()) |func| {
-        if (utils.compString(func.*.name, constants.MAIN_FN_NAME)) continue;
+        if (func.*.nameIdentId == identStore.KNOWN_IDENT_IDS.main) continue;
         try generateFunction(allocator, context, backend, func.*);
     }
 }
@@ -3977,12 +3977,16 @@ fn functionSetupBytecode(
     for (func.params.params, 0..) |param, index| {
         const usage: RegisterUsage = .{ .Param = @intCast(index) };
         const paramReg = try context.genInfo.getNextRegisterUtil(allocator, usage);
-        try context.genInfo.setVariableRegister(allocator, param.name, paramReg);
+        try context.genInfo.setVariableRegister(allocator, param.nameIdentId, paramReg);
     }
 
     if (func.params.selfInfo != null) {
         const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .{ .Param = 0 });
-        try context.genInfo.setVariableRegister(allocator, constants.SELF_NAME, paramReg);
+        try context.genInfo.setVariableRegister(
+            allocator,
+            identStore.KNOWN_IDENT_IDS.self,
+            paramReg,
+        );
     }
 }
 

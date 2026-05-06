@@ -12,6 +12,7 @@ const vmInfo = blitz.vmInfo;
 const allocPools = blitz.allocPools;
 const Context = blitz.context.Context;
 const constants = blitz.constants;
+const identStore = blitz.identStore;
 
 pub const ScanBehavior = struct {
     allowErrorWithoutVariants: bool = false,
@@ -621,9 +622,9 @@ pub fn scanNode(
                     return try getArrayDecPropType(allocator, context, node, access.property);
                 },
                 .Custom => |custom| a: {
-                    const structDec = context.compInfo.getStructDec(custom.name) orelse
+                    const structDec = context.compInfo.getStructDec(custom.nameIdentId) orelse
                         break :a false;
-                    node.typeInfo.accessingFrom = custom.name;
+                    node.typeInfo.accessingFrom = custom.nameIdentId;
 
                     try context.compInfo.pushGenScope(allocator, true);
                     defer context.compInfo.popGenScope(context);
@@ -640,7 +641,7 @@ pub fn scanNode(
                             customGen.toAllocInfo(.Recycled),
                             withGenDef,
                         );
-                        try context.compInfo.setGeneric(genDef.name, clonedGenType);
+                        try context.compInfo.setGeneric(genDef.nameIdentId, clonedGenType);
                     }
 
                     const propType = (try validateCustomProps(
@@ -694,19 +695,19 @@ pub fn scanNode(
                         .Allocated,
                     );
                 },
-                .StaticStructInstance => |name| a: {
+                .StaticStructInstance => |nameIdentId| a: {
                     try context.compInfo.pushGenScope(allocator, false);
                     defer context.compInfo.popGenScope(context);
                     var propType = try validateStaticStructProps(
                         allocator,
                         context,
-                        name,
+                        nameIdentId,
                         access.property,
                     );
 
                     if (propType) |t| {
-                        if (!utils.compString(name, constants.SELF_NAME)) {
-                            const dec = context.compInfo.getStructDec(name).?;
+                        if (nameIdentId != identStore.KNOWN_IDENT_IDS.self) {
+                            const dec = context.compInfo.getStructDec(nameIdentId).?;
 
                             if (t.astType.* == .Function) {
                                 for (dec.generics) |gen| {
@@ -717,7 +718,7 @@ pub fn scanNode(
                                             restriction.toAllocInfo(.Recycled),
                                             false,
                                         );
-                                        try context.compInfo.setGeneric(gen.name, typeClone);
+                                        try context.compInfo.setGeneric(gen.nameIdentId, typeClone);
                                     }
                                 }
                             }
@@ -730,9 +731,13 @@ pub fn scanNode(
                     break :a false;
                 },
                 .Error => |err| {
-                    const errDec = context.compInfo.getErrorDec(err.name).?;
+                    const errDec = context.compInfo.getErrorDec(err.nameIdentId).?;
                     if (errDec.variants.len > 0) {
-                        if (!utils.inStringArr(errDec.variants, access.property)) {
+                        if (std.mem.indexOfScalar(
+                            identStore.IdentId,
+                            errDec.variants,
+                            access.property,
+                        ) == null) {
                             return ScanError.ErrorVariantDoesNotExist;
                         }
                     } else {
@@ -741,22 +746,26 @@ pub fn scanNode(
 
                     const errOrEnumType = try context.pools.newType(context, .{
                         .ErrorVariant = .{
-                            .from = err.name,
-                            .variant = access.property,
+                            .fromIdentId = err.nameIdentId,
+                            .variantIdentId = access.property,
                         },
                     });
                     return errOrEnumType.toAllocInfo(valueInfo.info.mutState, .Allocated);
                 },
                 .Enum => |enumName| {
                     const enumDec = context.compInfo.getEnumDec(enumName).?;
-                    if (!utils.inStringArr(enumDec.variants, access.property)) {
+                    if (std.mem.indexOfScalar(
+                        identStore.IdentId,
+                        enumDec.variants,
+                        access.property,
+                    ) == null) {
                         return ScanError.EnumVariantDoesNotExist;
                     }
 
                     const errOrEnumType = try context.pools.newType(context, .{
                         .EnumVariant = .{
-                            .from = enumName,
-                            .variant = access.property,
+                            .fromIdentId = enumName,
+                            .variantIdentId = access.property,
                         },
                     });
                     return errOrEnumType.toAllocInfo(.Const, .Allocated);
@@ -782,7 +791,7 @@ pub fn scanNode(
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
         .VarDec => |dec| {
-            if (context.compInfo.getVariableTypeFixed(dec.name) != null) {
+            if (context.compInfo.getVariableTypeFixed(dec.nameIdentId) != null) {
                 return ScanError.VariableAlreadyExists;
             }
 
@@ -818,7 +827,13 @@ pub fn scanNode(
                 );
             }
 
-            try context.compInfo.setVariableType(context, dec.name, setType, node, dec.mutState);
+            try context.compInfo.setVariableType(
+                context,
+                dec.nameIdentId,
+                setType,
+                node,
+                dec.mutState,
+            );
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
         .ValueSet => |set| {
@@ -1046,7 +1061,7 @@ pub fn scanNode(
             };
 
             for (func.definedCaptures) |capture| {
-                const origVarType = try context.compInfo.getVariableType(capture.ident) orelse
+                const origVarType = try context.compInfo.getVariableType(capture.identId) orelse
                     return ScanError.VariableIsUndefined;
                 var varType = try escapeVarInfo(origVarType);
                 const incomingMutState = origVarType.info.mutState.orConst(varType.info.mutState);
@@ -1071,7 +1086,7 @@ pub fn scanNode(
                     );
                 } else varType;
 
-                try capturedVariables.put(capture.ident, captureType);
+                try capturedVariables.put(capture.identId, captureType);
             }
 
             try context.compInfo.pushScopeWithTypeAndVarLeak(allocator, true, false, .Function);
@@ -1115,10 +1130,10 @@ pub fn scanNode(
                 .Function => |func| func,
                 .StructMethod => |method| a: {
                     forceGeneric = true;
-                    const structDec = context.compInfo.getStructDec(method.customSrc.name).?;
+                    const structDec = context.compInfo.getStructDec(method.customSrc.nameIdentId).?;
                     for (structDec.generics, method.customSrc.generics) |decGen, customGen| {
                         try context.compInfo.setGeneric(
-                            decGen.name,
+                            decGen.nameIdentId,
                             customGen.toAllocInfo(.Recycled),
                         );
                     }
@@ -1141,13 +1156,13 @@ pub fn scanNode(
             }
 
             for (func.definedCaptures) |value| {
-                if (!context.compInfo.isVariableInScope(value.ident)) {
+                if (!context.compInfo.isVariableInScope(value.identId)) {
                     return ScanError.CaptureVariableIsNotInScope;
                 }
             }
 
             if (func.params.selfInfo != null and
-                !utils.compString(constants.SELF_NAME, func.params.params[0].name))
+                func.params.params[0].nameIdentId != identStore.KNOWN_IDENT_IDS.self)
             {
                 return ScanError.ExpectedSelfParameterToBeFirst;
             }
@@ -1184,7 +1199,7 @@ pub fn scanNode(
                             withGenDef,
                         );
                         try context.compInfo.setGeneric(
-                            decGen.name,
+                            decGen.nameIdentId,
                             typeClone.toAllocInfo(.Allocated),
                         );
                     }
@@ -1221,7 +1236,7 @@ pub fn scanNode(
                 if (func.params.selfInfo) |info| {
                     try context.compInfo.setVariableType(
                         context,
-                        constants.SELF_NAME,
+                        identStore.KNOWN_IDENT_IDS.self,
                         func.params.params[0].type.toAllocInfo(.Recycled),
                         null,
                         info.mutState,
@@ -1238,7 +1253,7 @@ pub fn scanNode(
 
                     try context.compInfo.setVariableType(
                         context,
-                        param.name,
+                        param.nameIdentId,
                         typeClone,
                         null,
                         param.mutState,
@@ -1285,7 +1300,7 @@ pub fn scanNode(
             try context.compInfo.pushGenScope(allocator, true);
             defer context.compInfo.popGenScope(context);
 
-            const structDec = context.compInfo.getStructDec(init.name) orelse
+            const structDec = context.compInfo.getStructDec(init.nameIdentId) orelse
                 return ScanError.StructDoesNotExist;
 
             if (init.generics.len != structDec.generics.len) {
@@ -1314,7 +1329,7 @@ pub fn scanNode(
 
             for (structDec.totalMemberList) |attr| {
                 if (attr.attr != .Member or attr.static) continue;
-                const initAttr = init.findAttribute(attr.name) orelse
+                const initAttr = init.findAttribute(attr.nameIdentId) orelse
                     return ScanError.StructInitAttributeNotFound;
 
                 const attrType = try scanNode(
@@ -1368,7 +1383,7 @@ pub fn scanNode(
             const customType = try context.pools.newType(context, .{
                 .Custom = .{
                     .generics = generics,
-                    .name = init.name,
+                    .nameIdentId = init.nameIdentId,
                     .allowPrivateReads = false,
                 },
             });
@@ -1392,7 +1407,7 @@ pub fn scanNode(
 
             const errorType = try context.pools.newType(context, .{
                 .Error = .{
-                    .name = err,
+                    .nameIdentId = err,
                     .payload = null,
                 },
             });
@@ -1503,19 +1518,19 @@ pub fn scanNode(
             try context.compInfo.pushScope(allocator, true);
             defer context.compInfo.popScope(context);
 
-            if (init.indexIdent) |ident| {
+            if (init.indexIdentId) |identId| {
                 var info = context.staticPtrs.types.u64Type;
                 info.mutState = .Const;
                 try context.compInfo.setVariableType(
                     context,
-                    ident,
+                    identId,
                     info.toAllocInfo(.Recycled),
                     null,
                     .Const,
                 );
             }
 
-            if (init.ptrIdent) |ident| {
+            if (init.ptrIdentId) |ident| {
                 const initType = init.initType.toAllocInfo(.Recycled);
                 const typePtr = try context.pools.newType(context, .{ .Pointer = initType });
                 const info = typePtr.toAllocInfo(.Const, .Allocated);
@@ -1581,8 +1596,8 @@ pub fn scanNode(
         .InferEnumVariant => |variant| {
             const enumVariant = try context.pools.newType(context, .{
                 .EnumVariant = .{
-                    .from = null,
-                    .variant = variant,
+                    .fromIdentId = null,
+                    .variantIdentId = variant,
                 },
             });
             return enumVariant.toAllocInfo(.Const, .Allocated);
@@ -1605,9 +1620,9 @@ fn getArrayDecPropType(
     allocator: Allocator,
     context: *Context,
     node: *ast.AstNode,
-    prop: []const u8,
+    propIdentId: identStore.IdentId,
 ) !TypeAndAllocInfo {
-    const propType = try builtins.getArrayDecPropType(context, prop);
+    const propType = try builtins.getArrayDecPropType(context, propIdentId);
     node.typeInfo.size = try propType.astType.getSize(allocator, context);
     node.typeInfo.alignment = try propType.astType.getAlignment(
         allocator,
@@ -1671,9 +1686,9 @@ fn checkUndefVars(context: *Context, node: *const ast.AstNode, allowSelf: bool) 
     var undef = false;
 
     return switch (node.variant) {
-        .Variable => |name| {
-            if (allowSelf and utils.compString(constants.SELF_NAME, name)) return false;
-            return !context.compInfo.isVariableInScope(name);
+        .Variable => |nameIdentId| {
+            if (allowSelf and nameIdentId == identStore.KNOWN_IDENT_IDS.self) return false;
+            return !context.compInfo.isVariableInScope(nameIdentId);
         },
         .Cast => |cast| checkUndefVars(context, cast.node, allowSelf),
         .IncOne,
@@ -1792,7 +1807,7 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
                 rel.info,
                 false,
             );
-            try context.compInfo.setGeneric(rel.str, typeClone.toAllocInfo(.Allocated));
+            try context.compInfo.setGeneric(rel.identId, typeClone.toAllocInfo(.Allocated));
         }
 
         try scanFuncBodyAndReturn(allocator, context, func, toScanItem.withGenDef);
@@ -1910,7 +1925,7 @@ fn genScopeToRels(
             withGenDef,
         );
         slice[i] = .{
-            .str = entry.key_ptr.*,
+            .identId = entry.key_ptr.*,
             .info = infoClone,
         };
 
@@ -1929,7 +1944,7 @@ fn fnHasScannedWithSameGenTypes(
 ) !?usize {
     outer: for (func.toScanTypes.items, 0..) |scannedScope, index| {
         for (scannedScope) |rel| {
-            const genType = genScope.get(rel.str);
+            const genType = genScope.get(rel.identId);
             if (genType == null) continue :outer;
             const matches = try matchTypesUtil(
                 allocator,
@@ -1967,7 +1982,7 @@ fn applyGenericCaptures(
 
 fn applyFunctionCaptures(
     func: *ast.FuncDecNode,
-    scope: *compInfo.StringListScope,
+    scope: *compInfo.IdentIdListScope,
 ) !void {
     func.capturedFuncs = scope;
 }
@@ -2012,7 +2027,7 @@ fn setInitGenerics(
             t.toAllocInfo(.Recycled),
             withGenDef,
         );
-        try context.compInfo.setGeneric(decGen.name, typeClone);
+        try context.compInfo.setGeneric(decGen.nameIdentId, typeClone);
     }
 }
 
@@ -2024,7 +2039,7 @@ fn matchParamGenericTypes(
 ) !bool {
     switch (paramType.*) {
         .Custom => |paramCustom| {
-            if (!utils.compString(custom.name, paramCustom.name)) {
+            if (custom.nameIdentId != paramCustom.nameIdentId) {
                 return ScanError.FunctionCallParamTypeMismatch;
             }
 
@@ -2102,7 +2117,7 @@ fn scanFuncBodyAndReturn(
 
         try context.compInfo.setVariableType(
             context,
-            param.name,
+            param.nameIdentId,
             typeClone.toAllocInfo(.Recycled),
             null,
             param.mutState,
@@ -2111,7 +2126,7 @@ fn scanFuncBodyAndReturn(
 
     defer {
         for (func.params.params) |param| {
-            const varType = context.compInfo.getVariableTypeFixed(param.name);
+            const varType = context.compInfo.getVariableTypeFixed(param.nameIdentId);
             if (varType) |t| {
                 const innerType = t.info.astType.VarInfo.info.astType;
                 allocPools.recursiveReleaseType(context, innerType);
@@ -2121,12 +2136,12 @@ fn scanFuncBodyAndReturn(
     }
 
     for (func.definedCaptures) |capture| {
-        const item = func.capturedVariables.?.get(capture.ident).?;
+        const item = func.capturedVariables.?.get(capture.identId).?;
         const captureType = try escapeVarInfo(item);
 
         try context.compInfo.setVariableType(
             context,
-            capture.ident,
+            capture.identId,
             captureType.info.toAllocInfo(.Recycled),
             null,
             item.info.mutState,
@@ -2135,7 +2150,7 @@ fn scanFuncBodyAndReturn(
 
     defer {
         for (func.definedCaptures) |capture| {
-            const captureType = context.compInfo.getVariableTypeFixed(capture.ident);
+            const captureType = context.compInfo.getVariableTypeFixed(capture.identId);
             if (captureType) |capType| {
                 const innerType = capType.info.astType.VarInfo.info.astType;
                 allocPools.recursiveReleaseType(context, innerType);
@@ -2174,13 +2189,13 @@ fn scanFuncBodyAndReturn(
 fn validateStaticStructProps(
     allocator: Allocator,
     context: *Context,
-    name: []const u8,
-    prop: []const u8,
+    name: identStore.IdentId,
+    propId: identStore.IdentId,
 ) !?ast.AstTypeInfo {
     const dec = context.compInfo.getStructDec(name).?;
 
     for (dec.attributes) |attr| {
-        if (!utils.compString(attr.name, prop)) continue;
+        if (attr.nameIdentId != propId) continue;
         if (!attr.static) return ScanError.NonStaticAccessFromStaticStructReference;
         if (attr.visibility != .Public) return ScanError.RestrictedPropertyAccess;
 
@@ -2194,15 +2209,15 @@ fn validateCustomProps(
     allocator: Allocator,
     context: *Context,
     custom: ast.CustomType,
-    prop: []const u8,
+    propId: identStore.IdentId,
     withGenDef: bool,
 ) !?TypeAndAllocInfo {
-    const dec = context.compInfo.getStructDec(custom.name);
+    const dec = context.compInfo.getStructDec(custom.nameIdentId);
     if (dec) |structDec| {
         for (structDec.attributes) |attr| {
             if (attr.static) continue;
 
-            if (utils.compString(attr.name, prop)) {
+            if (attr.nameIdentId == propId) {
                 if (!custom.allowPrivateReads and attr.visibility != .Public) {
                     return ScanError.NonPublicStructFieldAccessFromOutsideDefinition;
                 }
@@ -2273,7 +2288,7 @@ pub fn matchTypesUtil(
             var genType1 = try context.compInfo.getGeneric(allocator, context, type1.Generic);
             if (genType1) |*gType| {
                 if (gType.info.astType.* == .Generic and
-                    utils.compString(type1.Generic, gType.info.astType.Generic))
+                    type1.Generic == gType.info.astType.Generic)
                 {
                     return ScanError.UnexpectedRecursiveGeneric;
                 }
@@ -2284,7 +2299,7 @@ pub fn matchTypesUtil(
             var genType2 = try context.compInfo.getGeneric(allocator, context, type2.Generic);
             if (genType2) |*gType| {
                 if (gType.info.astType.* == .Generic and
-                    utils.compString(type2.Generic, gType.info.astType.Generic))
+                    type2.Generic == gType.info.astType.Generic)
                 {
                     return ScanError.UnexpectedRecursiveGeneric;
                 }
@@ -2310,9 +2325,7 @@ pub fn matchTypesUtil(
 
         var genType = try context.compInfo.getGeneric(allocator, context, type1.Generic);
         if (genType) |*gType| {
-            if (gType.info.astType.* == .Generic and
-                utils.compString(gType.info.astType.Generic, type1.Generic))
-            {
+            if (gType.info.astType.* == .Generic and gType.info.astType.Generic == type1.Generic) {
                 return ScanError.UnexpectedRecursiveGeneric;
             }
 
@@ -2336,9 +2349,7 @@ pub fn matchTypesUtil(
 
         var genType = try context.compInfo.getGeneric(allocator, context, type2.Generic);
         if (genType) |*gType| {
-            if (gType.info.astType.* == .Generic and
-                utils.compString(gType.info.astType.Generic, type2.Generic))
-            {
+            if (gType.info.astType.* == .Generic and gType.info.astType.Generic == type2.Generic) {
                 return ScanError.UnexpectedRecursiveGeneric;
             }
 
@@ -2476,14 +2487,12 @@ pub fn matchTypesUtil(
             }
         },
         .Custom => |custom| {
-            if (type2 == .StaticStructInstance and
-                utils.compString(custom.name, type2.StaticStructInstance))
-            {
+            if (type2 == .StaticStructInstance and custom.nameIdentId == type2.StaticStructInstance) {
                 return try matchMutState(toType, fromType, true, mutMatchBehavior);
             }
 
             if (type2 != .Custom) return false;
-            if (!utils.compString(type1.Custom.name, type2.Custom.name)) return false;
+            if (type1.Custom.nameIdentId != type2.Custom.nameIdentId) return false;
             if (custom.generics.len != type2.Custom.generics.len) return false;
 
             for (custom.generics, type2.Custom.generics) |gen1, gen2| {
@@ -2501,9 +2510,9 @@ pub fn matchTypesUtil(
             return try matchMutState(toType, fromType, true, mutMatchBehavior);
         },
         .Error => |err| switch (type2) {
-            .Error => |err2| return utils.compString(err.name, err2.name),
+            .Error => |err2| err.nameIdentId == err2.nameIdentId,
             .ErrorVariant => |err2| {
-                if (utils.compString(err.name, err2.from)) return true;
+                if (err.nameIdentId == err2.fromIdentId) return true;
 
                 if (err.payload) |payload| {
                     return matchTypesUtil(
@@ -2536,22 +2545,26 @@ pub fn matchTypesUtil(
         },
         .EnumVariant => |enumVariant| switch (type2) {
             .Enum => |enum2Name| {
-                if (enumVariant.from) |from| {
-                    return utils.compString(enum2Name, from);
+                if (enumVariant.fromIdentId) |from| {
+                    return enum2Name == from;
                 }
 
                 const errDec = context.compInfo.getEnumDec(enum2Name);
                 if (errDec) |dec| {
-                    return utils.inStringArr(dec.variants, enumVariant.variant);
+                    return std.mem.indexOfScalar(
+                        identStore.IdentId,
+                        dec.variants,
+                        enumVariant.variantIdentId,
+                    ) != null;
                 }
 
                 return false;
             },
             .EnumVariant => |enumVariant2| {
-                const variantsMatch = utils.compString(enumVariant.variant, enumVariant2.variant);
+                const variantsMatch = enumVariant.variantIdentId == enumVariant2.variantIdentId;
 
-                if (enumVariant.from != null and enumVariant2.from != null) {
-                    const sourcesMatch = utils.compString(enumVariant.from.?, enumVariant2.from.?);
+                if (enumVariant.fromIdentId != null and enumVariant2.fromIdentId != null) {
+                    const sourcesMatch = enumVariant.fromIdentId.? == enumVariant2.fromIdentId.?;
                     return sourcesMatch and variantsMatch;
                 }
 
@@ -2560,28 +2573,32 @@ pub fn matchTypesUtil(
             else => false,
         },
         .ErrorVariant => |err| switch (type2) {
-            .Error => |err2| utils.compString(err2.name, err.from),
+            .Error => |err2| err2.nameIdentId == err.fromIdentId,
             .ErrorVariant => |variant| {
-                if (!utils.compString(err.from, variant.from)) return false;
-                if (!utils.compString(err.variant, variant.variant)) return false;
+                if (err.fromIdentId != variant.fromIdentId) return false;
+                if (err.variantIdentId != variant.variantIdentId) return false;
                 return true;
             },
             else => false,
         },
         .Enum => |enumName| switch (type2) {
-            .Enum => |enum2Name| return utils.compString(enumName, enum2Name),
+            .Enum => |enum2Name| return enumName == enum2Name,
             .EnumVariant => |errOrEnum2| {
-                if (errOrEnum2.from) |fromEnumName| {
-                    return utils.compString(enumName, fromEnumName);
+                if (errOrEnum2.fromIdentId) |fromEnumName| {
+                    return enumName == fromEnumName;
                 }
 
                 const enumDec = context.compInfo.getEnumDec(enumName).?;
-                return utils.inStringArr(enumDec.variants, errOrEnum2.variant);
+                return std.mem.indexOfScalar(
+                    identStore.IdentId,
+                    enumDec.variants,
+                    errOrEnum2.variantIdentId,
+                ) != null;
             },
             else => false,
         },
         .StaticStructInstance => |inst| {
-            if (type2 == .Custom and utils.compString(inst, type2.Custom.name)) {
+            if (type2 == .Custom and inst == type2.Custom.nameIdentId) {
                 return try matchMutState(toType, fromType, true, mutMatchBehavior);
             }
 
