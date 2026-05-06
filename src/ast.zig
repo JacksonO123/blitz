@@ -855,7 +855,7 @@ const AstTypeInfoDataVariant = enum {
 };
 
 const AstTypeInfoData = union(AstTypeInfoDataVariant) {
-    PropertyAccess: []const u8,
+    PropertyAccess: identStore.IdentId,
     VarOrVarDec: struct {
         lastVarUse: bool = false,
     },

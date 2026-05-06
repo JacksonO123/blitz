@@ -621,7 +621,7 @@ pub fn scanNode(
                 .Custom => |custom| a: {
                     const structDec = context.compInfo.getStructDec(custom.nameIdentId) orelse
                         break :a false;
-                    node.typeInfo.data = .{ .PropertyAccess = custom.name };
+                    node.typeInfo.data = .{ .PropertyAccess = custom.nameIdentId };
 
                     try context.compInfo.pushGenScope(allocator, true);
                     defer context.compInfo.popGenScope(context);
