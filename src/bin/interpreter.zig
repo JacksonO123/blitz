@@ -386,6 +386,26 @@ fn interpretBytecode(
                 const dest = runtimeInfo.registers[ptrReg];
                 runtimeInfo.programData.items[dest] = byteData;
             },
+            .Store64AtRegOffset16 => {
+                storeAtRegOffset(u64, u16, runtimeInfo, bytecode, current);
+            },
+            .Store32AtRegOffset16 => {
+                storeAtRegOffset(u32, u16, runtimeInfo, bytecode, current);
+            },
+            .Store16AtRegOffset16 => {
+                storeAtRegOffset(u16, u16, runtimeInfo, bytecode, current);
+            },
+            .Store8AtRegOffset16 => {
+                const byteData: u8 = @intCast(runtimeInfo.registers[bytecode[current + 1]]);
+                const ptrReg = bytecode[current + 2];
+                const dest = runtimeInfo.registers[ptrReg];
+                const offsetData = std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 3 .. current + 5]),
+                    .little,
+                );
+                runtimeInfo.programData.items[dest + offsetData] = byteData;
+            },
             .Store64AtRegPostInc16 => {
                 storeAtRegPostInc(u64, u16, runtimeInfo, bytecode, current);
             },
@@ -643,6 +663,32 @@ fn interpretBytecode(
     }
 }
 
+fn storeAtRegOffset(
+    comptime StoreType: type,
+    comptime OffsetType: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const storeByteLen = @sizeOf(StoreType);
+    const offsetByteLen = @sizeOf(OffsetType);
+
+    const offset = std.mem.readInt(
+        u16,
+        @ptrCast(bytecode[current + 3 .. current + 3 + offsetByteLen]),
+        .little,
+    );
+    const fromReg = bytecode[current + 1];
+    const toPtr = bytecode[current + 2];
+
+    const start = runtimeInfo.registers[toPtr] + offset;
+    const end = start + storeByteLen;
+
+    const intData: StoreType = @intCast(runtimeInfo.registers[fromReg]);
+    const byteData: [storeByteLen]u8 = @bitCast(intData);
+    @memcpy(runtimeInfo.programData.items[start..end], &byteData);
+}
+
 fn loadAtSpNegOffset(
     comptime T: type,
     comptime OffsetType: type,
@@ -653,9 +699,17 @@ fn loadAtSpNegOffset(
     const resultByteLen = @sizeOf(T);
     const offsetByteLen = @sizeOf(OffsetType);
 
-    const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 2 .. current + 2 + offsetByteLen]), .little);
+    const offset = std.mem.readInt(
+        u16,
+        @ptrCast(bytecode[current + 2 .. current + 2 + offsetByteLen]),
+        .little,
+    );
     const location = runtimeInfo.ptrs.sp - offset;
-    const byteData: T = std.mem.readInt(T, @ptrCast(runtimeInfo.programData.items[location .. location + resultByteLen]), .little);
+    const byteData: T = std.mem.readInt(
+        T,
+        @ptrCast(runtimeInfo.programData.items[location .. location + resultByteLen]),
+        .little,
+    );
     runtimeInfo.registers[bytecode[current + 1]] = byteData;
 }
 

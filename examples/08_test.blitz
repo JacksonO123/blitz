@@ -1,8 +1,13 @@
-fn thing(src: u32[], dst: mut u32[], len: u32) {
-    for (let mut i = 0; i < len; i++) {
-        dst[i] = src[i];
-    }
+struct M {
+    data: u32;
+    pub smaller: u16;
+}
+
+fn thing(m: M) u16 {
+    return m.smaller;
 }
 
 fn main() {
+    let a = M { data = 10, smaller = 2u16 };
+    let b = thing(a);
 }

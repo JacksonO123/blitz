@@ -1027,6 +1027,12 @@ fn printUnionInstr(instr: codegen.Instr, writer: *Writer) !void {
         .Store8AtReg,
         => |fields| try printSegments(fields, .{ .Reg, .Reg }, writer),
 
+        .Store64AtRegOffset16,
+        .Store32AtRegOffset16,
+        .Store16AtRegOffset16,
+        .Store8AtRegOffset16,
+        => |fields| try printSegments(fields, .{ .Reg, .Reg, .Immediate16 }, writer),
+
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,
         .Store16AtRegPostInc16,

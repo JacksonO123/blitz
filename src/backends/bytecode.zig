@@ -232,7 +232,19 @@ fn remapInstr(
             flushPendingDeactivations(context);
             try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
         },
-        .Store64AtReg, .Store32AtReg, .Store16AtReg, .Store8AtReg => |*inner| {
+        .Store64AtReg,
+        .Store32AtReg,
+        .Store16AtReg,
+        .Store8AtReg,
+        => |*inner| {
+            try remapReg(allocator, context, &inner.fromReg, baseIndex, instrIndex, sp);
+            try remapReg(allocator, context, &inner.toRegPtr, baseIndex, instrIndex, sp);
+        },
+        .Store64AtRegOffset16,
+        .Store32AtRegOffset16,
+        .Store16AtRegOffset16,
+        .Store8AtRegOffset16,
+        => |*inner| {
             try remapReg(allocator, context, &inner.fromReg, baseIndex, instrIndex, sp);
             try remapReg(allocator, context, &inner.toRegPtr, baseIndex, instrIndex, sp);
         },
@@ -922,6 +934,14 @@ fn recordInstrRegUsages(context: *Context, instrIndex: usize, limits: codegen.Re
             recordNextUsage(context, inner.dest, instrIndex, limits);
         },
         .Store64AtReg, .Store32AtReg, .Store16AtReg, .Store8AtReg => |*inner| {
+            recordNextUsage(context, inner.fromReg, instrIndex, limits);
+            recordNextUsage(context, inner.toRegPtr, instrIndex, limits);
+        },
+        .Store64AtRegOffset16,
+        .Store32AtRegOffset16,
+        .Store16AtRegOffset16,
+        .Store8AtRegOffset16,
+        => |*inner| {
             recordNextUsage(context, inner.fromReg, instrIndex, limits);
             recordNextUsage(context, inner.toRegPtr, instrIndex, limits);
         },

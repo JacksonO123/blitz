@@ -200,6 +200,11 @@ pub const InstructionVariants = enum(u8) {
     Store16AtReg, // inst, reg, to reg (ptr)
     Store8AtReg, // inst, reg, to reg (ptr)
 
+    Store64AtRegOffset16, // inst, reg, to reg (ptr), offset 2B
+    Store32AtRegOffset16, // inst, reg, to reg (ptr), offset 2B
+    Store16AtRegOffset16, // inst, reg, to reg (ptr), offset 2B
+    Store8AtRegOffset16, // inst, reg, to reg (ptr), offset 2B
+
     Store64AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
     Store32AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
     Store16AtRegPostInc16, // inst, reg, to reg (ptr), inc 2B
@@ -578,6 +583,26 @@ pub const InstructionVariants = enum(u8) {
             },
             .Store8AtReg => .{
                 .len = 3,
+                .opCount = 2,
+                .text = "store_8_at_reg",
+            },
+            .Store64AtRegOffset16 => .{
+                .len = 5,
+                .opCount = 2,
+                .text = "store_64_at_reg",
+            },
+            .Store32AtRegOffset16 => .{
+                .len = 5,
+                .opCount = 2,
+                .text = "store_32_at_reg",
+            },
+            .Store16AtRegOffset16 => .{
+                .len = 5,
+                .opCount = 2,
+                .text = "store_16_at_reg",
+            },
+            .Store8AtRegOffset16 => .{
+                .len = 5,
                 .opCount = 2,
                 .text = "store_8_at_reg",
             },
@@ -1072,6 +1097,11 @@ pub const Instr = union(InstructionVariants) {
     Store32AtReg: StoreAtRegInstr,
     Store16AtReg: StoreAtRegInstr,
     Store8AtReg: StoreAtRegInstr,
+
+    Store64AtRegOffset16: StoreOffsetInstr(u16),
+    Store32AtRegOffset16: StoreOffsetInstr(u16),
+    Store16AtRegOffset16: StoreOffsetInstr(u16),
+    Store8AtRegOffset16: StoreOffsetInstr(u16),
 
     Store64AtRegPostInc16: StoreAtRegIncInstr(u16),
     Store32AtRegPostInc16: StoreAtRegIncInstr(u16),
@@ -1826,6 +1856,14 @@ pub const GenInfo = struct {
                 try func(self, allocator, inner.fromReg, value);
                 try func(self, allocator, inner.toRegPtr, value);
             },
+            .Store64AtRegOffset16,
+            .Store32AtRegOffset16,
+            .Store16AtRegOffset16,
+            .Store8AtRegOffset16,
+            => |inner| {
+                try func(self, allocator, inner.fromReg, value);
+                try func(self, allocator, inner.toRegPtr, value);
+            },
             .Store64AtRegPostInc16,
             .Store32AtRegPostInc16,
             .Store16AtRegPostInc16,
@@ -2201,6 +2239,15 @@ fn writeChunk(instr: Instr, writer: *Writer) !void {
         => |inner| {
             try writer.writeByte(@intCast(inner.fromReg));
             try writer.writeByte(@intCast(inner.toRegPtr));
+        },
+        .Store64AtRegOffset16,
+        .Store32AtRegOffset16,
+        .Store16AtRegOffset16,
+        .Store8AtRegOffset16,
+        => |inner| {
+            try writer.writeByte(@intCast(inner.fromReg));
+            try writer.writeByte(@intCast(inner.toRegPtr));
+            try writer.writeInt(u16, inner.offset, .little);
         },
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,
@@ -3845,13 +3892,37 @@ pub fn genBytecodeUtil(
             for (call.params, 0..) |param, index| {
                 const reg = try genBytecode(allocator, context, param) orelse
                     return CodeGenError.ReturnedRegisterNotFound;
+
+                const paramReg = if (param.typeInfo.nodeType == .Struct) a: {
+                    const spReg = try context.genInfo.getNextRegister(allocator);
+                    std.debug.print(":: {d}\n", .{param.typeInfo.alignment});
+                    const padding = utils.calculatePadding(
+                        context.genInfo.currentProc.stackFrameSize,
+                        param.typeInfo.alignment,
+                    );
+                    context.genInfo.currentProc.stackFrameSize += padding;
+                    const spOffset = context.genInfo.currentProc.stackFrameSize;
+                    context.genInfo.currentProc.stackFrameSize += param.typeInfo.size;
+
+                    const movSpInstr = Instr{
+                        .MovSpNegOffsetAny = .{
+                            .reg = spReg,
+                            .offset = spOffset,
+                        },
+                    };
+                    try context.genInfo.appendChunk(allocator, movSpInstr);
+
+                    try memCpyInstrs(allocator, context, reg, spReg, param.typeInfo.size);
+                    break :a spReg;
+                } else reg;
+
                 const regUsage: RegisterUsage = .{
                     .Param = @intCast(if (hasSelf) index + 1 else index),
                 };
                 const resReg = try context.genInfo.getNextRegisterUtil(allocator, regUsage);
                 const movInstr = Instr{
                     .Mov = .{
-                        .src = reg,
+                        .src = paramReg,
                         .dest = resReg,
                     },
                 };
@@ -3890,13 +3961,114 @@ pub fn genBytecodeUtil(
     return null;
 }
 
+fn memCpyInstrs(
+    allocator: Allocator,
+    context: *Context,
+    fromPtrReg: vmInfo.TempRegister,
+    toPtrReg: vmInfo.TempRegister,
+    size: u64,
+) !void {
+    const scratchReg = try context.genInfo.getNextRegister(allocator);
+
+    var offset: u64 = 0;
+    while (offset < size) {
+        const diff = size - offset;
+        switch (diff) {
+            1 => {
+                const loadInstr = Instr{
+                    .Load8AtRegOffset16 = .{
+                        .fromRegPtr = fromPtrReg,
+                        .dest = scratchReg,
+                        .offset = @intCast(offset),
+                    },
+                };
+                const storeInstr = Instr{
+                    .Store8AtRegOffset16 = .{
+                        .fromReg = scratchReg,
+                        .toRegPtr = toPtrReg,
+                        .offset = @intCast(offset),
+                    },
+                };
+
+                offset += 1;
+
+                try context.genInfo.appendChunk(allocator, loadInstr);
+                try context.genInfo.appendChunk(allocator, storeInstr);
+            },
+            2, 3 => {
+                const loadInstr = Instr{
+                    .Load16AtRegOffset16 = .{
+                        .fromRegPtr = fromPtrReg,
+                        .dest = scratchReg,
+                        .offset = @intCast(offset),
+                    },
+                };
+                const storeInstr = Instr{
+                    .Store16AtRegOffset16 = .{
+                        .fromReg = scratchReg,
+                        .toRegPtr = toPtrReg,
+                        .offset = @intCast(offset),
+                    },
+                };
+
+                offset += 2;
+
+                try context.genInfo.appendChunk(allocator, loadInstr);
+                try context.genInfo.appendChunk(allocator, storeInstr);
+            },
+            4...7 => {
+                const loadInstr = Instr{
+                    .Load32AtRegOffset16 = .{
+                        .fromRegPtr = fromPtrReg,
+                        .dest = scratchReg,
+                        .offset = @intCast(offset),
+                    },
+                };
+                const storeInstr = Instr{
+                    .Store32AtRegOffset16 = .{
+                        .fromReg = scratchReg,
+                        .toRegPtr = toPtrReg,
+                        .offset = @intCast(offset),
+                    },
+                };
+
+                offset += 4;
+
+                try context.genInfo.appendChunk(allocator, loadInstr);
+                try context.genInfo.appendChunk(allocator, storeInstr);
+            },
+            else => {
+                const loadInstr = Instr{
+                    .Load64AtRegOffset16 = .{
+                        .fromRegPtr = fromPtrReg,
+                        .dest = scratchReg,
+                        .offset = @intCast(offset),
+                    },
+                };
+                const storeInstr = Instr{
+                    .Store64AtRegOffset16 = .{
+                        .fromReg = scratchReg,
+                        .toRegPtr = toPtrReg,
+                        .offset = @intCast(offset),
+                    },
+                };
+
+                offset += 8;
+
+                try context.genInfo.appendChunk(allocator, loadInstr);
+                try context.genInfo.appendChunk(allocator, storeInstr);
+            },
+        }
+    }
+}
+
 fn getPropLocation(
     allocator: Allocator,
     context: *Context,
     node: *const ast.AstNode,
     propIdentId: identStore.IdentId,
 ) !struct { u64, bool } {
-    if (node.variant.PropertyAccess.value.typeInfo.isSlice) {
+    if (node.variant.PropertyAccess.value.typeInfo.nodeType == .Slice) {
         return .{ builtins.getSlicePropLocations(propIdentId).?, false };
     }
 
@@ -4085,7 +4257,7 @@ fn calculateAccessOffset(
                 accessNode.value,
                 offset +
                     @as(u16, @intCast(loc)) +
-                    if (node.typeInfo.isSlice) @as(u16, vmInfo.POINTER_SIZE * 2) else 0,
+                    if (node.typeInfo.nodeType == .Slice) @as(u16, vmInfo.POINTER_SIZE * 2) else 0,
             );
         },
         .IndexValue => |indexNode| {
@@ -4120,7 +4292,9 @@ fn calculateAccessOffset(
 
             const isVar = context.genInfo.isRegVariable(reg);
 
-            if (node.typeInfo.isSlice and context.genInfo.settings.sliceAccessGoToSlicePtr) {
+            if (node.typeInfo.nodeType == .Slice and
+                context.genInfo.settings.sliceAccessGoToSlicePtr)
+            {
                 const outReg = try context.genInfo.getNextRegister(allocator);
                 const derefInstr = Instr{
                     .Load64AtReg = .{

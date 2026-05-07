@@ -864,15 +864,20 @@ const AstTypeInfoData = union(AstTypeInfoDataVariant) {
     },
     Others: struct {
         resolvesToFunc: ?*FuncDecNode = null,
-        // -1 for none
         funcGenInstanceIndex: ?u32 = null,
     },
+};
+
+pub const AstTypeInfoNodeType = enum {
+    Slice,
+    Struct,
+    Other,
 };
 
 pub const AstNodeTypeInfo = struct {
     size: u64 = 0,
     alignment: u8 = 0,
-    isSlice: bool = false,
+    nodeType: AstTypeInfoNodeType = .Other,
     data: AstTypeInfoData = .{ .Others = .{} },
 };
 

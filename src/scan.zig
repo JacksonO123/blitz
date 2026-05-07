@@ -326,7 +326,7 @@ pub fn scanNode(
             const arrOrNull = switch (targetType.info.astType.*) {
                 .ArrayDec => |dec| a: {
                     if (dec.size == null) {
-                        indexInfo.target.typeInfo.isSlice = true;
+                        indexInfo.target.typeInfo.nodeType = .Slice;
                     }
 
                     break :a dec;
@@ -945,7 +945,7 @@ pub fn scanNode(
             );
             node.typeInfo.size = try varInfo.info.astType.getSize(allocator, context);
             node.typeInfo.alignment = try varInfo.info.astType.getAlignment(allocator, context);
-            node.typeInfo.isSlice = typeIsSlice(varInfo.info.astType.VarInfo);
+            node.typeInfo.nodeType = getNodeInfoNodeType(varInfo.info.astType.VarInfo);
             node.typeInfo.data = .{ .VarOrVarDec = .{} };
 
             try context.compInfo.setVariableLastUsedNode(name, node);
@@ -1454,7 +1454,7 @@ pub fn scanNode(
                 if (ptrTypeInfo.info.astType.ArrayDec.size) |arrSizeNode| {
                     const arrSize = try indexNumberFromNode(arrSizeNode);
                     node.typeInfo.data = .{ .ArrDecPtr = .{ .makesSliceWithLen = arrSize } };
-                    node.typeInfo.isSlice = true;
+                    node.typeInfo.nodeType = .Slice;
                     makesSlice = true;
                 }
             }
@@ -1613,9 +1613,18 @@ pub fn scanNode(
     }
 }
 
-fn typeIsSlice(valType: TypeAndAllocInfo) bool {
-    return (valType.info.astType.* == .Pointer and
-        valType.info.astType.Pointer.info.astType.* == .ArrayDec);
+fn getNodeInfoNodeType(valType: TypeAndAllocInfo) ast.AstTypeInfoNodeType {
+    if (valType.info.astType.* == .Pointer and
+        valType.info.astType.Pointer.info.astType.* == .ArrayDec)
+    {
+        return .Slice;
+    }
+
+    if (valType.info.astType.* == .Custom) {
+        return .Struct;
+    }
+
+    return .Other;
 }
 
 fn getArrayDecPropType(

@@ -222,6 +222,12 @@ fn printInstrFromSliceUtil(
         .Store8AtReg,
         => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
 
+        .Store64AtRegOffset16,
+        .Store32AtRegOffset16,
+        .Store16AtRegOffset16,
+        .Store8AtRegOffset16,
+        => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate16 }, writer),
+
         .Store64AtRegPostInc16,
         .Store32AtRegPostInc16,
         .Store16AtRegPostInc16,
