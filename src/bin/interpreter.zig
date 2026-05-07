@@ -372,33 +372,28 @@ fn interpretBytecode(
                 movSpNegOffset(u64, runtimeInfo, bytecode, current);
             },
             .Store64AtReg => {
-                try storeAtReg(u64, allocator, runtimeInfo, bytecode, current);
+                try storeAtReg(u64, runtimeInfo, bytecode, current);
             },
             .Store32AtReg => {
-                try storeAtReg(u32, allocator, runtimeInfo, bytecode, current);
+                try storeAtReg(u32, runtimeInfo, bytecode, current);
             },
             .Store16AtReg => {
-                try storeAtReg(u16, allocator, runtimeInfo, bytecode, current);
+                try storeAtReg(u16, runtimeInfo, bytecode, current);
             },
             .Store8AtReg => {
                 const byteData: u8 = @intCast(runtimeInfo.registers[bytecode[current + 1]]);
                 const ptrReg = bytecode[current + 2];
                 const dest = runtimeInfo.registers[ptrReg];
-                try ensureStackCapacityAndLength(
-                    allocator,
-                    &runtimeInfo.programData,
-                    dest + 1,
-                );
                 runtimeInfo.programData.items[dest] = byteData;
             },
             .Store64AtRegPostInc16 => {
-                try storeAtRegPostInc(u64, u16, allocator, runtimeInfo, bytecode, current);
+                storeAtRegPostInc(u64, u16, runtimeInfo, bytecode, current);
             },
             .Store32AtRegPostInc16 => {
-                try storeAtRegPostInc(u32, u16, allocator, runtimeInfo, bytecode, current);
+                storeAtRegPostInc(u32, u16, runtimeInfo, bytecode, current);
             },
             .Store16AtRegPostInc16 => {
-                try storeAtRegPostInc(u16, u16, allocator, runtimeInfo, bytecode, current);
+                storeAtRegPostInc(u16, u16, runtimeInfo, bytecode, current);
             },
             .Store8AtRegPostInc16 => {
                 const byteData: u8 = @intCast(runtimeInfo.registers[bytecode[current + 1]]);
@@ -409,22 +404,17 @@ fn interpretBytecode(
                     @ptrCast(bytecode[current + 3 .. current + 5]),
                     .little,
                 );
-                try ensureStackCapacityAndLength(
-                    allocator,
-                    &runtimeInfo.programData,
-                    dest + 1,
-                );
                 runtimeInfo.programData.items[dest] = byteData;
                 runtimeInfo.registers[ptrReg] += inc;
             },
             .Store64AtSpNegOffset16 => {
-                try storeAtSpNegOffset(u64, u16, allocator, runtimeInfo, bytecode, current);
+                storeAtSpNegOffset(u64, u16, runtimeInfo, bytecode, current);
             },
             .Store32AtSpNegOffset16 => {
-                try storeAtSpNegOffset(u32, u16, allocator, runtimeInfo, bytecode, current);
+                storeAtSpNegOffset(u32, u16, runtimeInfo, bytecode, current);
             },
             .Store16AtSpNegOffset16 => {
-                try storeAtSpNegOffset(u16, u16, allocator, runtimeInfo, bytecode, current);
+                storeAtSpNegOffset(u16, u16, runtimeInfo, bytecode, current);
             },
             .Store8AtSpNegOffset16 => {
                 const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[current + 1]]);
@@ -434,11 +424,6 @@ fn interpretBytecode(
                     .little,
                 );
                 const dest = runtimeInfo.ptrs.sp - offset;
-                try ensureStackCapacityAndLength(
-                    allocator,
-                    &runtimeInfo.programData,
-                    dest + 1,
-                );
                 runtimeInfo.programData.items[dest] = byteData[0];
             },
             .Load64AtSpNegOffset16 => {
@@ -814,7 +799,6 @@ fn subSp(
 
 fn storeAtReg(
     comptime StoreType: type,
-    allocator: Allocator,
     runtimeInfo: *RuntimeInfo,
     bytecode: []const u8,
     current: u64,
@@ -826,22 +810,16 @@ fn storeAtReg(
     const ptrReg = bytecode[current + 2];
     const dest = runtimeInfo.registers[ptrReg];
     const end = dest + storeTypeBytes;
-    try ensureStackCapacityAndLength(
-        allocator,
-        &runtimeInfo.programData,
-        end,
-    );
     @memcpy(runtimeInfo.programData.items[dest..end], &byteData);
 }
 
 fn storeAtRegPostInc(
     comptime StoreType: type,
     comptime OffsetType: type,
-    allocator: Allocator,
     runtimeInfo: *RuntimeInfo,
     bytecode: []const u8,
     current: u64,
-) !void {
+) void {
     const storeTypeBytes = @divExact(@typeInfo(StoreType).int.bits, 8);
     const offsetTypeBytes = @divExact(@typeInfo(OffsetType).int.bits, 8);
 
@@ -855,11 +833,6 @@ fn storeAtRegPostInc(
         .little,
     );
     const end = dest + storeTypeBytes;
-    try ensureStackCapacityAndLength(
-        allocator,
-        &runtimeInfo.programData,
-        end,
-    );
     @memcpy(runtimeInfo.programData.items[dest..end], &byteData);
     runtimeInfo.registers[ptrReg] += inc;
 }
@@ -898,11 +871,10 @@ fn loadAtReg(
 fn storeAtSpNegOffset(
     comptime StoreType: type,
     comptime OffsetType: type,
-    allocator: Allocator,
     runtimeInfo: *RuntimeInfo,
     bytecode: []const u8,
     current: u64,
-) !void {
+) void {
     const offsetBytes = @divExact(@typeInfo(OffsetType).int.bits, 8);
     const storeBytes = @divExact(@typeInfo(StoreType).int.bits, 8);
 
@@ -914,11 +886,6 @@ fn storeAtSpNegOffset(
         .little,
     );
     const dest = runtimeInfo.ptrs.sp - offset;
-    try ensureStackCapacityAndLength(
-        allocator,
-        &runtimeInfo.programData,
-        dest + storeBytes,
-    );
     @memcpy(runtimeInfo.programData.items[dest .. dest + storeBytes], &byteData);
 }
 

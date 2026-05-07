@@ -28,8 +28,8 @@ const BytecodeFormat = enum {
     PlainText,
 };
 
-// const compilerPrintState: DebugPrintState = .All;
-const compilerPrintState: DebugPrintState = .None;
+const compilerPrintState: DebugPrintState = .All;
+// const compilerPrintState: DebugPrintState = .None;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
