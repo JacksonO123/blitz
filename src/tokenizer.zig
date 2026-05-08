@@ -448,7 +448,12 @@ const CharUtil = struct {
     }
 };
 
-pub fn tokenize(allocator: Allocator, identStore: *identStoreMod.IdentStore, input: []const u8, writer: *Writer) ![]Token {
+pub fn tokenize(
+    allocator: Allocator,
+    identStore: *identStoreMod.IdentStore,
+    input: []const u8,
+    writer: *Writer,
+) ![]Token {
     var tokens = try ArrayList(Token).initCapacity(allocator, INIT_TOK_CAPACITY);
     var charUtil = CharUtil.init(input, writer);
 

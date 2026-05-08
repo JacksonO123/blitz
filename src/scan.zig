@@ -232,9 +232,8 @@ pub fn scanNode(
             defer releaseIfAllocated(context, origNodeType);
             const nodeType = try escapeVarInfo(origNodeType);
 
-            if (isAnyType(nodeType.info.astType) or
-                isPrimitive(nodeType.info.astType) and
-                    isPrimitive(cast.toType.astType))
+            if (isAnyType(nodeType.info.astType) or isPrimitive(nodeType.info.astType) and
+                isPrimitive(cast.toType.astType))
             {
                 return clonedCastResult;
             }
@@ -338,22 +337,17 @@ pub fn scanNode(
                 else => null,
             };
 
-            if (arrOrNull) |arr| {
-                const resType = try clone.replaceGenericsOnTypeInfo(
-                    allocator,
-                    context,
-                    arr.type,
-                    withGenDef,
-                );
-                node.typeInfo.size = try resType.info.astType.getSize(allocator, context);
-                node.typeInfo.alignment = try resType.info.astType.getAlignment(
-                    allocator,
-                    context,
-                );
-                return resType;
-            }
+            const arr = arrOrNull orelse return ScanError.ExpectedArrayForIndexTarget;
 
-            return ScanError.ExpectedArrayForIndexTarget;
+            const resType = try clone.replaceGenericsOnTypeInfo(
+                allocator,
+                context,
+                arr.type,
+                withGenDef,
+            );
+            node.typeInfo.size = try resType.info.astType.getSize(allocator, context);
+            node.typeInfo.alignment = try resType.info.astType.getAlignment(allocator, context);
+            return resType;
         },
         .OpExpr => |op| {
             const origLeft = try scanNode(allocator, context, op.left, withGenDef);
@@ -702,30 +696,26 @@ pub fn scanNode(
                         access.property,
                     );
 
-                    if (propType) |t| {
-                        if (nameIdentId != identStore.KNOWN_IDENT_IDS.self) {
-                            const dec = context.compInfo.getStructDec(nameIdentId).?;
+                    const t = propType orelse break :a false;
+                    if (nameIdentId == identStore.KNOWN_IDENT_IDS.self) break :a false;
 
-                            if (t.astType.* == .Function) {
-                                for (dec.generics) |gen| {
-                                    if (gen.restriction) |restriction| {
-                                        const typeClone = try clone.replaceGenericsOnTypeInfo(
-                                            allocator,
-                                            context,
-                                            restriction.toAllocInfo(.Recycled),
-                                            false,
-                                        );
-                                        try context.compInfo.setGeneric(gen.nameIdentId, typeClone);
-                                    }
-                                }
-                            }
+                    const dec = context.compInfo.getStructDec(nameIdentId).?;
+
+                    if (t.astType.* == .Function) {
+                        for (dec.generics) |gen| {
+                            const restriction = gen.restriction orelse continue;
+                            const typeClone = try clone.replaceGenericsOnTypeInfo(
+                                allocator,
+                                context,
+                                restriction.toAllocInfo(.Recycled),
+                                false,
+                            );
+                            try context.compInfo.setGeneric(gen.nameIdentId, typeClone);
                         }
-
-                        propType.?.mutState = valueInfo.info.mutState;
-                        return t.toAllocInfo(.Allocated);
                     }
 
-                    break :a false;
+                    propType.?.mutState = valueInfo.info.mutState;
+                    return t.toAllocInfo(.Allocated);
                 },
                 .Error => |err| {
                     const errDec = context.compInfo.getErrorDec(err.nameIdentId).?;
@@ -838,8 +828,7 @@ pub fn scanNode(
         .ValueSet => |set| {
             const origValType = try scanNode(allocator, context, set.value, withGenDef);
             defer releaseIfAllocated(context, origValType);
-            if (set.value.variant != .Dereference and
-                set.value.variant != .IndexValue and
+            if (set.value.variant != .Dereference and set.value.variant != .IndexValue and
                 origValType.info.astType.* != .VarInfo)
             {
                 return ScanError.InvalidSetValueTarget;
@@ -1080,10 +1069,7 @@ pub fn scanNode(
                     const ptrType = try context.pools.newType(context, .{
                         .Pointer = varType,
                     });
-                    break :a ptrType.toAllocInfo(
-                        capture.mutState,
-                        .Allocated,
-                    );
+                    break :a ptrType.toAllocInfo(capture.mutState, .Allocated);
                 } else varType;
 
                 try capturedVariables.put(capture.identId, captureType);
@@ -1130,7 +1116,8 @@ pub fn scanNode(
                 .Function => |func| func,
                 .StructMethod => |method| a: {
                     forceGeneric = true;
-                    const structDec = context.compInfo.getStructDec(method.customSrc.nameIdentId).?;
+                    const nameIdentId = method.customSrc.nameIdentId;
+                    const structDec = context.compInfo.getStructDec(nameIdentId).?;
                     for (structDec.generics, method.customSrc.generics) |decGen, customGen| {
                         try context.compInfo.setGeneric(
                             decGen.nameIdentId,
@@ -1333,12 +1320,7 @@ pub fn scanNode(
                 const initAttr = init.findAttribute(attr.nameIdentId) orelse
                     return ScanError.StructInitAttributeNotFound;
 
-                const attrType = try scanNode(
-                    allocator,
-                    context,
-                    initAttr.value,
-                    withGenDef,
-                );
+                const attrType = try scanNode(allocator, context, initAttr.value, withGenDef);
                 try initAttrRel.append(allocator, .{
                     .initInfo = attrType,
                     .defInfo = attr.attr.Member,
@@ -1373,12 +1355,7 @@ pub fn scanNode(
             const generics = try allocator.alloc(ast.AstTypeInfo, init.generics.len);
             try context.deferCleanup.typeInfoSlices.append(allocator, generics);
             for (init.generics, 0..) |gen, index| {
-                generics[index] = try clone.cloneAstTypeInfo(
-                    allocator,
-                    context,
-                    gen,
-                    withGenDef,
-                );
+                generics[index] = try clone.cloneAstTypeInfo(allocator, context, gen, withGenDef);
             }
 
             const customType = try context.pools.newType(context, .{
@@ -1433,8 +1410,7 @@ pub fn scanNode(
         .Pointer => |ptr| {
             const ptrType = try scanNode(allocator, context, ptr.node, withGenDef);
 
-            if (ptr.mutState == .Mut and
-                ptrType.info.astType.* == .VarInfo and
+            if (ptr.mutState == .Mut and ptrType.info.astType.* == .VarInfo and
                 ptrType.info.mutState == .Const)
             {
                 return ScanError.PointerTypeConstMismatch;
@@ -1536,13 +1512,7 @@ pub fn scanNode(
                 const initType = init.initType.toAllocInfo(.Recycled);
                 const typePtr = try context.pools.newType(context, .{ .Pointer = initType });
                 const info = typePtr.toAllocInfo(.Const, .Allocated);
-                try context.compInfo.setVariableType(
-                    context,
-                    ident,
-                    info,
-                    null,
-                    .Const,
-                );
+                try context.compInfo.setVariableType(context, ident, info, null, .Const);
             }
 
             const initNodeTypeResult = try scanNode(allocator, context, init.initNode, withGenDef);
@@ -1588,10 +1558,7 @@ pub fn scanNode(
                 return ScanError.InvalidNumber;
             const initTypeSize = try initTypeClone.info.astType.getSize(allocator, context);
             node.typeInfo.size = initTypeSize * arrSize;
-            node.typeInfo.alignment = try initTypeClone.info.astType.getAlignment(
-                allocator,
-                context,
-            );
+            node.typeInfo.alignment = try initTypeClone.info.astType.getAlignment(allocator, context);
 
             return arrayDecType.toAllocInfo(.Mut, .Allocated);
         },
@@ -1635,10 +1602,7 @@ fn getArrayDecPropType(
 ) !TypeAndAllocInfo {
     const propType = try builtins.getArrayDecPropType(context, propIdentId);
     node.typeInfo.size = try propType.astType.getSize(allocator, context);
-    node.typeInfo.alignment = try propType.astType.getAlignment(
-        allocator,
-        context,
-    );
+    node.typeInfo.alignment = try propType.astType.getAlignment(allocator, context);
     return propType.toAllocInfo(.Allocated);
 }
 
@@ -1812,12 +1776,7 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
         }
 
         for (toScanItem.genTypes) |rel| {
-            const typeClone = try clone.cloneAstTypeInfo(
-                allocator,
-                context,
-                rel.info,
-                false,
-            );
+            const typeClone = try clone.cloneAstTypeInfo(allocator, context, rel.info, false);
             try context.compInfo.setGeneric(rel.identId, typeClone.toAllocInfo(.Allocated));
         }
 
@@ -1905,8 +1864,7 @@ fn setGenTypesAndMatchTypesFromParams(
             return ScanError.FunctionCallParamTypeMismatch;
         }
 
-        if (callParamType.info.astType.* == .Pointer and
-            callParamType.info.mutState == .Const and
+        if (callParamType.info.astType.* == .Pointer and callParamType.info.mutState == .Const and
             decParam.type.mutState == .Mut and
             !isAnyType(decParam.type.astType))
         {
@@ -1991,10 +1949,7 @@ fn applyGenericCaptures(
     func.capturedTypes = scope;
 }
 
-fn applyFunctionCaptures(
-    func: *ast.FuncDecNode,
-    scope: *compInfo.IdentIdListScope,
-) !void {
+fn applyFunctionCaptures(func: *ast.FuncDecNode, scope: *compInfo.IdentIdListScope) !void {
     func.capturedFuncs = scope;
 }
 

@@ -137,7 +137,7 @@ const RuntimeInfo = struct {
         try writer.writeAll("##STACK_END##\n");
 
         try blitz.print.printHexViewer(
-            self.programData.items[vmInfo.PADDED_VM_INFO_BYTECODE_HEADER_LEN..self.instrStart],
+            self.programData.items[vmInfo.PADDED_BYTECODE_HEADER_LEN..self.instrStart],
             writer,
         );
     }
@@ -164,7 +164,8 @@ fn interpretBytecode(
             .PostPopLRNegOffsetAny,
             => unreachable,
             .Mov => {
-                runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.registers[bytecode[current + 2]];
+                const value = runtimeInfo.registers[bytecode[current + 2]];
+                runtimeInfo.registers[bytecode[current + 1]] = value;
             },
             .SetReg64 => {
                 const value = std.mem.readInt(
@@ -456,7 +457,11 @@ fn interpretBytecode(
                 loadAtSpNegOffset(u16, u16, runtimeInfo, bytecode, current);
             },
             .Load8AtSpNegOffset16 => {
-                const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 2 .. current + 4]), .little);
+                const offset = std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 2 .. current + 4]),
+                    .little,
+                );
                 const location = runtimeInfo.ptrs.sp - offset;
                 const byteData = runtimeInfo.programData.items[location];
                 runtimeInfo.registers[bytecode[current + 1]] = byteData;
@@ -472,7 +477,8 @@ fn interpretBytecode(
             },
             .Load8AtReg => {
                 const source = runtimeInfo.registers[bytecode[current + 2]];
-                runtimeInfo.registers[bytecode[current + 1]] = runtimeInfo.programData.items[source];
+                const value = runtimeInfo.programData.items[source];
+                runtimeInfo.registers[bytecode[current + 1]] = value;
             },
             .Load8AtRegOffset16 => {
                 const source = runtimeInfo.registers[bytecode[current + 2]];
@@ -768,7 +774,9 @@ fn postPopRegNegOffset(
 
     var i: u8 = vmInfo.bytecodeRegLimits.preserved.start;
     while (i <= topReg) : (i += 1) {
-        const intData = runtimeInfo.programData.items[sp - offset + (8 * i) .. sp - offset + (8 * i) + 8];
+        const start = sp - offset + (8 * i);
+        const end = sp - offset + (8 * i) + 8;
+        const intData = runtimeInfo.programData.items[start..end];
         const intValue = std.mem.readInt(u64, @ptrCast(intData), .little);
         runtimeInfo.registers[i] = intValue;
     }
@@ -902,7 +910,10 @@ fn loadAtRegOffset16(
     const dest = bytecode[current + 1];
     const source = runtimeInfo.registers[bytecode[current + 2]];
     const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
-    const byteData: *const [tBytes]u8 = @ptrCast(runtimeInfo.programData.items[source + offset .. source + offset + tBytes]);
+
+    const dataSlice = runtimeInfo.programData.items[source + offset .. source + offset + tBytes];
+    const byteData: *const [tBytes]u8 = @ptrCast(dataSlice);
+
     const resInt: T = @bitCast(byteData.*);
     runtimeInfo.registers[dest] = @intCast(resInt);
 }
@@ -917,7 +928,10 @@ fn loadAtReg(
 
     const dest = bytecode[current + 1];
     const source = runtimeInfo.registers[bytecode[current + 2]];
-    const byteData: *const [tBytes]u8 = @ptrCast(runtimeInfo.programData.items[source .. source + tBytes]);
+
+    const dataSlice = runtimeInfo.programData.items[source .. source + tBytes];
+    const byteData: *const [tBytes]u8 = @ptrCast(dataSlice);
+
     const resInt: T = @bitCast(byteData.*);
     runtimeInfo.registers[dest] = @intCast(resInt);
 }

@@ -900,7 +900,7 @@ pub fn printBytecodeChunks(context: *Context, writer: *Writer) !void {
     }
 
     try writer.print("total bytes: {d} ({d} vm info)\n", .{
-        context.genInfo.byteCounter, vmInfo.VM_INFO_BYTECODE_HEADER_LEN,
+        context.genInfo.byteCounter, vmInfo.BYTECODE_HEADER_LEN,
     });
 
     context.genInfo.instrActions.resetIter();
@@ -1173,13 +1173,13 @@ pub fn printHexViewer(bytes: []const u8, writer: *Writer) !void {
 
         try writer.writeAll("0x");
         try writer.printInt(
-            i + vmInfo.PADDED_VM_INFO_BYTECODE_HEADER_LEN,
+            i + vmInfo.PADDED_BYTECODE_HEADER_LEN,
             16,
             .lower,
             .{ .width = 4, .fill = '0' },
         );
         try writer.writeByte('(');
-        try writer.printInt(i + vmInfo.PADDED_VM_INFO_BYTECODE_HEADER_LEN, 10, .lower, .{});
+        try writer.printInt(i + vmInfo.PADDED_BYTECODE_HEADER_LEN, 10, .lower, .{});
         try writer.writeAll(")  ");
 
         var gotTo: usize = 0;

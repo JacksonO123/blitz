@@ -1547,7 +1547,7 @@ const DataSection = struct {
     }
 
     fn adjustPtrToBytecodeLocation(ptr: u64) u64 {
-        return ptr + vmInfo.PADDED_VM_INFO_BYTECODE_HEADER_LEN;
+        return ptr + vmInfo.PADDED_BYTECODE_HEADER_LEN;
     }
 
     pub fn appendString(self: *Self, allocator: Allocator, str: []const u8) !u64 {
@@ -1611,7 +1611,7 @@ pub const GenInfo = struct {
                 .version = version.VERSION,
             },
             .varNameToReg = varNameReg,
-            .byteCounter = vmInfo.VM_INFO_BYTECODE_HEADER_LEN,
+            .byteCounter = vmInfo.BYTECODE_HEADER_LEN,
             .settings = .{},
             .loopInfo = .empty,
             .currentLabelId = 0,
@@ -1631,7 +1631,7 @@ pub const GenInfo = struct {
 
     pub fn calculateBytecodeHeaderSize(self: *Self) u32 {
         var binHeadSize = @as(u32, @intCast(
-            vmInfo.PADDED_VM_INFO_BYTECODE_HEADER_LEN + self.dataSection.data.items.len,
+            vmInfo.PADDED_BYTECODE_HEADER_LEN + self.dataSection.data.items.len,
         ));
         const padding = utils.calculatePadding(binHeadSize, vmInfo.POINTER_SIZE);
         binHeadSize += padding;
@@ -1641,7 +1641,7 @@ pub const GenInfo = struct {
     pub fn writeChunks(self: *Self, writer: *Writer) !void {
         const binHeadSize = self.calculateBytecodeHeaderSize();
 
-        var buf: [vmInfo.VM_INFO_BYTECODE_HEADER_LEN]u8 = undefined;
+        var buf: [vmInfo.BYTECODE_HEADER_LEN]u8 = undefined;
         buf[vmInfo.VERSION_LOCATION] = self.vmInfo.version;
         std.mem.writeInt(
             u32,
@@ -1657,13 +1657,13 @@ pub const GenInfo = struct {
         );
         try writer.writeAll(&buf);
 
-        var pad: [vmInfo.PADDED_VM_INFO_BYTECODE_HEADER_LEN - vmInfo.VM_INFO_BYTECODE_HEADER_LEN]u8 =
-            undefined;
+        const padAmount = vmInfo.PADDED_BYTECODE_HEADER_LEN - vmInfo.BYTECODE_HEADER_LEN;
+        var pad: [padAmount]u8 = undefined;
         @memset(&pad, 0);
         try writer.writeAll(&pad);
 
         try writer.writeAll(self.dataSection.data.items);
-        var i = vmInfo.PADDED_VM_INFO_BYTECODE_HEADER_LEN + self.dataSection.data.items.len;
+        var i = vmInfo.PADDED_BYTECODE_HEADER_LEN + self.dataSection.data.items.len;
         while (i < binHeadSize) : (i += 1) {
             try writer.writeByte(@as(u8, 0));
         }
@@ -4244,9 +4244,7 @@ fn calculateAccessOffset(
 
             const isVar = context.genInfo.isRegVariable(reg);
 
-            if (node.typeInfo.nodeType == .Slice and
-                context.genInfo.settings.sliceAccessGoToSlicePtr)
-            {
+            if (node.typeInfo.nodeType == .Slice and context.genInfo.settings.sliceAccessGoToSlicePtr) {
                 const outReg = try context.genInfo.getNextRegister(allocator);
                 const derefInstr = Instr{
                     .Load64AtReg = .{

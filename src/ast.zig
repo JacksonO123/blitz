@@ -1201,11 +1201,14 @@ fn parseStatement(
                 .Period => {
                     context.tokenUtil.returnToken();
 
-                    const nodeVariant = if (context.compInfo.hasStruct(first.identId)) AstNodeUnion{
-                        .StaticStructInstance = first.identId,
-                    } else AstNodeUnion{
-                        .Variable = first.identId,
-                    };
+                    const nodeVariant = if (context.compInfo.hasStruct(first.identId))
+                        AstNodeUnion{
+                            .StaticStructInstance = first.identId,
+                        }
+                    else
+                        AstNodeUnion{
+                            .Variable = first.identId,
+                        };
                     const node = try context.pools.newNode(context, nodeVariant.toAstNode());
 
                     return parsePropertyAccess(allocator, context, node, .Statement);
@@ -1462,7 +1465,13 @@ fn parseStructAttribute(
     switch (first.type) {
         .Identifier, .Fn => {
             context.tokenUtil.returnToken();
-            return parseStructAttributeUtil(allocator, context, structIdentId, .Private, isGeneric);
+            return parseStructAttributeUtil(
+                allocator,
+                context,
+                structIdentId,
+                .Private,
+                isGeneric,
+            );
         },
         .Prot => return parseStructAttributeUtil(
             allocator,

@@ -25,11 +25,6 @@ pub fn initMutPtrT(comptime T: type, allocator: Allocator) !*T {
     return try createMut(T, allocator, data);
 }
 
-/// IMPORTANT: supports values 0 - 16
-pub fn intToHex(num: usize) u8 {
-    return if (num < 10) ('0' + @as(u8, @intCast(num))) else ('a' + @as(u8, @intCast(num - 10)));
-}
-
 pub fn getNumberDigitCount(comptime T: type, int: T) u8 {
     const asFloat: f64 = @floatFromInt(int);
     const numDigits: u8 = @intFromFloat(@floor(@log10(asFloat)) + 1);

@@ -75,14 +75,17 @@ pub fn main() !void {
 }
 
 pub fn printBytecode(bytecode: []u8, writer: *Writer) !void {
-    try printVMStartInfo(bytecode[0..vmInfo.VM_INFO_BYTECODE_HEADER_LEN], writer);
+    try printVMStartInfo(bytecode[0..vmInfo.BYTECODE_HEADER_LEN], writer);
     const instrStart: u64 = std.mem.readInt(
         u32,
         bytecode[vmInfo.INSTR_START_PTR_LOCATION .. vmInfo.INSTR_START_PTR_LOCATION + 4],
         .little,
     );
 
-    try print.printHexViewer(bytecode[vmInfo.PADDED_VM_INFO_BYTECODE_HEADER_LEN..instrStart], writer);
+    try print.printHexViewer(
+        bytecode[vmInfo.PADDED_BYTECODE_HEADER_LEN..instrStart],
+        writer,
+    );
 
     const byteCountFloat: f64 = @floatFromInt(bytecode.len);
     const numDigits: u64 = @intFromFloat(@floor(@log10(byteCountFloat)) + 1);
