@@ -3391,7 +3391,7 @@ pub fn genBytecodeUtil(
             const instr = if (isDeref or
                 set.value.variant == .IndexValue or
                 set.value.variant == .PropertyAccess)
-                storeRegAtRegWithSize(
+                storeRegAtReg(
                     srcReg,
                     destReg,
                     set.setNode.typeInfo.size,
@@ -3975,20 +3975,8 @@ fn memCpyInstrs(
         const diff = size - offset;
         switch (diff) {
             1 => {
-                const loadInstr = Instr{
-                    .Load8AtRegOffset16 = .{
-                        .fromRegPtr = fromPtrReg,
-                        .dest = scratchReg,
-                        .offset = @intCast(offset),
-                    },
-                };
-                const storeInstr = Instr{
-                    .Store8AtRegOffset16 = .{
-                        .fromReg = scratchReg,
-                        .toRegPtr = toPtrReg,
-                        .offset = @intCast(offset),
-                    },
-                };
+                const loadInstr = loadAtRegWithOffset(fromPtrReg, scratchReg, offset, 1);
+                const storeInstr = storeAtRegOffset(scratchReg, toPtrReg, @intCast(offset), 1);
 
                 offset += 1;
 
@@ -3996,20 +3984,8 @@ fn memCpyInstrs(
                 try context.genInfo.appendChunk(allocator, storeInstr);
             },
             2, 3 => {
-                const loadInstr = Instr{
-                    .Load16AtRegOffset16 = .{
-                        .fromRegPtr = fromPtrReg,
-                        .dest = scratchReg,
-                        .offset = @intCast(offset),
-                    },
-                };
-                const storeInstr = Instr{
-                    .Store16AtRegOffset16 = .{
-                        .fromReg = scratchReg,
-                        .toRegPtr = toPtrReg,
-                        .offset = @intCast(offset),
-                    },
-                };
+                const loadInstr = loadAtRegWithOffset(fromPtrReg, scratchReg, offset, 2);
+                const storeInstr = storeAtRegOffset(scratchReg, toPtrReg, @intCast(offset), 2);
 
                 offset += 2;
 
@@ -4017,20 +3993,8 @@ fn memCpyInstrs(
                 try context.genInfo.appendChunk(allocator, storeInstr);
             },
             4...7 => {
-                const loadInstr = Instr{
-                    .Load32AtRegOffset16 = .{
-                        .fromRegPtr = fromPtrReg,
-                        .dest = scratchReg,
-                        .offset = @intCast(offset),
-                    },
-                };
-                const storeInstr = Instr{
-                    .Store32AtRegOffset16 = .{
-                        .fromReg = scratchReg,
-                        .toRegPtr = toPtrReg,
-                        .offset = @intCast(offset),
-                    },
-                };
+                const loadInstr = loadAtRegWithOffset(fromPtrReg, scratchReg, offset, 4);
+                const storeInstr = storeAtRegOffset(scratchReg, toPtrReg, @intCast(offset), 4);
 
                 offset += 4;
 
@@ -4038,20 +4002,8 @@ fn memCpyInstrs(
                 try context.genInfo.appendChunk(allocator, storeInstr);
             },
             else => {
-                const loadInstr = Instr{
-                    .Load64AtRegOffset16 = .{
-                        .fromRegPtr = fromPtrReg,
-                        .dest = scratchReg,
-                        .offset = @intCast(offset),
-                    },
-                };
-                const storeInstr = Instr{
-                    .Store64AtRegOffset16 = .{
-                        .fromReg = scratchReg,
-                        .toRegPtr = toPtrReg,
-                        .offset = @intCast(offset),
-                    },
-                };
+                const loadInstr = loadAtRegWithOffset(fromPtrReg, scratchReg, offset, 8);
+                const storeInstr = storeAtRegOffset(scratchReg, toPtrReg, @intCast(offset), 8);
 
                 offset += 8;
 
@@ -4497,32 +4449,71 @@ fn storeRegAtSpNegOffsetAndSize(regContents: TempRegister, loc: u64, size: u64) 
     };
 }
 
-fn storeRegAtRegWithSize(regContents: TempRegister, ptrReg: TempRegister, size: u64) Instr {
-    const reg = regContents;
-
+fn storeRegAtReg(fromReg: TempRegister, ptrReg: TempRegister, size: u64) Instr {
     return switch (size) {
         1 => Instr{
             .Store8AtReg = .{
-                .fromReg = reg,
+                .fromReg = fromReg,
                 .toRegPtr = ptrReg,
             },
         },
         2 => Instr{
             .Store16AtReg = .{
-                .fromReg = reg,
+                .fromReg = fromReg,
                 .toRegPtr = ptrReg,
             },
         },
         3, 4 => Instr{
             .Store32AtReg = .{
-                .fromReg = reg,
+                .fromReg = fromReg,
                 .toRegPtr = ptrReg,
             },
         },
         5...8 => Instr{
             .Store64AtReg = .{
-                .fromReg = reg,
+                .fromReg = fromReg,
                 .toRegPtr = ptrReg,
+            },
+        },
+        else => unreachable,
+    };
+}
+
+fn storeAtRegOffset(
+    fromReg: TempRegister,
+    toPtrReg: TempRegister,
+    offset: u16,
+    size: u8,
+) Instr {
+    if (offset == 0) return storeRegAtReg(fromReg, toPtrReg, size);
+
+    return switch (size) {
+        1 => Instr{
+            .Store8AtRegOffset16 = .{
+                .fromReg = fromReg,
+                .toRegPtr = toPtrReg,
+                .offset = offset,
+            },
+        },
+        2 => Instr{
+            .Store16AtRegOffset16 = .{
+                .fromReg = fromReg,
+                .toRegPtr = toPtrReg,
+                .offset = offset,
+            },
+        },
+        3, 4 => Instr{
+            .Store32AtRegOffset16 = .{
+                .fromReg = fromReg,
+                .toRegPtr = toPtrReg,
+                .offset = offset,
+            },
+        },
+        5, 6, 7, 8 => Instr{
+            .Store64AtRegOffset16 = .{
+                .fromReg = fromReg,
+                .toRegPtr = toPtrReg,
+                .offset = offset,
             },
         },
         else => unreachable,
