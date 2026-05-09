@@ -206,7 +206,7 @@ fn printFunction(context: *Context, func: *ast.FuncDecNode, writer: *Writer) !vo
     }
 
     try writer.writeByte(' ');
-    try printTypeInfo(context, func.returnType, writer);
+    try printTypeInfo(context, func.returnType.info, writer);
 
     try writer.writeByte(')');
 }
@@ -620,7 +620,7 @@ pub fn printFuncDec(
     writer: *Writer,
 ) !void {
     try writer.writeAll("declare function [");
-    try printTypeInfo(context, func.returnType, writer);
+    try printTypeInfo(context, func.returnType.info, writer);
     try writer.writeAll("] (");
     const funcNameStr = context.identStore.getIdentFromId(func.nameIdentId).?;
     try writer.writeAll(funcNameStr);

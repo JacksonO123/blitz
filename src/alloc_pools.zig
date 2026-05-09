@@ -160,7 +160,7 @@ pub fn releaseFuncDec(
         }
     }
 
-    recursiveReleaseTypeAll(context, func.returnType.astType);
+    recursiveReleaseTypeAll(context, func.returnType.info.astType);
 }
 
 pub fn releaseStructAttrs(context: *Context, attrs: []ast.StructAttribute) void {

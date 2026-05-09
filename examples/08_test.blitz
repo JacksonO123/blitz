@@ -1,13 +1,17 @@
 struct M {
-    data: u32;
+    pub data: u32;
     pub smaller: u16;
 }
 
-fn thing(m: M) u16 {
-    return m.smaller;
+fn thing(m: M) M {
+    return M {
+        data = 4,
+        smaller = m.smaller,
+    };
 }
 
 fn main() {
     let a = M { data = 10, smaller = 2u16 };
     let b = thing(a);
+    let c = b.data + 2;
 }

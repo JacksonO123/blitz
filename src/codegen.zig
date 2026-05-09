@@ -18,7 +18,6 @@ const clone = blitz.clone;
 const builtins = blitz.builtins;
 const identStore = blitz.identStore;
 const bytecodeBackend = blitz.backends.bytecode;
-const TempRegister = vmInfo.TempRegister;
 const Context = blitz.context.Context;
 
 const CodeGenError = error{
@@ -904,117 +903,117 @@ pub const InstructionVariants = enum(u8) {
 };
 
 const TwoOpResultInstr = struct {
-    dest: TempRegister,
-    reg1: TempRegister,
-    reg2: TempRegister,
+    dest: vmInfo.TempRegister,
+    reg1: vmInfo.TempRegister,
+    reg2: vmInfo.TempRegister,
 };
 
 fn OneOpResultInstr(comptime T: type) type {
     return struct {
-        dest: TempRegister,
-        reg: TempRegister,
+        dest: vmInfo.TempRegister,
+        reg: vmInfo.TempRegister,
         data: T,
     };
 }
 
 const RegBytePayloadInstr = struct {
-    reg: TempRegister,
+    reg: vmInfo.TempRegister,
     data: u8,
 };
 
 const MathInstr = TwoOpResultInstr;
 
 const SpInstr = struct {
-    amount: TempRegister,
+    amount: vmInfo.TempRegister,
 };
 
 const SpRegInstr = struct {
-    reg: TempRegister,
+    reg: vmInfo.TempRegister,
 };
 
 fn SetRegInstr(comptime T: type) type {
     return struct {
-        reg: TempRegister,
+        reg: vmInfo.TempRegister,
         data: T,
     };
 }
 
 const CmpInstr = struct {
-    reg1: TempRegister = 0,
-    reg2: TempRegister = 0,
+    reg1: vmInfo.TempRegister = 0,
+    reg2: vmInfo.TempRegister = 0,
 };
 
 const CmpSetRegInstr = struct {
-    dest: TempRegister = 0,
-    reg1: TempRegister = 0,
-    reg2: TempRegister = 0,
+    dest: vmInfo.TempRegister = 0,
+    reg1: vmInfo.TempRegister = 0,
+    reg2: vmInfo.TempRegister = 0,
 };
 
 fn StoreOffsetInstr(comptime T: type) type {
     return struct {
-        fromReg: TempRegister,
-        toRegPtr: TempRegister,
+        fromReg: vmInfo.TempRegister,
+        toRegPtr: vmInfo.TempRegister,
         offset: T,
     };
 }
 
 fn StoreOrLoadOffsetSpInstr(comptime T: type) type {
     return struct {
-        reg: TempRegister,
+        reg: vmInfo.TempRegister,
         offset: T,
     };
 }
 
 fn StoreAtRegIncInstr(comptime T: type) type {
     return struct {
-        fromReg: TempRegister,
-        toRegPtr: TempRegister,
+        fromReg: vmInfo.TempRegister,
+        toRegPtr: vmInfo.TempRegister,
         inc: T,
     };
 }
 
 const StoreAtRegInstr = struct {
-    fromReg: TempRegister,
-    toRegPtr: TempRegister,
+    fromReg: vmInfo.TempRegister,
+    toRegPtr: vmInfo.TempRegister,
 };
 
 fn StoreIncSpInstr(comptime T: type) type {
     return struct {
-        reg: TempRegister,
+        reg: vmInfo.TempRegister,
         inc: T,
     };
 }
 
 const LoadAtReg = struct {
-    dest: TempRegister,
-    fromRegPtr: TempRegister,
+    dest: vmInfo.TempRegister,
+    fromRegPtr: vmInfo.TempRegister,
 };
 
 const LoadAtRegOffset16 = struct {
-    dest: TempRegister,
-    fromRegPtr: TempRegister,
+    dest: vmInfo.TempRegister,
+    fromRegPtr: vmInfo.TempRegister,
     offset: u16,
 };
 
 fn MulRegTAddReg(comptime T: type) type {
     return struct {
-        dest: TempRegister,
-        addReg: TempRegister,
-        mulReg: TempRegister,
+        dest: vmInfo.TempRegister,
+        addReg: vmInfo.TempRegister,
+        mulReg: vmInfo.TempRegister,
         data: T,
     };
 }
 
 fn MovSpNegOffset(comptime T: type) type {
     return struct {
-        reg: TempRegister,
+        reg: vmInfo.TempRegister,
         offset: T,
     };
 }
 
 fn PushOrPopRegNegOffset(comptime T: type) type {
     return struct {
-        reg: TempRegister,
+        reg: vmInfo.TempRegister,
         offset: T,
     };
 }
@@ -1069,8 +1068,8 @@ pub const Instr = union(InstructionVariants) {
     DecConst8: RegBytePayloadInstr,
 
     Mov: struct {
-        dest: TempRegister = 0,
-        src: TempRegister = 0,
+        dest: vmInfo.TempRegister = 0,
+        src: vmInfo.TempRegister = 0,
     },
     MovSpNegOffsetAny: MovSpNegOffset(u64),
     MovSpNegOffset16: MovSpNegOffset(u16),
@@ -1079,8 +1078,8 @@ pub const Instr = union(InstructionVariants) {
 
     Xor: TwoOpResultInstr,
     XorConst8: struct {
-        dest: TempRegister = 0,
-        reg: TempRegister = 0,
+        dest: vmInfo.TempRegister = 0,
+        reg: vmInfo.TempRegister = 0,
         byte: u8 = 0,
     },
 
@@ -1130,7 +1129,7 @@ pub const Instr = union(InstructionVariants) {
 
     MulReg16AddReg: MulRegTAddReg(u16),
 
-    DbgReg: TempRegister,
+    DbgReg: vmInfo.TempRegister,
 
     BitAnd: TwoOpResultInstr,
     BitOr: TwoOpResultInstr,
@@ -1193,7 +1192,7 @@ pub const Instr = union(InstructionVariants) {
 
 const SliceBytecodeInfo = struct {
     sliceLocation: u64,
-    reg: TempRegister,
+    reg: vmInfo.TempRegister,
 };
 
 const CtrlFlowInstrInfo = struct {
@@ -1268,15 +1267,15 @@ pub const RegStateVariants = enum {
 };
 
 pub const RegStateSpilled = struct {
-    by: TempRegister,
-    reg: TempRegister,
+    by: vmInfo.TempRegister,
+    reg: vmInfo.TempRegister,
     until: u32,
     location: u64,
 };
 
 pub const RegStateInfo = union(RegStateVariants) {
     Unused,
-    Normal: TempRegister,
+    Normal: vmInfo.TempRegister,
     Spilled: RegStateSpilled,
 };
 
@@ -1442,15 +1441,21 @@ const LabelByteInfo = struct {
 };
 
 pub const WriteLocInfo = struct {
-    reg: TempRegister,
+    reg: vmInfo.TempRegister,
     value: u64,
 };
 
 pub const Proc = struct {
     stackFrameSize: u64 = 0,
     startIndex: u32,
-    maxPreserveReg: ?TempRegister = null,
-    preProcVirtualReg: TempRegister = 0,
+    maxPreserveReg: ?vmInfo.TempRegister = null,
+    preProcVirtualReg: vmInfo.TempRegister = 0,
+    retStructPtrReg: ?vmInfo.TempRegister = null,
+};
+
+/// used for passing to newProc
+const ProcConfig = struct {
+    retStructPtrReg: ?vmInfo.TempRegister = null,
 };
 
 pub const RegisterRange = struct {
@@ -1572,7 +1577,7 @@ pub const GenInfo = struct {
         stackStartSize: u32,
         version: u8,
     },
-    varNameToReg: std.AutoHashMap(identStore.IdentId, TempRegister),
+    varNameToReg: std.AutoHashMap(identStore.IdentId, vmInfo.TempRegister),
     settings: GenInfoSettings,
     loopInfo: ArrayList(*LoopInfo),
     byteCounter: u64,
@@ -1597,7 +1602,7 @@ pub const GenInfo = struct {
     },
 
     pub inline fn init(allocator: Allocator) !Self {
-        const varNameReg = std.AutoHashMap(identStore.IdentId, TempRegister).init(allocator);
+        const varNameReg = std.AutoHashMap(identStore.IdentId, vmInfo.TempRegister).init(allocator);
         const labelByteInfo = try LabelByteInfo.init(allocator);
 
         return .{
@@ -1705,7 +1710,7 @@ pub const GenInfo = struct {
 
     fn setRegActiveStatusIndex(
         self: *Self,
-        reg: TempRegister,
+        reg: vmInfo.TempRegister,
         instrIndex: usize,
     ) void {
         if (self.registers.items[reg].lastUsedIndex) |lastIndex| {
@@ -1730,7 +1735,7 @@ pub const GenInfo = struct {
     fn addRegUseIndex(
         self: *Self,
         allocator: Allocator,
-        reg: TempRegister,
+        reg: vmInfo.TempRegister,
         instrIndex: usize,
     ) !void {
         try self.registers.items[reg].useIndices.indices.append(allocator, @intCast(instrIndex));
@@ -1742,7 +1747,7 @@ pub const GenInfo = struct {
         allocator: Allocator,
         instr: *const Instr,
         value: T,
-        comptime func: fn (*Self, Allocator, TempRegister, T) Allocator.Error!void,
+        comptime func: fn (*Self, Allocator, vmInfo.TempRegister, T) Allocator.Error!void,
     ) !void {
         switch (instr.*) {
             .NoOp,
@@ -1913,7 +1918,7 @@ pub const GenInfo = struct {
         return res;
     }
 
-    pub fn getNextRegister(self: *Self, allocator: Allocator) !TempRegister {
+    pub fn getNextRegister(self: *Self, allocator: Allocator) !vmInfo.TempRegister {
         return try self.getNextRegisterUtil(allocator, .Temporary);
     }
 
@@ -1921,7 +1926,7 @@ pub const GenInfo = struct {
         self: *Self,
         allocator: Allocator,
         usage: RegisterUsage,
-    ) !TempRegister {
+    ) !vmInfo.TempRegister {
         const regInfoPtr = try utils.createMut(
             RegInfo,
             allocator,
@@ -1931,7 +1936,7 @@ pub const GenInfo = struct {
         return @intCast(self.registers.items.len - 1);
     }
 
-    pub fn getVariableRegister(self: Self, nameIdentId: identStore.IdentId) TempRegister {
+    pub fn getVariableRegister(self: Self, nameIdentId: identStore.IdentId) vmInfo.TempRegister {
         return self.varNameToReg.get(nameIdentId).?;
     }
 
@@ -1940,7 +1945,7 @@ pub const GenInfo = struct {
         self: *Self,
         allocator: Allocator,
         nameIdentId: identStore.IdentId,
-        reg: TempRegister,
+        reg: vmInfo.TempRegister,
     ) !void {
         try self.varNameToReg.put(nameIdentId, reg);
 
@@ -1970,7 +1975,7 @@ pub const GenInfo = struct {
         }
     }
 
-    pub fn isRegVariable(self: Self, reg: TempRegister) bool {
+    pub fn isRegVariable(self: Self, reg: vmInfo.TempRegister) bool {
         return self.registers.items[reg].varInfo != null;
     }
 
@@ -2005,11 +2010,14 @@ pub const GenInfo = struct {
         }
     }
 
-    pub fn getRegInfo(self: Self, reg: TempRegister) ?*RegInfo {
+    pub fn getRegInfo(self: Self, reg: vmInfo.TempRegister) ?*RegInfo {
         return self.registers.items[reg];
     }
 
-    pub fn getVarGenInfoFromName(self: Self, name: []const u8) ?struct { *RegInfo, TempRegister } {
+    pub fn getVarGenInfoFromName(self: Self, name: []const u8) ?struct {
+        *RegInfo,
+        vmInfo.empRegister,
+    } {
         if (self.varNameToReg.get(name)) |reg| {
             const infoOrNull = self.registers.items[reg];
             if (infoOrNull) |info| {
@@ -2021,6 +2029,10 @@ pub const GenInfo = struct {
     }
 
     pub fn newProc(self: *Self, allocator: Allocator) !void {
+        try self.newProcConfig(allocator, .{});
+    }
+
+    pub fn newProcConfig(self: *Self, allocator: Allocator, procConfig: ProcConfig) !void {
         // noop for possible sp add instr
         try self.instrList.append(allocator, .{ .NoOp = {} });
         // noop for possible register push instr
@@ -2031,6 +2043,7 @@ pub const GenInfo = struct {
 
         self.currentProc = .{
             .startIndex = @intCast(startIndex),
+            .retStructPtrReg = procConfig.retStructPtrReg,
         };
     }
 
@@ -2641,7 +2654,7 @@ fn prePushLRNegOffsetAnyInstr(offset: u64) !Instr {
     };
 }
 
-fn popRegNegOffsetAnyInstr(reg: TempRegister, offset: u64) !Instr {
+fn popRegNegOffsetAnyInstr(reg: vmInfo.TempRegister, offset: u64) !Instr {
     const spOpSize = try getOpSizeFromNum(offset);
 
     return switch (spOpSize) {
@@ -2672,7 +2685,7 @@ fn popRegNegOffsetAnyInstr(reg: TempRegister, offset: u64) !Instr {
     };
 }
 
-fn pushRegNegOffsetAnyInstr(reg: TempRegister, offset: u64) !Instr {
+fn pushRegNegOffsetAnyInstr(reg: vmInfo.TempRegister, offset: u64) !Instr {
     const spOpSize = try getOpSizeFromNum(offset);
 
     return switch (spOpSize) {
@@ -2703,7 +2716,7 @@ fn pushRegNegOffsetAnyInstr(reg: TempRegister, offset: u64) !Instr {
     };
 }
 
-fn movSpNegOffset(reg: TempRegister, offset: u64) !Instr {
+fn movSpNegOffset(reg: vmInfo.TempRegister, offset: u64) !Instr {
     const spOpSize = try getOpSizeFromNum(offset);
 
     return switch (spOpSize) {
@@ -2767,7 +2780,7 @@ pub fn genBytecode(
     allocator: Allocator,
     context: *Context,
     node: *const ast.AstNode,
-) GenBytecodeError!?TempRegister {
+) GenBytecodeError!?vmInfo.TempRegister {
     return genBytecodeUtil(allocator, context, node, null);
 }
 
@@ -2776,7 +2789,7 @@ pub fn genBytecodeUtil(
     context: *Context,
     node: *const ast.AstNode,
     writeLoc: ?WriteLocInfo,
-) GenBytecodeError!?TempRegister {
+) GenBytecodeError!?vmInfo.TempRegister {
     switch (node.variant) {
         .StructPlaceholder,
         .StructDec,
@@ -3047,7 +3060,7 @@ pub fn genBytecodeUtil(
             }
         },
         .OpExpr => |expr| {
-            var leftReg: TempRegister = undefined;
+            var leftReg: vmInfo.TempRegister = undefined;
 
             const leftDepth = ast.getExprDepth(expr.left);
             const rightDepth = ast.getExprDepth(expr.right);
@@ -3063,7 +3076,7 @@ pub fn genBytecodeUtil(
                     return CodeGenError.ReturnedRegisterNotFound;
             }
 
-            var outReg: ?TempRegister = null;
+            var outReg: ?vmInfo.TempRegister = null;
 
             const buf: Instr = switch (expr.type) {
                 .Add, .Sub, .Mult => a: {
@@ -3486,8 +3499,8 @@ pub fn genBytecodeUtil(
             };
             try context.genInfo.appendChunk(allocator, movLen);
 
-            var indexReg: ?TempRegister = null;
-            var ptrReg: ?TempRegister = null;
+            var indexReg: ?vmInfo.TempRegister = null;
+            var ptrReg: ?vmInfo.TempRegister = null;
 
             if (init.indexIdentId) |ident| {
                 indexReg = try context.genInfo.getNextRegister(allocator);
@@ -3871,13 +3884,43 @@ pub fn genBytecodeUtil(
             };
 
             const hasSelf = func.params.selfInfo != null;
+            const returnsStruct = func.returnType.info.astType.* == .Custom;
+
+            if (returnsStruct) {
+                const padding = utils.calculatePadding(
+                    context.genInfo.currentProc.stackFrameSize,
+                    func.returnType.alignment,
+                );
+                context.genInfo.currentProc.stackFrameSize += padding;
+                const retStackPos = context.genInfo.currentProc.stackFrameSize;
+                context.genInfo.currentProc.stackFrameSize += func.returnType.size;
+
+                const regPtrReg = try context.genInfo.getNextRegisterUtil(
+                    allocator,
+                    .{ .Param = 0 },
+                );
+
+                const movInstr = Instr{
+                    .MovSpNegOffsetAny = .{
+                        .reg = regPtrReg,
+                        .offset = retStackPos,
+                    },
+                };
+                try context.genInfo.appendChunk(allocator, movInstr);
+            }
+
+            const paramRegStart = a: {
+                const retRegInc: u8 = if (returnsStruct) 1 else 0;
+                const selfRegInc: u8 = if (hasSelf) 1 else 0;
+                break :a retRegInc + selfRegInc;
+            };
 
             if (hasSelf) {
                 const srcReg = try genBytecode(allocator, context, call.func) orelse
                     return CodeGenError.ResultOfAccessRegNotFound;
                 const destReg = try context.genInfo.getNextRegisterUtil(
                     allocator,
-                    .{ .Param = 0 },
+                    .{ .Param = paramRegStart },
                 );
 
                 const movInstr = Instr{
@@ -3895,7 +3938,6 @@ pub fn genBytecodeUtil(
 
                 const paramReg = if (param.typeInfo.nodeType == .Struct) a: {
                     const spReg = try context.genInfo.getNextRegister(allocator);
-                    std.debug.print(":: {d}\n", .{param.typeInfo.alignment});
                     const padding = utils.calculatePadding(
                         context.genInfo.currentProc.stackFrameSize,
                         param.typeInfo.alignment,
@@ -3916,9 +3958,7 @@ pub fn genBytecodeUtil(
                     break :a spReg;
                 } else reg;
 
-                const regUsage: RegisterUsage = .{
-                    .Param = @intCast(if (hasSelf) index + 1 else index),
-                };
+                const regUsage: RegisterUsage = .{ .Param = @intCast(paramRegStart + index) };
                 const resReg = try context.genInfo.getNextRegisterUtil(allocator, regUsage);
                 const movInstr = Instr{
                     .Mov = .{
@@ -3936,24 +3976,34 @@ pub fn genBytecodeUtil(
             };
             try context.genInfo.appendChunk(allocator, branchInstr);
 
-            if (func.returnType.astType.* != .Void) {
-                return try context.genInfo.getNextRegisterUtil(allocator, .{ .Return = 0 });
+            if (func.returnType.info.astType.* == .Void) {
+                return null;
             }
 
-            return null;
+            return try context.genInfo.getNextRegisterUtil(allocator, .{ .Return = 0 });
         },
         .ReturnNode => |inner| {
-            const reg = try genBytecode(allocator, context, inner) orelse
-                return CodeGenError.ReturnedRegisterNotFound;
-            const resReg = try context.genInfo.getNextRegisterUtil(allocator, .{ .Return = 0 });
+            const regRes = if (context.genInfo.currentProc.retStructPtrReg) |reg|
+                (try genBytecodeUtil(allocator, context, inner, .{ .reg = reg, .value = 0 }))
+            else
+                try genBytecode(allocator, context, inner) orelse
+                    return CodeGenError.ReturnedRegisterNotFound;
 
-            const movInstr = Instr{
-                .Mov = .{
-                    .src = reg,
-                    .dest = resReg,
-                },
-            };
-            try context.genInfo.appendChunk(allocator, movInstr);
+            if (regRes) |reg| {
+                const retReg = try context.genInfo.getNextRegisterUtil(
+                    allocator,
+                    .{ .Return = 0 },
+                );
+                const movInstr = Instr{
+                    .Mov = .{
+                        .src = reg,
+                        .dest = retReg,
+                    },
+                };
+                try context.genInfo.appendChunk(allocator, movInstr);
+            } else if (context.genInfo.currentProc.retStructPtrReg == null) {
+                return CodeGenError.ReturnedRegisterNotFound;
+            }
         },
         else => {},
     }
@@ -4059,16 +4109,62 @@ fn generateFunction(
     switch (func.genericState) {
         .Generic => |generic| {
             for (generic.genericInstances.items) |*instance| {
-                try functionSetupBytecode(allocator, context, func, &instance.labelId);
-                try context.genInfo.newProc(allocator);
+                const procConfig = try functionSetupBytecode(
+                    allocator,
+                    context,
+                    func,
+                    &instance.labelId,
+                );
+                try context.genInfo.newProcConfig(allocator, procConfig);
                 _ = try genBytecode(allocator, context, instance.funcRootNode);
+
+                // HACK TODO: revert the register to its original address
+                // eventually fix: dont use post inc instructions, avoid writing side effects
+                if (instance.retInfo.isStruct) {
+                    const outReg = try context.genInfo.getNextRegisterUtil(
+                        allocator,
+                        .{ .Param = 0 },
+                    );
+                    const subInstr = Instr{
+                        .Sub16 = .{
+                            .dest = outReg,
+                            .reg = outReg,
+                            .data = @intCast(instance.retInfo.size),
+                        },
+                    };
+                    try context.genInfo.appendChunk(allocator, subInstr);
+                }
+
                 try context.genInfo.finishProc(allocator, context, false, backend);
             }
         },
         .Normal => |*normal| {
-            try functionSetupBytecode(allocator, context, func, &normal.labelId);
-            try context.genInfo.newProc(allocator);
+            const procConfig = try functionSetupBytecode(
+                allocator,
+                context,
+                func,
+                &normal.labelId,
+            );
+            try context.genInfo.newProcConfig(allocator, procConfig);
             _ = try genBytecode(allocator, context, func.body);
+
+            // HACK TODO: revert the register to its original address
+            // eventually fix: dont use post inc instructions, avoid writing side effects
+            if (func.returnType.info.astType.* == .Custom) {
+                const outReg = try context.genInfo.getNextRegisterUtil(
+                    allocator,
+                    .{ .Param = 0 },
+                );
+                const subInstr = Instr{
+                    .Sub16 = .{
+                        .dest = outReg,
+                        .reg = outReg,
+                        .data = @intCast(func.returnType.size),
+                    },
+                };
+                try context.genInfo.appendChunk(allocator, subInstr);
+            }
+
             try context.genInfo.finishProc(allocator, context, false, backend);
         },
     }
@@ -4081,7 +4177,7 @@ fn functionSetupBytecode(
     context: *Context,
     func: *ast.FuncDecNode,
     labelId: *?u32,
-) !void {
+) !ProcConfig {
     const labelIdOrNew = labelId.* orelse a: {
         const newLabelId = context.genInfo.takeLabelId();
         labelId.* = newLabelId;
@@ -4097,20 +4193,22 @@ fn functionSetupBytecode(
     try context.genInfo.appendChunk(allocator, label);
     context.genInfo.setLabelLocation(labelIdOrNew, context.genInfo.byteCounter);
 
-    for (func.params.params, 0..) |param, index| {
+    const returnsStruct = func.returnType.info.astType.* == .Custom;
+    const retStructReg = if (returnsStruct)
+        try context.genInfo.getNextRegisterUtil(allocator, .{ .Param = 0 })
+    else
+        null;
+
+    const indexStart: usize = if (returnsStruct) 1 else 0;
+    for (func.params.params, indexStart..) |param, index| {
         const usage: RegisterUsage = .{ .Param = @intCast(index) };
         const paramReg = try context.genInfo.getNextRegisterUtil(allocator, usage);
         try context.genInfo.setVariableRegister(allocator, param.nameIdentId, paramReg);
     }
 
-    if (func.params.selfInfo != null) {
-        const paramReg = try context.genInfo.getNextRegisterUtil(allocator, .{ .Param = 0 });
-        try context.genInfo.setVariableRegister(
-            allocator,
-            identStore.KNOWN_IDENT_IDS.self,
-            paramReg,
-        );
-    }
+    return .{
+        .retStructPtrReg = retStructReg,
+    };
 }
 
 fn nodeIsPrimitive(node: *ast.AstNode) bool {
@@ -4122,7 +4220,7 @@ fn nodeIsPrimitive(node: *ast.AstNode) bool {
     };
 }
 
-fn addNumToReg(reg: TempRegister, inc: u64) !Instr {
+fn addNumToReg(reg: vmInfo.TempRegister, inc: u64) !Instr {
     const opSize = try getOpSizeFromNum(inc);
 
     return switch (opSize) {
@@ -4193,7 +4291,7 @@ fn calculateAccessOffset(
     context: *Context,
     node: *ast.AstNode,
     offset: u16,
-) !TempRegister {
+) !vmInfo.TempRegister {
     const prevRetFormat = context.genInfo.settings.propAccessReturnsPtr;
     context.genInfo.settings.propAccessReturnsPtr = true;
     defer context.genInfo.settings.propAccessReturnsPtr = prevRetFormat;
@@ -4287,7 +4385,12 @@ fn calculateAccessOffset(
     }
 }
 
-fn loadAtRegWithOffset(reg: TempRegister, outReg: TempRegister, readOffset: u64, size: u64) Instr {
+fn loadAtRegWithOffset(
+    reg: vmInfo.TempRegister,
+    outReg: vmInfo.TempRegister,
+    readOffset: u64,
+    size: u64,
+) Instr {
     const offset: u16 = @intCast(readOffset);
 
     if (offset == 0) return loadAtReg(reg, outReg, size);
@@ -4325,7 +4428,7 @@ fn loadAtRegWithOffset(reg: TempRegister, outReg: TempRegister, readOffset: u64,
     };
 }
 
-fn loadAtReg(regPtr: TempRegister, outReg: TempRegister, size: u64) Instr {
+fn loadAtReg(regPtr: vmInfo.TempRegister, outReg: vmInfo.TempRegister, size: u64) Instr {
     return switch (size) {
         1 => Instr{
             .Load8AtReg = .{
@@ -4355,7 +4458,7 @@ fn loadAtReg(regPtr: TempRegister, outReg: TempRegister, size: u64) Instr {
     };
 }
 
-fn loadAtSpNegOffset(outReg: TempRegister, offset: u64, size: u64) Instr {
+fn loadAtSpNegOffset(outReg: vmInfo.TempRegister, offset: u64, size: u64) Instr {
     return switch (size) {
         1 => Instr{
             .Load8AtSpNegOffset16 = .{
@@ -4385,7 +4488,7 @@ fn loadAtSpNegOffset(outReg: TempRegister, offset: u64, size: u64) Instr {
     };
 }
 
-fn storeRegAtSpNegOffset(reg: TempRegister, loc: u64, size: u8) !Instr {
+fn storeRegAtSpNegOffset(reg: vmInfo.TempRegister, loc: u64, size: u8) !Instr {
     return switch (size) {
         1 => Instr{
             .Store8AtSpNegOffset16 = .{
@@ -4415,7 +4518,7 @@ fn storeRegAtSpNegOffset(reg: TempRegister, loc: u64, size: u8) !Instr {
     };
 }
 
-fn storeRegAtSpNegOffsetAndSize(regContents: TempRegister, loc: u64, size: u64) Instr {
+fn storeRegAtSpNegOffsetAndSize(regContents: vmInfo.TempRegister, loc: u64, size: u64) Instr {
     const reg = regContents;
 
     return switch (size) {
@@ -4447,7 +4550,7 @@ fn storeRegAtSpNegOffsetAndSize(regContents: TempRegister, loc: u64, size: u64) 
     };
 }
 
-fn storeRegAtReg(fromReg: TempRegister, ptrReg: TempRegister, size: u64) Instr {
+fn storeRegAtReg(fromReg: vmInfo.TempRegister, ptrReg: vmInfo.TempRegister, size: u64) Instr {
     return switch (size) {
         1 => Instr{
             .Store8AtReg = .{
@@ -4478,8 +4581,8 @@ fn storeRegAtReg(fromReg: TempRegister, ptrReg: TempRegister, size: u64) Instr {
 }
 
 fn storeAtRegOffset(
-    fromReg: TempRegister,
-    toPtrReg: TempRegister,
+    fromReg: vmInfo.TempRegister,
+    toPtrReg: vmInfo.TempRegister,
     offset: u16,
     size: u8,
 ) Instr {
@@ -4519,8 +4622,8 @@ fn storeAtRegOffset(
 }
 
 fn storeRegAtRegWithPostInc(
-    reg: TempRegister,
-    ptrReg: TempRegister,
+    reg: vmInfo.TempRegister,
+    ptrReg: vmInfo.TempRegister,
     inc: u16,
     size: u8,
 ) Instr {
@@ -4563,7 +4666,7 @@ fn initArraySliceBytecode(
     node: *ast.AstNode,
     len: u64,
     writeLoc: ?WriteLocInfo,
-) !?TempRegister {
+) !?vmInfo.TempRegister {
     var paddedSpLoc: u64 = 0;
     var arrayStartLoc: u64 = 0;
 

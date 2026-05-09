@@ -589,9 +589,16 @@ const FuncType = enum {
     Normal,
 };
 
+const GenericFuncInstanceRetInfo = struct {
+    size: u64,
+    alignment: u8,
+    isStruct: bool,
+};
+
 const GenericFuncInstance = struct {
     labelId: ?u32 = null,
     funcRootNode: *AstNode,
+    retInfo: GenericFuncInstanceRetInfo,
 };
 
 const FuncGenericStateVariants = enum {
@@ -609,6 +616,12 @@ const FuncGenericState = union(FuncGenericStateVariants) {
     },
 };
 
+const FuncDecReturnType = struct {
+    size: u64,
+    alignment: u8,
+    info: AstTypeInfo,
+};
+
 pub const FuncDecNode = struct {
     const Self = @This();
 
@@ -622,7 +635,7 @@ pub const FuncDecNode = struct {
     params: ParseParamsResult,
     body: *AstNode,
     bodyTokens: []tokenizer.Token,
-    returnType: AstTypeInfo,
+    returnType: FuncDecReturnType,
     definedCaptures: []FuncCaptures,
     toScanTypes: *ToScanTypesList,
     funcType: FuncType,
@@ -2362,7 +2375,11 @@ fn parseFuncDef(
         .params = params,
         .body = body,
         .bodyTokens = bodyTokens,
-        .returnType = returnType,
+        .returnType = .{
+            .size = 0,
+            .alignment = 0,
+            .info = returnType,
+        },
         .definedCaptures = captures,
         .toScanTypes = try utils.createMut(ToScanTypesList, allocator, .empty),
         .funcType = if (structInfoOrNull == null) .Normal else .StructMethod,

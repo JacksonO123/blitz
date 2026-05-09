@@ -1096,7 +1096,13 @@ pub fn scanNode(
                 func.visited = true;
             }
 
-            try scanFuncBodyAndReturn(allocator, context, func, func.genericState == .Normal);
+            _ = try scanFuncBodyAndReturn(allocator, context, func, func.genericState == .Normal);
+
+            func.returnType.size = try func.returnType.info.astType.getSize(allocator, context);
+            func.returnType.alignment = try func.returnType.info.astType.getAlignment(
+                allocator,
+                context,
+            );
 
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
@@ -1277,7 +1283,7 @@ pub fn scanNode(
             const resType = try clone.replaceGenericsOnTypeInfo(
                 allocator,
                 context,
-                func.returnType.toAllocInfo(.Recycled),
+                func.returnType.info.toAllocInfo(.Recycled),
                 withGenDef,
             );
             node.typeInfo.size = try resType.info.astType.getSize(allocator, context);
@@ -1780,13 +1786,34 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
             try context.compInfo.setGeneric(rel.identId, typeClone.toAllocInfo(.Allocated));
         }
 
-        try scanFuncBodyAndReturn(allocator, context, func, toScanItem.withGenDef);
+        const returnsStruct = try scanFuncBodyAndReturn(
+            allocator,
+            context,
+            func,
+            toScanItem.withGenDef,
+        );
 
         if (func.genericState == .Generic or func.onGenericStruct(context)) {
             const cloned = try clone.cloneAstNodePtrMut(allocator, context, func.body, true);
             try func.genericState.Generic.genericInstances.append(
                 allocator,
-                .{ .funcRootNode = cloned },
+                .{
+                    .funcRootNode = cloned,
+                    .retInfo = .{
+                        .size = try func.returnType.info.astType.getSize(allocator, context),
+                        .alignment = try func.returnType.info.astType.getAlignment(
+                            allocator,
+                            context,
+                        ),
+                        .isStruct = returnsStruct,
+                    },
+                },
+            );
+        } else {
+            func.returnType.size = try func.returnType.info.astType.getSize(allocator, context);
+            func.returnType.alignment = try func.returnType.info.astType.getAlignment(
+                allocator,
+                context,
             );
         }
 
@@ -2065,12 +2092,12 @@ fn scanFuncBodyAndReturn(
     context: *Context,
     func: *ast.FuncDecNode,
     withGenDef: bool,
-) !void {
+) !bool {
     try context.compInfo.pushScopeWithType(allocator, true, .Function);
     defer context.compInfo.popScope(context);
 
     const prevRetType = context.compInfo.currentFuncReturn;
-    context.compInfo.currentFuncReturn = func.returnType;
+    context.compInfo.currentFuncReturn = func.returnType.info;
     defer context.compInfo.currentFuncReturn = prevRetType;
 
     for (func.params.params) |param| {
@@ -2141,7 +2168,7 @@ fn scanFuncBodyAndReturn(
         try applyFunctionCaptures(func, s);
     }
 
-    if (func.returnType.astType.* != .Void) {
+    if (func.returnType.info.astType.* != .Void) {
         if (!context.compInfo.returnInfo.info.exhaustive) {
             return ScanError.FunctionReturnIsNotExhaustive;
         }
@@ -2150,6 +2177,16 @@ fn scanFuncBodyAndReturn(
             return ScanError.FunctionMissingReturn;
         }
     }
+
+    const retType = try clone.cloneAstTypeInfo(
+        allocator,
+        context,
+        func.returnType.info,
+        withGenDef,
+    );
+    defer allocPools.recursiveReleaseType(context, retType.astType);
+
+    return retType.astType.* == .Custom;
 }
 
 fn validateStaticStructProps(
