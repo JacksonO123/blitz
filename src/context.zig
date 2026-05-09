@@ -91,6 +91,10 @@ pub const Context = struct {
         };
     }
 
+    pub fn deinit(self: *Self) void {
+        self.genInfo.deinit();
+    }
+
     /// call to free unused pool mem
     pub fn clearPoolMem(self: *Self) void {
         self.compInfo.clearPoolMem(self);

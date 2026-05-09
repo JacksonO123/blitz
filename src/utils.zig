@@ -149,3 +149,25 @@ pub fn StaticBufferList(comptime T: type, comptime size: comptime_int) type {
         }
     };
 }
+
+pub fn ArenaArrayList(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        arena: std.heap.ArenaAllocator,
+        list: std.ArrayList(T),
+
+        pub const empty = Self{
+            .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
+            .list = .empty,
+        };
+
+        pub fn deinit(self: *Self) void {
+            self.arena.deinit();
+        }
+
+        pub fn append(self: *Self, item: T) !void {
+            try self.list.append(self.arena.allocator(), item);
+        }
+    };
+}

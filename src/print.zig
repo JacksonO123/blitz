@@ -859,7 +859,7 @@ pub fn printBytecodeChunks(context: *Context, writer: *Writer) !void {
 
     var byteCounter: usize = instrStart;
     var totalIndex: usize = 0;
-    for (context.genInfo.instrList.items, 0..) |instr, index| {
+    for (context.genInfo.instrList.list.items, 0..) |instr, index| {
         if (instr == .Label and !context.settings.debug.printLabels) continue;
         if (instr == .NoOp and !context.settings.debug.printNoOps) continue;
 

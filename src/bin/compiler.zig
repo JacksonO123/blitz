@@ -77,6 +77,7 @@ pub fn compile(
     const allocator = arena.allocator();
 
     var context = try Context.init(allocator, code, printWriter, .{});
+    defer context.deinit();
 
     const hoistedNodes = ast.hoistRelevantNodes(allocator, &context) catch |e| {
         logger.logParseError(&context, e, printWriter);

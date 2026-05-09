@@ -1570,7 +1570,7 @@ const DataSection = struct {
 pub const GenInfo = struct {
     const Self = @This();
 
-    instrList: ArrayList(Instr),
+    instrList: utils.ArenaArrayList(Instr),
     dataSection: DataSection,
     currentProc: Proc,
     vmInfo: struct {
@@ -1634,6 +1634,10 @@ pub const GenInfo = struct {
         };
     }
 
+    pub fn deinit(self: *Self) void {
+        self.instrList.deinit();
+    }
+
     pub fn calculateBytecodeHeaderSize(self: *Self) u32 {
         var binHeadSize = @as(u32, @intCast(
             vmInfo.PADDED_BYTECODE_HEADER_LEN + self.dataSection.data.items.len,
@@ -1674,10 +1678,10 @@ pub const GenInfo = struct {
         }
 
         i = 0;
-        while (i < self.instrList.items.len) : (i += 1) {
+        while (i < self.instrList.list.items.len) : (i += 1) {
             const skipped = self.handleSkipInstruction(i);
             if (!skipped) {
-                const instr = self.instrList.items[i];
+                const instr = self.instrList.list.items[i];
                 try writeChunk(instr, writer);
             }
 
@@ -1694,14 +1698,14 @@ pub const GenInfo = struct {
     }
 
     pub fn appendChunkAndReturn(self: *Self, allocator: Allocator, instr: Instr) !*Instr {
-        try self.instrList.append(allocator, instr);
-        const instrIndex = self.instrList.items.len - 1;
+        try self.instrList.append(instr);
+        const instrIndex = self.instrList.list.items.len - 1;
         try self.runInstrAddEffects(allocator, instrIndex);
-        return &self.instrList.items[instrIndex];
+        return &self.instrList.list.items[instrIndex];
     }
 
     pub fn runInstrAddEffects(self: *Self, allocator: Allocator, instrIndex: usize) !void {
-        try self.setInstrRegUseIndex(allocator, &self.instrList.items[instrIndex], instrIndex);
+        try self.setInstrRegUseIndex(allocator, &self.instrList.list.items[instrIndex], instrIndex);
     }
 
     pub fn setInstrRegActiveStatus(self: *Self, instr: *const Instr, instrIndex: usize) void {
@@ -2028,18 +2032,18 @@ pub const GenInfo = struct {
         return null;
     }
 
-    pub fn newProc(self: *Self, allocator: Allocator) !void {
-        try self.newProcConfig(allocator, .{});
+    pub fn newProc(self: *Self) !void {
+        try self.newProcConfig(.{});
     }
 
-    pub fn newProcConfig(self: *Self, allocator: Allocator, procConfig: ProcConfig) !void {
+    pub fn newProcConfig(self: *Self, procConfig: ProcConfig) !void {
         // noop for possible sp add instr
-        try self.instrList.append(allocator, .{ .NoOp = {} });
+        try self.instrList.append(.{ .NoOp = {} });
         // noop for possible register push instr
-        try self.instrList.append(allocator, .{ .NoOp = {} });
+        try self.instrList.append(.{ .NoOp = {} });
         // noop for possible lr push instr
-        try self.instrList.append(allocator, .{ .NoOp = {} });
-        const startIndex = self.instrList.items.len - 3;
+        try self.instrList.append(.{ .NoOp = {} });
+        const startIndex = self.instrList.list.items.len - 3;
 
         self.currentProc = .{
             .startIndex = @intCast(startIndex),
@@ -2085,7 +2089,7 @@ pub const GenInfo = struct {
     }
 
     fn updateInstrLabelLocation(self: Self, instrIndex: usize, location: u64) void {
-        const instr = &self.instrList.items[instrIndex];
+        const instr = &self.instrList.list.items[instrIndex];
         switch (instr.*) {
             .Jump,
             .JumpEQ,
@@ -2374,8 +2378,8 @@ fn adjustProc(
     var numPushedRegisters: u32 = 0;
     var hasBranchLink = false;
 
-    while (i < context.genInfo.instrList.items.len) : (i += 1) {
-        const instr = context.genInfo.instrList.items[i];
+    while (i < context.genInfo.instrList.list.items.len) : (i += 1) {
+        const instr = context.genInfo.instrList.list.items[i];
         switch (instr) {
             .BranchLink, .BranchLinkBack => {
                 hasBranchLink = true;
@@ -2425,8 +2429,8 @@ fn adjustProc(
         );
 
         const index = instrStartIndex + vmInfo.PUSH_LR_BASE_OFFSET;
-        context.genInfo.instrList.items[index] = pushLRInstr;
-        try context.genInfo.instrList.append(allocator, popLRInstr);
+        context.genInfo.instrList.list.items[index] = pushLRInstr;
+        try context.genInfo.instrList.append(popLRInstr);
     }
 
     if (context.genInfo.currentProc.maxPreserveReg) |maxReg| {
@@ -2434,11 +2438,11 @@ fn adjustProc(
         const popInstr = try popRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
 
         const index = instrStartIndex + vmInfo.PUSH_REG_BASE_OFFSET;
-        context.genInfo.instrList.items[index] = pushInstr;
-        try context.genInfo.instrList.append(allocator, popInstr);
+        context.genInfo.instrList.list.items[index] = pushInstr;
+        try context.genInfo.instrList.append(popInstr);
     }
 
-    const instrs = context.genInfo.instrList.items[instrStartIndex..];
+    const instrs = context.genInfo.instrList.list.items[instrStartIndex..];
     if (context.settings.debug.allocateRegisters) {
         try backend.allocateRegisters(
             allocator,
@@ -2454,14 +2458,14 @@ fn adjustProc(
         const spInstrs = try getSpIncInstructions(frameSize.* + stackOffset);
         spInstrByteCountOffset += spInstrs.sub.getInstrLen();
 
-        context.genInfo.instrList.items[context.genInfo.currentProc.startIndex] = spInstrs.add;
-        try context.genInfo.instrList.append(allocator, spInstrs.sub);
+        context.genInfo.instrList.list.items[context.genInfo.currentProc.startIndex] = spInstrs.add;
+        try context.genInfo.instrList.append(spInstrs.sub);
     }
 
     try adjustInstructions(allocator, context, instrs, instrStartIndex, frameSize.*, stackOffset);
 
     const finishInstr = if (isRoot) Instr{ .End = {} } else Instr{ .Ret = {} };
-    try context.genInfo.instrList.append(allocator, finishInstr);
+    try context.genInfo.instrList.append(finishInstr);
     context.genInfo.byteCounter += 1 + spInstrByteCountOffset;
 
     context.genInfo.instrActions.resetIter();
@@ -2484,12 +2488,12 @@ fn adjustInstructions(
             try adjustInstruction(
                 allocator,
                 context,
-                &context.genInfo.instrList.items[i + instrStartIndex],
+                &context.genInfo.instrList.list.items[i + instrStartIndex],
                 i + instrStartIndex,
                 frameSize,
                 stackOffset,
             );
-            const instrLen = context.genInfo.instrList.items[i + instrStartIndex].getInstrLen();
+            const instrLen = context.genInfo.instrList.list.items[i + instrStartIndex].getInstrLen();
             context.genInfo.byteCounter += instrLen;
         }
 
@@ -2754,7 +2758,7 @@ pub fn codegenAst(
 
     const mainFn = context.compInfo.functions.get(identStore.KNOWN_IDENT_IDS.main) orelse
         return CodeGenError.MainFunctionNotFound;
-    try context.genInfo.newProc(allocator);
+    try context.genInfo.newProc();
     _ = try genBytecode(allocator, context, mainFn.body);
 
     try context.genInfo.finishProc(allocator, context, true, backend);
@@ -3253,7 +3257,7 @@ pub fn genBytecodeUtil(
             }
         },
         .ForLoop => |loop| {
-            const forLoopStartInstrIndex = context.genInfo.instrList.items.len - 1;
+            const forLoopStartInstrIndex = context.genInfo.instrList.list.items.len - 1;
 
             if (loop.initNode) |initNode| {
                 _ = try genBytecode(allocator, context, initNode);
@@ -3306,7 +3310,7 @@ pub fn genBytecodeUtil(
             const loopEndLabel = Instr{ .Label = loopEndLabelId };
             try context.genInfo.appendChunk(allocator, loopEndLabel);
 
-            const currentInstrIndex = context.genInfo.instrList.items.len - 1;
+            const currentInstrIndex = context.genInfo.instrList.list.items.len - 1;
             const startVReg = context.genInfo.currentProc.preProcVirtualReg;
             const endVReg = context.genInfo.registers.items.len;
             for (startVReg..endVReg) |vReg| {
@@ -4115,7 +4119,7 @@ fn generateFunction(
                     func,
                     &instance.labelId,
                 );
-                try context.genInfo.newProcConfig(allocator, procConfig);
+                try context.genInfo.newProcConfig(procConfig);
                 _ = try genBytecode(allocator, context, instance.funcRootNode);
 
                 // HACK TODO: revert the register to its original address
@@ -4145,7 +4149,7 @@ fn generateFunction(
                 func,
                 &normal.labelId,
             );
-            try context.genInfo.newProcConfig(allocator, procConfig);
+            try context.genInfo.newProcConfig(procConfig);
             _ = try genBytecode(allocator, context, func.body);
 
             // HACK TODO: revert the register to its original address

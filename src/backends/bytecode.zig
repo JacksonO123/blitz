@@ -86,7 +86,7 @@ fn remapInstr(
 ) !void {
     defer flushPendingDeactivations(context);
 
-    const instr = &context.genInfo.instrList.items[instrIndex];
+    const instr = &context.genInfo.instrList.list.items[instrIndex];
     switch (instr.*) {
         .NoOp,
         .Label,
@@ -313,7 +313,7 @@ fn remapInstr(
 }
 
 fn handleMaybeSkipInstruction(context: *Context, allocator: Allocator, instrIndex: usize) !void {
-    const instr = context.genInfo.instrList.items[instrIndex];
+    const instr = context.genInfo.instrList.list.items[instrIndex];
     switch (instr) {
         .Mov => |inner| {
             if (inner.src == inner.dest) {
@@ -826,7 +826,7 @@ fn recordInstrRegUsagesFromTo(
 }
 
 fn recordInstrRegUsages(context: *Context, instrIndex: usize, limits: codegen.RegisterRange) void {
-    const instr = context.genInfo.instrList.items[instrIndex];
+    const instr = context.genInfo.instrList.list.items[instrIndex];
 
     switch (instr) {
         .NoOp,
