@@ -4,10 +4,7 @@ struct M {
 }
 
 fn thing(m: M) M {
-    return M {
-        data = 4,
-        smaller = m.smaller,
-    };
+    return m;
 }
 
 fn main() {

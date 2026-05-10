@@ -3987,26 +3987,24 @@ pub fn genBytecodeUtil(
             return try context.genInfo.getNextRegisterUtil(allocator, .{ .Return = 0 });
         },
         .ReturnNode => |inner| {
-            const regRes = if (context.genInfo.currentProc.retStructPtrReg) |reg|
-                (try genBytecodeUtil(allocator, context, inner, .{ .reg = reg, .value = 0 }))
-            else
-                try genBytecode(allocator, context, inner) orelse
-                    return CodeGenError.ReturnedRegisterNotFound;
+            const regRes = try genBytecode(allocator, context, inner) orelse
+                return CodeGenError.ReturnedRegisterNotFound;
 
-            if (regRes) |reg| {
-                const retReg = try context.genInfo.getNextRegisterUtil(
-                    allocator,
-                    .{ .Return = 0 },
-                );
+            const retReg = try context.genInfo.getNextRegisterUtil(
+                allocator,
+                .{ .Return = 0 },
+            );
+
+            if (context.genInfo.currentProc.retStructPtrReg) |ptrReg| {
+                try memCpyInstrs(allocator, context, regRes, ptrReg, inner.typeInfo.size);
+            } else {
                 const movInstr = Instr{
                     .Mov = .{
-                        .src = reg,
+                        .src = regRes,
                         .dest = retReg,
                     },
                 };
                 try context.genInfo.appendChunk(allocator, movInstr);
-            } else if (context.genInfo.currentProc.retStructPtrReg == null) {
-                return CodeGenError.ReturnedRegisterNotFound;
             }
         },
         else => {},
@@ -4122,23 +4120,6 @@ fn generateFunction(
                 try context.genInfo.newProcConfig(procConfig);
                 _ = try genBytecode(allocator, context, instance.funcRootNode);
 
-                // HACK TODO: revert the register to its original address
-                // eventually fix: dont use post inc instructions, avoid writing side effects
-                if (instance.retInfo.isStruct) {
-                    const outReg = try context.genInfo.getNextRegisterUtil(
-                        allocator,
-                        .{ .Param = 0 },
-                    );
-                    const subInstr = Instr{
-                        .Sub16 = .{
-                            .dest = outReg,
-                            .reg = outReg,
-                            .data = @intCast(instance.retInfo.size),
-                        },
-                    };
-                    try context.genInfo.appendChunk(allocator, subInstr);
-                }
-
                 try context.genInfo.finishProc(allocator, context, false, backend);
             }
         },
@@ -4151,23 +4132,6 @@ fn generateFunction(
             );
             try context.genInfo.newProcConfig(procConfig);
             _ = try genBytecode(allocator, context, func.body);
-
-            // HACK TODO: revert the register to its original address
-            // eventually fix: dont use post inc instructions, avoid writing side effects
-            if (func.returnType.info.astType.* == .Custom) {
-                const outReg = try context.genInfo.getNextRegisterUtil(
-                    allocator,
-                    .{ .Param = 0 },
-                );
-                const subInstr = Instr{
-                    .Sub16 = .{
-                        .dest = outReg,
-                        .reg = outReg,
-                        .data = @intCast(func.returnType.size),
-                    },
-                };
-                try context.genInfo.appendChunk(allocator, subInstr);
-            }
 
             try context.genInfo.finishProc(allocator, context, false, backend);
         },
