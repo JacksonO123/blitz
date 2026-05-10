@@ -157,10 +157,12 @@ pub fn ArenaArrayList(comptime T: type) type {
         arena: std.heap.ArenaAllocator,
         list: std.ArrayList(T),
 
-        pub const empty = Self{
-            .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
-            .list = .empty,
-        };
+        pub fn init() Self {
+            return .{
+                .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
+                .list = .empty,
+            };
+        }
 
         pub fn deinit(self: *Self) void {
             self.arena.deinit();

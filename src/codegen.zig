@@ -1606,7 +1606,7 @@ pub const GenInfo = struct {
         const labelByteInfo = try LabelByteInfo.init(allocator);
 
         return .{
-            .instrList = .empty,
+            .instrList = utils.ArenaArrayList(Instr).init(),
             .dataSection = try DataSection.init(allocator),
             .currentProc = .{
                 .startIndex = 0,
