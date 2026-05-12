@@ -610,6 +610,7 @@ pub fn scanNode(
                     return anyType.toAllocInfo(.Recycled);
                 },
                 .ArrayDec => {
+                    node.typeInfo.data = .{ .Slice = {} };
                     return try getArrayDecPropType(allocator, context, node, access.property);
                 },
                 .Custom => |custom| a: {

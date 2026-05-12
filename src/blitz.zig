@@ -4,7 +4,6 @@ pub const builtins = @import("builtins.zig");
 pub const clone = @import("clone.zig");
 pub const codegen = @import("codegen.zig");
 pub const compInfo = @import("comp_info.zig");
-pub const constants = @import("constants.zig");
 pub const context = @import("context.zig");
 pub const print = @import("print.zig");
 pub const logger = @import("logger.zig");

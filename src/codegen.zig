@@ -4072,7 +4072,9 @@ fn getPropLocation(
     node: *const ast.AstNode,
     propIdentId: identStore.IdentId,
 ) !struct { u64, bool } {
-    if (node.variant.PropertyAccess.value.typeInfo.nodeType == .Slice) {
+    if (node.typeInfo.data == .Slice or
+        node.variant.PropertyAccess.value.typeInfo.nodeType == .Slice)
+    {
         return .{ builtins.getSlicePropLocations(propIdentId).?, false };
     }
 
