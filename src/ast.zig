@@ -680,20 +680,22 @@ const ParseContextType = enum {
 pub const OpExprTypes = enum(u8) {
     const Self = @This();
 
-    BitAnd = 0,
-    BitOr = 1,
-    Mult = 2,
-    Div = 3,
-    Add = 4,
-    Sub = 5,
-    LessThan = 6,
-    GreaterThan = 7,
-    LessThanEq = 8,
-    GreaterThanEq = 9,
-    Equal = 10,
-    NotEqual = 11,
-    And = 12,
-    Or = 13,
+    BitAnd,
+    BitOr,
+    Mult,
+    Div,
+    Add,
+    Sub,
+
+    LessThan,
+    GreaterThan,
+    LessThanEq,
+    GreaterThanEq,
+    Equal,
+    NotEqual,
+
+    And,
+    Or,
 
     pub fn getOppositeCompOp(self: Self) Self {
         return switch (self) {
@@ -2608,7 +2610,7 @@ fn rotatePrecedence(rootExprNode: *AstNode) ?*AstNode {
     {
         const childLeft = rightExpr.left;
         rootExprNode.variant.OpExpr.right = childLeft;
-        rightNode.variant.OpExpr.left = rootExprNode;
+        rightNode.variant.OpExpr.left = rotatePrecedence(rootExprNode).?;
         return rightNode;
     }
 
