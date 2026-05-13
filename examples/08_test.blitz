@@ -1,14 +1,27 @@
+struct Inner {
+    miniData: u32;
+    t: u8;
+}
+
 struct M {
     pub data: u32;
     pub smaller: u16;
-}
-
-fn thing(m: M) M {
-    return m;
+    inner: Inner[2];
 }
 
 fn main() {
-    let a = M { data = 10, smaller = 2u16 };
-    let b = thing(a);
-    let c = b.data + 2;
+    let a = M {
+        data = 10,
+        smaller = 2u16,
+        inner = [
+            Inner {
+                miniData = 12,
+                t = 1u8,
+            },
+            Inner {
+                miniData = 14,
+                t = 2u8,
+            },
+        ]
+    };
 }

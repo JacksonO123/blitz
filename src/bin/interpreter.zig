@@ -86,7 +86,7 @@ const RuntimeInfo = struct {
     flags: Flags,
     programData: std.ArrayListAligned(u8, .@"64"),
     ptrs: RuntimePtrs,
-    bytecodeLen: usize,
+    stackStart: usize,
     instrStart: u32,
 
     pub inline fn init(
@@ -96,16 +96,18 @@ const RuntimeInfo = struct {
         instrStart: u32,
     ) !Self {
         var programData = std.ArrayListAligned(u8, .@"64").fromOwnedSlice(bytecode);
-        try programData.ensureTotalCapacity(allocator, bytecode.len + stackSize);
+        const stackStartPadding = utils.calculatePadding(bytecode.len, vmInfo.POINTER_SIZE);
+        const minStackStart = bytecode.len + stackStartPadding;
+        try programData.ensureTotalCapacity(allocator, minStackStart + stackSize);
 
         return .{
             .flags = Flags{},
             .programData = programData,
             .ptrs = .{
-                .sp = bytecode.len,
+                .sp = minStackStart,
                 .lr = 0,
             },
-            .bytecodeLen = bytecode.len,
+            .stackStart = minStackStart,
             .instrStart = instrStart,
         };
     }
@@ -124,12 +126,12 @@ const RuntimeInfo = struct {
 
         try writer.writeAll("##STACK_START##\n");
 
-        const stackMem = self.programData.items[self.bytecodeLen..@min(
+        const stackMem = self.programData.items[self.stackStart..@min(
             self.programData.items.len,
-            self.bytecodeLen + untilStack,
+            self.stackStart + untilStack,
         )];
         for (stackMem, 0..) |byte, index| {
-            try writer.printInt(index + self.bytecodeLen, 10, .lower, .{});
+            try writer.printInt(index + self.stackStart, 10, .lower, .{});
             try writer.writeAll(") ");
             try writer.printInt(byte, 10, .lower, .{});
             try writer.writeAll("\n");
