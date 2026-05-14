@@ -24,7 +24,6 @@ const AstNumberVariantsStrRel = struct {
 pub const AstNumberVariants = enum {
     const Self = @This();
 
-    Char,
     U8,
     U16,
     U32,
@@ -40,7 +39,7 @@ pub const AstNumberVariants = enum {
 
     pub fn getSize(self: Self) u8 {
         return switch (self) {
-            .Char, .U8, .I8 => 1,
+            .U8, .I8 => 1,
             .U16, .I16 => 2,
             .U32, .I32, .F32 => 4,
             .U64, .I64, .F64 => 8,
@@ -54,7 +53,6 @@ pub const AstNumberVariants = enum {
 
     pub fn fromStr(str: []const u8) ?Self {
         const rels = &[_]AstNumberVariantsStrRel{
-            .{ .str = "char", .val = .Char },
             .{ .str = "u8", .val = .U8 },
             .{ .str = "u16", .val = .U16 },
             .{ .str = "u32", .val = .U32 },
@@ -78,7 +76,6 @@ pub const AstNumberVariants = enum {
 
     pub fn toString(self: Self) []const u8 {
         return switch (self) {
-            .Char => "char",
             .U8 => "u8",
             .U16 => "u16",
             .U32 => "u32",
@@ -98,7 +95,6 @@ pub const AstNumberVariants = enum {
 pub const AstNumber = union(AstNumberVariants) {
     const Self = @This();
 
-    Char: u8,
     U8: u8,
     U16: u16,
     U32: u32,
@@ -114,7 +110,6 @@ pub const AstNumber = union(AstNumberVariants) {
 
     pub fn toString(self: Self) []const u8 {
         return switch (self) {
-            .Char => "char",
             .U8 => "u8",
             .U16 => "u16",
             .U32 => "u32",
@@ -132,7 +127,6 @@ pub const AstNumber = union(AstNumberVariants) {
 
     pub fn toAstNumberVariant(self: Self) AstNumberVariants {
         return switch (self) {
-            .Char => .Char,
             .U8 => .U8,
             .U16 => .U16,
             .U32 => .U32,
@@ -192,7 +186,6 @@ const StructMethodInfo = struct {
 
 const Types = enum {
     Bool,
-    Char,
     Void,
     Null,
     Any,
@@ -218,7 +211,6 @@ pub const AstTypes = union(Types) {
     const Self = @This();
 
     Bool,
-    Char,
     Void,
     Null,
     Any,
@@ -269,7 +261,7 @@ pub const AstTypes = union(Types) {
 
             .Number => |num| return num.getAlignment(),
 
-            .Bool, .Char, .EnumVariant, .ErrorVariant => 1,
+            .Bool, .EnumVariant, .ErrorVariant => 1,
 
             .Void,
             .Any,
@@ -325,7 +317,7 @@ pub const AstTypes = union(Types) {
         return switch (self) {
             .Null, .RawNumber, .Undef => unreachable,
             .Void, .Any, .Function, .StructMethod, .Error, .Enum => 0,
-            .Bool, .Char, .EnumVariant, .ErrorVariant => 1,
+            .Bool, .EnumVariant, .ErrorVariant => 1,
             .Number => |num| num.getSize(),
             .Pointer => |ptr| {
                 if (ptr.info.astType.* == .ArrayDec and ptr.info.astType.ArrayDec.size != null) {
@@ -417,7 +409,6 @@ pub const AstTypeInfo = struct {
 const StaticTypes = enum {
     String,
     Bool,
-    Char,
     Number,
     RawNumber,
     ArrayDec,
@@ -432,7 +423,6 @@ pub const RawNumberNode = struct {
 pub const AstValues = union(StaticTypes) {
     String: []const u8,
     Bool: bool,
-    Char: u8,
     Number: AstNumber,
     RawNumber: RawNumberNode,
     ArrayDec: []*AstNode,
@@ -1728,7 +1718,7 @@ fn parseExpressionUtil(
         },
         .NegNumber => |numType| {
             switch (numType) {
-                .Char, .U8, .U16, .U32, .U64, .U128 => {
+                .U8, .U16, .U32, .U64, .U128 => {
                     return AstError.NegativeNumberWithUnsignedTypeConflict;
                 },
                 else => {},
@@ -1781,7 +1771,9 @@ fn parseExpressionUtil(
         .CharToken => {
             const valueVariant = AstNodeUnion{
                 .Value = .{
-                    .Char = context.getTokString(first)[0],
+                    .Number = .{
+                        .U8 = context.getTokString(first)[0],
+                    },
                 },
             };
             return try context.pools.newNode(context, valueVariant.toAstNode());
@@ -2705,7 +2697,6 @@ fn parseType(
         .I128 => .{ .Number = .I128 },
         .F32 => .{ .Number = .F32 },
         .F64 => .{ .Number = .F64 },
-        .CharType => .Char,
         .Asterisk => a: {
             const pointer = try parseType(allocator, context);
             break :a .{

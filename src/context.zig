@@ -166,7 +166,6 @@ pub const StaticPtrs = struct {
         f32Type: ast.AstTypeInfo,
         u64Type: ast.AstTypeInfo,
         undefType: ast.AstTypeInfo,
-        charType: ast.AstTypeInfo,
     },
     nodes: struct {
         noOp: *ast.AstNode,
@@ -184,7 +183,6 @@ pub const StaticPtrs = struct {
                 .f32Type = (try pools.newTypeUntracked(.{ .Number = .F32 })).toTypeInfo(.Mut),
                 .u64Type = (try pools.newTypeUntracked(.{ .Number = .U64 })).toTypeInfo(.Mut),
                 .undefType = (try pools.newTypeUntracked(.{ .Undef = {} })).toTypeInfo(.Mut),
-                .charType = (try pools.newTypeUntracked(.{ .Char = {} })).toTypeInfo(.Mut),
             },
             .nodes = .{
                 .noOp = try pools.newNodeUntracked((ast.AstNodeUnion{

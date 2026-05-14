@@ -247,19 +247,18 @@ pub fn scanNode(
         .Value => |val| {
             const valueRes: ast.AstTypes = switch (val) {
                 .String => |str| a: {
-                    const charType = try context.pools.newType(context, .{ .Char = {} });
-                    const charTypeInfo = charType.toAllocInfo(.Const, .Allocated);
+                    const u8Type = try context.pools.newType(context, .{ .Number = .U8 });
+                    const u8TypeInfo = u8Type.toAllocInfo(.Const, .Allocated);
 
                     break :a .{
                         .ArrayDec = .{
                             .size = .{ .U64 = str.len },
-                            .type = charTypeInfo,
+                            .type = u8TypeInfo,
                         },
                     };
                 },
                 .Null => .Null,
                 .Bool => .Bool,
-                .Char => .Char,
                 .Number => |num| a: {
                     const numVariant = num.toAstNumberVariant();
                     break :a .{ .Number = numVariant };
@@ -469,13 +468,6 @@ pub fn scanNode(
 
                         node.typeInfo.size = left.info.astType.Number.getSize();
                         node.typeInfo.alignment = left.info.astType.Number.getAlignment();
-                    } else if (left.info.astType.* == .Char and right.info.astType.* == .Char) {
-                        node.typeInfo.size = 1;
-                        node.typeInfo.alignment = 1;
-                        releaseIfAllocated(context, right);
-                        releaseIfAllocated(context, left);
-
-                        return context.staticPtrs.types.charType.toAllocInfo(.Recycled);
                     }
 
                     if (op.type == .Div) {
@@ -1424,7 +1416,7 @@ pub fn scanNode(
             }
 
             switch (ptrType.info.astType.*) {
-                .Bool, .Char, .Void, .Null, .Number, .RawNumber => {
+                .Bool, .Void, .Null, .Number, .RawNumber => {
                     return ScanError.CannotTakePointerOfRawValue;
                 },
                 else => {},
@@ -2396,7 +2388,6 @@ pub fn matchTypesUtil(
 
     return switch (type1) {
         .Bool => type2 == .Bool,
-        .Char => type2 == .Char,
         .Void => type2 == .Void,
         .Null => type2 == .Nullable or type2 == .Null,
         .Nullable => |inner| {
@@ -2674,7 +2665,7 @@ pub fn indexNumberFromNode(node: ast.NodeIndexOrU64) !u64 {
 
 pub fn isPrimitive(astType: *const ast.AstTypes) bool {
     return switch (astType.*) {
-        .Bool, .Char, .Number, .Null, .RawNumber => true,
+        .Bool, .Number, .Null, .RawNumber => true,
         .Nullable => |inner| isPrimitive(inner.astType),
         else => false,
     };

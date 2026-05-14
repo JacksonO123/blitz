@@ -3039,12 +3039,6 @@ pub fn genBytecodeUtil(
                                 .data = try std.fmt.parseInt(u8, num.digits, 10),
                             },
                         },
-                        .Char => Instr{
-                            .SetReg8 = .{
-                                .reg = reg,
-                                .data = num.digits[0],
-                            },
-                        },
                         else => utils.unimplemented(),
                     };
 
@@ -3064,24 +3058,11 @@ pub fn genBytecodeUtil(
                     try context.genInfo.appendChunk(allocator, instr);
                     return reg;
                 },
-                .Char => |ch| {
-                    const reg = try context.genInfo.getNextRegister(allocator);
-
-                    const instr = Instr{
-                        .SetReg8 = .{
-                            .reg = reg,
-                            .data = ch,
-                        },
-                    };
-
-                    try context.genInfo.appendChunk(allocator, instr);
-                    return reg;
-                },
                 .Number => |num| {
                     const reg = try context.genInfo.getNextRegister(allocator);
 
                     const instr = switch (num) {
-                        .Char, .U8 => |byte| Instr{
+                        .U8 => |byte| Instr{
                             .SetReg8 = .{
                                 .reg = reg,
                                 .data = byte,

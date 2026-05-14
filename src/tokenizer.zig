@@ -92,7 +92,6 @@ const TokenVariants = enum {
     Dec,
 
     // datatypes
-    CharType,
     U8,
     U16,
     U32,
@@ -140,7 +139,6 @@ const TokenVariants = enum {
             .With => "with",
             .Delete => "delete",
             .Undef => "undef",
-            .CharType => "char",
             .U8 => "u8",
             .U16 => "u16",
             .U32 => "u32",
@@ -274,7 +272,6 @@ pub const TokenType = union(TokenVariants) {
     Dec,
 
     // datatypes
-    CharType,
     U8,
     U16,
     U32,
@@ -807,8 +804,7 @@ fn isValidNameChar(char: u8) bool {
 }
 
 fn isDatatype(chars: []const u8) ?TokenType {
-    const datatypes = .{
-        .CharType,
+    const dataTypes = .{
         .Bool,
         .U8,
         .U16,
@@ -824,7 +820,7 @@ fn isDatatype(chars: []const u8) ?TokenType {
         .F64,
     };
 
-    return getTypeFromTuple(chars, datatypes);
+    return getTypeFromTuple(chars, dataTypes);
 }
 
 fn isKeyword(chars: []const u8) ?TokenType {

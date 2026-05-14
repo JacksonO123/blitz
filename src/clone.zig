@@ -72,7 +72,6 @@ pub fn cloneAstTypes(
 ) (Allocator.Error || CloneError)!ast.AstTypes {
     return switch (types) {
         .Bool,
-        .Char,
         .Void,
         .Number,
         .Null,
@@ -251,7 +250,7 @@ pub fn cloneAstNodeUnion(
         },
         .Value => |val| {
             switch (val) {
-                .Bool, .Char, .Number, .Null => return node,
+                .Bool, .Number, .Null => return node,
                 .String => |str| return .{
                     .Value = .{
                         .String = str,

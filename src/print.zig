@@ -52,7 +52,6 @@ pub fn printType(
         .Any => try writer.writeAll("any"),
         .Null => try writer.writeAll("null"),
         .Void => try writer.writeAll("void"),
-        .Char => try writer.writeAll("char"),
         .Bool => try writer.writeAll("bool"),
         .VarInfo => |info| {
             try writer.writeAll("var info ");
@@ -246,11 +245,6 @@ fn printValue(
             try writer.writeAll(str);
             try writer.writeByte(')');
         },
-        .Char => |ch| {
-            try writer.writeAll("[char](");
-            try writer.writeByte(ch);
-            try writer.writeByte(')');
-        },
         .Bool => |b| {
             try writer.writeAll("[bool](");
             try writer.writeAll(if (b) "true" else "false");
@@ -269,7 +263,7 @@ fn printAstNumberUtil(val: anytype, num: ast.AstNumber, writer: *Writer) !void {
 
 fn printAstNumber(num: ast.AstNumber, writer: *Writer) !void {
     try switch (num) {
-        .Char, .U8 => |val| printAstNumberUtil(val, num, writer),
+        .U8 => |val| printAstNumberUtil(val, num, writer),
         .U16 => |val| printAstNumberUtil(val, num, writer),
         .U32 => |val| printAstNumberUtil(val, num, writer),
         .U64 => |val| printAstNumberUtil(val, num, writer),
