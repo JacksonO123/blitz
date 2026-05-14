@@ -178,6 +178,16 @@ fn remapInstr(
             flushPendingDeactivations(context);
             try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
         },
+        .Add32, .Sub32 => |*inner| {
+            try remapReg(allocator, context, &inner.reg, baseIndex, instrIndex, sp);
+            flushPendingDeactivations(context);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
+        },
+        .Add64, .Sub64 => |*inner| {
+            try remapReg(allocator, context, &inner.reg, baseIndex, instrIndex, sp);
+            flushPendingDeactivations(context);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
+        },
         .Cmp => |*inner| {
             try remapReg(allocator, context, &inner.reg1, baseIndex, instrIndex, sp);
             try remapReg(allocator, context, &inner.reg2, baseIndex, instrIndex, sp);
@@ -281,7 +291,34 @@ fn remapInstr(
             flushPendingDeactivations(context);
             try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
         },
+        .Load64AtRegPostInc16,
+        .Load32AtRegPostInc16,
+        .Load16AtRegPostInc16,
+        .Load8AtRegPostInc16,
+        => |*inner| {
+            try remapReg(allocator, context, &inner.fromRegPtr, baseIndex, instrIndex, sp);
+            try remapReg(allocator, context, &inner.toReg, baseIndex, instrIndex, sp);
+        },
+        .MulReg8AddReg => |*inner| {
+            try remapReg(allocator, context, &inner.addReg, baseIndex, instrIndex, sp);
+            try remapReg(allocator, context, &inner.mulReg, baseIndex, instrIndex, sp);
+            flushPendingDeactivations(context);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
+        },
         .MulReg16AddReg => |*inner| {
+            try remapReg(allocator, context, &inner.addReg, baseIndex, instrIndex, sp);
+            try remapReg(allocator, context, &inner.mulReg, baseIndex, instrIndex, sp);
+            flushPendingDeactivations(context);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
+        },
+        .MulReg32AddReg => |*inner| {
+            try remapReg(allocator, context, &inner.addReg, baseIndex, instrIndex, sp);
+            try remapReg(allocator, context, &inner.mulReg, baseIndex, instrIndex, sp);
+            flushPendingDeactivations(context);
+            try remapReg(allocator, context, &inner.dest, baseIndex, instrIndex, sp);
+        },
+        .MulReg64AddReg,
+        => |*inner| {
             try remapReg(allocator, context, &inner.addReg, baseIndex, instrIndex, sp);
             try remapReg(allocator, context, &inner.mulReg, baseIndex, instrIndex, sp);
             flushPendingDeactivations(context);
@@ -897,6 +934,14 @@ fn recordInstrRegUsages(context: *Context, instrIndex: usize, limits: codegen.Re
             recordNextUsage(context, inner.reg, instrIndex, limits);
             recordNextUsage(context, inner.dest, instrIndex, limits);
         },
+        .Add32, .Sub32 => |*inner| {
+            recordNextUsage(context, inner.reg, instrIndex, limits);
+            recordNextUsage(context, inner.dest, instrIndex, limits);
+        },
+        .Add64, .Sub64 => |*inner| {
+            recordNextUsage(context, inner.reg, instrIndex, limits);
+            recordNextUsage(context, inner.dest, instrIndex, limits);
+        },
         .Cmp => |*inner| {
             recordNextUsage(context, inner.reg1, instrIndex, limits);
             recordNextUsage(context, inner.reg2, instrIndex, limits);
@@ -976,7 +1021,30 @@ fn recordInstrRegUsages(context: *Context, instrIndex: usize, limits: codegen.Re
             recordNextUsage(context, inner.fromRegPtr, instrIndex, limits);
             recordNextUsage(context, inner.dest, instrIndex, limits);
         },
+        .Load64AtRegPostInc16,
+        .Load32AtRegPostInc16,
+        .Load16AtRegPostInc16,
+        .Load8AtRegPostInc16,
+        => |*inner| {
+            recordNextUsage(context, inner.fromRegPtr, instrIndex, limits);
+            recordNextUsage(context, inner.toReg, instrIndex, limits);
+        },
+        .MulReg8AddReg => |*inner| {
+            recordNextUsage(context, inner.addReg, instrIndex, limits);
+            recordNextUsage(context, inner.mulReg, instrIndex, limits);
+            recordNextUsage(context, inner.dest, instrIndex, limits);
+        },
         .MulReg16AddReg => |*inner| {
+            recordNextUsage(context, inner.addReg, instrIndex, limits);
+            recordNextUsage(context, inner.mulReg, instrIndex, limits);
+            recordNextUsage(context, inner.dest, instrIndex, limits);
+        },
+        .MulReg32AddReg => |*inner| {
+            recordNextUsage(context, inner.addReg, instrIndex, limits);
+            recordNextUsage(context, inner.mulReg, instrIndex, limits);
+            recordNextUsage(context, inner.dest, instrIndex, limits);
+        },
+        .MulReg64AddReg => |*inner| {
             recordNextUsage(context, inner.addReg, instrIndex, limits);
             recordNextUsage(context, inner.mulReg, instrIndex, limits);
             recordNextUsage(context, inner.dest, instrIndex, limits);

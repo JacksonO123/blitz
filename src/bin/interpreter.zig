@@ -201,37 +201,25 @@ fn interpretBytecode(
                 const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
                 runtimeInfo.registers[bytecode[current + 1]] = reg1Val + reg2Val;
             },
-            .Add8 => {
-                const regVal = runtimeInfo.registers[bytecode[current + 2]];
-                runtimeInfo.registers[bytecode[current + 1]] = regVal + bytecode[current + 3];
-            },
-            .Add16 => {
-                const regVal = runtimeInfo.registers[bytecode[current + 2]];
-                const val = std.mem.readInt(
-                    u16,
-                    @ptrCast(bytecode[current + 3 .. current + 5]),
-                    .little,
-                );
-                runtimeInfo.registers[bytecode[current + 1]] = regVal + val;
-            },
             .Sub => {
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
                 const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
                 runtimeInfo.registers[bytecode[current + 1]] = reg1Val - reg2Val;
             },
+            .Add8 => {
+                const regVal = runtimeInfo.registers[bytecode[current + 2]];
+                runtimeInfo.registers[bytecode[current + 1]] = regVal + bytecode[current + 3];
+            },
             .Sub8 => {
                 const regVal = runtimeInfo.registers[bytecode[current + 2]];
                 runtimeInfo.registers[bytecode[current + 1]] = regVal - bytecode[current + 3];
             },
-            .Sub16 => {
-                const regVal = runtimeInfo.registers[bytecode[current + 2]];
-                const val = std.mem.readInt(
-                    u16,
-                    @ptrCast(bytecode[current + 3 .. current + 5]),
-                    .little,
-                );
-                runtimeInfo.registers[bytecode[current + 1]] = regVal - val;
-            },
+            .Add16 => addConst(u16, runtimeInfo, bytecode, current),
+            .Sub16 => subConst(u16, runtimeInfo, bytecode, current),
+            .Add32 => addConst(u32, runtimeInfo, bytecode, current),
+            .Sub32 => subConst(u32, runtimeInfo, bytecode, current),
+            .Add64 => addConst(u64, runtimeInfo, bytecode, current),
+            .Sub64 => subConst(u64, runtimeInfo, bytecode, current),
             .Mult => {
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
                 const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
@@ -409,15 +397,9 @@ fn interpretBytecode(
                 );
                 runtimeInfo.programData.items[dest + offsetData] = byteData;
             },
-            .Store64AtRegPostInc16 => {
-                storeAtRegPostInc(u64, u16, runtimeInfo, bytecode, current);
-            },
-            .Store32AtRegPostInc16 => {
-                storeAtRegPostInc(u32, u16, runtimeInfo, bytecode, current);
-            },
-            .Store16AtRegPostInc16 => {
-                storeAtRegPostInc(u16, u16, runtimeInfo, bytecode, current);
-            },
+            .Store64AtRegPostInc16 => storeAtRegPostInc(u64, u16, runtimeInfo, bytecode, current),
+            .Store32AtRegPostInc16 => storeAtRegPostInc(u32, u16, runtimeInfo, bytecode, current),
+            .Store16AtRegPostInc16 => storeAtRegPostInc(u16, u16, runtimeInfo, bytecode, current),
             .Store8AtRegPostInc16 => {
                 const byteData: u8 = @intCast(runtimeInfo.registers[bytecode[current + 1]]);
                 const ptrReg = bytecode[current + 2];
@@ -430,15 +412,9 @@ fn interpretBytecode(
                 runtimeInfo.programData.items[dest] = byteData;
                 runtimeInfo.registers[ptrReg] += inc;
             },
-            .Store64AtSpNegOffset16 => {
-                storeAtSpNegOffset(u64, u16, runtimeInfo, bytecode, current);
-            },
-            .Store32AtSpNegOffset16 => {
-                storeAtSpNegOffset(u32, u16, runtimeInfo, bytecode, current);
-            },
-            .Store16AtSpNegOffset16 => {
-                storeAtSpNegOffset(u16, u16, runtimeInfo, bytecode, current);
-            },
+            .Store64AtSpNegOffset16 => storeAtSpNegOffset(u64, u16, runtimeInfo, bytecode, current),
+            .Store32AtSpNegOffset16 => storeAtSpNegOffset(u32, u16, runtimeInfo, bytecode, current),
+            .Store16AtSpNegOffset16 => storeAtSpNegOffset(u16, u16, runtimeInfo, bytecode, current),
             .Store8AtSpNegOffset16 => {
                 const byteData: [8]u8 = @bitCast(runtimeInfo.registers[bytecode[current + 1]]);
                 const offset = std.mem.readInt(
@@ -449,15 +425,9 @@ fn interpretBytecode(
                 const dest = runtimeInfo.ptrs.sp - offset;
                 runtimeInfo.programData.items[dest] = byteData[0];
             },
-            .Load64AtSpNegOffset16 => {
-                loadAtSpNegOffset(u64, u16, runtimeInfo, bytecode, current);
-            },
-            .Load32AtSpNegOffset16 => {
-                loadAtSpNegOffset(u32, u16, runtimeInfo, bytecode, current);
-            },
-            .Load16AtSpNegOffset16 => {
-                loadAtSpNegOffset(u16, u16, runtimeInfo, bytecode, current);
-            },
+            .Load64AtSpNegOffset16 => loadAtSpNegOffset(u64, u16, runtimeInfo, bytecode, current),
+            .Load32AtSpNegOffset16 => loadAtSpNegOffset(u32, u16, runtimeInfo, bytecode, current),
+            .Load16AtSpNegOffset16 => loadAtSpNegOffset(u16, u16, runtimeInfo, bytecode, current),
             .Load8AtSpNegOffset16 => {
                 const offset = std.mem.readInt(
                     u16,
@@ -468,15 +438,9 @@ fn interpretBytecode(
                 const byteData = runtimeInfo.programData.items[location];
                 runtimeInfo.registers[bytecode[current + 1]] = byteData;
             },
-            .Load64AtReg => {
-                loadAtReg(u64, runtimeInfo, bytecode, current);
-            },
-            .Load32AtReg => {
-                loadAtReg(u32, runtimeInfo, bytecode, current);
-            },
-            .Load16AtReg => {
-                loadAtReg(u16, runtimeInfo, bytecode, current);
-            },
+            .Load64AtReg => loadAtReg(u64, runtimeInfo, bytecode, current),
+            .Load32AtReg => loadAtReg(u32, runtimeInfo, bytecode, current),
+            .Load16AtReg => loadAtReg(u16, runtimeInfo, bytecode, current),
             .Load8AtReg => {
                 const source = runtimeInfo.registers[bytecode[current + 2]];
                 const value = runtimeInfo.programData.items[source];
@@ -492,26 +456,31 @@ fn interpretBytecode(
                 const byteData = runtimeInfo.programData.items[source + offset];
                 runtimeInfo.registers[bytecode[current + 1]] = byteData;
             },
-            .Load16AtRegOffset16 => {
-                loadAtRegOffset16(u16, runtimeInfo, bytecode, current);
-            },
-            .Load32AtRegOffset16 => {
-                loadAtRegOffset16(u32, runtimeInfo, bytecode, current);
-            },
-            .Load64AtRegOffset16 => {
-                loadAtRegOffset16(u64, runtimeInfo, bytecode, current);
-            },
-            .MulReg16AddReg => {
+            .Load16AtRegOffset16 => loadRegAtPtrOffset(u16, runtimeInfo, bytecode, current),
+            .Load32AtRegOffset16 => loadRegAtPtrOffset(u32, runtimeInfo, bytecode, current),
+            .Load64AtRegOffset16 => loadRegAtPtrOffset(u64, runtimeInfo, bytecode, current),
+            .Load8AtRegPostInc16 => {
                 const dest = bytecode[current + 1];
-                const toAdd = runtimeInfo.registers[bytecode[current + 2]];
-                const mulReg = runtimeInfo.registers[bytecode[current + 3]];
-                const data = std.mem.readInt(
+                const sourceReg = bytecode[current + 2];
+                const source = runtimeInfo.registers[sourceReg];
+                const inc = std.mem.readInt(
                     u16,
-                    @ptrCast(bytecode[current + 4 .. current + 6]),
+                    @ptrCast(bytecode[current + 3 .. current + 5]),
                     .little,
                 );
-                runtimeInfo.registers[dest] = toAdd + (mulReg * data);
+
+                const data = runtimeInfo.programData.items[source];
+
+                runtimeInfo.registers[dest] = data;
+                runtimeInfo.registers[sourceReg] += inc;
             },
+            .Load16AtRegPostInc16 => loadRegAtPtrPostInc(u16, runtimeInfo, bytecode, current),
+            .Load32AtRegPostInc16 => loadRegAtPtrPostInc(u32, runtimeInfo, bytecode, current),
+            .Load64AtRegPostInc16 => loadRegAtPtrPostInc(u64, runtimeInfo, bytecode, current),
+            .MulReg8AddReg => mulRegAddReg(u8, runtimeInfo, bytecode, current),
+            .MulReg16AddReg => mulRegAddReg(u16, runtimeInfo, bytecode, current),
+            .MulReg32AddReg => mulRegAddReg(u32, runtimeInfo, bytecode, current),
+            .MulReg64AddReg => mulRegAddReg(u64, runtimeInfo, bytecode, current),
             .DbgReg => if (builtin.mode == .Debug) {
                 try writer.writeByte('r');
                 try writer.printInt(bytecode[current + 1], 10, .lower, .{});
@@ -669,6 +638,59 @@ fn interpretBytecode(
 
         current += instLen;
     }
+}
+
+fn mulRegAddReg(
+    comptime ImmediateType: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const immediateSize = @sizeOf(ImmediateType);
+
+    const dest = bytecode[current + 1];
+    const toAdd = runtimeInfo.registers[bytecode[current + 2]];
+    const mulReg = runtimeInfo.registers[bytecode[current + 3]];
+    const data = std.mem.readInt(
+        ImmediateType,
+        @ptrCast(bytecode[current + 4 .. current + 4 + immediateSize]),
+        .little,
+    );
+    runtimeInfo.registers[dest] = toAdd + (mulReg * data);
+}
+
+fn addConst(
+    comptime ImmediateType: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const immediateSize = @sizeOf(ImmediateType);
+
+    const regVal = runtimeInfo.registers[bytecode[current + 2]];
+    const val = std.mem.readInt(
+        ImmediateType,
+        @ptrCast(bytecode[current + 3 .. current + 3 + immediateSize]),
+        .little,
+    );
+    runtimeInfo.registers[bytecode[current + 1]] = regVal + val;
+}
+
+fn subConst(
+    comptime ImmediateType: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const immediateSize = @sizeOf(ImmediateType);
+
+    const regVal = runtimeInfo.registers[bytecode[current + 2]];
+    const val = std.mem.readInt(
+        ImmediateType,
+        @ptrCast(bytecode[current + 3 .. current + 3 + immediateSize]),
+        .little,
+    );
+    runtimeInfo.registers[bytecode[current + 1]] = regVal - val;
 }
 
 fn storeAtRegOffset(
@@ -901,23 +923,42 @@ fn storeAtRegPostInc(
     runtimeInfo.registers[ptrReg] += inc;
 }
 
-fn loadAtRegOffset16(
+fn loadRegAtPtrPostInc(
     comptime T: type,
     runtimeInfo: *RuntimeInfo,
     bytecode: []const u8,
     current: u64,
 ) void {
-    const tBytes = @divExact(@typeInfo(T).int.bits, 8);
+    const tBytes = @sizeOf(T);
+
+    const dest = bytecode[current + 1];
+    const sourceReg = bytecode[current + 2];
+    const source = runtimeInfo.registers[sourceReg];
+    const inc = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
+
+    const dataSlice = runtimeInfo.programData.items[source .. source + tBytes];
+    const dataPtr: *T = @ptrCast(@alignCast(dataSlice.ptr));
+
+    runtimeInfo.registers[dest] = dataPtr.*;
+    runtimeInfo.registers[sourceReg] += inc;
+}
+
+fn loadRegAtPtrOffset(
+    comptime T: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const tBytes = @sizeOf(T);
 
     const dest = bytecode[current + 1];
     const source = runtimeInfo.registers[bytecode[current + 2]];
     const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
 
     const dataSlice = runtimeInfo.programData.items[source + offset .. source + offset + tBytes];
-    const byteData: *const [tBytes]u8 = @ptrCast(dataSlice);
+    const dataPtr: *T = @ptrCast(@alignCast(dataSlice.ptr));
 
-    const resInt: T = @bitCast(byteData.*);
-    runtimeInfo.registers[dest] = @intCast(resInt);
+    runtimeInfo.registers[dest] = dataPtr.*;
 }
 
 fn loadAtReg(
@@ -932,10 +973,9 @@ fn loadAtReg(
     const source = runtimeInfo.registers[bytecode[current + 2]];
 
     const dataSlice = runtimeInfo.programData.items[source .. source + tBytes];
-    const byteData: *const [tBytes]u8 = @ptrCast(dataSlice);
+    const dataPtr: *T = @ptrCast(@alignCast(dataSlice.ptr));
 
-    const resInt: T = @bitCast(byteData.*);
-    runtimeInfo.registers[dest] = @intCast(resInt);
+    runtimeInfo.registers[dest] = dataPtr.*;
 }
 
 fn storeAtSpNegOffset(

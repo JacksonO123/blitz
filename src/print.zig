@@ -965,10 +965,15 @@ fn printUnionInstr(instr: codegen.Instr, writer: *Writer) !void {
         .Add, .Sub, .Mult => |fields| try printSegments(fields, .{ .Reg, .Reg, .Reg }, writer),
 
         .Add8, .Sub8 => |fields| try printSegments(fields, .{ .Reg, .Reg, .Immediate8 }, writer),
-
         .Add16,
         .Sub16,
         => |fields| try printSegments(fields, .{ .Reg, .Reg, .Immediate16 }, writer),
+        .Add32,
+        .Sub32,
+        => |fields| try printSegments(fields, .{ .Reg, .Reg, .Immediate32 }, writer),
+        .Add64,
+        .Sub64,
+        => |fields| try printSegments(fields, .{ .Reg, .Reg, .Immediate64 }, writer),
 
         .Jump,
         .JumpEQ,
@@ -1061,9 +1066,30 @@ fn printUnionInstr(instr: codegen.Instr, writer: *Writer) !void {
         .Load8AtReg,
         => |fields| try printSegments(fields, .{ .Reg, .Reg }, writer),
 
+        .Load64AtRegPostInc16,
+        .Load32AtRegPostInc16,
+        .Load16AtRegPostInc16,
+        .Load8AtRegPostInc16,
+        => |fields| try printSegments(fields, .{ .Reg, .Reg, .Immediate16 }, writer),
+
+        .MulReg8AddReg => |fields| try printSegments(
+            fields,
+            .{ .Reg, .Reg, .Reg, .Immediate8 },
+            writer,
+        ),
         .MulReg16AddReg => |fields| try printSegments(
             fields,
             .{ .Reg, .Reg, .Reg, .Immediate16 },
+            writer,
+        ),
+        .MulReg32AddReg => |fields| try printSegments(
+            fields,
+            .{ .Reg, .Reg, .Reg, .Immediate32 },
+            writer,
+        ),
+        .MulReg64AddReg => |fields| try printSegments(
+            fields,
+            .{ .Reg, .Reg, .Reg, .Immediate64 },
             writer,
         ),
 

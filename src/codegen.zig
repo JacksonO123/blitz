@@ -18,6 +18,7 @@ const clone = blitz.clone;
 const builtins = blitz.builtins;
 const identStore = blitz.identStore;
 const bytecodeBackend = blitz.backends.bytecode;
+const instructions = blitz.instructions;
 const Context = blitz.context.Context;
 
 const CodeGenError = error{
@@ -26,7 +27,7 @@ const CodeGenError = error{
     ReturnedRegisterNotFound,
     NoJumpInstructionMatchingComp,
     ExpectedLoopInfo,
-    StackFrameSizeTooLarge,
+    ImmediateValueTooLarge,
     RegInteractionNotSupported,
     NoTrivialRegister,
     AccessTargetDoesNotHaveStructName,
@@ -145,9 +146,12 @@ pub const InstructionVariants = enum(u8) {
 
     Add8, // inst, out reg, reg1, 1B data
     Sub8, // inst, out reg, reg1, 1B data
-
     Add16, // inst, out reg, reg1, 2B data
     Sub16, // inst, out reg, reg1, 2B data
+    Add32, // inst, out reg, reg1, 4B data
+    Sub32, // inst, out reg, reg1, 4B data
+    Add64, // inst, out reg, reg1, 8B data
+    Sub64, // inst, out reg, reg1, 8B data
 
     Jump, // inst, 4B data
     JumpEQ, // inst, 4B data
@@ -219,6 +223,11 @@ pub const InstructionVariants = enum(u8) {
     Load16AtRegOffset16, // inst, dest reg, from reg (ptr), offset 2B
     Load8AtRegOffset16, // inst, dest reg, from reg (ptr), offset 2B
 
+    Load64AtRegPostInc16, // inst, dest reg, from reg (ptr), inc 2B
+    Load32AtRegPostInc16, // inst, dest reg, from reg (ptr), inc 2B
+    Load16AtRegPostInc16, // inst, dest reg, from reg (ptr), inc 2B
+    Load8AtRegPostInc16, // inst, dest reg, from reg (ptr), inc 2B
+
     Load64AtSpNegOffset16, // inst, dest reg, offset 2B
     Load32AtSpNegOffset16, // inst, dest reg, offset 2B
     Load16AtSpNegOffset16, // inst, dest reg, offset 2B
@@ -229,7 +238,10 @@ pub const InstructionVariants = enum(u8) {
     Load16AtReg, // inst, dest reg, from reg (ptr)
     Load8AtReg, // inst, dest reg, from reg (ptr)
 
+    MulReg8AddReg, // inst, dest reg, addReg, mulReg, data 1B ( dest = addReg + (mulReg1 * data) )
     MulReg16AddReg, // inst, dest reg, addReg, mulReg, data 2B ( dest = addReg + (mulReg1 * data) )
+    MulReg32AddReg, // inst, dest reg, addReg, mulReg, data 4B ( dest = addReg + (mulReg1 * data) )
+    MulReg64AddReg, // inst, dest reg, addReg, mulReg, data 8B ( dest = addReg + (mulReg1 * data) )
 
     DbgReg, // inst, reg
 
@@ -369,6 +381,26 @@ pub const InstructionVariants = enum(u8) {
                 .len = 5,
                 .opCount = 2,
                 .text = "sub_16",
+            },
+            .Add32 => .{
+                .len = 7,
+                .opCount = 2,
+                .text = "add_32",
+            },
+            .Sub32 => .{
+                .len = 7,
+                .opCount = 2,
+                .text = "sub_32",
+            },
+            .Add64 => .{
+                .len = 11,
+                .opCount = 2,
+                .text = "add_64",
+            },
+            .Sub64 => .{
+                .len = 11,
+                .opCount = 2,
+                .text = "sub_64",
             },
             .Jump => .{
                 .len = 5,
@@ -665,7 +697,28 @@ pub const InstructionVariants = enum(u8) {
                 .opCount = 2,
                 .text = "load_8_at_reg_offset_16",
             },
-            .Load64AtSpNegOffset16 => .{
+            .Load64AtRegPostInc16 => .{
+                .len = 5,
+                .opCount = 2,
+                .text = "load_64_at_reg_post_inc_16",
+            },
+            .Load32AtRegPostInc16 => .{
+                .len = 5,
+                .opCount = 2,
+                .text = "load_32_at_reg_post_inc_16",
+            },
+            .Load16AtRegPostInc16 => .{
+                .len = 5,
+                .opCount = 2,
+                .text = "load_16_at_reg_post_inc_16",
+            },
+            .Load8AtRegPostInc16 => .{
+                .len = 5,
+                .opCount = 2,
+                .text = "load_8_at_reg_post_inc_16",
+            },
+            .Load64AtSpNegOffset16,
+            => .{
                 .len = 4,
                 .opCount = 1,
                 .text = "load_64_at_sp_neg_offset_16",
@@ -705,10 +758,25 @@ pub const InstructionVariants = enum(u8) {
                 .opCount = 2,
                 .text = "load_8_at_reg",
             },
+            .MulReg8AddReg => .{
+                .len = 5,
+                .opCount = 3,
+                .text = "mul_reg_8_add_reg",
+            },
             .MulReg16AddReg => .{
                 .len = 6,
                 .opCount = 3,
                 .text = "mul_reg_16_add_reg",
+            },
+            .MulReg32AddReg => .{
+                .len = 8,
+                .opCount = 3,
+                .text = "mul_reg_32_add_reg",
+            },
+            .MulReg64AddReg => .{
+                .len = 12,
+                .opCount = 3,
+                .text = "mul_reg_64_add_reg",
             },
             .DbgReg => .{
                 .len = 2,
@@ -964,10 +1032,18 @@ fn StoreOrLoadOffsetSpInstr(comptime T: type) type {
     };
 }
 
-fn StoreAtRegIncInstr(comptime T: type) type {
+fn StoreAtRegPostIncInstr(comptime T: type) type {
     return struct {
         fromReg: vmInfo.TempRegister,
         toRegPtr: vmInfo.TempRegister,
+        inc: T,
+    };
+}
+
+fn LoadAtRegPostIncInstr(comptime T: type) type {
+    return struct {
+        fromRegPtr: vmInfo.TempRegister,
+        toReg: vmInfo.TempRegister,
         inc: T,
     };
 }
@@ -1035,9 +1111,12 @@ pub const Instr = union(InstructionVariants) {
 
     Add8: OneOpResultInstr(u8),
     Sub8: OneOpResultInstr(u8),
-
     Add16: OneOpResultInstr(u16),
     Sub16: OneOpResultInstr(u16),
+    Add32: OneOpResultInstr(u32),
+    Sub32: OneOpResultInstr(u32),
+    Add64: OneOpResultInstr(u64),
+    Sub64: OneOpResultInstr(u64),
 
     // must be u64 because stores absolute byte position
     Jump: u64,
@@ -1102,10 +1181,10 @@ pub const Instr = union(InstructionVariants) {
     Store16AtRegOffset16: StoreOffsetInstr(u16),
     Store8AtRegOffset16: StoreOffsetInstr(u16),
 
-    Store64AtRegPostInc16: StoreAtRegIncInstr(u16),
-    Store32AtRegPostInc16: StoreAtRegIncInstr(u16),
-    Store16AtRegPostInc16: StoreAtRegIncInstr(u16),
-    Store8AtRegPostInc16: StoreAtRegIncInstr(u16),
+    Store64AtRegPostInc16: StoreAtRegPostIncInstr(u16),
+    Store32AtRegPostInc16: StoreAtRegPostIncInstr(u16),
+    Store16AtRegPostInc16: StoreAtRegPostIncInstr(u16),
+    Store8AtRegPostInc16: StoreAtRegPostIncInstr(u16),
 
     Store64AtSpNegOffset16: StoreOrLoadOffsetSpInstr(u16),
     Store32AtSpNegOffset16: StoreOrLoadOffsetSpInstr(u16),
@@ -1117,6 +1196,11 @@ pub const Instr = union(InstructionVariants) {
     Load16AtRegOffset16: LoadAtRegOffset16,
     Load8AtRegOffset16: LoadAtRegOffset16,
 
+    Load64AtRegPostInc16: LoadAtRegPostIncInstr(u16),
+    Load32AtRegPostInc16: LoadAtRegPostIncInstr(u16),
+    Load16AtRegPostInc16: LoadAtRegPostIncInstr(u16),
+    Load8AtRegPostInc16: LoadAtRegPostIncInstr(u16),
+
     Load64AtSpNegOffset16: StoreOrLoadOffsetSpInstr(u16),
     Load32AtSpNegOffset16: StoreOrLoadOffsetSpInstr(u16),
     Load16AtSpNegOffset16: StoreOrLoadOffsetSpInstr(u16),
@@ -1127,7 +1211,10 @@ pub const Instr = union(InstructionVariants) {
     Load16AtReg: LoadAtReg,
     Load8AtReg: LoadAtReg,
 
+    MulReg8AddReg: MulRegTAddReg(u8),
     MulReg16AddReg: MulRegTAddReg(u16),
+    MulReg32AddReg: MulRegTAddReg(u32),
+    MulReg64AddReg: MulRegTAddReg(u64),
 
     DbgReg: vmInfo.TempRegister,
 
@@ -1822,6 +1909,14 @@ pub const GenInfo = struct {
                 try func(self, allocator, inner.reg, value);
                 try func(self, allocator, inner.dest, value);
             },
+            .Add32, .Sub32 => |inner| {
+                try func(self, allocator, inner.reg, value);
+                try func(self, allocator, inner.dest, value);
+            },
+            .Add64, .Sub64 => |inner| {
+                try func(self, allocator, inner.reg, value);
+                try func(self, allocator, inner.dest, value);
+            },
             .Cmp => |inner| {
                 try func(self, allocator, inner.reg1, value);
                 try func(self, allocator, inner.reg2, value);
@@ -1904,7 +1999,30 @@ pub const GenInfo = struct {
                 try func(self, allocator, inner.fromRegPtr, value);
                 try func(self, allocator, inner.dest, value);
             },
+            .Load64AtRegPostInc16,
+            .Load32AtRegPostInc16,
+            .Load16AtRegPostInc16,
+            .Load8AtRegPostInc16,
+            => |inner| {
+                try func(self, allocator, inner.fromRegPtr, value);
+                try func(self, allocator, inner.toReg, value);
+            },
+            .MulReg8AddReg => |inner| {
+                try func(self, allocator, inner.addReg, value);
+                try func(self, allocator, inner.mulReg, value);
+                try func(self, allocator, inner.dest, value);
+            },
             .MulReg16AddReg => |inner| {
+                try func(self, allocator, inner.addReg, value);
+                try func(self, allocator, inner.mulReg, value);
+                try func(self, allocator, inner.dest, value);
+            },
+            .MulReg32AddReg => |inner| {
+                try func(self, allocator, inner.addReg, value);
+                try func(self, allocator, inner.mulReg, value);
+                try func(self, allocator, inner.dest, value);
+            },
+            .MulReg64AddReg => |inner| {
                 try func(self, allocator, inner.addReg, value);
                 try func(self, allocator, inner.mulReg, value);
                 try func(self, allocator, inner.dest, value);
@@ -2190,6 +2308,16 @@ fn writeChunk(instr: Instr, writer: *Writer) !void {
             try writer.writeByte(@intCast(inner.reg));
             try writer.writeInt(u16, @intCast(inner.data), .little);
         },
+        .Add32, .Sub32 => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeInt(u32, @intCast(inner.data), .little);
+        },
+        .Add64, .Sub64 => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.reg));
+            try writer.writeInt(u64, @intCast(inner.data), .little);
+        },
         .Jump,
         .JumpEQ,
         .JumpNE,
@@ -2295,6 +2423,15 @@ fn writeChunk(instr: Instr, writer: *Writer) !void {
             try writer.writeByte(@intCast(inner.dest));
             try writer.writeByte(@intCast(inner.fromRegPtr));
         },
+        .Load64AtRegPostInc16,
+        .Load32AtRegPostInc16,
+        .Load16AtRegPostInc16,
+        .Load8AtRegPostInc16,
+        => |inner| {
+            try writer.writeByte(@intCast(inner.fromRegPtr));
+            try writer.writeByte(@intCast(inner.toReg));
+            try writer.writeInt(u16, inner.inc, .little);
+        },
         .Load64AtRegOffset16,
         .Load32AtRegOffset16,
         .Load16AtRegOffset16,
@@ -2304,11 +2441,29 @@ fn writeChunk(instr: Instr, writer: *Writer) !void {
             try writer.writeByte(@intCast(inner.fromRegPtr));
             try writer.writeInt(u16, inner.offset, .little);
         },
+        .MulReg8AddReg => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.addReg));
+            try writer.writeByte(@intCast(inner.mulReg));
+            try writer.writeInt(u8, inner.data, .little);
+        },
         .MulReg16AddReg => |inner| {
             try writer.writeByte(@intCast(inner.dest));
             try writer.writeByte(@intCast(inner.addReg));
             try writer.writeByte(@intCast(inner.mulReg));
             try writer.writeInt(u16, inner.data, .little);
+        },
+        .MulReg32AddReg => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.addReg));
+            try writer.writeByte(@intCast(inner.mulReg));
+            try writer.writeInt(u32, inner.data, .little);
+        },
+        .MulReg64AddReg => |inner| {
+            try writer.writeByte(@intCast(inner.dest));
+            try writer.writeByte(@intCast(inner.addReg));
+            try writer.writeByte(@intCast(inner.mulReg));
+            try writer.writeInt(u64, inner.data, .little);
         },
         .DbgReg => |reg| {
             try writer.writeByte(@intCast(reg));
@@ -2421,10 +2576,10 @@ fn adjustProc(
         else
             0;
 
-        const pushLRInstr = try prePushLRNegOffsetAnyInstr(
+        const pushLRInstr = prePushLRNegOffsetAnyInstr(
             frameSize.* + stackOffset - startOffset,
         );
-        const popLRInstr = try postPopLRNegOffsetAnyInstr(
+        const popLRInstr = postPopLRNegOffsetAnyInstr(
             frameSize.* + stackOffset - startOffset,
         );
 
@@ -2434,8 +2589,8 @@ fn adjustProc(
     }
 
     if (context.genInfo.currentProc.maxPreserveReg) |maxReg| {
-        const pushInstr = try pushRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
-        const popInstr = try popRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
+        const pushInstr = pushRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
+        const popInstr = popRegNegOffsetAnyInstr(maxReg, frameSize.* + stackOffset);
 
         const index = instrStartIndex + vmInfo.PUSH_REG_BASE_OFFSET;
         context.genInfo.instrList.list.items[index] = pushInstr;
@@ -2455,7 +2610,7 @@ fn adjustProc(
 
     var spInstrByteCountOffset: u32 = 0;
     if (frameSize.* + stackOffset > 0) {
-        const spInstrs = try getSpIncInstructions(frameSize.* + stackOffset);
+        const spInstrs = instructions.getSpIncInstructions(frameSize.* + stackOffset);
         spInstrByteCountOffset += spInstrs.sub.getInstrLen();
 
         context.genInfo.instrList.list.items[context.genInfo.currentProc.startIndex] = spInstrs.add;
@@ -2541,7 +2696,7 @@ fn adjustInstruction(
             storeInstr.offset = @intCast(stackOffset + frameSize - storeInstr.offset);
         },
         .MovSpNegOffsetAny => |movInstr| {
-            const newInstr = try movSpNegOffset(
+            const newInstr = movSpNegOffset(
                 movInstr.reg,
                 stackOffset + frameSize - movInstr.offset,
             );
@@ -2602,7 +2757,7 @@ fn adjustInstruction(
         },
         // not changed by stackOffset
         .PrePushRegNegOffsetAny => |pushInstr| {
-            const newInstr = try pushRegNegOffsetAnyInstr(
+            const newInstr = pushRegNegOffsetAnyInstr(
                 pushInstr.reg,
                 frameSize - pushInstr.offset,
             );
@@ -2610,7 +2765,7 @@ fn adjustInstruction(
         },
         // not changed by stackOffset
         .PostPopRegNegOffsetAny => |popInstr| {
-            const newInstr = try popRegNegOffsetAnyInstr(
+            const newInstr = popRegNegOffsetAnyInstr(
                 popInstr.reg,
                 frameSize - popInstr.offset,
             );
@@ -2620,8 +2775,8 @@ fn adjustInstruction(
     }
 }
 
-fn postPopLRNegOffsetAnyInstr(offset: u64) !Instr {
-    const spOpSize = try getOpSizeFromNum(offset);
+fn postPopLRNegOffsetAnyInstr(offset: u64) Instr {
+    const spOpSize = getOpSizeFromNum(offset);
 
     return switch (spOpSize) {
         .U8 => Instr{
@@ -2639,8 +2794,8 @@ fn postPopLRNegOffsetAnyInstr(offset: u64) !Instr {
     };
 }
 
-fn prePushLRNegOffsetAnyInstr(offset: u64) !Instr {
-    const spOpSize = try getOpSizeFromNum(offset);
+fn prePushLRNegOffsetAnyInstr(offset: u64) Instr {
+    const spOpSize = getOpSizeFromNum(offset);
 
     return switch (spOpSize) {
         .U8 => Instr{
@@ -2658,8 +2813,8 @@ fn prePushLRNegOffsetAnyInstr(offset: u64) !Instr {
     };
 }
 
-fn popRegNegOffsetAnyInstr(reg: vmInfo.TempRegister, offset: u64) !Instr {
-    const spOpSize = try getOpSizeFromNum(offset);
+fn popRegNegOffsetAnyInstr(reg: vmInfo.TempRegister, offset: u64) Instr {
+    const spOpSize = getOpSizeFromNum(offset);
 
     return switch (spOpSize) {
         .U8 => Instr{
@@ -2689,8 +2844,8 @@ fn popRegNegOffsetAnyInstr(reg: vmInfo.TempRegister, offset: u64) !Instr {
     };
 }
 
-fn pushRegNegOffsetAnyInstr(reg: vmInfo.TempRegister, offset: u64) !Instr {
-    const spOpSize = try getOpSizeFromNum(offset);
+fn pushRegNegOffsetAnyInstr(reg: vmInfo.TempRegister, offset: u64) Instr {
+    const spOpSize = getOpSizeFromNum(offset);
 
     return switch (spOpSize) {
         .U8 => Instr{
@@ -2720,8 +2875,8 @@ fn pushRegNegOffsetAnyInstr(reg: vmInfo.TempRegister, offset: u64) !Instr {
     };
 }
 
-fn movSpNegOffset(reg: vmInfo.TempRegister, offset: u64) !Instr {
-    const spOpSize = try getOpSizeFromNum(offset);
+fn movSpNegOffset(reg: vmInfo.TempRegister, offset: u64) Instr {
+    const spOpSize = getOpSizeFromNum(offset);
 
     return switch (spOpSize) {
         .U8, .U16 => Instr{
@@ -3025,7 +3180,7 @@ pub fn genBytecodeUtil(
                             if (isPrimitive) {
                                 const reg = regOrNull orelse
                                     return CodeGenError.ReturnedRegisterNotFound;
-                                const storeInstr = storeRegAtRegWithPostInc(
+                                const storeInstr = instructions.storeRegAtPtrPostInc(
                                     reg,
                                     writeLocInfo.reg,
                                     itemSize + itemPadding,
@@ -3036,7 +3191,7 @@ pub fn genBytecodeUtil(
                                 writeLocInfo.value += itemSize + itemPadding;
                             } else if (itemPadding > 0) {
                                 const addInstr = Instr{
-                                    .Add16 = .{
+                                    .Add8 = .{
                                         .dest = writeLocInfo.reg,
                                         .reg = writeLocInfo.reg,
                                         .data = itemPadding,
@@ -3217,7 +3372,7 @@ pub fn genBytecodeUtil(
             if (context.genInfo.getRegInfo(resReg)) |regInfo| a: {
                 if (regInfo.varInfo) |varInfo| {
                     const location = varInfo.stackLocation orelse break :a;
-                    const instr = loadAtSpNegOffset(resReg, location, node.typeInfo.size);
+                    const instr = instructions.loadRegAtSpNegOffset(resReg, location, node.typeInfo.size);
                     try context.genInfo.appendChunk(allocator, instr);
                 }
             }
@@ -3408,7 +3563,7 @@ pub fn genBytecodeUtil(
             const instr = if (isDeref or
                 set.value.variant == .IndexValue or
                 set.value.variant == .PropertyAccess)
-                storeRegAtReg(
+                instructions.storeRegAtPtr(
                     srcReg,
                     destReg,
                     set.setNode.typeInfo.size,
@@ -3559,7 +3714,7 @@ pub fn genBytecodeUtil(
             const itemPadding = utils.calculatePadding(itemSize, itemAlignment);
             if (nodeIsPrimitive(init.initNode)) {
                 const resReg = resRegOrNull orelse return CodeGenError.ReturnedRegisterNotFound;
-                const writeInstr = storeRegAtRegWithPostInc(
+                const writeInstr = instructions.storeRegAtPtrPostInc(
                     resReg,
                     writeLocInfo.reg,
                     @intCast(itemSize + itemPadding),
@@ -3591,13 +3746,7 @@ pub fn genBytecodeUtil(
             }
 
             if (ptrReg) |reg| {
-                const addInstr = Instr{
-                    .Add16 = .{
-                        .dest = reg,
-                        .reg = reg,
-                        .data = @intCast(itemSize + itemPadding),
-                    },
-                };
+                const addInstr = instructions.addConst(reg, reg, itemSize + itemPadding);
                 try context.genInfo.appendChunk(allocator, addInstr);
             }
 
@@ -3621,7 +3770,7 @@ pub fn genBytecodeUtil(
             else
                 resReg;
 
-            const loadInstr = loadAtReg(resReg, destReg, node.typeInfo.size);
+            const loadInstr = instructions.loadRegAtPtr(resReg, destReg, node.typeInfo.size);
             try context.genInfo.appendChunk(allocator, loadInstr);
 
             return destReg;
@@ -3664,10 +3813,10 @@ pub fn genBytecodeUtil(
                 context.genInfo.currentProc.stackFrameSize += padding;
                 const spAfterPadding = context.genInfo.currentProc.stackFrameSize;
 
-                const storeInstr = try storeRegAtSpNegOffset(
+                const storeInstr = instructions.storeRegAtSpNegOffset(
                     resReg,
-                    context.genInfo.currentProc.stackFrameSize,
                     @intCast(inner.node.typeInfo.size),
+                    context.genInfo.currentProc.stackFrameSize,
                 );
                 try context.genInfo.appendChunk(allocator, storeInstr);
 
@@ -3786,7 +3935,7 @@ pub fn genBytecodeUtil(
                 if (nodeIsPrimitive(attr.value)) {
                     const reg = regOrNull orelse return CodeGenError.ReturnedRegisterNotFound;
 
-                    const instr = storeRegAtRegWithPostInc(
+                    const instr = instructions.storeRegAtPtrPostInc(
                         reg,
                         writeLocInfo.reg,
                         @intCast(itemSize + padding),
@@ -3821,13 +3970,13 @@ pub fn genBytecodeUtil(
                 allocator,
                 context,
                 accessNode.value,
-                @intCast(loc),
+                loc,
             );
 
             if (isFunction or context.genInfo.settings.propAccessReturnsPtr) return reg;
 
             const outReg = try context.genInfo.getNextRegister(allocator);
-            const instr = loadAtReg(reg, outReg, node.typeInfo.size);
+            const instr = instructions.loadRegAtPtr(reg, outReg, node.typeInfo.size);
             try context.genInfo.appendChunk(allocator, instr);
 
             return outReg;
@@ -3869,7 +4018,7 @@ pub fn genBytecodeUtil(
             } else {
                 const outReg = try context.genInfo.getNextRegister(allocator);
 
-                const loadInstr = loadAtReg(reg, outReg, @intCast(node.typeInfo.size));
+                const loadInstr = instructions.loadRegAtPtr(reg, outReg, @intCast(node.typeInfo.size));
                 try context.genInfo.appendChunk(allocator, loadInstr);
 
                 return outReg;
@@ -4028,45 +4177,74 @@ fn memCpyInstrs(
     var offset: u64 = 0;
     while (offset < size) {
         const diff = size - offset;
-        switch (diff) {
-            1 => {
-                const loadInstr = loadAtRegWithOffset(fromPtrReg, scratchReg, offset, 1);
-                const storeInstr = storeAtRegOffset(scratchReg, toPtrReg, @intCast(offset), 1);
+        const copySize: u8 = switch (diff) {
+            1 => 1,
+            2, 3 => 2,
+            4...7 => 4,
+            else => 8,
+        };
 
-                offset += 1;
+        const loadInstr = if (diff == copySize)
+            instructions.loadRegAtPtr(fromPtrReg, scratchReg, copySize)
+        else
+            loadAtRegPostInc(fromPtrReg, scratchReg, copySize, copySize);
+        const storeInstr = if (diff == copySize)
+            instructions.storeRegAtPtr(scratchReg, toPtrReg, copySize)
+        else
+            instructions.storeRegAtPtrPostInc(scratchReg, toPtrReg, copySize, copySize);
 
-                try context.genInfo.appendChunk(allocator, loadInstr);
-                try context.genInfo.appendChunk(allocator, storeInstr);
-            },
-            2, 3 => {
-                const loadInstr = loadAtRegWithOffset(fromPtrReg, scratchReg, offset, 2);
-                const storeInstr = storeAtRegOffset(scratchReg, toPtrReg, @intCast(offset), 2);
+        try context.genInfo.appendChunk(allocator, loadInstr);
+        try context.genInfo.appendChunk(allocator, storeInstr);
 
-                offset += 2;
+        if (diff == copySize) break;
 
-                try context.genInfo.appendChunk(allocator, loadInstr);
-                try context.genInfo.appendChunk(allocator, storeInstr);
-            },
-            4...7 => {
-                const loadInstr = loadAtRegWithOffset(fromPtrReg, scratchReg, offset, 4);
-                const storeInstr = storeAtRegOffset(scratchReg, toPtrReg, @intCast(offset), 4);
-
-                offset += 4;
-
-                try context.genInfo.appendChunk(allocator, loadInstr);
-                try context.genInfo.appendChunk(allocator, storeInstr);
-            },
-            else => {
-                const loadInstr = loadAtRegWithOffset(fromPtrReg, scratchReg, offset, 8);
-                const storeInstr = storeAtRegOffset(scratchReg, toPtrReg, @intCast(offset), 8);
-
-                offset += 8;
-
-                try context.genInfo.appendChunk(allocator, loadInstr);
-                try context.genInfo.appendChunk(allocator, storeInstr);
-            },
-        }
+        offset += copySize;
     }
+
+    const srcSubInstr = instructions.subConst(fromPtrReg, fromPtrReg, offset);
+    const destSubInstr = instructions.subConst(toPtrReg, toPtrReg, offset);
+
+    try context.genInfo.appendChunk(allocator, srcSubInstr);
+    try context.genInfo.appendChunk(allocator, destSubInstr);
+}
+
+fn loadAtRegPostInc(
+    outReg: vmInfo.TempRegister,
+    ptrReg: vmInfo.TempRegister,
+    size: u64,
+    inc: u16,
+) Instr {
+    return switch (size) {
+        1 => Instr{
+            .Load8AtRegPostInc16 = .{
+                .toReg = outReg,
+                .fromRegPtr = ptrReg,
+                .inc = inc,
+            },
+        },
+        2 => Instr{
+            .Load16AtRegPostInc16 = .{
+                .toReg = outReg,
+                .fromRegPtr = ptrReg,
+                .inc = inc,
+            },
+        },
+        3, 4 => Instr{
+            .Load32AtRegPostInc16 = .{
+                .toReg = outReg,
+                .fromRegPtr = ptrReg,
+                .inc = inc,
+            },
+        },
+        5...8 => Instr{
+            .Load64AtRegPostInc16 = .{
+                .toReg = outReg,
+                .fromRegPtr = ptrReg,
+                .inc = inc,
+            },
+        },
+        else => unreachable,
+    };
 }
 
 fn getPropLocation(
@@ -4193,55 +4371,7 @@ fn nodeIsPrimitive(node: *ast.AstNode) bool {
     };
 }
 
-fn addNumToReg(reg: vmInfo.TempRegister, inc: u64) !Instr {
-    const opSize = try getOpSizeFromNum(inc);
-
-    return switch (opSize) {
-        .U8 => Instr{
-            .Add8 = .{
-                .dest = reg,
-                .reg = reg,
-                .data = @intCast(inc),
-            },
-        },
-        .U16 => Instr{
-            .Add16 = .{
-                .dest = reg,
-                .reg = reg,
-                .data = @intCast(inc),
-            },
-        },
-        else => unreachable,
-    };
-}
-
-fn getSpIncInstructions(size: u64) !struct {
-    add: Instr,
-    sub: Instr,
-} {
-    const spOpSize = try getOpSizeFromNum(size);
-
-    return switch (spOpSize) {
-        .U8 => .{
-            .add = Instr{ .AddSp8 = @intCast(size) },
-            .sub = Instr{ .SubSp8 = @intCast(size) },
-        },
-        .U16 => .{
-            .add = Instr{ .AddSp16 = @intCast(size) },
-            .sub = Instr{ .SubSp16 = @intCast(size) },
-        },
-        .U32 => .{
-            .add = Instr{ .AddSp32 = @intCast(size) },
-            .sub = Instr{ .SubSp32 = @intCast(size) },
-        },
-        .U64 => .{
-            .add = Instr{ .AddSp64 = @intCast(size) },
-            .sub = Instr{ .SubSp64 = @intCast(size) },
-        },
-    };
-}
-
-fn getOpSizeFromNum(num: u64) !OpSizes {
+pub fn getOpSizeFromNum(num: u64) OpSizes {
     var res: ?OpSizes = null;
 
     inline for (sizeToOpSizeTuple) |tuple| {
@@ -4251,7 +4381,7 @@ fn getOpSizeFromNum(num: u64) !OpSizes {
         }
     }
 
-    return res orelse CodeGenError.StackFrameSizeTooLarge;
+    return res.?;
 }
 
 /// returns register holding a pointer
@@ -4263,7 +4393,7 @@ fn calculateAccessOffset(
     allocator: Allocator,
     context: *Context,
     node: *ast.AstNode,
-    offset: u16,
+    offset: u64,
 ) !vmInfo.TempRegister {
     const prevRetFormat = context.genInfo.settings.propAccessReturnsPtr;
     context.genInfo.settings.propAccessReturnsPtr = true;
@@ -4278,9 +4408,8 @@ fn calculateAccessOffset(
                 allocator,
                 context,
                 accessNode.value,
-                offset +
-                    @as(u16, @intCast(loc)) +
-                    if (node.typeInfo.nodeType == .Slice) @as(u16, vmInfo.POINTER_SIZE * 2) else 0,
+                offset + loc +
+                    if (node.typeInfo.nodeType == .Slice) @as(u8, vmInfo.POINTER_SIZE) * 2 else 0,
             );
         },
         .IndexValue => |indexNode| {
@@ -4315,7 +4444,9 @@ fn calculateAccessOffset(
 
             const isVar = context.genInfo.isRegVariable(reg);
 
-            if (node.typeInfo.nodeType == .Slice and context.genInfo.settings.sliceAccessGoToSlicePtr) {
+            if (node.typeInfo.nodeType == .Slice and
+                context.genInfo.settings.sliceAccessGoToSlicePtr)
+            {
                 const outReg = try context.genInfo.getNextRegister(allocator);
                 const derefInstr = Instr{
                     .Load64AtReg = .{
@@ -4333,13 +4464,7 @@ fn calculateAccessOffset(
 
             const outReg = try context.genInfo.getNextRegister(allocator);
             if (offset > 0) {
-                const instr = Instr{
-                    .Add16 = .{
-                        .dest = outReg,
-                        .reg = reg,
-                        .data = @intCast(offset),
-                    },
-                };
+                const instr = instructions.addConst(outReg, reg, offset);
                 try context.genInfo.appendChunk(allocator, instr);
             } else if (isVar) {
                 // if the returned register is associated with a variable, outReg will be a
@@ -4356,281 +4481,6 @@ fn calculateAccessOffset(
             return outReg;
         },
     }
-}
-
-fn loadAtRegWithOffset(
-    reg: vmInfo.TempRegister,
-    outReg: vmInfo.TempRegister,
-    readOffset: u64,
-    size: u64,
-) Instr {
-    const offset: u16 = @intCast(readOffset);
-
-    if (offset == 0) return loadAtReg(reg, outReg, size);
-
-    return switch (size) {
-        1 => Instr{
-            .Load8AtRegOffset16 = .{
-                .dest = outReg,
-                .fromRegPtr = reg,
-                .offset = offset,
-            },
-        },
-        2 => Instr{
-            .Load16AtRegOffset16 = .{
-                .dest = outReg,
-                .fromRegPtr = reg,
-                .offset = offset,
-            },
-        },
-        3, 4 => Instr{
-            .Load32AtRegOffset16 = .{
-                .dest = outReg,
-                .fromRegPtr = reg,
-                .offset = offset,
-            },
-        },
-        5...8 => Instr{
-            .Load64AtRegOffset16 = .{
-                .dest = outReg,
-                .fromRegPtr = reg,
-                .offset = offset,
-            },
-        },
-        else => unreachable,
-    };
-}
-
-fn loadAtReg(regPtr: vmInfo.TempRegister, outReg: vmInfo.TempRegister, size: u64) Instr {
-    return switch (size) {
-        1 => Instr{
-            .Load8AtReg = .{
-                .dest = outReg,
-                .fromRegPtr = regPtr,
-            },
-        },
-        2 => Instr{
-            .Load16AtReg = .{
-                .dest = outReg,
-                .fromRegPtr = regPtr,
-            },
-        },
-        3, 4 => Instr{
-            .Load32AtReg = .{
-                .dest = outReg,
-                .fromRegPtr = regPtr,
-            },
-        },
-        5...8 => Instr{
-            .Load64AtReg = .{
-                .dest = outReg,
-                .fromRegPtr = regPtr,
-            },
-        },
-        else => unreachable,
-    };
-}
-
-fn loadAtSpNegOffset(outReg: vmInfo.TempRegister, offset: u64, size: u64) Instr {
-    return switch (size) {
-        1 => Instr{
-            .Load8AtSpNegOffset16 = .{
-                .reg = outReg,
-                .offset = @intCast(offset),
-            },
-        },
-        2 => Instr{
-            .Load16AtSpNegOffset16 = .{
-                .reg = outReg,
-                .offset = @intCast(offset),
-            },
-        },
-        3, 4 => Instr{
-            .Load32AtSpNegOffset16 = .{
-                .reg = outReg,
-                .offset = @intCast(offset),
-            },
-        },
-        5...8 => Instr{
-            .Load64AtSpNegOffset16 = .{
-                .reg = outReg,
-                .offset = @intCast(offset),
-            },
-        },
-        else => unreachable,
-    };
-}
-
-fn storeRegAtSpNegOffset(reg: vmInfo.TempRegister, loc: u64, size: u8) !Instr {
-    return switch (size) {
-        1 => Instr{
-            .Store8AtSpNegOffset16 = .{
-                .reg = reg,
-                .offset = @intCast(loc),
-            },
-        },
-        2 => Instr{
-            .Store16AtSpNegOffset16 = .{
-                .reg = reg,
-                .offset = @intCast(loc),
-            },
-        },
-        3, 4 => Instr{
-            .Store32AtSpNegOffset16 = .{
-                .reg = reg,
-                .offset = @intCast(loc),
-            },
-        },
-        5, 6, 7, 8 => Instr{
-            .Store64AtSpNegOffset16 = .{
-                .reg = reg,
-                .offset = @intCast(loc),
-            },
-        },
-        else => unreachable,
-    };
-}
-
-fn storeRegAtSpNegOffsetAndSize(regContents: vmInfo.TempRegister, loc: u64, size: u64) Instr {
-    const reg = regContents;
-
-    return switch (size) {
-        1 => Instr{
-            .Store8AtSpNegOffset16 = .{
-                .reg = reg,
-                .offset = @intCast(loc),
-            },
-        },
-        2 => Instr{
-            .Store16AtSpNegOffset16 = .{
-                .reg = reg,
-                .offset = @intCast(loc),
-            },
-        },
-        3, 4 => Instr{
-            .Store32AtSpNegOffset16 = .{
-                .reg = reg,
-                .offset = @intCast(loc),
-            },
-        },
-        5...8 => Instr{
-            .Store64AtSpNegOffset16 = .{
-                .reg = reg,
-                .offset = @intCast(loc),
-            },
-        },
-        else => unreachable,
-    };
-}
-
-fn storeRegAtReg(fromReg: vmInfo.TempRegister, ptrReg: vmInfo.TempRegister, size: u64) Instr {
-    return switch (size) {
-        1 => Instr{
-            .Store8AtReg = .{
-                .fromReg = fromReg,
-                .toRegPtr = ptrReg,
-            },
-        },
-        2 => Instr{
-            .Store16AtReg = .{
-                .fromReg = fromReg,
-                .toRegPtr = ptrReg,
-            },
-        },
-        3, 4 => Instr{
-            .Store32AtReg = .{
-                .fromReg = fromReg,
-                .toRegPtr = ptrReg,
-            },
-        },
-        5...8 => Instr{
-            .Store64AtReg = .{
-                .fromReg = fromReg,
-                .toRegPtr = ptrReg,
-            },
-        },
-        else => unreachable,
-    };
-}
-
-fn storeAtRegOffset(
-    fromReg: vmInfo.TempRegister,
-    toPtrReg: vmInfo.TempRegister,
-    offset: u16,
-    size: u8,
-) Instr {
-    if (offset == 0) return storeRegAtReg(fromReg, toPtrReg, size);
-
-    return switch (size) {
-        1 => Instr{
-            .Store8AtRegOffset16 = .{
-                .fromReg = fromReg,
-                .toRegPtr = toPtrReg,
-                .offset = offset,
-            },
-        },
-        2 => Instr{
-            .Store16AtRegOffset16 = .{
-                .fromReg = fromReg,
-                .toRegPtr = toPtrReg,
-                .offset = offset,
-            },
-        },
-        3, 4 => Instr{
-            .Store32AtRegOffset16 = .{
-                .fromReg = fromReg,
-                .toRegPtr = toPtrReg,
-                .offset = offset,
-            },
-        },
-        5, 6, 7, 8 => Instr{
-            .Store64AtRegOffset16 = .{
-                .fromReg = fromReg,
-                .toRegPtr = toPtrReg,
-                .offset = offset,
-            },
-        },
-        else => unreachable,
-    };
-}
-
-fn storeRegAtRegWithPostInc(
-    reg: vmInfo.TempRegister,
-    ptrReg: vmInfo.TempRegister,
-    inc: u16,
-    size: u8,
-) Instr {
-    return switch (size) {
-        1 => Instr{
-            .Store8AtRegPostInc16 = .{
-                .fromReg = reg,
-                .toRegPtr = ptrReg,
-                .inc = inc,
-            },
-        },
-        2 => Instr{
-            .Store16AtRegPostInc16 = .{
-                .fromReg = reg,
-                .toRegPtr = ptrReg,
-                .inc = inc,
-            },
-        },
-        3, 4 => Instr{
-            .Store32AtRegPostInc16 = .{
-                .fromReg = reg,
-                .toRegPtr = ptrReg,
-                .inc = inc,
-            },
-        },
-        5, 6, 7, 8 => Instr{
-            .Store64AtRegPostInc16 = .{
-                .fromReg = reg,
-                .toRegPtr = ptrReg,
-                .inc = inc,
-            },
-        },
-        else => unreachable,
-    };
 }
 
 fn initArraySliceBytecode(

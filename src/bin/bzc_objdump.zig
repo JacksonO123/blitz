@@ -165,8 +165,9 @@ fn printInstrFromSliceUtil(
         .Add, .Sub, .Mult => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
 
         .Add8, .Sub8 => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate8 }, writer),
-
         .Add16, .Sub16 => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate16 }, writer),
+        .Add32, .Sub32 => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate32 }, writer),
+        .Add64, .Sub64 => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate64 }, writer),
 
         .Jump,
         .JumpEQ,
@@ -259,9 +260,30 @@ fn printInstrFromSliceUtil(
         .Load8AtReg,
         => try printSegments(printUtil, .{ .Reg, .Reg }, writer),
 
+        .Load64AtRegPostInc16,
+        .Load32AtRegPostInc16,
+        .Load16AtRegPostInc16,
+        .Load8AtRegPostInc16,
+        => try printSegments(printUtil, .{ .Reg, .Reg, .Immediate16 }, writer),
+
+        .MulReg8AddReg => try printSegments(
+            printUtil,
+            .{ .Reg, .Reg, .Reg, .Immediate8 },
+            writer,
+        ),
         .MulReg16AddReg => try printSegments(
             printUtil,
             .{ .Reg, .Reg, .Reg, .Immediate16 },
+            writer,
+        ),
+        .MulReg32AddReg => try printSegments(
+            printUtil,
+            .{ .Reg, .Reg, .Reg, .Immediate32 },
+            writer,
+        ),
+        .MulReg64AddReg => try printSegments(
+            printUtil,
+            .{ .Reg, .Reg, .Reg, .Immediate64 },
             writer,
         ),
 
