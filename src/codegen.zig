@@ -2610,10 +2610,13 @@ fn adjustProc(
 
     var spInstrByteCountOffset: u32 = 0;
     if (frameSize.* + stackOffset > 0) {
-        const spInstrs = instructions.getSpIncInstructions(frameSize.* + stackOffset);
+        var newFrameSize = frameSize.* + stackOffset;
+        newFrameSize += utils.calculatePadding(newFrameSize, vmInfo.POINTER_SIZE);
+        const spInstrs = instructions.getSpIncInstructions(newFrameSize);
         spInstrByteCountOffset += spInstrs.sub.getInstrLen();
 
-        context.genInfo.instrList.list.items[context.genInfo.currentProc.startIndex] = spInstrs.add;
+        const procStartIndex = context.genInfo.currentProc.startIndex;
+        context.genInfo.instrList.list.items[procStartIndex] = spInstrs.add;
         try context.genInfo.instrList.append(spInstrs.sub);
     }
 
