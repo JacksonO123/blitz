@@ -527,12 +527,19 @@ pub const AttributeDefinition = struct {
     value: *AstNode,
 };
 
+pub const IdentSizeRelation = struct {
+    identId: identStore.IdentId,
+    size: u64,
+    alignment: u8,
+};
+
 const StructInitNode = struct {
     const Self = @This();
 
     nameIdentId: identStore.IdentId,
     attributes: []AttributeDefinition,
     generics: []AstTypeInfo,
+    attrSizes: []IdentSizeRelation,
 
     pub fn findAttribute(self: Self, attrIdentId: identStore.IdentId) ?AttributeDefinition {
         for (self.attributes) |attr| {
@@ -2022,6 +2029,7 @@ fn parseStructInit(
             .nameIdentId = nameIdentId,
             .attributes = attributes,
             .generics = generics,
+            .attrSizes = &.{},
         },
     };
     return try context.pools.newNode(context, structInitVariant.toAstNode());

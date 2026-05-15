@@ -1,6 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
@@ -1282,7 +1281,7 @@ pub fn scanNode(
             node.typeInfo.alignment = try resType.info.astType.getAlignment(allocator, context);
             return resType;
         },
-        .StructInit => |init| {
+        .StructInit => |*init| {
             try context.compInfo.pushGenScope(allocator, true);
             defer context.compInfo.popGenScope(context);
 
@@ -1305,25 +1304,33 @@ pub fn scanNode(
                 return ScanError.StructInitAttributeCountMismatch;
             }
 
-            // TODO - store number of attributes before getting here (probably exists already)
-            var initAttrRel: ArrayList(StructInitMemberInfo) = .empty;
+            var initAttrRel: std.ArrayList(StructInitMemberInfo) = .empty;
             defer {
                 for (initAttrRel.items) |item| {
                     releaseIfAllocated(context, item.initInfo);
                 }
             }
 
+            var attrSizes: std.ArrayList(ast.IdentSizeRelation) = .empty;
+
             for (structDec.totalMemberList) |attr| {
-                if (attr.attr != .Member or attr.static) continue;
+                if (attr.static) continue;
                 const initAttr = init.findAttribute(attr.nameIdentId) orelse
                     return ScanError.StructInitAttributeNotFound;
 
                 const attrType = try scanNode(allocator, context, initAttr.value, withGenDef);
+                try attrSizes.append(allocator, .{
+                    .identId = attr.nameIdentId,
+                    .size = try attr.attr.Member.astType.getSize(allocator, context),
+                    .alignment = try attr.attr.Member.astType.getAlignment(allocator, context),
+                });
                 try initAttrRel.append(allocator, .{
                     .initInfo = attrType,
                     .defInfo = attr.attr.Member,
                 });
             }
+
+            init.attrSizes = attrSizes.items;
 
             try context.compInfo.pushGenScope(allocator, true);
             defer context.compInfo.popGenScope(context);

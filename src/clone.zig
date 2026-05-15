@@ -474,11 +474,14 @@ pub fn cloneAstNodeUnion(
                 withGenDef,
             );
 
+            const clonedAttrSizes = try allocator.dupe(ast.IdentSizeRelation, init.attrSizes);
+
             return .{
                 .StructInit = .{
                     .attributes = attributes,
                     .nameIdentId = name,
                     .generics = generics,
+                    .attrSizes = clonedAttrSizes,
                 },
             };
         },

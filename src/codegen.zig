@@ -3352,8 +3352,13 @@ pub fn genBytecodeUtil(
 
             if (context.genInfo.getRegInfo(resReg)) |regInfo| a: {
                 if (regInfo.varInfo) |varInfo| {
+                    std.debug.print(":: {}\n", .{varInfo});
                     const location = varInfo.stackLocation orelse break :a;
-                    const instr = instructions.loadRegAtSpNegOffset(resReg, location, node.typeInfo.size);
+                    const instr = instructions.loadRegAtSpNegOffset(
+                        resReg,
+                        location,
+                        node.typeInfo.size,
+                    );
                     try context.genInfo.appendChunk(allocator, instr);
                 }
             }
@@ -3901,14 +3906,13 @@ pub fn genBytecodeUtil(
                     writeLocInfo,
                 );
 
-                const itemSize = attr.value.typeInfo.size;
+                const attrSizeInfo = init.attrSizes[index];
                 const padding = if (index + 1 < def.attributes.len) a: {
                     if (def.attributes[index + 1].attr != .Member) break :a 0;
-                    const nextAttr = def.attributes[index + 1];
-                    const nextAttrDef = init.findAttribute(nextAttr.nameIdentId).?;
+                    const nextSizeInfo = init.attrSizes[index + 1];
                     const nextPadding = utils.calculatePadding(
-                        writeLocInfo.value + itemSize,
-                        nextAttrDef.value.typeInfo.alignment,
+                        writeLocInfo.value + attrSizeInfo.size,
+                        nextSizeInfo.alignment,
                     );
                     break :a nextPadding;
                 } else 0;
@@ -3919,12 +3923,12 @@ pub fn genBytecodeUtil(
                     const instr = instructions.storeRegAtPtrPostInc(
                         reg,
                         writeLocInfo.reg,
-                        @intCast(itemSize + padding),
-                        @intCast(itemSize),
+                        @intCast(attrSizeInfo.size + padding),
+                        @intCast(attrSizeInfo.size),
                     );
                     try context.genInfo.appendChunk(allocator, instr);
 
-                    writeLocInfo.value += itemSize + padding;
+                    writeLocInfo.value += attrSizeInfo.size + padding;
                 }
             }
 

@@ -1,4 +1,11 @@
+struct M [T] {
+    data: T;
+    t: u8;
+}
+
 fn main() {
-    let a = 2u64;
-    let b = 3u8 + a;
+    let a = M<u64> {
+        t = 0,
+        data = 10,
+    };
 }
