@@ -1304,14 +1304,12 @@ pub fn scanNode(
                 return ScanError.StructInitAttributeCountMismatch;
             }
 
-            var initAttrRel: std.ArrayList(StructInitMemberInfo) = .empty;
-            defer {
-                for (initAttrRel.items) |item| {
-                    releaseIfAllocated(context, item.initInfo);
-                }
-            }
+            try context.compInfo.pushGenScope(allocator, true);
+            defer context.compInfo.popGenScope(context);
 
             var attrSizes: std.ArrayList(ast.IdentSizeRelation) = .empty;
+            var sizeSum: u64 = 0;
+            var initAlignment: u8 = 0;
 
             for (structDec.totalMemberList) |attr| {
                 if (attr.static) continue;
@@ -1319,43 +1317,39 @@ pub fn scanNode(
                     return ScanError.StructInitAttributeNotFound;
 
                 const attrType = try scanNode(allocator, context, initAttr.value, withGenDef);
-                try attrSizes.append(allocator, .{
-                    .identId = attr.nameIdentId,
-                    .size = try attr.attr.Member.astType.getSize(allocator, context),
-                    .alignment = try attr.attr.Member.astType.getAlignment(allocator, context),
-                });
-                try initAttrRel.append(allocator, .{
-                    .initInfo = attrType,
-                    .defInfo = attr.attr.Member,
-                });
-            }
+                defer releaseIfAllocated(context, attrType);
 
-            init.attrSizes = attrSizes.items;
-
-            try context.compInfo.pushGenScope(allocator, true);
-            defer context.compInfo.popGenScope(context);
-
-            var initAlignment: u8 = 0;
-            for (initAttrRel.items) |attrRel| {
                 const matches = try matchTypes(
                     allocator,
                     context,
-                    attrRel.defInfo,
-                    attrRel.initInfo.info,
+                    attr.attr.Member,
+                    attrType.info,
                     withGenDef,
                 );
                 if (!matches) {
                     return ScanError.StructInitMemberTypeMismatch;
                 }
 
-                const attrType = attrRel.initInfo.info.astType;
-                const attrAlignment = try attrType.getAlignment(allocator, context);
+                const attrSize = try attr.attr.Member.astType.getSize(allocator, context);
+                const attrAlignment = try attr.attr.Member.astType.getAlignment(
+                    allocator,
+                    context,
+                );
 
-                const padding = utils.calculatePadding(node.typeInfo.size, attrAlignment);
-                node.typeInfo.size += try attrType.getSize(allocator, context) + padding;
+                try attrSizes.append(allocator, .{
+                    .identId = attr.nameIdentId,
+                    .size = attrSize,
+                    .alignment = attrAlignment,
+                });
+
+                const padding = utils.calculatePadding(sizeSum, attrAlignment);
+                sizeSum += attrSize + padding;
                 initAlignment = @max(initAlignment, attrAlignment);
             }
+
             node.typeInfo.alignment = initAlignment;
+            node.typeInfo.size = sizeSum;
+            init.attrSizes = attrSizes.items;
 
             const generics = try allocator.alloc(ast.AstTypeInfo, init.generics.len);
             try context.deferCleanup.typeInfoSlices.append(allocator, generics);

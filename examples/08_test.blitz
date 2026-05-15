@@ -1,6 +1,6 @@
 struct M [T] {
     data: T;
-    t: u8;
+    pub t: u8;
 }
 
 fn main() {
@@ -8,4 +8,6 @@ fn main() {
         t = 0,
         data = 10,
     };
+    //let b = &a;
+    //let c = a.t + 1;
 }

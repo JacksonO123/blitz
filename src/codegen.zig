@@ -3762,19 +3762,21 @@ pub fn genBytecodeUtil(
             return destReg;
         },
         .Pointer => |inner| {
-            if (node.typeInfo.data.ArrDecPtr.makesSliceWithLen) |len| {
-                const slicePtrReg = try initArraySliceBytecode(
-                    allocator,
-                    context,
-                    inner.node,
-                    len,
-                    writeLoc,
-                );
+            if (node.typeInfo.data == .ArrDecPtr) {
+                if (node.typeInfo.data.ArrDecPtr.makesSliceWithLen) |len| {
+                    const slicePtrReg = try initArraySliceBytecode(
+                        allocator,
+                        context,
+                        inner.node,
+                        len,
+                        writeLoc,
+                    );
 
-                if (slicePtrReg) |reg|
-                    return reg
-                else
-                    return null;
+                    if (slicePtrReg) |reg|
+                        return reg
+                    else
+                        return null;
+                }
             }
 
             const ptrReg = try context.genInfo.getNextRegister(allocator);
