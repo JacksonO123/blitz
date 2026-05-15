@@ -355,7 +355,18 @@ pub const AstTypes = union(Types) {
                 return 16;
             },
             .Custom => |custom| {
+                try context.compInfo.pushGenScope(allocator, false);
+                defer context.compInfo.popGenScope(context);
+
                 const dec = context.compInfo.getStructDec(custom.nameIdentId).?;
+
+                for (custom.generics, 0..) |gen, index| {
+                    const genInfo = dec.generics[index];
+                    try context.compInfo.setGeneric(
+                        genInfo.nameIdentId,
+                        gen.toAllocInfo(.Recycled),
+                    );
+                }
 
                 var size: u64 = 0;
                 for (dec.totalMemberList) |member| {
@@ -860,6 +871,7 @@ const AstTypeInfoDataVariant = enum {
     Slice,
     PropertyAccess,
     VarOrVarDec,
+    ArrDec,
     ArrDecPtr,
     Others,
 };
@@ -870,8 +882,9 @@ const AstTypeInfoData = union(AstTypeInfoDataVariant) {
     VarOrVarDec: struct {
         lastVarUse: bool = false,
     },
+    ArrDec,
     ArrDecPtr: struct {
-        makesSliceWithLen: ?u64 = null,
+        makesSliceWithLen: u64,
     },
     Others: struct {
         resolvesToFunc: ?*FuncDecNode = null,

@@ -1,7 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const AutoHashMap = std.AutoHashMap;
-const ArrayList = std.ArrayList;
 const Writer = std.Io.Writer;
 const MemoryPool = std.heap.MemoryPool;
 const builtin = @import("builtin");
@@ -1291,12 +1289,12 @@ const LoopInfo = struct {
     const Self = @This();
 
     continueLabel: vmInfo.LabelType,
-    breaks: *ArrayList(CtrlFlowInstrInfo),
-    continues: *ArrayList(CtrlFlowInstrInfo),
+    breaks: *std.ArrayList(CtrlFlowInstrInfo),
+    continues: *std.ArrayList(CtrlFlowInstrInfo),
 
     pub fn init(allocator: Allocator) !Self {
-        const breaksPtr = try utils.createMut(ArrayList(CtrlFlowInstrInfo), allocator, .empty);
-        const continuesPtr = try utils.createMut(ArrayList(CtrlFlowInstrInfo), allocator, .empty);
+        const breaksPtr = try utils.createMut(std.ArrayList(CtrlFlowInstrInfo), allocator, .empty);
+        const continuesPtr = try utils.createMut(std.ArrayList(CtrlFlowInstrInfo), allocator, .empty);
 
         return .{
             .continueLabel = 0,
@@ -1379,12 +1377,12 @@ pub const RegStatus = struct {
 pub const RegUseIndices = struct {
     const Self = @This();
 
-    indices: *ArrayList(u32),
+    indices: *std.ArrayList(u32),
     baseIndex: usize = 0,
     currentIndex: usize = 0,
 
     pub fn init(allocator: Allocator) !Self {
-        const indicesPtr = try utils.createMut(ArrayList(u32), allocator, .empty);
+        const indicesPtr = try utils.createMut(std.ArrayList(u32), allocator, .empty);
         return .{ .indices = indicesPtr };
     }
 
@@ -1468,10 +1466,10 @@ const LabelInfo = struct {
 
 const LabelByteInfo = struct {
     const Self = @This();
-    const WaitingLabelsList = ArrayList(u32);
+    const WaitingLabelsList = std.ArrayList(u32);
     const WaitingLabels = std.AutoHashMap(vmInfo.LabelType, *WaitingLabelsList);
 
-    labelInfo: ArrayList(LabelInfo),
+    labelInfo: std.ArrayList(LabelInfo),
     waitingLabels: WaitingLabels,
 
     pub inline fn init(allocator: Allocator) !Self {
@@ -1556,11 +1554,11 @@ fn InstrActionInfo(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        action: *ArrayList(T),
+        action: *std.ArrayList(T),
         current: usize = 0,
 
         pub fn init(allocator: Allocator) !Self {
-            const actionPtr = try utils.createMut(ArrayList(T), allocator, .empty);
+            const actionPtr = try utils.createMut(std.ArrayList(T), allocator, .empty);
 
             return Self{
                 .action = actionPtr,
@@ -1626,7 +1624,7 @@ pub const BackendRegLimits = struct {
 const DataSection = struct {
     const Self = @This();
 
-    data: ArrayList(u8),
+    data: std.ArrayList(u8),
     strPtrMap: std.StringHashMap(u64),
 
     pub inline fn init(allocator: Allocator) !Self {
@@ -1666,18 +1664,18 @@ pub const GenInfo = struct {
     },
     varNameToReg: std.AutoHashMap(identStore.IdentId, vmInfo.TempRegister),
     settings: GenInfoSettings,
-    loopInfo: ArrayList(*LoopInfo),
+    loopInfo: std.ArrayList(*LoopInfo),
     byteCounter: u64,
     currentLabelId: vmInfo.LabelType,
-    registers: ArrayList(*RegInfo),
-    registerStatus: ArrayList(RegStatus),
+    registers: std.ArrayList(*RegInfo),
+    registerStatus: std.ArrayList(RegStatus),
     registerLimits: BackendRegLimits,
     labelByteInfo: LabelByteInfo,
     instrActions: InstrActions,
     regAllocateUtils: struct {
         furthestInstrReach: u32,
         /// 0 for invalid state
-        regNextUseIndex: ArrayList(u32),
+        regNextUseIndex: std.ArrayList(u32),
         pendingDeactivations: utils.StaticBufferList(
             vmInfo.TempRegister,
             InstructionVariants.maxOpCount(),
@@ -2610,9 +2608,9 @@ fn adjustProc(
 
     var spInstrByteCountOffset: u32 = 0;
     if (frameSize.* + stackOffset > 0) {
-        var newFrameSize = frameSize.* + stackOffset;
-        newFrameSize += utils.calculatePadding(newFrameSize, vmInfo.POINTER_SIZE);
-        const spInstrs = instructions.getSpIncInstructions(newFrameSize);
+        frameSize.* += stackOffset;
+        frameSize.* += utils.calculatePadding(frameSize.*, vmInfo.POINTER_SIZE);
+        const spInstrs = instructions.getSpIncInstructions(frameSize.*);
         spInstrByteCountOffset += spInstrs.sub.getInstrLen();
 
         const procStartIndex = context.genInfo.currentProc.startIndex;
@@ -3138,8 +3136,8 @@ pub fn genBytecodeUtil(
                         break :a &newWriteLoc;
                     };
 
-                    const itemSize: u8 = if (items.len > 0)
-                        @intCast(items[0].typeInfo.size)
+                    const itemSize: u64 = if (items.len > 0)
+                        items[0].typeInfo.size
                     else
                         0;
                     const isPrimitive = if (items.len > 0)
@@ -3167,8 +3165,8 @@ pub fn genBytecodeUtil(
                                 const storeInstr = instructions.storeRegAtPtrPostInc(
                                     reg,
                                     writeLocInfo.reg,
-                                    itemSize + itemPadding,
-                                    itemSize,
+                                    @intCast(itemSize + itemPadding),
+                                    @intCast(itemSize),
                                 );
                                 try context.genInfo.appendChunk(allocator, storeInstr);
 
@@ -3354,8 +3352,9 @@ pub fn genBytecodeUtil(
             }
 
             if (context.genInfo.getRegInfo(resReg)) |regInfo| a: {
+                if (node.typeInfo.nodeType != .Other) break :a;
+
                 if (regInfo.varInfo) |varInfo| {
-                    std.debug.print(":: {}\n", .{varInfo});
                     const location = varInfo.stackLocation orelse break :a;
                     const instr = instructions.loadRegAtSpNegOffset(
                         resReg,
@@ -3766,20 +3765,19 @@ pub fn genBytecodeUtil(
         },
         .Pointer => |inner| {
             if (node.typeInfo.data == .ArrDecPtr) {
-                if (node.typeInfo.data.ArrDecPtr.makesSliceWithLen) |len| {
-                    const slicePtrReg = try initArraySliceBytecode(
-                        allocator,
-                        context,
-                        inner.node,
-                        len,
-                        writeLoc,
-                    );
+                const len = node.typeInfo.data.ArrDecPtr.makesSliceWithLen;
+                const slicePtrReg = try initArraySliceBytecode(
+                    allocator,
+                    context,
+                    inner.node,
+                    len,
+                    writeLoc,
+                );
 
-                    if (slicePtrReg) |reg|
-                        return reg
-                    else
-                        return null;
-                }
+                if (slicePtrReg) |reg|
+                    return reg
+                else
+                    return null;
             }
 
             const ptrReg = try context.genInfo.getNextRegister(allocator);
@@ -4356,7 +4354,7 @@ fn nodeIsPrimitive(node: *ast.AstNode) bool {
     return switch (node.variant) {
         .StructInit, .ArrayInit => false,
         .Value => |val| val != .ArrayDec,
-        .Pointer => node.typeInfo.data.ArrDecPtr.makesSliceWithLen == null,
+        .Pointer => if (node.typeInfo.data == .ArrDecPtr) false else true,
         else => true,
     };
 }

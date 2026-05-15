@@ -296,6 +296,8 @@ pub fn scanNode(
                     );
                     node.typeInfo.size = (inferredTypeSize + itemPadding) * arr.len;
 
+                    node.typeInfo.data = .{ .ArrDec = {} };
+
                     return arrayDecType.toAllocInfo(inferredType.info.mutState, .Allocated);
                 },
             };
@@ -600,7 +602,7 @@ pub fn scanNode(
                     return anyType.toAllocInfo(.Recycled);
                 },
                 .ArrayDec => {
-                    node.typeInfo.data = .{ .Slice = {} };
+                    node.typeInfo.data = .{ .ArrDec = {} };
                     return try getArrayDecPropType(allocator, context, node, access.property);
                 },
                 .Custom => |custom| a: {
@@ -750,6 +752,7 @@ pub fn scanNode(
                 },
                 .Pointer => |pointer| {
                     if (pointer.info.astType.* != .ArrayDec) return ScanError.InvalidProperty;
+                    node.typeInfo.data = .{ .Slice = {} };
                     return try getArrayDecPropType(allocator, context, node, access.property);
                 },
                 else => false,
