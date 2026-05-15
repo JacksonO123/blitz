@@ -84,11 +84,6 @@ pub fn printType(
         .Number => |num| {
             try writer.writeAll(num.toString());
         },
-        .RawNumber => |digits| {
-            try writer.writeAll("[RawNumber ");
-            try writer.writeAll(digits);
-            try writer.writeByte(']');
-        },
         .Custom => |custom| {
             try printCustomType(context, custom, writer);
         },

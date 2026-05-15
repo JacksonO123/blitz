@@ -191,7 +191,6 @@ const Types = enum {
     Any,
     Undef,
     Number,
-    RawNumber,
     ArrayDec,
     Pointer,
     Nullable,
@@ -216,7 +215,6 @@ pub const AstTypes = union(Types) {
     Any,
     Undef,
     Number: AstNumberVariants,
-    RawNumber: []const u8,
     ArrayDec: AstArrayDecType,
     Pointer: scanner.TypeAndAllocInfo,
     Nullable: AstTypeInfo,
@@ -254,10 +252,7 @@ pub const AstTypes = union(Types) {
 
     pub fn getAlignment(self: Self, allocator: Allocator, context: *Context) !u8 {
         return switch (self) {
-            .Null,
-            .RawNumber,
-            .Undef,
-            => unreachable,
+            .Null, .Undef => unreachable,
 
             .Number => |num| return num.getAlignment(),
 
@@ -315,7 +310,7 @@ pub const AstTypes = union(Types) {
 
     pub fn getSize(self: Self, allocator: Allocator, context: *Context) !u64 {
         return switch (self) {
-            .Null, .RawNumber, .Undef => unreachable,
+            .Null, .Undef => unreachable,
             .Void, .Any, .Function, .StructMethod, .Error, .Enum => 0,
             .Bool, .EnumVariant, .ErrorVariant => 1,
             .Number => |num| num.getSize(),

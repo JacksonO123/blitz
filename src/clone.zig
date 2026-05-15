@@ -75,7 +75,6 @@ pub fn cloneAstTypes(
         .Void,
         .Number,
         .Null,
-        .RawNumber,
         .Any,
         .Undef,
         .Enum,

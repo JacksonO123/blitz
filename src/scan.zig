@@ -1416,7 +1416,7 @@ pub fn scanNode(
             }
 
             switch (ptrType.info.astType.*) {
-                .Bool, .Void, .Null, .Number, .RawNumber => {
+                .Bool, .Void, .Null, .Number => {
                     return ScanError.CannotTakePointerOfRawValue;
                 },
                 else => {},
@@ -2411,13 +2411,12 @@ pub fn matchTypesUtil(
                 mutMatchBehavior,
             );
         },
-        .RawNumber => return type2 == .Number or type2 == .RawNumber,
         .Number => |num| {
             if (type2 == .Number) {
-                return @intFromEnum(num) == @intFromEnum(type2.Number);
+                return matchNumberVariants(num, type2.Number);
             }
 
-            return type2 == .RawNumber;
+            return false;
         },
         .ArrayDec => |array1| {
             if (array1.size) |array1Size| {
@@ -2615,6 +2614,23 @@ pub fn matchTypesUtil(
     };
 }
 
+fn matchNumberVariants(variant1: ast.AstNumberVariants, variant2: ast.AstNumberVariants) bool {
+    return switch (variant1) {
+        .U8, .U16, .U32, .U64, .U128 => switch (variant2) {
+            .U8, .U16, .U32, .U64, .U128 => true,
+            else => false,
+        },
+        .I8, .I16, .I32, .I64, .I128 => switch (variant2) {
+            .I8, .I16, .I32, .I64, .I128 => true,
+            else => false,
+        },
+        .F32, .F64 => switch (variant2) {
+            .F32, .F64 => true,
+            else => false,
+        },
+    };
+}
+
 fn matchMutState(
     toType: ast.AstTypeInfo,
     fromType: ast.AstTypeInfo,
@@ -2665,7 +2681,7 @@ pub fn indexNumberFromNode(node: ast.NodeIndexOrU64) !u64 {
 
 pub fn isPrimitive(astType: *const ast.AstTypes) bool {
     return switch (astType.*) {
-        .Bool, .Number, .Null, .RawNumber => true,
+        .Bool, .Number, .Null => true,
         .Nullable => |inner| isPrimitive(inner.astType),
         else => false,
     };
