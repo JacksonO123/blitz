@@ -1,18 +1,4 @@
-struct M {
-    t: u8;
-    b: u16;
-    data: u64;
-}
-
-fn thing(m: M) M {
-    return m;
-}
-
 fn main() {
-    let a = M {
-        data = 12u64,
-        b = 8u16,
-        t = 4u8,
-    };
-    let b = thing(a);
+    let a = 2u64;
+    let b = 3u8 + a;
 }

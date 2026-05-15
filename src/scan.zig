@@ -460,14 +460,13 @@ pub fn scanNode(
                     }
 
                     if (left.info.astType.* == .Number and right.info.astType.* == .Number) {
-                        const leftEnum = @intFromEnum(left.info.astType.Number);
-                        const rightEnum = @intFromEnum(right.info.astType.Number);
-                        if (leftEnum != rightEnum) {
-                            return ScanError.NumberTypeMismatch;
-                        }
+                        const numType = getWidestNumberType(
+                            left.info.astType.Number,
+                            right.info.astType.Number,
+                        );
 
-                        node.typeInfo.size = left.info.astType.Number.getSize();
-                        node.typeInfo.alignment = left.info.astType.Number.getAlignment();
+                        node.typeInfo.size = numType.getSize();
+                        node.typeInfo.alignment = numType.getAlignment();
                     }
 
                     if (op.type == .Div) {
@@ -2612,6 +2611,20 @@ pub fn matchTypesUtil(
         },
         else => false,
     };
+}
+
+/// assumes numbers are same type different width
+fn getWidestNumberType(
+    variant1: ast.AstNumberVariants,
+    variant2: ast.AstNumberVariants,
+) ast.AstNumberVariants {
+    const variant = switch (variant1) {
+        .U8, .U16, .U32, .U64, .U128 => @max(@intFromEnum(variant1), @intFromEnum(variant2)),
+        .I8, .I16, .I32, .I64, .I128 => @max(@intFromEnum(variant1), @intFromEnum(variant2)),
+        .F32, .F64 => @max(@intFromEnum(variant1), @intFromEnum(variant2)),
+    };
+
+    return @enumFromInt(variant);
 }
 
 fn matchNumberVariants(variant1: ast.AstNumberVariants, variant2: ast.AstNumberVariants) bool {

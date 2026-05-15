@@ -21,21 +21,23 @@ const AstNumberVariantsStrRel = struct {
     val: AstNumberVariants,
 };
 
-pub const AstNumberVariants = enum {
+pub const AstNumberVariants = enum(u8) {
     const Self = @This();
 
-    U8,
-    U16,
-    U32,
-    U64,
-    U128,
-    I8,
-    I16,
-    I32,
-    I64,
-    I128,
-    F32,
-    F64,
+    U8 = 0,
+    U16 = 1,
+    U32 = 2,
+    U64 = 3,
+    U128 = 4,
+
+    I8 = 10,
+    I16 = 11,
+    I32 = 12,
+    I64 = 13,
+    I128 = 14,
+
+    F32 = 20,
+    F64 = 21,
 
     pub fn getSize(self: Self) u8 {
         return switch (self) {
