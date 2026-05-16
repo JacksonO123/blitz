@@ -4,10 +4,13 @@ struct M [T] {
 }
 
 fn main() {
-    let a = M<u64> {
-        t = 0,
+    let z = 1;
+    let zp = &z;
+    let a = M<u32> {
+        t = 2,
         data = 10,
     };
+    let b = a;
     //let b = &a;
     //let c = a.t + 1;
 }
