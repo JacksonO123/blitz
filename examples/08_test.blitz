@@ -1,13 +1,18 @@
-struct M [T] {
-    data: T;
+struct M {
+    data: u32;
     pub t: u8;
 }
 
 fn main() {
-    let a = M<u64> {
-        t = 0,
+    let a = M {
+        t = 2,
         data = 10,
     };
-    //let b = &a;
-    //let c = a.t + 1;
+    let b = &a.t;
+
+
+//    let z = 1;
+//    let zp = &z;
+//    let b = &a;
+//    let c = a.t + 1;
 }

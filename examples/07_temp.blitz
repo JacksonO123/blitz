@@ -1,12 +1,4 @@
-struct M {
-    c: u8;
-    pub data: u32;
-}
-
 fn main() {
-    let m = M { c = 1u8, data = 12 };
-    let a = m.data;
-
-    //let str = "this is a string and a string";
-    //let str2 = "this is a string and a string.";
+    let mut arr = [4, 3, 2, 1];
+    let b = arr.len;
 }

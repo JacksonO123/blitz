@@ -283,7 +283,7 @@ pub const InstructionVariants = enum(u8) {
     BranchLinkBack, // inst, 4B data
 
     pub fn getInstrByte(self: Self) u8 {
-        return @as(u8, @intCast(@intFromEnum(self)));
+        return @as(u8, @intFromEnum(self));
     }
 
     pub fn getInstrInfo(self: Self) InstrInfo {
@@ -1443,6 +1443,7 @@ pub const RegInfo = struct {
     const Self = @This();
 
     varInfo: ?RegInfoVarInfo = null,
+    stackLocation: ?u64 = null,
     usage: RegisterUsage = .Temporary,
     useIndices: RegUseIndices,
     regRemap: RegRemap = .Unused,
@@ -2066,11 +2067,13 @@ pub const GenInfo = struct {
         allocator: Allocator,
         nameIdentId: identStore.IdentId,
         reg: vmInfo.TempRegister,
+        location: ?u64,
     ) !void {
         try self.varNameToReg.put(nameIdentId, reg);
 
         const prevInfoOrNull = self.registers.items[reg].varInfo;
         self.registers.items[reg].varInfo = RegInfoVarInfo{
+            .stackLocation = location,
             .prevInfo = if (prevInfoOrNull) |prevInfo|
                 try utils.createMut(RegInfoVarInfo, allocator, prevInfo)
             else
@@ -2130,7 +2133,7 @@ pub const GenInfo = struct {
         }
     }
 
-    pub fn getRegInfo(self: Self, reg: vmInfo.TempRegister) ?*RegInfo {
+    pub fn getRegInfo(self: Self, reg: vmInfo.TempRegister) *RegInfo {
         return self.registers.items[reg];
     }
 
@@ -3006,8 +3009,16 @@ pub fn genBytecodeUtil(
                 break :a outReg;
             };
 
+            const nodeStackLoc = context.genInfo.registers.items[reg].stackLocation;
+            context.genInfo.registers.items[varReg].stackLocation = nodeStackLoc;
+
             if (!node.typeInfo.data.VarOrVarDec.lastVarUse) {
-                try context.genInfo.setVariableRegister(allocator, dec.nameIdentId, varReg);
+                try context.genInfo.setVariableRegister(
+                    allocator,
+                    dec.nameIdentId,
+                    varReg,
+                    nodeStackLoc,
+                );
             }
         },
         .Value => |value| {
@@ -3106,6 +3117,9 @@ pub fn genBytecodeUtil(
                             node.typeInfo.alignment,
                         );
                         context.genInfo.currentProc.stackFrameSize += padding;
+                        const writeValue = context.genInfo.currentProc.stackFrameSize;
+
+                        context.genInfo.registers.items[ptrReg].stackLocation = writeValue;
 
                         movSpInstr = Instr{
                             .MovSpNegOffsetAny = .{
@@ -3351,18 +3365,17 @@ pub fn genBytecodeUtil(
                 context.genInfo.removeVariableRegister(name);
             }
 
-            if (context.genInfo.getRegInfo(resReg)) |regInfo| a: {
-                if (node.typeInfo.nodeType != .Other) break :a;
+            const regInfo = context.genInfo.getRegInfo(resReg);
+            if (node.typeInfo.nodeType != .Other) return resReg;
 
-                if (regInfo.varInfo) |varInfo| {
-                    const location = varInfo.stackLocation orelse break :a;
-                    const instr = instructions.loadRegAtSpNegOffset(
-                        resReg,
-                        location,
-                        node.typeInfo.size,
-                    );
-                    try context.genInfo.appendChunk(allocator, instr);
-                }
+            if (regInfo.varInfo) |varInfo| {
+                const location = varInfo.stackLocation orelse return resReg;
+                const instr = instructions.loadRegAtSpNegOffset(
+                    resReg,
+                    location,
+                    node.typeInfo.size,
+                );
+                try context.genInfo.appendChunk(allocator, instr);
             }
 
             return resReg;
@@ -3617,18 +3630,21 @@ pub fn genBytecodeUtil(
                     node.typeInfo.alignment,
                 );
                 context.genInfo.currentProc.stackFrameSize += padding;
+                const writeValue = context.genInfo.currentProc.stackFrameSize;
+
+                context.genInfo.registers.items[writeReg].stackLocation = writeValue;
 
                 movSpInstr = Instr{
                     .MovSpNegOffsetAny = .{
                         .reg = writeReg,
-                        .offset = context.genInfo.currentProc.stackFrameSize,
+                        .offset = writeValue,
                     },
                 };
                 try context.genInfo.appendChunk(allocator, movSpInstr);
 
                 var newWriteLoc = WriteLocInfo{
                     .reg = writeReg,
-                    .value = context.genInfo.currentProc.stackFrameSize,
+                    .value = writeValue,
                 };
 
                 context.genInfo.currentProc.stackFrameSize += initSize;
@@ -3651,7 +3667,7 @@ pub fn genBytecodeUtil(
 
             if (init.indexIdentId) |ident| {
                 indexReg = try context.genInfo.getNextRegister(allocator);
-                try context.genInfo.setVariableRegister(allocator, ident, indexReg.?);
+                try context.genInfo.setVariableRegister(allocator, ident, indexReg.?, null);
 
                 const setZeroInstr = Instr{
                     .SetReg8 = .{
@@ -3664,7 +3680,7 @@ pub fn genBytecodeUtil(
 
             if (init.ptrIdentId) |ident| {
                 ptrReg = try context.genInfo.getNextRegister(allocator);
-                try context.genInfo.setVariableRegister(allocator, ident, ptrReg.?);
+                try context.genInfo.setVariableRegister(allocator, ident, ptrReg.?, null);
 
                 const movWriteReg = Instr{
                     .Mov = .{
@@ -3780,18 +3796,20 @@ pub fn genBytecodeUtil(
                     return null;
             }
 
+            const prevPtrBehavior = context.genInfo.settings.propAccessReturnsPtr;
+            context.genInfo.settings.propAccessReturnsPtr = true;
+            defer context.genInfo.settings.propAccessReturnsPtr = prevPtrBehavior;
             const ptrReg = try context.genInfo.getNextRegister(allocator);
             const resReg = try genBytecode(allocator, context, inner.node) orelse
                 return CodeGenError.ReturnedRegisterNotFound;
 
             const varGenInfo = context.genInfo.getRegInfo(resReg);
-            const varStackLocation = a: {
-                const info = varGenInfo orelse break :a null;
-                const varInfo = info.varInfo orelse break :a null;
-                break :a varInfo.stackLocation;
-            };
+            const stackLocation = if (varGenInfo.varInfo) |varInfo|
+                varInfo.stackLocation
+            else
+                context.genInfo.registers.items[resReg].stackLocation;
 
-            const location = varStackLocation orelse a: {
+            if (stackLocation == null) {
                 const itemSize = inner.node.typeInfo.size;
                 const alignment = inner.node.typeInfo.alignment;
 
@@ -3811,24 +3829,21 @@ pub fn genBytecodeUtil(
 
                 context.genInfo.currentProc.stackFrameSize += itemSize;
 
-                break :a spAfterPadding;
-            };
-
-            if (varGenInfo) |info| {
-                if (info.varInfo) |*varInfo| {
+                if (varGenInfo.varInfo) |*varInfo| {
                     if (varInfo.stackLocation == null) {
-                        varInfo.stackLocation = location;
+                        varInfo.stackLocation = spAfterPadding;
+                        context.genInfo.registers.items[resReg].stackLocation = spAfterPadding;
                     }
                 }
-            }
 
-            const setLocInstr = Instr{
-                .MovSpNegOffsetAny = .{
-                    .reg = ptrReg,
-                    .offset = location,
-                },
-            };
-            try context.genInfo.appendChunk(allocator, setLocInstr);
+                const setLocInstr = Instr{
+                    .MovSpNegOffsetAny = .{
+                        .reg = ptrReg,
+                        .offset = spAfterPadding,
+                    },
+                };
+                try context.genInfo.appendChunk(allocator, setLocInstr);
+            }
 
             return ptrReg;
         },
@@ -3880,6 +3895,8 @@ pub fn genBytecodeUtil(
                 context.genInfo.currentProc.stackFrameSize += padding;
                 startLoc += padding;
                 const writeVal = context.genInfo.currentProc.stackFrameSize;
+
+                context.genInfo.registers.items[resReg].stackLocation = writeVal;
 
                 const writeSp = Instr{
                     .MovSpNegOffsetAny = .{
@@ -3954,18 +3971,30 @@ pub fn genBytecodeUtil(
                 accessNode.property,
             );
 
-            const reg = try calculateAccessOffset(
+            const reg, const offsetLoc = try calculateAccessOffset(
                 allocator,
                 context,
                 accessNode.value,
                 loc,
             );
 
-            if (isFunction or context.genInfo.settings.propAccessReturnsPtr) return reg;
+            if (isFunction or context.genInfo.settings.propAccessReturnsPtr) {
+                context.genInfo.registers.items[reg].stackLocation = if (offsetLoc < 0)
+                    null
+                else
+                    @intCast(offsetLoc);
+
+                return reg;
+            }
 
             const outReg = try context.genInfo.getNextRegister(allocator);
             const instr = instructions.loadRegAtPtr(reg, outReg, node.typeInfo.size);
             try context.genInfo.appendChunk(allocator, instr);
+
+            context.genInfo.registers.items[outReg].stackLocation = if (offsetLoc < 0)
+                null
+            else
+                @intCast(offsetLoc);
 
             return outReg;
         },
@@ -3978,12 +4007,13 @@ pub fn genBytecodeUtil(
                 context.genInfo.settings.sliceAccessGoToSlicePtr = true;
                 defer context.genInfo.settings.sliceAccessGoToSlicePtr = prev;
 
-                break :a try calculateAccessOffset(
+                const reg, _ = try calculateAccessOffset(
                     allocator,
                     context,
                     indexNode.target,
                     0,
                 );
+                break :a reg;
             };
 
             const itemPadding = utils.calculatePadding(
@@ -4342,7 +4372,7 @@ fn functionSetupBytecode(
     for (func.params.params, indexStart..) |param, index| {
         const usage: RegisterUsage = .{ .Param = @intCast(index) };
         const paramReg = try context.genInfo.getNextRegisterUtil(allocator, usage);
-        try context.genInfo.setVariableRegister(allocator, param.nameIdentId, paramReg);
+        try context.genInfo.setVariableRegister(allocator, param.nameIdentId, paramReg, null);
     }
 
     return .{
@@ -4382,7 +4412,7 @@ fn calculateAccessOffset(
     context: *Context,
     node: *ast.AstNode,
     offset: u64,
-) !vmInfo.TempRegister {
+) !struct { vmInfo.TempRegister, i64 } {
     const prevRetFormat = context.genInfo.settings.propAccessReturnsPtr;
     context.genInfo.settings.propAccessReturnsPtr = true;
     defer context.genInfo.settings.propAccessReturnsPtr = prevRetFormat;
@@ -4392,16 +4422,18 @@ fn calculateAccessOffset(
             const fromName = node.typeInfo.data.PropertyAccess;
             const dec = context.compInfo.getStructDec(fromName).?;
             const loc = (try dec.getMemberLocation(allocator, context, accessNode.property)).?;
-            return try calculateAccessOffset(
+
+            const resReg, const resOffsetLoc = try calculateAccessOffset(
                 allocator,
                 context,
                 accessNode.value,
-                offset + loc +
-                    if (node.typeInfo.nodeType == .Slice) @as(u8, vmInfo.POINTER_SIZE) * 2 else 0,
+                offset + loc,
             );
+
+            return .{ resReg, resOffsetLoc };
         },
         .IndexValue => |indexNode| {
-            const offsetReg = try calculateAccessOffset(
+            const offsetReg, _ = try calculateAccessOffset(
                 allocator,
                 context,
                 indexNode.target,
@@ -4414,17 +4446,15 @@ fn calculateAccessOffset(
             const itemSize = node.typeInfo.size;
             const itemPadding = utils.calculatePadding(itemSize, node.typeInfo.alignment);
 
-            const offsetInstr = Instr{
-                .MulReg16AddReg = .{
-                    .dest = offsetReg,
-                    .addReg = offsetReg,
-                    .mulReg = indexReg,
-                    .data = @intCast(itemSize + itemPadding),
-                },
-            };
+            const offsetInstr = instructions.mulRegAddReg(
+                offsetReg,
+                offsetReg,
+                indexReg,
+                itemSize + itemPadding,
+            );
             try context.genInfo.appendChunk(allocator, offsetInstr);
 
-            return offsetReg;
+            return .{ offsetReg, -1 };
         },
         else => {
             var reg = try genBytecode(allocator, context, node) orelse
@@ -4446,8 +4476,13 @@ fn calculateAccessOffset(
                 reg = outReg;
             }
 
+            const resLocation: i64 = if (context.genInfo.registers.items[reg].stackLocation) |loc|
+                @intCast(loc + offset)
+            else
+                -1;
+
             if (offset == 0) {
-                return reg;
+                return .{ reg, resLocation };
             }
 
             const outReg = try context.genInfo.getNextRegister(allocator);
@@ -4466,7 +4501,7 @@ fn calculateAccessOffset(
                 try context.genInfo.appendChunk(allocator, instr);
             }
 
-            return outReg;
+            return .{ outReg, resLocation };
         },
     }
 }
@@ -4560,9 +4595,8 @@ fn initArraySliceBytecode(
     } else {
         const regLocationOrNull = a: {
             const arrReg = arrRegOrNull orelse break :a null;
-            const regInfoOrNull = context.genInfo.getRegInfo(arrReg);
-            const info = regInfoOrNull orelse break :a null;
-            const varInfo = info.varInfo orelse break :a null;
+            const regInfo = context.genInfo.getRegInfo(arrReg);
+            const varInfo = regInfo.varInfo orelse break :a null;
             break :a varInfo.stackLocation;
         };
 

@@ -1353,6 +1353,7 @@ pub fn scanNode(
             node.typeInfo.alignment = initAlignment;
             node.typeInfo.size = sizeSum;
             init.attrSizes = attrSizes.items;
+            node.typeInfo.data = .{ .StructInit = init };
 
             const generics = try allocator.alloc(ast.AstTypeInfo, init.generics.len);
             try context.deferCleanup.typeInfoSlices.append(allocator, generics);

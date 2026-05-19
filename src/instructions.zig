@@ -351,3 +351,47 @@ pub fn subConst(outReg: vmInfo.TempRegister, opReg: vmInfo.TempRegister, data: u
         },
     };
 }
+
+pub fn mulRegAddReg(
+    dest: vmInfo.TempRegister,
+    addReg: vmInfo.TempRegister,
+    mulReg: vmInfo.TempRegister,
+    data: u64,
+) codegen.Instr {
+    const opSize = codegen.getOpSizeFromNum(data);
+
+    return switch (opSize) {
+        .U8 => codegen.Instr{
+            .MulReg8AddReg = .{
+                .dest = dest,
+                .addReg = addReg,
+                .mulReg = mulReg,
+                .data = @intCast(data),
+            },
+        },
+        .U16 => codegen.Instr{
+            .MulReg16AddReg = .{
+                .dest = dest,
+                .addReg = addReg,
+                .mulReg = mulReg,
+                .data = @intCast(data),
+            },
+        },
+        .U32 => codegen.Instr{
+            .MulReg32AddReg = .{
+                .dest = dest,
+                .addReg = addReg,
+                .mulReg = mulReg,
+                .data = @intCast(data),
+            },
+        },
+        .U64 => codegen.Instr{
+            .MulReg64AddReg = .{
+                .dest = dest,
+                .addReg = addReg,
+                .mulReg = mulReg,
+                .data = @intCast(data),
+            },
+        },
+    };
+}
