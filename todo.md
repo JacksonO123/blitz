@@ -1,3 +1,4 @@
+- [ ] track struct init specific generics through variables
 - [ ] keep registers used in while loop alive until end of loop
 - [ ] division
 

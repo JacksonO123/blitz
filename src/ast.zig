@@ -292,7 +292,18 @@ pub const AstTypes = union(Types) {
 
             .Nullable => |inner| try inner.astType.getAlignment(allocator, context),
             .Custom => |custom| {
+                try context.compInfo.pushGenScope(allocator, false);
+                defer context.compInfo.popGenScope(context);
+
                 const dec = context.compInfo.getStructDec(custom.nameIdentId).?;
+
+                for (custom.generics, 0..) |gen, index| {
+                    const genInfo = dec.generics[index];
+                    try context.compInfo.setGeneric(
+                        genInfo.nameIdentId,
+                        gen.toAllocInfo(.Recycled),
+                    );
+                }
 
                 var maxAlignment: u8 = 0;
                 for (dec.totalMemberList) |member| {
@@ -873,6 +884,7 @@ const AstTypeInfoDataVariant = enum {
     VarOrVarDec,
     ArrDec,
     ArrDecPtr,
+    StructInit,
     Others,
 };
 
@@ -886,6 +898,7 @@ const AstTypeInfoData = union(AstTypeInfoDataVariant) {
     ArrDecPtr: struct {
         makesSliceWithLen: u64,
     },
+    StructInit: *StructInitNode,
     Others: struct {
         resolvesToFunc: ?*FuncDecNode = null,
         funcGenInstanceIndex: ?u32 = null,
