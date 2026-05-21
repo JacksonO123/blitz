@@ -164,6 +164,7 @@ pub const CustomType = struct {
     nameIdentId: identStore.IdentId,
     generics: []AstTypeInfo,
     allowPrivateReads: bool,
+    attrSizes: []IdentSizeRelation,
 };
 
 const EnumVariantType = struct {
@@ -513,23 +514,25 @@ pub const StructDecNode = struct {
 
     pub fn getMemberLocation(
         self: Self,
-        allocator: Allocator,
-        context: *Context,
         memberIdentId: identStore.IdentId,
+        sizes: []IdentSizeRelation,
     ) !?u64 {
         var loc: u64 = 0;
+        var index: usize = 0;
 
         for (self.totalMemberList) |item| {
-            const size = try item.attr.Member.astType.getSize(allocator, context);
-            const alignment = try item.attr.Member.astType.getAlignment(allocator, context);
+            if (item.static) continue;
+            defer index += 1;
+
+            const sizeInfo = sizes[index];
             const padding = utils.calculatePadding(
                 loc,
-                alignment,
+                sizeInfo.alignment,
             );
             loc += padding;
 
             if (item.nameIdentId == memberIdentId) return loc;
-            loc += size;
+            loc += sizeInfo.size;
         }
 
         return null;
@@ -890,7 +893,10 @@ const AstTypeInfoDataVariant = enum {
 
 const AstTypeInfoData = union(AstTypeInfoDataVariant) {
     Slice,
-    PropertyAccess: identStore.IdentId,
+    PropertyAccess: struct {
+        decIdent: identStore.IdentId,
+        attrSizes: []IdentSizeRelation = &.{},
+    },
     VarOrVarDec: struct {
         lastVarUse: bool = false,
     },
@@ -2570,6 +2576,7 @@ fn parseParam(
                     .nameIdentId = structInfo.nameIdentId,
                     .generics = &[_]AstTypeInfo{},
                     .allowPrivateReads = true,
+                    .attrSizes = &.{},
                 },
             });
 
@@ -2755,6 +2762,7 @@ fn parseType(
                         .nameIdentId = first.identId,
                         .generics = generics,
                         .allowPrivateReads = false,
+                        .attrSizes = &.{},
                     },
                 };
             } else if (context.compInfo.hasEnum(first.identId)) {

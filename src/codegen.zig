@@ -3964,12 +3964,7 @@ pub fn genBytecodeUtil(
             }
         },
         .PropertyAccess => |accessNode| {
-            const loc, const isFunction = try getPropLocation(
-                allocator,
-                context,
-                node,
-                accessNode.property,
-            );
+            const loc, const isFunction = try getPropLocation(context, node, accessNode.property);
 
             const reg, const offsetLoc = try calculateAccessOffset(
                 allocator,
@@ -4266,7 +4261,6 @@ fn loadAtRegPostInc(
 }
 
 fn getPropLocation(
-    allocator: Allocator,
     context: *Context,
     node: *const ast.AstNode,
     propIdentId: identStore.IdentId,
@@ -4277,14 +4271,14 @@ fn getPropLocation(
         return .{ builtins.getSlicePropLocations(propIdentId).?, false };
     }
 
-    const fromName = node.typeInfo.data.PropertyAccess;
-    const dec = context.compInfo.getStructDec(fromName).?;
+    const accessInfo = node.typeInfo.data.PropertyAccess;
+    const dec = context.compInfo.getStructDec(accessInfo.decIdent).?;
     const isFunction = dec.isPropFunction(propIdentId);
 
     return if (isFunction)
         .{ @as(u64, 0), isFunction }
     else
-        .{ (try dec.getMemberLocation(allocator, context, propIdentId)).?, isFunction };
+        .{ (try dec.getMemberLocation(propIdentId, accessInfo.attrSizes)).?, isFunction };
 }
 
 fn codegenFunctions(
@@ -4419,9 +4413,9 @@ fn calculateAccessOffset(
 
     switch (node.variant) {
         .PropertyAccess => |accessNode| {
-            const fromName = node.typeInfo.data.PropertyAccess;
-            const dec = context.compInfo.getStructDec(fromName).?;
-            const loc = (try dec.getMemberLocation(allocator, context, accessNode.property)).?;
+            const accessInfo = node.typeInfo.data.PropertyAccess;
+            const dec = context.compInfo.getStructDec(accessInfo.decIdent).?;
+            const loc = (try dec.getMemberLocation(accessNode.property, accessInfo.attrSizes)).?;
 
             const resReg, const resOffsetLoc = try calculateAccessOffset(
                 allocator,

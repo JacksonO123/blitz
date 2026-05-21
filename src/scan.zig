@@ -608,7 +608,12 @@ pub fn scanNode(
                 .Custom => |custom| a: {
                     const structDec = context.compInfo.getStructDec(custom.nameIdentId) orelse
                         break :a false;
-                    node.typeInfo.data = .{ .PropertyAccess = custom.nameIdentId };
+                    node.typeInfo.data = .{
+                        .PropertyAccess = .{
+                            .decIdent = custom.nameIdentId,
+                            .attrSizes = custom.attrSizes,
+                        },
+                    };
 
                     try context.compInfo.pushGenScope(allocator, true);
                     defer context.compInfo.popGenScope(context);
@@ -1366,6 +1371,7 @@ pub fn scanNode(
                     .generics = generics,
                     .nameIdentId = init.nameIdentId,
                     .allowPrivateReads = false,
+                    .attrSizes = attrSizes.items,
                 },
             });
             return customType.toAllocInfo(.Mut, .Allocated);

@@ -145,6 +145,7 @@ pub fn cloneAstTypes(
                     .nameIdentId = custom.nameIdentId,
                     .generics = genericsSlice,
                     .allowPrivateReads = custom.allowPrivateReads,
+                    .attrSizes = custom.attrSizes,
                 },
             };
         },
