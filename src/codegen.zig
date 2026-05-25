@@ -3209,7 +3209,7 @@ pub fn genBytecodeUtil(
                         // remove quotes
                         str[1 .. str.len - 1],
                     );
-                    return try sliceBytecodeFromPtr(allocator, context, ptr, str.len);
+                    return try sliceBytecodeFromPtr(allocator, context, ptr, str.len - 2);
                 },
                 else => utils.unimplemented(),
             }
