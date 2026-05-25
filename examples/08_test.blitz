@@ -1,12 +1,7 @@
-struct M [T] {
-    data: T;
-    pub t: u8;
-}
-
 fn main() {
-    let a = M<u32> {
-        t = 2,
-        data = 10,
-    };
-    let b = &a.t;
+    let mut arr = &[1, 2, 3, 4];
+
+    for (let mut i = 0u64; i < arr.len; i++) {
+        arr[i] = 55;
+    }
 }

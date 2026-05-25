@@ -3431,6 +3431,8 @@ pub fn genBytecodeUtil(
             const condReg = try genBytecode(allocator, context, loop.condition);
             context.genInfo.settings.outputCmpAsRegister = condInfo.prevCmpAsReg;
 
+            const endVReg = context.genInfo.registers.items.len;
+
             const loopEndLabelId = context.genInfo.takeLabelId();
             var jumpEndInstr = Instr{ .JumpNE = loopEndLabelId };
 
@@ -3468,7 +3470,6 @@ pub fn genBytecodeUtil(
 
             const currentInstrIndex = context.genInfo.instrList.list.items.len - 1;
             const startVReg = context.genInfo.currentProc.preProcVirtualReg;
-            const endVReg = context.genInfo.registers.items.len;
             for (startVReg..endVReg) |vReg| {
                 const useIndices = &context.genInfo.registers.items[vReg].useIndices;
                 const first = useIndices.last();
@@ -4266,7 +4267,8 @@ fn getPropLocation(
     propIdentId: identStore.IdentId,
 ) !struct { u64, bool } {
     if (node.typeInfo.data == .Slice or
-        node.variant.PropertyAccess.value.typeInfo.nodeType == .Slice)
+        (node.variant == .PropertyAccess and
+            node.variant.PropertyAccess.value.typeInfo.nodeType == .Slice))
     {
         return .{ builtins.getSlicePropLocations(propIdentId).?, false };
     }
