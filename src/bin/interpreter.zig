@@ -937,9 +937,7 @@ fn loadRegAtPtrPostInc(
     const inc = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
 
     const dataSlice = runtimeInfo.programData.items[source .. source + tBytes];
-    const dataPtr: *T = @ptrCast(@alignCast(dataSlice.ptr));
-
-    runtimeInfo.registers[dest] = dataPtr.*;
+    runtimeInfo.registers[dest] = std.mem.bytesToValue(T, dataSlice);
     runtimeInfo.registers[sourceReg] += inc;
 }
 
@@ -956,9 +954,7 @@ fn loadRegAtPtrOffset(
     const offset = std.mem.readInt(u16, @ptrCast(bytecode[current + 3 .. current + 5]), .little);
 
     const dataSlice = runtimeInfo.programData.items[source + offset .. source + offset + tBytes];
-    const dataPtr: *T = @ptrCast(@alignCast(dataSlice.ptr));
-
-    runtimeInfo.registers[dest] = dataPtr.*;
+    runtimeInfo.registers[dest] = std.mem.bytesToValue(T, dataSlice);
 }
 
 fn loadAtReg(
@@ -973,9 +969,7 @@ fn loadAtReg(
     const source = runtimeInfo.registers[bytecode[current + 2]];
 
     const dataSlice = runtimeInfo.programData.items[source .. source + tBytes];
-    const dataPtr: *T = @ptrCast(@alignCast(dataSlice.ptr));
-
-    runtimeInfo.registers[dest] = dataPtr.*;
+    runtimeInfo.registers[dest] = std.mem.bytesToValue(T, dataSlice);
 }
 
 fn storeAtSpNegOffset(

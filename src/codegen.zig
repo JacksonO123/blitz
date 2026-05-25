@@ -3479,6 +3479,8 @@ pub fn genBytecodeUtil(
             }
         },
         .WhileLoop => |loop| {
+            const whileLoopStartInstrIndex = context.genInfo.instrList.list.items.len - 1;
+
             try context.genInfo.pushLoopInfo(allocator);
             defer context.genInfo.popLoopInfo();
 
@@ -3491,6 +3493,8 @@ pub fn genBytecodeUtil(
             context.genInfo.setContinueLabel(preConditionLabelId);
 
             const condReg = try genBytecode(allocator, context, loop.condition);
+
+            const endVReg = context.genInfo.registers.items.len;
 
             const loopEndLabelId = context.genInfo.takeLabelId();
             var jumpEndInstr = Instr{ .JumpNE = loopEndLabelId };
@@ -3519,6 +3523,16 @@ pub fn genBytecodeUtil(
 
             const preBodyLabel = Instr{ .Label = loopEndLabelId };
             try context.genInfo.appendChunk(allocator, preBodyLabel);
+
+            const currentInstrIndex = context.genInfo.instrList.list.items.len - 1;
+            const startVReg = context.genInfo.currentProc.preProcVirtualReg;
+            for (startVReg..endVReg) |vReg| {
+                const useIndices = &context.genInfo.registers.items[vReg].useIndices;
+                const first = useIndices.last();
+                if (first > whileLoopStartInstrIndex) {
+                    try useIndices.indices.append(allocator, @intCast(currentInstrIndex));
+                }
+            }
         },
         .IncOne => |inc| {
             const reg = try genBytecode(allocator, context, inc) orelse
