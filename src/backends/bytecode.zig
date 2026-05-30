@@ -130,7 +130,7 @@ fn remapInstr(
 
         .DbgReg => |*inner| try remapReg(allocator, context, inner, baseIndex, instrIndex, sp),
 
-        .SetReg64 => |*inner| try remapReg(
+        .SetReg64, .SetRegN64 => |*inner| try remapReg(
             allocator,
             context,
             &inner.reg,
@@ -138,7 +138,7 @@ fn remapInstr(
             instrIndex,
             sp,
         ),
-        .SetReg32 => |*inner| try remapReg(
+        .SetReg32, .SetRegN32 => |*inner| try remapReg(
             allocator,
             context,
             &inner.reg,
@@ -146,7 +146,7 @@ fn remapInstr(
             instrIndex,
             sp,
         ),
-        .SetReg16 => |*inner| try remapReg(
+        .SetReg16, .SetRegN16 => |*inner| try remapReg(
             allocator,
             context,
             &inner.reg,
@@ -154,7 +154,7 @@ fn remapInstr(
             instrIndex,
             sp,
         ),
-        .SetReg8 => |*inner| try remapReg(
+        .SetReg8, .SetRegN8 => |*inner| try remapReg(
             allocator,
             context,
             &inner.reg,
@@ -917,10 +917,10 @@ fn recordInstrRegUsages(context: *Context, instrIndex: usize, limits: codegen.Re
         .PostPopRegNegOffsetAny,
         => {},
 
-        .SetReg64 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
-        .SetReg32 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
-        .SetReg16 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
-        .SetReg8 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
+        .SetReg64, .SetRegN64 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
+        .SetReg32, .SetRegN32 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
+        .SetReg16, .SetRegN16 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
+        .SetReg8, .SetRegN8 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
         .Add, .Sub, .Mult => |*inner| {
             recordNextUsage(context, inner.reg1, instrIndex, limits);
             recordNextUsage(context, inner.reg2, instrIndex, limits);

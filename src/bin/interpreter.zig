@@ -99,6 +99,7 @@ const RuntimeInfo = struct {
         const stackStartPadding = utils.calculatePadding(bytecode.len, vmInfo.POINTER_SIZE);
         const minStackStart = bytecode.len + stackStartPadding;
         try programData.ensureTotalCapacity(allocator, minStackStart + stackSize);
+        programData.items.len = minStackStart + stackSize;
 
         return .{
             .flags = Flags{},
@@ -196,15 +197,45 @@ fn interpretBytecode(
             .SetReg8 => {
                 runtimeInfo.registers[bytecode[current + 1]] = bytecode[current + 2];
             },
+            .SetRegN64 => {
+                runtimeInfo.registers[bytecode[current + 1]] = ~std.mem.readInt(
+                    u64,
+                    @ptrCast(bytecode[current + 2 .. current + 10]),
+                    .little,
+                );
+            },
+            .SetRegN32 => {
+                runtimeInfo.registers[bytecode[current + 1]] = ~@as(u64, @intCast(std.mem.readInt(
+                    u32,
+                    @ptrCast(bytecode[current + 2 .. current + 6]),
+                    .little,
+                )));
+            },
+            .SetRegN16 => {
+                runtimeInfo.registers[bytecode[current + 1]] = ~@as(u64, @intCast(std.mem.readInt(
+                    u16,
+                    @ptrCast(bytecode[current + 2 .. current + 4]),
+                    .little,
+                )));
+            },
+            .SetRegN8 => {
+                runtimeInfo.registers[bytecode[current + 1]] = ~@as(u64, @intCast(bytecode[current + 2]));
+            },
             .Add => {
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
                 const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
-                runtimeInfo.registers[bytecode[current + 1]] = reg1Val + reg2Val;
+                const res, const overflow = @addWithOverflow(reg1Val, reg2Val);
+                // TODO - do something with overflow
+                _ = overflow;
+                runtimeInfo.registers[bytecode[current + 1]] = res;
             },
             .Sub => {
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
                 const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
-                runtimeInfo.registers[bytecode[current + 1]] = reg1Val - reg2Val;
+                const res, const overflow = @subWithOverflow(reg1Val, reg2Val);
+                // TODO - do something with overflow
+                _ = overflow;
+                runtimeInfo.registers[bytecode[current + 1]] = res;
             },
             .Add8 => {
                 const regVal = runtimeInfo.registers[bytecode[current + 2]];

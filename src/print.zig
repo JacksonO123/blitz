@@ -946,10 +946,10 @@ fn printUnionInstr(instr: codegen.Instr, writer: *Writer) !void {
 
         .Label, .NoOp, .Ret, .End => {},
 
-        .SetReg64 => |fields| try printSegments(fields, .{ .Reg, .Immediate64 }, writer),
-        .SetReg32 => |fields| try printSegments(fields, .{ .Reg, .Immediate32 }, writer),
-        .SetReg16 => |fields| try printSegments(fields, .{ .Reg, .Immediate16 }, writer),
-        .SetReg8 => |fields| try printSegments(fields, .{ .Reg, .Immediate8 }, writer),
+        .SetReg64, .SetRegN64 => |fields| try printSegments(fields, .{ .Reg, .Immediate64 }, writer),
+        .SetReg32, .SetRegN32 => |fields| try printSegments(fields, .{ .Reg, .Immediate32 }, writer),
+        .SetReg16, .SetRegN16 => |fields| try printSegments(fields, .{ .Reg, .Immediate16 }, writer),
+        .SetReg8, .SetRegN8 => |fields| try printSegments(fields, .{ .Reg, .Immediate8 }, writer),
 
         .Add, .Sub, .Mult => |fields| try printSegments(fields, .{ .Reg, .Reg, .Reg }, writer),
 

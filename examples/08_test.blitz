@@ -1,9 +1,4 @@
 fn main() {
-    let mut arr = &[1, 2, 3, 4];
-    let mut i = 0u64;
-
-    while (i < arr.len) {
-        arr[i] = 55;
-        i += 1u64;
-    }
+    let a = -5;
+    let b = 8 - a;
 }

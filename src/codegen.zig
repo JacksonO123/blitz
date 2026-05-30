@@ -138,6 +138,11 @@ pub const InstructionVariants = enum(u8) {
     SetReg16, // inst, reg, 2B data
     SetReg8, // inst, reg, 1B data
 
+    SetRegN64, // inst, reg, 8B data
+    SetRegN32, // inst, reg, 4B data
+    SetRegN16, // inst, reg, 2B data
+    SetRegN8, // inst, reg, 1B data
+
     Add, // inst, out reg, reg1, reg2
     Sub, // inst, out reg, reg1, reg2
     Mult, // inst, out reg, reg1, reg2
@@ -344,6 +349,26 @@ pub const InstructionVariants = enum(u8) {
                 .len = 3,
                 .opCount = 1,
                 .text = "set_reg_8",
+            },
+            .SetRegN64 => .{
+                .len = 10,
+                .opCount = 1,
+                .text = "set_reg_n_64",
+            },
+            .SetRegN32 => .{
+                .len = 6,
+                .opCount = 1,
+                .text = "set_reg_n_32",
+            },
+            .SetRegN16 => .{
+                .len = 4,
+                .opCount = 1,
+                .text = "set_reg_n_16",
+            },
+            .SetRegN8 => .{
+                .len = 3,
+                .opCount = 1,
+                .text = "set_reg_n_8",
             },
             .Add => .{
                 .len = 4,
@@ -949,6 +974,7 @@ pub const InstructionVariants = enum(u8) {
 
     pub fn maxOpCount() comptime_int {
         var max = 0;
+        @setEvalBranchQuota(1024);
         inline for (@typeInfo(Self).@"enum".fields) |field| {
             const val: Self = @enumFromInt(field.value);
             if (val.instrIsAny()) continue;
@@ -1102,6 +1128,11 @@ pub const Instr = union(InstructionVariants) {
     SetReg32: SetRegInstr(u32),
     SetReg16: SetRegInstr(u16),
     SetReg8: SetRegInstr(u8),
+
+    SetRegN64: SetRegInstr(u64),
+    SetRegN32: SetRegInstr(u32),
+    SetRegN16: SetRegInstr(u16),
+    SetRegN8: SetRegInstr(u8),
 
     Add: MathInstr,
     Sub: MathInstr,
@@ -1891,10 +1922,10 @@ pub const GenInfo = struct {
             .PostPopLRNegOffset64,
             => {},
 
-            .SetReg64 => |inner| try func(self, allocator, inner.reg, value),
-            .SetReg32 => |inner| try func(self, allocator, inner.reg, value),
-            .SetReg16 => |inner| try func(self, allocator, inner.reg, value),
-            .SetReg8 => |inner| try func(self, allocator, inner.reg, value),
+            .SetReg64, .SetRegN64 => |inner| try func(self, allocator, inner.reg, value),
+            .SetReg32, .SetRegN32 => |inner| try func(self, allocator, inner.reg, value),
+            .SetReg16, .SetRegN16 => |inner| try func(self, allocator, inner.reg, value),
+            .SetReg8, .SetRegN8 => |inner| try func(self, allocator, inner.reg, value),
             .Add, .Sub, .Mult => |inner| {
                 try func(self, allocator, inner.reg1, value);
                 try func(self, allocator, inner.reg2, value);
@@ -2267,19 +2298,19 @@ fn writeChunk(instr: Instr, writer: *Writer) !void {
     switch (instr) {
         .Label, .NoOp => unreachable,
         .Ret, .End => {},
-        .SetReg64 => |inner| {
+        .SetReg64, .SetRegN64 => |inner| {
             try writer.writeByte(@intCast(inner.reg));
             try writeNumber(u64, inner.data, writer);
         },
-        .SetReg32 => |inner| {
+        .SetReg32, .SetRegN32 => |inner| {
             try writer.writeByte(@intCast(inner.reg));
             try writeNumber(u32, inner.data, writer);
         },
-        .SetReg16 => |inner| {
+        .SetReg16, .SetRegN16 => |inner| {
             try writer.writeByte(@intCast(inner.reg));
             try writeNumber(u16, inner.data, writer);
         },
-        .SetReg8 => |inner| {
+        .SetReg8, .SetRegN8 => |inner| {
             try writer.writeByte(@intCast(inner.reg));
             try writeNumber(u8, inner.data, writer);
         },
@@ -3050,6 +3081,16 @@ pub fn genBytecodeUtil(
                                 .reg = reg,
                                 .data = try std.fmt.parseInt(u8, num.digits, 10),
                             },
+                        },
+                        .I32 => a: {
+                            const val = try std.fmt.parseInt(i32, num.digits[1..], 10);
+                            const adjustedValue = val - 1;
+                            break :a Instr{
+                                .SetRegN32 = .{
+                                    .reg = reg,
+                                    .data = @bitCast(adjustedValue),
+                                },
+                            };
                         },
                         else => utils.unimplemented(),
                     };

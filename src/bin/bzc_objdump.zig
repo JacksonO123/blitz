@@ -157,10 +157,10 @@ fn printInstrFromSliceUtil(
 
         .Label, .NoOp, .Ret, .End => {},
 
-        .SetReg64 => try printSegments(printUtil, .{ .Reg, .Immediate64 }, writer),
-        .SetReg32 => try printSegments(printUtil, .{ .Reg, .Immediate32 }, writer),
-        .SetReg16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
-        .SetReg8 => try printSegments(printUtil, .{ .Reg, .Immediate8 }, writer),
+        .SetReg64, .SetRegN64 => try printSegments(printUtil, .{ .Reg, .Immediate64 }, writer),
+        .SetReg32, .SetRegN32 => try printSegments(printUtil, .{ .Reg, .Immediate32 }, writer),
+        .SetReg16, .SetRegN16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
+        .SetReg8, .SetRegN8 => try printSegments(printUtil, .{ .Reg, .Immediate8 }, writer),
 
         .Add, .Sub, .Mult => try printSegments(printUtil, .{ .Reg, .Reg, .Reg }, writer),
 
