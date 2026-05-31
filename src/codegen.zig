@@ -3099,12 +3099,11 @@ pub fn genBytecodeUtil(
                             },
                         },
                         .I32 => a: {
-                            const val = try std.fmt.parseInt(i32, num.digits[1..], 10);
-                            const adjustedValue = val - 1;
+                            const val = try std.fmt.parseInt(i32, num.digits, 10);
                             break :a Instr{
                                 .SetRegN32 = .{
                                     .reg = reg,
-                                    .data = @bitCast(adjustedValue),
+                                    .data = @bitCast(val),
                                 },
                             };
                         },
