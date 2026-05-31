@@ -1,4 +1,4 @@
 fn main() {
-    let a = -5;
-    let b = 8 - a;
+    let a = 3 - 8;
+    let b = a * 2 + 14;
 }

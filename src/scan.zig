@@ -355,6 +355,21 @@ pub fn scanNode(
             const origRight = try scanNode(allocator, context, op.right, withGenDef);
             const right = try escapeVarInfoAndRelease(context, origRight);
 
+            const leftSigned = switch (left.info.astType.*) {
+                .Number => |num| num.isSigned(),
+                else => false,
+            };
+            const rightSigned = switch (right.info.astType.*) {
+                .Number => |num| num.isSigned(),
+                else => false,
+            };
+
+            node.typeInfo.data = .{
+                .OpExpr = .{
+                    .signed = leftSigned or rightSigned,
+                },
+            };
+
             switch (op.type) {
                 .BitAnd, .BitOr => {
                     if (left.info.astType.* != .Number or right.info.astType.* != .Number) {

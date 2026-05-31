@@ -162,7 +162,7 @@ fn remapInstr(
             instrIndex,
             sp,
         ),
-        .Add, .Sub, .Mult => |*inner| {
+        .Add, .Sub, .Mult, .AddSigned, .SubSigned => |*inner| {
             try remapReg(allocator, context, &inner.reg1, baseIndex, instrIndex, sp);
             try remapReg(allocator, context, &inner.reg2, baseIndex, instrIndex, sp);
             flushPendingDeactivations(context);
@@ -921,7 +921,7 @@ fn recordInstrRegUsages(context: *Context, instrIndex: usize, limits: codegen.Re
         .SetReg32, .SetRegN32 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
         .SetReg16, .SetRegN16 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
         .SetReg8, .SetRegN8 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
-        .Add, .Sub, .Mult => |*inner| {
+        .Add, .Sub, .Mult, .AddSigned, .SubSigned => |*inner| {
             recordNextUsage(context, inner.reg1, instrIndex, limits);
             recordNextUsage(context, inner.reg2, instrIndex, limits);
             recordNextUsage(context, inner.dest, instrIndex, limits);

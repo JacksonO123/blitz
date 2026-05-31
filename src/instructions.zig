@@ -395,3 +395,19 @@ pub fn mulRegAddReg(
         },
     };
 }
+
+pub fn addFromInstrStruct(instr: codegen.TwoOpResultInstr, signed: bool) codegen.Instr {
+    if (signed) {
+        return .{ .AddSigned = instr };
+    }
+
+    return .{ .Add = instr };
+}
+
+pub fn subFromInstrStruct(instr: codegen.TwoOpResultInstr, signed: bool) codegen.Instr {
+    if (signed) {
+        return .{ .SubSigned = instr };
+    }
+
+    return .{ .Sub = instr };
+}

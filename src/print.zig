@@ -951,7 +951,11 @@ fn printUnionInstr(instr: codegen.Instr, writer: *Writer) !void {
         .SetReg16, .SetRegN16 => |fields| try printSegments(fields, .{ .Reg, .Immediate16 }, writer),
         .SetReg8, .SetRegN8 => |fields| try printSegments(fields, .{ .Reg, .Immediate8 }, writer),
 
-        .Add, .Sub, .Mult => |fields| try printSegments(fields, .{ .Reg, .Reg, .Reg }, writer),
+        .Add, .Sub, .Mult, .AddSigned, .SubSigned => |fields| try printSegments(
+            fields,
+            .{ .Reg, .Reg, .Reg },
+            writer,
+        ),
 
         .Add8, .Sub8 => |fields| try printSegments(fields, .{ .Reg, .Reg, .Immediate8 }, writer),
         .Add16,

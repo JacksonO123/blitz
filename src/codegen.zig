@@ -147,6 +147,9 @@ pub const InstructionVariants = enum(u8) {
     Sub, // inst, out reg, reg1, reg2
     Mult, // inst, out reg, reg1, reg2
 
+    AddSigned, // inst, out reg, reg1, reg2
+    SubSigned, // inst, out reg, reg1, reg2
+
     Add8, // inst, out reg, reg1, 1B data
     Sub8, // inst, out reg, reg1, 1B data
     Add16, // inst, out reg, reg1, 2B data
@@ -384,6 +387,16 @@ pub const InstructionVariants = enum(u8) {
                 .len = 4,
                 .opCount = 3,
                 .text = "mult",
+            },
+            .AddSigned => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "add_signed",
+            },
+            .SubSigned => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "sub_signed",
             },
             .Add8 => .{
                 .len = 4,
@@ -994,7 +1007,7 @@ pub const InstructionVariants = enum(u8) {
     }
 };
 
-const TwoOpResultInstr = struct {
+pub const TwoOpResultInstr = struct {
     dest: vmInfo.TempRegister,
     reg1: vmInfo.TempRegister,
     reg2: vmInfo.TempRegister,
@@ -1137,6 +1150,9 @@ pub const Instr = union(InstructionVariants) {
     Add: MathInstr,
     Sub: MathInstr,
     Mult: MathInstr,
+
+    AddSigned: MathInstr,
+    SubSigned: MathInstr,
 
     Add8: OneOpResultInstr(u8),
     Sub8: OneOpResultInstr(u8),
@@ -1926,7 +1942,7 @@ pub const GenInfo = struct {
             .SetReg32, .SetRegN32 => |inner| try func(self, allocator, inner.reg, value),
             .SetReg16, .SetRegN16 => |inner| try func(self, allocator, inner.reg, value),
             .SetReg8, .SetRegN8 => |inner| try func(self, allocator, inner.reg, value),
-            .Add, .Sub, .Mult => |inner| {
+            .Add, .Sub, .Mult, .AddSigned, .SubSigned => |inner| {
                 try func(self, allocator, inner.reg1, value);
                 try func(self, allocator, inner.reg2, value);
                 try func(self, allocator, inner.dest, value);
@@ -2314,7 +2330,7 @@ fn writeChunk(instr: Instr, writer: *Writer) !void {
             try writer.writeByte(@intCast(inner.reg));
             try writeNumber(u8, inner.data, writer);
         },
-        .Add, .Sub, .Mult, .Xor => |inner| {
+        .Add, .Sub, .Mult, .AddSigned, .SubSigned, .Xor => |inner| {
             try writer.writeByte(@intCast(inner.dest));
             try writer.writeByte(@intCast(inner.reg1));
             try writer.writeByte(@intCast(inner.reg2));
@@ -3256,6 +3272,8 @@ pub fn genBytecodeUtil(
             }
         },
         .OpExpr => |expr| {
+            const signed = node.typeInfo.data.OpExpr.signed;
+
             var leftReg: vmInfo.TempRegister = undefined;
 
             const leftDepth = ast.getExprDepth(expr.left);
@@ -3283,8 +3301,8 @@ pub fn genBytecodeUtil(
                         .reg2 = rightReg,
                     };
                     break :a switch (expr.type) {
-                        .Add => .{ .Add = mathInstr },
-                        .Sub => .{ .Sub = mathInstr },
+                        .Add => instructions.addFromInstrStruct(mathInstr, signed),
+                        .Sub => instructions.subFromInstrStruct(mathInstr, signed),
                         .Mult => .{ .Mult = mathInstr },
                         else => utils.unimplemented(),
                     };

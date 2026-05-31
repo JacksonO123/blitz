@@ -237,6 +237,22 @@ fn interpretBytecode(
                 _ = overflow;
                 runtimeInfo.registers[bytecode[current + 1]] = res;
             },
+            .AddSigned => {
+                const reg1Val: i64 = @bitCast(runtimeInfo.registers[bytecode[current + 2]]);
+                const reg2Val: i64 = @bitCast(runtimeInfo.registers[bytecode[current + 3]]);
+                const res, const overflow = @addWithOverflow(reg1Val, reg2Val);
+                // TODO - do something with overflow
+                _ = overflow;
+                runtimeInfo.registers[bytecode[current + 1]] = @bitCast(res);
+            },
+            .SubSigned => {
+                const reg1Val: i64 = @bitCast(runtimeInfo.registers[bytecode[current + 2]]);
+                const reg2Val: i64 = @bitCast(runtimeInfo.registers[bytecode[current + 3]]);
+                const res, const overflow = @subWithOverflow(reg1Val, reg2Val);
+                // TODO - do something with overflow
+                _ = overflow;
+                runtimeInfo.registers[bytecode[current + 1]] = @bitCast(res);
+            },
             .Add8 => {
                 const regVal = runtimeInfo.registers[bytecode[current + 2]];
                 runtimeInfo.registers[bytecode[current + 1]] = regVal + bytecode[current + 3];
@@ -254,7 +270,10 @@ fn interpretBytecode(
             .Mult => {
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
                 const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
-                runtimeInfo.registers[bytecode[current + 1]] = reg1Val * reg2Val;
+                const res, const overflow = @mulWithOverflow(reg1Val, reg2Val);
+                // TODO - do something with overflow
+                _ = overflow;
+                runtimeInfo.registers[bytecode[current + 1]] = res;
             },
             .Cmp => {
                 const reg1Value = runtimeInfo.registers[bytecode[current + 1]];

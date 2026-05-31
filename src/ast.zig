@@ -39,6 +39,13 @@ pub const AstNumberVariants = enum(u8) {
     F32 = 20,
     F64 = 21,
 
+    pub fn isSigned(self: Self) bool {
+        return switch (self) {
+            .U8, .U16, .U32, .U64, .U128 => false,
+            else => true,
+        };
+    }
+
     pub fn getSize(self: Self) u8 {
         return switch (self) {
             .U8, .I8 => 1,
@@ -889,6 +896,7 @@ const AstTypeInfoDataVariant = enum {
     ArrDecPtr,
     StructInit,
     Others,
+    OpExpr,
 };
 
 const AstTypeInfoData = union(AstTypeInfoDataVariant) {
@@ -908,6 +916,9 @@ const AstTypeInfoData = union(AstTypeInfoDataVariant) {
     Others: struct {
         resolvesToFunc: ?*FuncDecNode = null,
         funcGenInstanceIndex: ?u32 = null,
+    },
+    OpExpr: struct {
+        signed: bool,
     },
 };
 
