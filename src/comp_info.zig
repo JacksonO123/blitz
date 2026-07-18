@@ -15,6 +15,8 @@ const vmInfo = blitz.vmInfo;
 const pools = blitz.allocPools;
 const Context = blitz.context.Context;
 const identStore = blitz.identStore;
+const errors = blitz.errors;
+const ScanError = errors.ScanError;
 
 fn ScopeDeinitFn(comptime T: type) type {
     return fn (*Context, T, pools.ReleaseType) void;
@@ -436,7 +438,7 @@ pub const CompInfo = struct {
         gType: scanner.TypeAndAllocInfo,
     ) !void {
         if (gType.info.astType.* == .VarInfo) {
-            return scanner.ScanError.CannotSetGenericToVarInfo;
+            return ScanError.CannotSetGenericToVarInfo;
         }
 
         const genScope = self.genericScopes.getCurrentScope();
@@ -520,7 +522,7 @@ pub const CompInfo = struct {
         mutState: scanner.MutState,
     ) !void {
         if (info.info.astType.* == .VarInfo) {
-            return scanner.ScanError.NestedVarInfoDetected;
+            return ScanError.NestedVarInfoDetected;
         }
 
         const scope = self.variableScopes.getCurrentScope();

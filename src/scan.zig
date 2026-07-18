@@ -12,6 +12,8 @@ const allocPools = blitz.allocPools;
 const Context = blitz.context.Context;
 const constants = blitz.constants;
 const identStore = blitz.identStore;
+const errors = blitz.errors;
+const ScanError = errors.ScanError;
 
 pub const ScanBehavior = struct {
     allowErrorWithoutVariants: bool = false,
@@ -55,125 +57,6 @@ const MutMatchBehavior = enum {
     Strict, // must match exactly
 };
 
-pub const ScanNodeError = Allocator.Error ||
-    ScanError ||
-    clone.CloneError ||
-    std.fmt.ParseIntError ||
-    ast.AstTypeError;
-
-pub const ScanError = error{
-    // misc
-    ScanStartedInLowerScope,
-    InvalidCast,
-    ExpectedBooleanBang,
-    ExpectedBooleanIfCondition,
-    UnsupportedFeature,
-    ExpectedU64OrU32ForIndex,
-    StaticStructInstanceCannotBeUsedAsVariable,
-    InvalidNumber,
-    IfStatementMayOnlyHaveOneElse,
-    ElseBranchOutOfOrder,
-    NestedVarInfoDetected,
-    RawNumberTooBigForType,
-    CannotSetGenericToVarInfo,
-    InvalidEqOperationType,
-
-    // pointers
-    PointerTypeMismatch,
-    CannotDereferenceNonPointerValue,
-    CannotTakePointerOfRawValue,
-    CannotFreeNonPointerType,
-
-    // arrays
-    ArrayTypeMismatch,
-    ExpectedArrayForIndexTarget,
-    ExpectedU64OrU32ForArrayDecSize,
-    ArrayDecSizeMismatch,
-    ArrayInitTypeInitializerMismatch,
-    ExpectedSliceFoundArray,
-    ExpectedArrayFoundSlice,
-    CanOnlyMakeSliceFromSizedArray,
-
-    // loops
-    ExpectedBooleanLoopCondition,
-    LoopControlFlowUsedOutsideOfLoop,
-
-    // variables
-    VariableAnnotationMismatch,
-    VariableAlreadyExists,
-    VoidVariableDec,
-    VariableTypeAndValueTypeMismatch,
-    AssigningToConstVariable,
-    PointerTypeConstMismatch,
-    StrictMutTypeMismatch,
-    InvalidSetValueTarget,
-    UndefVariableRequiresAnnotation,
-    ValueSetTargetNotAVariable,
-
-    // functions
-    ExpectedFunctionReturn,
-    FunctionCallParamTypeMismatch,
-    FunctionCallParamCountMismatch,
-    FunctionReturnTypeMismatch,
-    IdentifierNotAFunction,
-    CannotCallNonFunctionNode,
-    VariableIsUndefined,
-    FunctionNotInScope,
-    FunctionReturnIsNotExhaustive,
-    FunctionMissingReturn,
-    UnexpectedReturnStatement,
-    ExpectedMutableParameter,
-    CallGenericsAndFuncDecGenericCountMismatch,
-    UnexpectedCallGenerics,
-    UnexpectedSelfParameter,
-    ExpectedSelfParameterToBeFirst,
-    ExpectedSelfParameter,
-    CaptureVariableIsNotInScope,
-    CaptureVariableConstMismatch,
-
-    // structs
-    GenericCountMismatch,
-    StructInitAttributeCountMismatch,
-    StructInitMemberTypeMismatch,
-    StructInitAttributeNotFound,
-    InvalidProperty,
-    StaticAccessFromStructInstance,
-    NonStaticAccessFromStaticStructReference,
-    SelfUsedOutsideStruct,
-    StructDoesNotExist,
-    RestrictedPropertyAccess,
-    InvalidPropertySource,
-    NonPublicStructFieldAccessFromOutsideDefinition,
-    GenericStructMethodRedefiningStructGeneric,
-    ExpectedMutableStructInstance,
-
-    // operations
-    MathOpOnNonNumberType,
-    MathOpTypeMismatch,
-    ExpectedBoolInBoolOp,
-    InvalidBitOperation,
-    BitMaskWithMismatchingSize,
-    NumberTypeMismatch,
-    ComparisonOnNonNumberType,
-    CannotIncDecNonNumberType,
-
-    // generics
-    EmptyGenericType,
-    CustomGenericMismatch,
-    ConflictingGenericParameters,
-    GenericRestrictionConflict,
-    UnexpectedRecursiveGeneric,
-    GenericNotFound,
-
-    // errors
-    ExpectedUseOfErrorVariants,
-    ErrorDoesNotHaveVariants,
-    ErrorVariantDoesNotExist,
-
-    // enums
-    EnumVariantDoesNotExist,
-};
-
 const StructInitMemberInfo = struct {
     initInfo: TypeAndAllocInfo,
     defInfo: ast.AstTypeInfo,
@@ -199,7 +82,7 @@ pub fn scanNode(
     context: *Context,
     node: *ast.AstNode,
     withGenDef: bool,
-) ScanNodeError!TypeAndAllocInfo {
+) ScanError!TypeAndAllocInfo {
     switch (node.variant) {
         .NoOp, .ErrorDec, .EnumDec => {
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
@@ -339,6 +222,7 @@ pub fn scanNode(
 
             const arr = arrOrNull orelse return ScanError.ExpectedArrayForIndexTarget;
 
+            std.debug.print("ARR TYPE :: {}\n", .{arr.type});
             const resType = try clone.replaceGenericsOnTypeInfo(
                 allocator,
                 context,
@@ -621,83 +505,40 @@ pub fn scanNode(
                     return try getArrayDecPropType(allocator, context, node, access.property);
                 },
                 .Custom => |custom| a: {
-                    const structDec = context.compInfo.getStructDec(custom.nameIdentId) orelse
-                        break :a false;
-                    node.typeInfo.data = .{
-                        .PropertyAccess = .{
-                            .decIdent = custom.nameIdentId,
-                            .attrSizes = custom.attrSizes,
-                        },
-                    };
-
-                    try context.compInfo.pushGenScope(allocator, true);
-                    defer context.compInfo.popGenScope(context);
-
-                    if (structDec.generics.len < custom.generics.len) {
-                        return ScanError.GenericCountMismatch;
-                    }
-
-                    const defGenerics = structDec.generics[0..custom.generics.len];
-                    for (custom.generics, defGenerics) |customGen, genDef| {
-                        const clonedGenType = try clone.replaceGenericsOnTypeInfo(
-                            allocator,
-                            context,
-                            customGen.toAllocInfo(.Recycled),
-                            withGenDef,
-                        );
-                        try context.compInfo.setGeneric(genDef.nameIdentId, clonedGenType);
-                    }
-
-                    const propType = (try validateCustomProps(
+                    const isValid, const info = try isValidPropertyOfCustom(
                         allocator,
                         context,
-                        custom,
-                        access.property,
+                        node,
+                        &custom,
+                        access,
+                        valueInfo.info.mutState,
+                        origValueInfo.info.mutState,
                         withGenDef,
-                    )) orelse break :a false;
-
-                    if (propType.info.astType.* == .Function) {
-                        const func = propType.info.astType.Function;
-                        const strictMutState = valueInfo.info.mutState.orConst(
-                            origValueInfo.info.mutState,
-                        );
-                        if (func.params.selfInfo) |info| {
-                            if (info.mutState == .Mut and strictMutState == .Const) {
-                                return ScanError.ExpectedMutableStructInstance;
-                            }
-                        }
+                    );
+                    if (isValid) {
+                        std.debug.print("HERE 1 :: {}\n", .{info});
+                        return info;
                     }
-
-                    node.typeInfo.size = try propType.info.astType.getSize(allocator, context);
-                    node.typeInfo.alignment = try propType.info.astType.getAlignment(
+                    break :a false;
+                },
+                .CustomInstance => |id| a: {
+                    const instance = context.instanceStore.getInstanceById(id) orelse
+                        break :a false;
+                    const isValid, const info = try isValidPropertyOfCustom(
                         allocator,
                         context,
+                        node,
+                        instance,
+                        access,
+                        valueInfo.info.mutState,
+                        origValueInfo.info.mutState,
+                        withGenDef,
                     );
-
-                    var copy = switch (propType.info.astType.*) {
-                        .Function => |func| b: {
-                            const structMethodType = try context.pools.newType(context, .{
-                                .StructMethod = .{
-                                    .customSrc = custom,
-                                    .func = func,
-                                },
-                            });
-                            allocPools.recursiveReleaseType(context, propType.info.astType);
-                            break :b structMethodType.toAllocInfo(
-                                propType.info.mutState,
-                                propType.allocState,
-                            );
-                        },
-                        else => propType,
-                    };
-                    copy.info.mutState = valueInfo.info.mutState;
-                    const varInfo = try context.pools.newType(context, .{
-                        .VarInfo = copy,
-                    });
-                    return varInfo.toAllocInfo(
-                        origValueInfo.info.mutState.orConst(valueInfo.info.mutState),
-                        .Allocated,
-                    );
+                    if (isValid) {
+                        std.debug.print("HERE 2 :: {}\n", .{info.info.astType.VarInfo.info.astType.ArrayDec.type.info});
+                        return info;
+                    }
+                    break :a false;
                 },
                 .StaticStructInstance => |nameIdentId| a: {
                     try context.compInfo.pushGenScope(allocator, false);
@@ -1381,15 +1222,15 @@ pub fn scanNode(
                 generics[index] = try clone.cloneAstTypeInfo(allocator, context, gen, withGenDef);
             }
 
-            const customType = try context.pools.newType(context, .{
-                .Custom = .{
-                    .generics = generics,
-                    .nameIdentId = init.nameIdentId,
-                    .allowPrivateReads = false,
-                    .attrSizes = attrSizes.items,
-                },
-            });
-            return customType.toAllocInfo(.Mut, .Allocated);
+            const customType = ast.CustomType{
+                .generics = generics,
+                .nameIdentId = init.nameIdentId,
+                .allowPrivateReads = false,
+                .attrSizes = attrSizes.items,
+            };
+            const customTypeRef = try context.instanceStore.appendInstanceGetRefType(customType);
+            const customTypeRefType = try context.pools.newType(context, customTypeRef);
+            return customTypeRefType.toAllocInfo(.Mut, .Recycled);
         },
         .Bang => |bang| {
             const origBangType = try scanNode(allocator, context, bang, withGenDef);
@@ -1602,6 +1443,88 @@ pub fn scanNode(
             return context.staticPtrs.types.voidType.toAllocInfo(.Recycled);
         },
     }
+}
+
+fn isValidPropertyOfCustom(
+    allocator: Allocator,
+    context: *Context,
+    node: *ast.AstNode,
+    custom: *const ast.CustomType,
+    access: ast.PropertyAccess,
+    valueInfoMutState: MutState,
+    origValueMutState: MutState,
+    withGenDef: bool,
+) !struct { bool, TypeAndAllocInfo } {
+    const structDec = context.compInfo.getStructDec(custom.nameIdentId) orelse
+        return .{ false, undefined };
+    node.typeInfo.data = .{
+        .PropertyAccess = .{
+            .decIdent = custom.nameIdentId,
+            .attrSizes = custom.attrSizes,
+        },
+    };
+
+    try context.compInfo.pushGenScope(allocator, true);
+    defer context.compInfo.popGenScope(context);
+
+    if (structDec.generics.len < custom.generics.len) {
+        return ScanError.GenericCountMismatch;
+    }
+
+    const defGenerics = structDec.generics[0..custom.generics.len];
+    for (custom.generics, defGenerics) |customGen, genDef| {
+        const clonedGenType = try clone.replaceGenericsOnTypeInfo(
+            allocator,
+            context,
+            customGen.toAllocInfo(.Recycled),
+            withGenDef,
+        );
+        try context.compInfo.setGeneric(genDef.nameIdentId, clonedGenType);
+    }
+
+    const propType = (try validateCustomProps(
+        allocator,
+        context,
+        custom,
+        access.property,
+        withGenDef,
+    )) orelse return .{ false, undefined };
+
+    if (propType.info.astType.* == .Function) {
+        const func = propType.info.astType.Function;
+        const strictMutState = valueInfoMutState.orConst(origValueMutState);
+        if (func.params.selfInfo) |info| {
+            if (info.mutState == .Mut and strictMutState == .Const) {
+                return ScanError.ExpectedMutableStructInstance;
+            }
+        }
+    }
+
+    node.typeInfo.size = try propType.info.astType.getSize(allocator, context);
+    node.typeInfo.alignment = try propType.info.astType.getAlignment(allocator, context);
+
+    var copy = switch (propType.info.astType.*) {
+        .Function => |func| b: {
+            const structMethodType = try context.pools.newType(context, .{
+                .StructMethod = .{
+                    .customSrc = custom.*,
+                    .func = func,
+                },
+            });
+            allocPools.recursiveReleaseType(context, propType.info.astType);
+            break :b structMethodType.toAllocInfo(
+                propType.info.mutState,
+                propType.allocState,
+            );
+        },
+        else => propType,
+    };
+    copy.info.mutState = valueInfoMutState;
+    const varInfo = try context.pools.newType(context, .{ .VarInfo = copy });
+    return .{
+        true,
+        varInfo.toAllocInfo(origValueMutState.orConst(valueInfoMutState), .Allocated),
+    };
 }
 
 fn getNodeInfoNodeType(valType: TypeAndAllocInfo) ast.AstTypeInfoNodeType {
@@ -2229,7 +2152,7 @@ fn validateStaticStructProps(
 fn validateCustomProps(
     allocator: Allocator,
     context: *Context,
-    custom: ast.CustomType,
+    custom: *const ast.CustomType,
     propId: identStore.IdentId,
     withGenDef: bool,
 ) !?TypeAndAllocInfo {
@@ -2285,7 +2208,7 @@ pub fn matchTypes(
     toType: ast.AstTypeInfo,
     fromType: ast.AstTypeInfo,
     withGenDef: bool,
-) ScanNodeError!bool {
+) ScanError!bool {
     return try matchTypesUtil(allocator, context, toType, fromType, withGenDef, .Assign);
 }
 
@@ -2297,7 +2220,7 @@ pub fn matchTypesUtil(
     fromType: ast.AstTypeInfo,
     withGenDef: bool,
     mutMatchBehavior: MutMatchBehavior,
-) !bool {
+) ScanError!bool {
     const type1 = toType.astType.*;
     const type2 = fromType.astType.*;
 
@@ -2506,27 +2429,56 @@ pub fn matchTypesUtil(
             }
         },
         .Custom => |custom| {
-            if (type2 == .StaticStructInstance and custom.nameIdentId == type2.StaticStructInstance) {
+            if (type2 == .StaticStructInstance and
+                custom.nameIdentId == type2.StaticStructInstance)
+            {
                 return try matchMutState(toType, fromType, true, mutMatchBehavior);
             }
 
-            if (type2 != .Custom) return false;
-            if (type1.Custom.nameIdentId != type2.Custom.nameIdentId) return false;
-            if (custom.generics.len != type2.Custom.generics.len) return false;
+            const calculatedType2 = if (type2 == .Custom)
+                &type2.Custom
+            else if (type2 == .CustomInstance)
+                context.instanceStore.getInstanceById(type2.CustomInstance) orelse
+                    return ScanError.FailedToGetCustomInstanceById
+            else
+                return false;
 
-            for (custom.generics, type2.Custom.generics) |gen1, gen2| {
-                const genMatch = try matchTypesUtil(
-                    allocator,
-                    context,
-                    gen1,
-                    gen2,
-                    withGenDef,
-                    mutMatchBehavior,
-                );
-                if (!genMatch) return ScanError.CustomGenericMismatch;
+            const matched = try matchCustomTypes(
+                allocator,
+                context,
+                &type1.Custom,
+                calculatedType2,
+                withGenDef,
+                mutMatchBehavior,
+            );
+            return try matchMutState(toType, fromType, matched, mutMatchBehavior);
+        },
+        .CustomInstance => |id| {
+            const instanceOrNull = context.instanceStore.getInstanceById(id);
+            const instance = instanceOrNull orelse return false;
+            if (type2 == .StaticStructInstance and
+                instance.nameIdentId == type2.StaticStructInstance)
+            {
+                return try matchMutState(toType, fromType, true, mutMatchBehavior);
             }
 
-            return try matchMutState(toType, fromType, true, mutMatchBehavior);
+            const calculatedType2 = if (type2 == .Custom)
+                &type2.Custom
+            else if (type2 == .CustomInstance)
+                context.instanceStore.getInstanceById(type2.CustomInstance) orelse
+                    return ScanError.FailedToGetCustomInstanceById
+            else
+                return false;
+
+            const matched = try matchCustomTypes(
+                allocator,
+                context,
+                instance,
+                calculatedType2,
+                withGenDef,
+                mutMatchBehavior,
+            );
+            return try matchMutState(toType, fromType, matched, mutMatchBehavior);
         },
         .Error => |err| switch (type2) {
             .Error => |err2| err.nameIdentId == err2.nameIdentId,
@@ -2637,6 +2589,32 @@ pub fn matchTypesUtil(
         },
         else => false,
     };
+}
+
+fn matchCustomTypes(
+    allocator: Allocator,
+    context: *Context,
+    type1: *const ast.CustomType,
+    type2: *const ast.CustomType,
+    withGenDef: bool,
+    mutMatchBehavior: MutMatchBehavior,
+) !bool {
+    if (type1.nameIdentId != type2.nameIdentId) return false;
+    if (type1.generics.len != type2.generics.len) return false;
+
+    for (type1.generics, type2.generics) |gen1, gen2| {
+        const genMatch = try matchTypesUtil(
+            allocator,
+            context,
+            gen1,
+            gen2,
+            withGenDef,
+            mutMatchBehavior,
+        );
+        if (!genMatch) return ScanError.CustomGenericMismatch;
+    }
+
+    return true;
 }
 
 /// assumes numbers are same type different width

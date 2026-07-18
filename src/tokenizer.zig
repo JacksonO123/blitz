@@ -7,22 +7,12 @@ const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
 const identStoreMod = blitz.identStore;
+const errors = blitz.errors;
+
+const TokenizeError = errors.TokenizeError;
+const AstTokenError = errors.AstTokenError;
 
 const INIT_TOK_CAPACITY = 1024 * 10;
-
-pub const TokenizeError = error{
-    NumberHasTwoPeriods,
-    NoClosingQuote,
-    ExpectedCharacterFoundNothing,
-    UnexpectedCharacter,
-    CharTokenTooLong,
-    CharTokenTooShort,
-};
-
-pub const TokenError = error{
-    ExpectedTokenFoundNothing,
-    UnexpectedToken,
-};
 
 const TokenVariants = enum {
     const Self = @This();
@@ -903,7 +893,7 @@ pub const TokenUtil = struct {
 
     pub fn takeFixed(self: *Self) !Token {
         if (self.pos >= self.tokens.len) {
-            return TokenError.ExpectedTokenFoundNothing;
+            return AstTokenError.ExpectedTokenFoundNothing;
         }
 
         const res = self.tokens[self.pos];
@@ -916,7 +906,7 @@ pub const TokenUtil = struct {
 
     pub fn peakFixed(self: Self) !Token {
         if (self.pos >= self.tokens.len) {
-            return TokenError.ExpectedTokenFoundNothing;
+            return AstTokenError.ExpectedTokenFoundNothing;
         }
 
         return self.tokens[self.pos];
@@ -946,7 +936,7 @@ pub const TokenUtil = struct {
     pub fn expectToken(self: *Self, tokenType: TokenType) !void {
         const token = try self.take();
         if (std.meta.activeTag(token.type) != std.meta.activeTag(tokenType)) {
-            return TokenError.UnexpectedToken;
+            return AstTokenError.UnexpectedToken;
         }
     }
 

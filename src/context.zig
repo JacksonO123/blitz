@@ -15,6 +15,7 @@ const allocPools = blitz.allocPools;
 const utils = blitz.utils;
 const print = blitz.print;
 const identStoreMod = blitz.identStore;
+const instanceStoreMod = blitz.instanceStore;
 
 const ContextSettings = struct {
     debug: struct {
@@ -46,6 +47,7 @@ pub const Context = struct {
     compInfo: blitzCompInfo.CompInfo,
     scanBehavior: scanner.ScanBehavior = .{},
     genInfo: codegen.GenInfo,
+    instanceStore: instanceStoreMod.InstanceStore,
     deferCleanup: DeferCleanup,
     staticPtrs: StaticPtrs,
     code: []const u8,
@@ -75,6 +77,8 @@ pub const Context = struct {
         const constTypeInfos = try StaticPtrs.init(&pools);
         const contextUtils = ContextUtils.init(allocator);
 
+        const instanceStore = instanceStoreMod.InstanceStore.init();
+
         return .{
             .identStore = identStore,
             .pools = pools,
@@ -88,6 +92,7 @@ pub const Context = struct {
             .code = code,
             .utils = contextUtils,
             .settings = settings,
+            .instanceStore = instanceStore,
         };
     }
 

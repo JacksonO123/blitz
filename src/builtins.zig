@@ -6,7 +6,8 @@ const ast = blitz.ast;
 const utils = blitz.utils;
 const scanner = blitz.scanner;
 const vmInfo = blitz.vmInfo;
-const ScanError = scanner.ScanError;
+const errors = blitz.errors;
+const ScanError = errors.ScanError;
 const Context = blitz.context.Context;
 const identStore = blitz.identStore;
 

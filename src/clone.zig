@@ -7,15 +7,8 @@ const print = blitz.print;
 const scanner = blitz.scanner;
 const pools = blitz.allocPools;
 const Context = blitz.context.Context;
-
-pub const CloneError = error{
-    GenericNotFound,
-    BadGenericClone,
-    CannotCloneFunction,
-    CannotCloneStructDec,
-    CannotCloneErrorDec,
-    CannotCloneEnumDec,
-};
+const errors = blitz.errors;
+const CloneError = errors.CloneError;
 
 pub fn cloneAstTypeInfo(
     allocator: Allocator,
@@ -147,6 +140,11 @@ pub fn cloneAstTypes(
                     .allowPrivateReads = custom.allowPrivateReads,
                     .attrSizes = custom.attrSizes,
                 },
+            };
+        },
+        .CustomInstance => |id| {
+            return .{
+                .CustomInstance = id,
             };
         },
         .Error => |err| {

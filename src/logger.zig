@@ -1,5 +1,6 @@
 const std = @import("std");
 const Writer = std.Io.Writer;
+const Allocator = std.mem.Allocator;
 
 const blitz = @import("blitz.zig");
 const utils = blitz.utils;
@@ -9,7 +10,8 @@ const blitzContext = blitz.context;
 const TokenUtil = tokenizer.TokenUtil;
 const AstError = ast.AstError;
 const Context = blitzContext.Context;
-const TokenError = tokenizer.TokenError;
+const errors = blitz.errors;
+const TokenError = errors.AstTokenError;
 
 const LineBounds = struct {
     start: usize,
@@ -125,7 +127,7 @@ fn findSurroundingLines(
     return output;
 }
 
-pub fn logParseError(context: *Context, err: ast.ParseError, writer: *Writer) void {
+pub fn logParseError(context: *Context, err: (errors.AstError || Allocator.Error), writer: *Writer) void {
     const errString = switch (err) {
         error.ExpectedNameForStruct => "expected name for struct",
         error.ExpectedIdentifierPropertyAccessSource => "expected identifier for property access source",

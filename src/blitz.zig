@@ -14,8 +14,10 @@ pub const version = @import("version.zig");
 pub const vmInfo = @import("vm_info.zig");
 pub const backendUtils = @import("backends/utils.zig");
 pub const analyzer = @import("bzc_analyzer.zig");
-pub const identStore = @import("identStore.zig");
+pub const identStore = @import("ident_store.zig");
 pub const instructions = @import("instructions.zig");
+pub const instanceStore = @import("instance_store.zig");
+pub const errors = @import("errors.zig");
 
 pub const backends = .{
     .bytecode = @import("backends/bytecode.zig"),

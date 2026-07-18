@@ -87,6 +87,12 @@ pub fn printType(
         .Custom => |custom| {
             try printCustomType(context, custom, writer);
         },
+        .CustomInstance => |id| {
+            const instanceOrNull = context.instanceStore.getInstanceById(id);
+            if (instanceOrNull) |instance| {
+                try printCustomType(context, instance.*, writer);
+            }
+        },
         .Generic => |genIdentId| {
             try writer.writeAll("[generic](");
             const genStr = context.identStore.getIdentFromId(genIdentId).?;

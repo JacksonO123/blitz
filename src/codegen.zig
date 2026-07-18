@@ -18,27 +18,9 @@ const identStore = blitz.identStore;
 const bytecodeBackend = blitz.backends.bytecode;
 const instructions = blitz.instructions;
 const Context = blitz.context.Context;
-
-const CodeGenError = error{
-    RawNumberIsTooBig,
-    NoAvailableRegisters,
-    ReturnedRegisterNotFound,
-    NoJumpInstructionMatchingComp,
-    ExpectedLoopInfo,
-    ImmediateValueTooLarge,
-    RegInteractionNotSupported,
-    NoTrivialRegister,
-    AccessTargetDoesNotHaveStructName,
-    LabelDoesNotExist,
-    MainFunctionNotFound,
-    ResultOfAccessRegNotFound,
-};
-const GenBytecodeError = CodeGenError ||
-    Allocator.Error ||
-    std.fmt.ParseIntError ||
-    ast.AstTypeError ||
-    scanner.ScanError ||
-    clone.CloneError;
+const errors = blitz.errors;
+const CodeGenError = errors.CodeGenError;
+const GenBytecodeError = errors.GenBytecodeError;
 
 pub const BackendTypes = enum {
     Bytecode,
