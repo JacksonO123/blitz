@@ -94,9 +94,9 @@ const InstrInfo = struct {
     text: []const u8,
 };
 
-pub const instrDataArr = getTestArr();
+pub const instrDataArr = initInstrDataArray();
 
-inline fn getTestArr() [@typeInfo(InstructionVariants).@"enum".fields.len]InstrInfo {
+inline fn initInstrDataArray() [@typeInfo(InstructionVariants).@"enum".fields.len]InstrInfo {
     const info = @typeInfo(InstructionVariants).@"enum";
     var arr: [info.fields.len]InstrInfo = undefined;
 
