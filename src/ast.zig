@@ -170,11 +170,17 @@ pub const AstArrayDecType = struct {
     size: ?NodeIndexOrU64,
 };
 
+pub const InstanceRelation = struct {
+    identId: identStore.IdentId,
+    instanceAstType: scanner.TypeAndAllocInfo,
+};
+
 pub const CustomType = struct {
     nameIdentId: identStore.IdentId,
     generics: []AstTypeInfo,
     allowPrivateReads: bool,
     attrSizes: []IdentSizeRelation,
+    nestedInstances: []InstanceRelation,
 };
 
 const EnumVariantType = struct {
@@ -2574,6 +2580,7 @@ fn parseParam(
                     .generics = &[_]AstTypeInfo{},
                     .allowPrivateReads = true,
                     .attrSizes = &.{},
+                    .nestedInstances = &.{},
                 },
             });
 
@@ -2760,6 +2767,7 @@ fn parseType(
                         .generics = generics,
                         .allowPrivateReads = false,
                         .attrSizes = &.{},
+                        .nestedInstances = &.{},
                     },
                 };
             } else if (context.compInfo.hasEnum(first.identId)) {

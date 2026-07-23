@@ -133,12 +133,20 @@ pub fn cloneAstTypes(
                 withGenDef,
             );
 
+            const clonedNestedInstances = try cloneNestedInstances(
+                allocator,
+                context,
+                custom.nestedInstances,
+                withGenDef,
+            );
+
             return .{
                 .Custom = .{
                     .nameIdentId = custom.nameIdentId,
                     .generics = genericsSlice,
                     .allowPrivateReads = custom.allowPrivateReads,
                     .attrSizes = custom.attrSizes,
+                    .nestedInstances = clonedNestedInstances,
                 },
             };
         },
@@ -677,4 +685,28 @@ pub fn replaceGenericsOnTypeInfoAndRelease(
     }
 
     return res;
+}
+
+fn cloneNestedInstances(
+    allocator: Allocator,
+    context: *Context,
+    nestedInstances: []ast.InstanceRelation,
+    withGenDef: bool,
+) ![]ast.InstanceRelation {
+    var relations = try allocator.alloc(ast.InstanceRelation, nestedInstances.len);
+
+    for (nestedInstances, 0..) |instance, index| {
+        const clonedType = try cloneAstTypeInfo(
+            allocator,
+            context,
+            instance.instanceAstType.info,
+            withGenDef,
+        );
+        relations[index] = .{
+            .identId = instance.identId,
+            .instanceAstType = clonedType.toAllocInfo(.Recycled),
+        };
+    }
+
+    return relations;
 }

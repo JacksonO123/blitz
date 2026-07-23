@@ -205,6 +205,7 @@ pub fn scanNode(
                 if (!allowedIndexType) return ScanError.ExpectedU64OrU32ForIndex;
             }
 
+            std.debug.print("BEFORE :: {}\n", .{targetType.info.astType.*});
             const arrOrNull = switch (targetType.info.astType.*) {
                 .ArrayDec => |dec| a: {
                     if (dec.size == null) {
@@ -222,7 +223,7 @@ pub fn scanNode(
 
             const arr = arrOrNull orelse return ScanError.ExpectedArrayForIndexTarget;
 
-            std.debug.print("ARR TYPE :: {}\n", .{arr.type});
+            std.debug.print("ARR TYPE :: {}\n", .{arr.type.info.astType.Custom});
             const resType = try clone.replaceGenericsOnTypeInfo(
                 allocator,
                 context,
@@ -516,7 +517,7 @@ pub fn scanNode(
                         withGenDef,
                     );
                     if (isValid) {
-                        std.debug.print("HERE 1 :: {}\n", .{info});
+                        std.debug.print("HERE 1 :: {}\n", .{info.info.astType.VarInfo.info.astType.*});
                         return info;
                     }
                     break :a false;
@@ -524,6 +525,20 @@ pub fn scanNode(
                 .CustomInstance => |id| a: {
                     const instance = context.instanceStore.getInstanceById(id) orelse
                         break :a false;
+
+                    for (instance.nestedInstances) |nestedInstance| {
+                        if (access.property == nestedInstance.identId) {
+                            std.debug.print("RETURNING :: {}\n", .{nestedInstance.instanceAstType});
+                            const clonedType = try clone.cloneAstTypeInfo(
+                                allocator,
+                                context,
+                                nestedInstance.instanceAstType.info,
+                                withGenDef,
+                            );
+                            return clonedType.toAllocInfo(.Allocated);
+                        }
+                    }
+
                     const isValid, const info = try isValidPropertyOfCustom(
                         allocator,
                         context,
@@ -535,7 +550,6 @@ pub fn scanNode(
                         withGenDef,
                     );
                     if (isValid) {
-                        std.debug.print("HERE 2 :: {}\n", .{info.info.astType.VarInfo.info.astType.ArrayDec.type.info});
                         return info;
                     }
                     break :a false;
@@ -1172,6 +1186,7 @@ pub fn scanNode(
             defer context.compInfo.popGenScope(context);
 
             var attrSizes: std.ArrayList(ast.IdentSizeRelation) = .empty;
+            var nestedInstances: std.ArrayList(ast.InstanceRelation) = .empty;
             var sizeSum: u64 = 0;
             var initAlignment: u8 = 0;
 
@@ -1180,7 +1195,8 @@ pub fn scanNode(
                 const initAttr = init.findAttribute(attr.nameIdentId) orelse
                     return ScanError.StructInitAttributeNotFound;
 
-                const attrType = try scanNode(allocator, context, initAttr.value, withGenDef);
+                const origAttrType = try scanNode(allocator, context, initAttr.value, withGenDef);
+                const attrType = try escapeVarInfoAndRelease(context, origAttrType);
                 defer releaseIfAllocated(context, attrType);
 
                 const matches = try matchTypes(
@@ -1192,6 +1208,17 @@ pub fn scanNode(
                 );
                 if (!matches) {
                     return ScanError.StructInitMemberTypeMismatch;
+                }
+
+                const validNonPrimitive, const nestedInstance = try nonPrimitiveTypeToInstance(
+                    context,
+                    attrType,
+                );
+                if (validNonPrimitive) {
+                    try nestedInstances.append(allocator, .{
+                        .identId = attr.nameIdentId,
+                        .instanceAstType = nestedInstance,
+                    });
                 }
 
                 const attrSize = try attr.attr.Member.astType.getSize(allocator, context);
@@ -1222,11 +1249,14 @@ pub fn scanNode(
                 generics[index] = try clone.cloneAstTypeInfo(allocator, context, gen, withGenDef);
             }
 
+            std.debug.print("PUTTING AT STRUCT :: {any}\n", .{nestedInstances.items});
+
             const customType = ast.CustomType{
                 .generics = generics,
                 .nameIdentId = init.nameIdentId,
                 .allowPrivateReads = false,
                 .attrSizes = attrSizes.items,
+                .nestedInstances = nestedInstances.items,
             };
             const customTypeRef = try context.instanceStore.appendInstanceGetRefType(customType);
             const customTypeRefType = try context.pools.newType(context, customTypeRef);
@@ -2775,4 +2805,59 @@ pub fn releaseIfAllocated(context: *Context, result: TypeAndAllocInfo) void {
     if (result.allocState == .Allocated) {
         allocPools.recursiveReleaseType(context, result.info.astType);
     }
+}
+
+fn nonPrimitiveTypeToInstance(
+    context: *Context,
+    inputType: TypeAndAllocInfo,
+) ScanError!struct { bool, TypeAndAllocInfo } {
+    const instance: TypeAndAllocInfo = switch (inputType.info.astType.*) {
+        .Pointer => |inner| a: {
+            if (inner.info.astType.* != .ArrayDec) {
+                return .{ false, undefined };
+            }
+            var arrDecInstanceHandle = try arrDecToArrInstance(
+                context,
+                inner.info.astType.ArrayDec,
+            );
+            const arrDecInstanceInfo = arrDecInstanceHandle.toAllocInfo(
+                inner.info.mutState,
+                .Recycled,
+            );
+            var sliceInstance = ast.AstTypes{ .Pointer = arrDecInstanceInfo };
+            break :a sliceInstance.toAllocInfo(inputType.info.mutState, .Recycled);
+        },
+        .ArrayDec => |dec| a: {
+            var arrInstance = try arrDecToArrInstance(context, dec);
+            break :a arrInstance.toAllocInfo(
+                inputType.info.mutState,
+                inputType.allocState,
+            );
+        },
+        .Custom => |custom| a: {
+            var instanceHandle = try context.instanceStore.appendInstanceGetRefType(custom);
+            break :a instanceHandle.toAllocInfo(inputType.info.mutState, .Recycled);
+        },
+        .CustomInstance => |id| a: {
+            var customInstance = ast.AstTypes{
+                .CustomInstance = id,
+            };
+            break :a customInstance.toAllocInfo(inputType.info.mutState, .Recycled);
+        },
+        else => {
+            return .{ false, undefined };
+        },
+    };
+    return .{ true, instance };
+}
+
+fn arrDecToArrInstance(context: *Context, arrDec: ast.AstArrayDecType) !ast.AstTypes {
+    const validNonPrimitive, const instance = try nonPrimitiveTypeToInstance(context, arrDec.type);
+    const arrAstType = if (validNonPrimitive) instance else arrDec.type;
+    return .{
+        .ArrayDec = .{
+            .type = arrAstType,
+            .size = arrDec.size,
+        },
+    };
 }
