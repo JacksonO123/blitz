@@ -205,7 +205,6 @@ pub fn scanNode(
                 if (!allowedIndexType) return ScanError.ExpectedU64OrU32ForIndex;
             }
 
-            std.debug.print("BEFORE :: {}\n", .{targetType.info.astType.*});
             const arrOrNull = switch (targetType.info.astType.*) {
                 .ArrayDec => |dec| a: {
                     if (dec.size == null) {
@@ -223,7 +222,6 @@ pub fn scanNode(
 
             const arr = arrOrNull orelse return ScanError.ExpectedArrayForIndexTarget;
 
-            std.debug.print("ARR TYPE :: {}\n", .{arr.type.info.astType.Custom});
             const resType = try clone.replaceGenericsOnTypeInfo(
                 allocator,
                 context,
@@ -517,7 +515,6 @@ pub fn scanNode(
                         withGenDef,
                     );
                     if (isValid) {
-                        std.debug.print("HERE 1 :: {}\n", .{info.info.astType.VarInfo.info.astType.*});
                         return info;
                     }
                     break :a false;
@@ -528,13 +525,21 @@ pub fn scanNode(
 
                     for (instance.nestedInstances) |nestedInstance| {
                         if (access.property == nestedInstance.identId) {
-                            std.debug.print("RETURNING :: {}\n", .{nestedInstance.instanceAstType});
                             const clonedType = try clone.cloneAstTypeInfo(
                                 allocator,
                                 context,
                                 nestedInstance.instanceAstType.info,
                                 withGenDef,
                             );
+                            node.typeInfo.data = .{
+                                .PropertyAccess = .{
+                                    .decIdent = instance.nameIdentId,
+                                    .attrSizes = instance.attrSizes,
+                                },
+                            };
+                            if (clonedType.astType.* == .Pointer and clonedType.astType.Pointer.info.astType.* == .ArrayDec) {
+                                node.typeInfo.nodeType = .Slice;
+                            }
                             return clonedType.toAllocInfo(.Allocated);
                         }
                     }
@@ -627,7 +632,7 @@ pub fn scanNode(
                 },
                 .Pointer => |pointer| {
                     if (pointer.info.astType.* != .ArrayDec) return ScanError.InvalidProperty;
-                    node.typeInfo.data = .{ .Slice = {} };
+                    node.typeInfo.nodeType = .Slice;
                     return try getArrayDecPropType(allocator, context, node, access.property);
                 },
                 else => false,
@@ -1210,14 +1215,20 @@ pub fn scanNode(
                     return ScanError.StructInitMemberTypeMismatch;
                 }
 
-                const validNonPrimitive, const nestedInstance = try nonPrimitiveTypeToInstance(
+                const nestedInstanceOrNull = try nonPrimitiveTypeToInstance(
                     context,
                     attrType,
                 );
-                if (validNonPrimitive) {
+                if (nestedInstanceOrNull) |nestedInstance| {
+                    const cloned = try clone.cloneAstTypeInfo(
+                        allocator,
+                        context,
+                        nestedInstance.info,
+                        withGenDef,
+                    );
                     try nestedInstances.append(allocator, .{
                         .identId = attr.nameIdentId,
-                        .instanceAstType = nestedInstance,
+                        .instanceAstType = cloned.toAllocInfo(.Recycled),
                     });
                 }
 
@@ -1248,8 +1259,6 @@ pub fn scanNode(
             for (init.generics, 0..) |gen, index| {
                 generics[index] = try clone.cloneAstTypeInfo(allocator, context, gen, withGenDef);
             }
-
-            std.debug.print("PUTTING AT STRUCT :: {any}\n", .{nestedInstances.items});
 
             const customType = ast.CustomType{
                 .generics = generics,
@@ -1564,7 +1573,7 @@ fn getNodeInfoNodeType(valType: TypeAndAllocInfo) ast.AstTypeInfoNodeType {
         return .Slice;
     }
 
-    if (valType.info.astType.* == .Custom) {
+    if (valType.info.astType.* == .Custom or valType.info.astType.* == .CustomInstance) {
         return .Struct;
     }
 
@@ -2810,11 +2819,11 @@ pub fn releaseIfAllocated(context: *Context, result: TypeAndAllocInfo) void {
 fn nonPrimitiveTypeToInstance(
     context: *Context,
     inputType: TypeAndAllocInfo,
-) ScanError!struct { bool, TypeAndAllocInfo } {
+) ScanError!?TypeAndAllocInfo {
     const instance: TypeAndAllocInfo = switch (inputType.info.astType.*) {
         .Pointer => |inner| a: {
             if (inner.info.astType.* != .ArrayDec) {
-                return .{ false, undefined };
+                return null;
             }
             var arrDecInstanceHandle = try arrDecToArrInstance(
                 context,
@@ -2845,15 +2854,15 @@ fn nonPrimitiveTypeToInstance(
             break :a customInstance.toAllocInfo(inputType.info.mutState, .Recycled);
         },
         else => {
-            return .{ false, undefined };
+            return null;
         },
     };
-    return .{ true, instance };
+    return instance;
 }
 
 fn arrDecToArrInstance(context: *Context, arrDec: ast.AstArrayDecType) !ast.AstTypes {
-    const validNonPrimitive, const instance = try nonPrimitiveTypeToInstance(context, arrDec.type);
-    const arrAstType = if (validNonPrimitive) instance else arrDec.type;
+    const instanceOrNull = try nonPrimitiveTypeToInstance(context, arrDec.type);
+    const arrAstType = if (instanceOrNull) |instance| instance else arrDec.type;
     return .{
         .ArrayDec = .{
             .type = arrAstType,

@@ -928,7 +928,6 @@ pub const AstNodeUnion = union(AstNodeVariants) {
 };
 
 const AstTypeInfoDataVariant = enum {
-    Slice,
     PropertyAccess,
     VarOrVarDec,
     ArrDec,
@@ -939,7 +938,6 @@ const AstTypeInfoDataVariant = enum {
 };
 
 const AstTypeInfoData = union(AstTypeInfoDataVariant) {
-    Slice,
     PropertyAccess: struct {
         decIdent: identStore.IdentId,
         attrSizes: []IdentSizeRelation = &.{},

@@ -3398,11 +3398,11 @@ pub fn genBytecodeUtil(
 
             return outReg;
         },
-        .Variable => |name| {
-            const resReg = context.genInfo.getVariableRegister(name);
+        .Variable => |nameId| {
+            const resReg = context.genInfo.getVariableRegister(nameId);
 
             if (node.typeInfo.data.VarOrVarDec.lastVarUse) {
-                context.genInfo.removeVariableRegister(name);
+                context.genInfo.removeVariableRegister(nameId);
             }
 
             const regInfo = context.genInfo.getRegInfo(resReg);
@@ -4320,7 +4320,7 @@ fn getPropLocation(
     node: *const ast.AstNode,
     propIdentId: identStore.IdentId,
 ) !struct { u64, bool } {
-    if (node.typeInfo.data == .Slice or
+    if (node.typeInfo.nodeType == .Slice or
         (node.variant == .PropertyAccess and
             node.variant.PropertyAccess.value.typeInfo.nodeType == .Slice))
     {
@@ -4495,6 +4495,16 @@ fn calculateAccessOffset(
 
             const itemSize = node.typeInfo.size;
             const itemPadding = utils.calculatePadding(itemSize, node.typeInfo.alignment);
+
+            const dbgInstr = Instr{
+                .DbgReg = offsetReg,
+            };
+            try context.genInfo.appendChunk(allocator, dbgInstr);
+
+            if (indexNode.target.typeInfo.nodeType == .Slice) {
+                const readPtrInstr = instructions.loadRegAtPtr(offsetReg, offsetReg, vmInfo.POINTER_SIZE);
+                try context.genInfo.appendChunk(allocator, readPtrInstr);
+            }
 
             const offsetInstr = instructions.mulRegAddReg(
                 offsetReg,

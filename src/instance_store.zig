@@ -14,7 +14,6 @@ pub const InstanceStore = struct {
     }
 
     pub fn appendInstanceGetRefType(self: *Self, instance: ast.CustomType) !ast.AstTypes {
-        std.debug.print("@@ APPENDING :: {}\n", .{instance});
         const index = self.instances.list.items.len;
         try self.instances.append(instance);
 

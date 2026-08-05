@@ -19,7 +19,7 @@ fn main() {
             ]
         };
 
-        let thing = outer.m[1u64].value;
+        let thing = outer.m[4u64].value;
         let a = thing;
     }
 }
