@@ -7,7 +7,6 @@ const utils = blitz.utils;
 const scanner = blitz.scanner;
 const vmInfo = blitz.vmInfo;
 const errors = blitz.errors;
-const ScanError = errors.ScanError;
 const Context = blitz.context.Context;
 const identStore = blitz.identStore;
 
@@ -72,5 +71,5 @@ fn getPropType(
         }
     }
 
-    return ScanError.InvalidProperty;
+    return errors.ScanError.InvalidProperty;
 }

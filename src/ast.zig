@@ -15,9 +15,6 @@ const constants = blitz.constants;
 const vmInfo = blitz.vmInfo;
 const identStore = blitz.identStore;
 const errors = blitz.errors;
-const TokenError = errors.AstTokenError;
-const AstError = errors.AstError;
-const ScanError = errors.ScanError;
 
 const AstNumberVariantsStrRel = struct {
     str: []const u8,
@@ -167,7 +164,7 @@ pub const NodeIndexOrU64 = union(NodeIndexOrU64Variants) {
 
 pub const AstArrayDecType = struct {
     type: scanner.TypeAndAllocInfo,
-    size: ?NodeIndexOrU64,
+    size: ?u64,
 };
 
 pub const InstanceRelation = struct {
@@ -275,7 +272,7 @@ pub const AstTypes = union(Types) {
         self: Self,
         allocator: Allocator,
         context: *Context,
-    ) (ScanError || Allocator.Error)!u8 {
+    ) (errors.CommonError || errors.CloneError)!u8 {
         return switch (self) {
             .Null, .Undef => unreachable,
 
@@ -321,7 +318,7 @@ pub const AstTypes = union(Types) {
                     return try getCustomTypeAlignment(allocator, context, instance);
                 }
 
-                return ScanError.FailedToGetCustomInstanceById;
+                return errors.CommonError.FailedToGetCustomInstanceById;
             },
         };
     }
@@ -330,7 +327,7 @@ pub const AstTypes = union(Types) {
         self: Self,
         allocator: Allocator,
         context: *Context,
-    ) (ScanError || Allocator.Error)!u64 {
+    ) (errors.CommonError || errors.CloneError)!u64 {
         return switch (self) {
             .Null, .Undef => unreachable,
             .Void, .Any, .Function, .StructMethod, .Error, .Enum => 0,
@@ -364,12 +361,8 @@ pub const AstTypes = union(Types) {
             .Nullable => |inner| try inner.astType.getSize(allocator, context) + 1,
             .ArrayDec => |dec| {
                 if (dec.size) |size| {
-                    const arrSize = scanner.indexNumberFromNode(size) catch {
-                        return AstError.ExpectedU64OrU32ForArrayDecSize;
-                    };
-
                     const itemSize = try dec.type.info.astType.getSize(allocator, context);
-                    return arrSize * itemSize;
+                    return size * itemSize;
                 }
 
                 return 16;
@@ -381,7 +374,7 @@ pub const AstTypes = union(Types) {
                     return try getCustomTypeSize(allocator, context, instance);
                 }
 
-                return ScanError.FailedToGetCustomInstanceById;
+                return errors.ScanError.FailedToGetCustomInstanceById;
             },
             .VarInfo => |inner| try inner.info.astType.getSize(allocator, context),
         };
@@ -423,7 +416,11 @@ fn getCustomTypeAlignment(allocator: Allocator, context: *Context, custom: *cons
     return maxAlignment;
 }
 
-fn getCustomTypeSize(allocator: Allocator, context: *Context, custom: *const CustomType) !u64 {
+fn getCustomTypeSize(
+    allocator: Allocator,
+    context: *Context,
+    custom: *const CustomType,
+) (errors.CommonError || errors.CloneError)!u64 {
     try context.compInfo.pushGenScope(allocator, false);
     defer context.compInfo.popGenScope(context);
 
@@ -945,7 +942,9 @@ const AstTypeInfoData = union(AstTypeInfoDataVariant) {
     VarOrVarDec: struct {
         lastVarUse: bool = false,
     },
-    ArrDec,
+    ArrDec: struct {
+        len: u64,
+    },
     ArrDecPtr: struct {
         makesSliceWithLen: u64,
     },
@@ -1040,7 +1039,7 @@ pub fn parseModule(allocator: Allocator, context: *Context) !*AstNode {
             .Struct => {
                 _ = try context.tokenUtil.take();
                 const name = try context.tokenUtil.take();
-                if (name.type != .Identifier) return AstError.UnexpectedToken;
+                if (name.type != .Identifier) return errors.AstTokenError.UnexpectedToken;
                 const dec = context.compInfo.getStructDec(name.identId).?;
                 context.tokenUtil.pos = dec.endPos;
                 continue;
@@ -1048,7 +1047,7 @@ pub fn parseModule(allocator: Allocator, context: *Context) !*AstNode {
             .Enum => try handleParseEnum(allocator, context),
             else => {
                 _ = try context.tokenUtil.take();
-                return AstError.UnexpectedToken;
+                return errors.AstTokenError.UnexpectedToken;
             },
         };
 
@@ -1068,7 +1067,7 @@ pub fn parseSequence(
     allocator: Allocator,
     context: *Context,
     fromBlock: bool,
-) (AstError || Allocator.Error)!*AstNode {
+) (errors.AstError || errors.AstTokenError)!*AstNode {
     var seq: ArrayList(*AstNode) = .empty;
 
     while (context.tokenUtil.hasNext()) {
@@ -1082,7 +1081,7 @@ pub fn parseSequence(
             if (fromBlock) {
                 break;
             } else {
-                return TokenError.UnexpectedToken;
+                return errors.AstTokenError.UnexpectedToken;
             }
         }
 
@@ -1103,7 +1102,7 @@ pub fn parseSequence(
 fn parseStatement(
     allocator: Allocator,
     context: *Context,
-) (AstError || Allocator.Error)!?*AstNode {
+) (errors.AstError || errors.AstTokenError)!?*AstNode {
     const first = try context.tokenUtil.take();
     switch (first.type) {
         .Let => {
@@ -1120,7 +1119,7 @@ fn parseStatement(
         .If => {
             try context.tokenUtil.expectToken(.LParen);
             const condition = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
             try context.tokenUtil.expectToken(.RParen);
 
             try context.tokenUtil.expectToken(.LBrace);
@@ -1152,12 +1151,12 @@ fn parseStatement(
             try context.tokenUtil.expectToken(.Semicolon);
 
             const condition = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
 
             try context.tokenUtil.expectToken(.Semicolon);
 
             const incNode = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
 
             try context.tokenUtil.expectToken(.RParen);
             try context.tokenUtil.expectToken(.LBrace);
@@ -1178,7 +1177,7 @@ fn parseStatement(
             try context.tokenUtil.expectToken(.LParen);
 
             const condition = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
 
             try context.tokenUtil.expectToken(.RParen);
             try context.tokenUtil.expectToken(.LBrace);
@@ -1198,7 +1197,7 @@ fn parseStatement(
             switch (next.type) {
                 .EqSet => {
                     const setNode = try parseExpression(allocator, context) orelse
-                        return AstError.ExpectedExpression;
+                        return errors.AstError.ExpectedExpression;
 
                     const variableVariant = AstNodeUnion{
                         .Variable = first.identId,
@@ -1224,7 +1223,7 @@ fn parseStatement(
                 .BitOrEq,
                 => {
                     const incNode = try parseExpression(allocator, context) orelse
-                        return AstError.ExpectedExpression;
+                        return errors.AstError.ExpectedExpression;
 
                     const variableVariant = AstNodeUnion{
                         .Variable = first.identId,
@@ -1288,7 +1287,7 @@ fn parseStatement(
         },
         .Return => {
             const value = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
             try context.tokenUtil.expectToken(.Semicolon);
 
             const returnVariant = AstNodeUnion{
@@ -1296,9 +1295,9 @@ fn parseStatement(
             };
             return try context.pools.newNode(context, returnVariant.toAstNode());
         },
-        .Error => return AstError.ErrorDefinedInLowerScope,
-        .Struct => return AstError.StructDefinedInLowerScope,
-        .Enum => return AstError.EnumDefinedInLowerScope,
+        .Error => return errors.AstError.ErrorDefinedInLowerScope,
+        .Struct => return errors.AstError.StructDefinedInLowerScope,
+        .Enum => return errors.AstError.EnumDefinedInLowerScope,
         .LBrace => {
             const seq = try parseSequence(allocator, context, true);
             try context.tokenUtil.expectToken(.RBrace);
@@ -1315,14 +1314,14 @@ fn parseStatement(
         },
         .Delete => {
             const expr = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
             const heapVariant = AstNodeUnion{
                 .HeapFree = expr,
             };
             return try context.pools.newNode(context, heapVariant.toAstNode());
         },
         else => {
-            return TokenError.UnexpectedToken;
+            return errors.AstTokenError.UnexpectedToken;
         },
     }
 }
@@ -1345,7 +1344,7 @@ fn handleParseError(allocator: Allocator, context: *Context) !*AstNode {
 
 fn handleParseFunction(allocator: Allocator, context: *Context) !*AstNode {
     const name = try context.tokenUtil.peak();
-    if (name.type != .Identifier) return AstError.UnexpectedToken;
+    if (name.type != .Identifier) return errors.AstTokenError.UnexpectedToken;
 
     const func = if (context.compInfo.getFunctionAsGlobal(name.identId)) |func| a: {
         const tokens = func.bodyTokens;
@@ -1367,7 +1366,7 @@ fn handleParseFunction(allocator: Allocator, context: *Context) !*AstNode {
 fn parseEnumDec(allocator: Allocator, context: *Context) !*const ErrorOrEnumDecNode {
     const name = try context.tokenUtil.take();
     if (name.type != .Identifier) {
-        return AstError.ExpectedIdentifierForEnumName;
+        return errors.AstError.ExpectedIdentifierForEnumName;
     }
 
     try context.tokenUtil.expectToken(.LBrace);
@@ -1394,7 +1393,7 @@ fn parseIfChain(allocator: Allocator, context: *Context) !?FallbackInfo {
         try context.tokenUtil.expectToken(.LParen);
 
         condition = try parseExpression(allocator, context) orelse
-            return AstError.ExpectedExpression;
+            return errors.AstError.ExpectedExpression;
 
         try context.tokenUtil.expectToken(.RParen);
     }
@@ -1427,7 +1426,7 @@ fn parseStructDec(allocator: Allocator, context: *Context) !*AstNode {
 
     var current = try context.tokenUtil.take();
     if (current.type != .Identifier) {
-        return AstError.ExpectedIdentifierForStructName;
+        return errors.AstError.ExpectedIdentifierForStructName;
     }
     const identToken = current;
     current = try context.tokenUtil.take();
@@ -1438,7 +1437,7 @@ fn parseStructDec(allocator: Allocator, context: *Context) !*AstNode {
     }
 
     if (current.type != .LBrace) {
-        return TokenError.UnexpectedToken;
+        return errors.AstTokenError.UnexpectedToken;
     }
 
     const attributes = try parseStructAttributes(
@@ -1481,7 +1480,7 @@ fn parseStructAttributes(
             if (next.type == .Pub or next.type == .Prot) {
                 _ = try context.tokenUtil.take();
             }
-            return AstError.ExpectedUniqueStructDecAttribute;
+            return errors.AstError.ExpectedUniqueStructDecAttribute;
         }
 
         try context.compInfo.attributeSet.put(attr.nameIdentId, {});
@@ -1532,7 +1531,7 @@ fn parseStructAttribute(
             isGeneric,
         ),
         else => {
-            return TokenError.UnexpectedToken;
+            return errors.AstTokenError.UnexpectedToken;
         },
     }
 }
@@ -1587,7 +1586,7 @@ fn parseStructAttributeUtil(
             };
         },
         else => {
-            return TokenError.UnexpectedToken;
+            return errors.AstTokenError.UnexpectedToken;
         },
     }
 }
@@ -1595,7 +1594,7 @@ fn parseStructAttributeUtil(
 fn parseError(allocator: Allocator, context: *Context) !*const ErrorOrEnumDecNode {
     const name = try context.tokenUtil.take();
     if (name.type != .Identifier) {
-        return AstError.ExpectedIdentifierForErrorName;
+        return errors.AstError.ExpectedIdentifierForErrorName;
     }
 
     var variants: []identStore.IdentId = &[_]identStore.IdentId{};
@@ -1604,7 +1603,7 @@ fn parseError(allocator: Allocator, context: *Context) !*const ErrorOrEnumDecNod
     if (next.type == .LBrace) {
         variants = try parseVariants(allocator, context);
     } else if (next.type != .Semicolon) {
-        return TokenError.UnexpectedToken;
+        return errors.AstTokenError.UnexpectedToken;
     }
 
     return try utils.create(ErrorOrEnumDecNode, allocator, .{
@@ -1620,7 +1619,7 @@ fn parseVariants(allocator: Allocator, context: *Context) ![]identStore.IdentId 
     while (variant.type == .Identifier) {
         const comma = try context.tokenUtil.take();
         if (comma.type != .RBrace and comma.type != .Comma) {
-            return TokenError.UnexpectedToken;
+            return errors.AstTokenError.UnexpectedToken;
         }
 
         try variants.append(allocator, variant.identId);
@@ -1652,13 +1651,13 @@ fn parseExpression(allocator: Allocator, context: *Context) !?*AstNode {
         .EqComp,
         => a: {
             if (expr == null) {
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
             }
 
             _ = try context.tokenUtil.take();
 
             const after = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
 
             const depthLeft = getExprDepth(expr.?);
             const depthRight = getExprDepth(after);
@@ -1719,7 +1718,7 @@ pub fn getExprDepth(expr: *AstNode) usize {
 fn parseExpressionUtil(
     allocator: Allocator,
     context: *Context,
-) (Allocator.Error || AstError)!?*AstNode {
+) (errors.AstError || errors.AstTokenError)!?*AstNode {
     const first = try context.tokenUtil.take();
     switch (first.type) {
         .Undef => {
@@ -1734,7 +1733,7 @@ fn parseExpressionUtil(
         },
         .New => {
             const expr = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
             const heapVariant = AstNodeUnion{
                 .HeapAlloc = .{
                     .node = expr,
@@ -1756,7 +1755,7 @@ fn parseExpressionUtil(
         .NegNumber => |numType| {
             switch (numType) {
                 .U8, .U16, .U32, .U64, .U128 => {
-                    return AstError.NegativeNumberWithUnsignedTypeConflict;
+                    return errors.AstError.NegativeNumberWithUnsignedTypeConflict;
                 },
                 else => {},
             }
@@ -1774,7 +1773,7 @@ fn parseExpressionUtil(
         .Period => {
             const next = try context.tokenUtil.take();
             if (next.type != .Identifier) {
-                return AstError.ExpectedIdentifierForErrorVariant;
+                return errors.AstError.ExpectedIdentifierForErrorVariant;
             }
 
             const errOrEnumVariant = AstNodeUnion{
@@ -1817,17 +1816,17 @@ fn parseExpressionUtil(
         },
         .Mut => {
             const next = try context.tokenUtil.peak();
-            if (next.type != .Ampersand) return TokenError.UnexpectedToken;
+            if (next.type != .Ampersand) return errors.AstTokenError.UnexpectedToken;
 
             const expr = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
             expr.variant.Pointer.mutState = .Mut;
 
             return expr;
         },
         .Bang => {
             const expr = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
             const bangVariant = AstNodeUnion{
                 .Bang = expr,
             };
@@ -1835,7 +1834,7 @@ fn parseExpressionUtil(
         },
         .Ampersand => {
             const expr = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
             const ptrVariant = AstNodeUnion{
                 .Pointer = .{
                     .node = expr,
@@ -1846,7 +1845,7 @@ fn parseExpressionUtil(
         },
         .LParen => {
             const expr = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
 
             try context.tokenUtil.expectToken(.RParen);
 
@@ -1909,7 +1908,7 @@ fn parseExpressionUtil(
             const toType = try parseType(allocator, context);
             try context.tokenUtil.expectToken(.RParen);
             const inner = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
 
             const castVariant = AstNodeUnion{
                 .Cast = .{
@@ -1919,7 +1918,7 @@ fn parseExpressionUtil(
             };
             return try context.pools.newNode(context, castVariant.toAstNode());
         },
-        else => return TokenError.UnexpectedToken,
+        else => return errors.AstTokenError.UnexpectedToken,
     }
 }
 
@@ -1979,7 +1978,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
                 _ = try context.tokenUtil.take();
                 const indexToken = try context.tokenUtil.take();
                 if (indexToken.type != .Identifier) {
-                    return AstError.ExpectedIdentifierForArrayInitIndex;
+                    return errors.AstError.ExpectedIdentifierForArrayInitIndex;
                 }
                 indexIdentId = indexToken.identId;
 
@@ -1991,7 +1990,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
 
                 const ptrToken = try context.tokenUtil.take();
                 if (ptrToken.type != .Identifier) {
-                    return AstError.ExpectedIdentifierForArrayInitPtr;
+                    return errors.AstError.ExpectedIdentifierForArrayInitPtr;
                 }
                 ptrIdentId = ptrToken.identId;
             }
@@ -2001,10 +2000,10 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
             }
 
             const initNode = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
 
             if (numType != .U64) {
-                return AstError.ExpectedU64ForArraySize;
+                return errors.AstError.ExpectedU64ForArraySize;
             }
 
             const arrayInitVariant = AstNodeUnion{
@@ -2025,7 +2024,7 @@ fn parseArray(allocator: Allocator, context: *Context) !*AstNode {
 
     while (current.type != .RBracket) {
         const item = try parseExpression(allocator, context) orelse
-            return AstError.ExpectedExpression;
+            return errors.AstError.ExpectedExpression;
 
         try items.append(allocator, item);
 
@@ -2094,7 +2093,7 @@ fn parseStructInitAttributes(allocator: Allocator, context: *Context) ![]Attribu
 fn parseStructInitAttribute(allocator: Allocator, context: *Context) !AttributeDefinition {
     const first = try context.tokenUtil.take();
     if (first.type != .Identifier) {
-        return AstError.ExpectedIdentifierForStructProperty;
+        return errors.AstError.ExpectedIdentifierForStructProperty;
     }
 
     const next = try context.tokenUtil.take();
@@ -2110,11 +2109,11 @@ fn parseStructInitAttribute(allocator: Allocator, context: *Context) !AttributeD
         context.tokenUtil.returnToken();
         return res;
     } else if (next.type != .EqSet) {
-        return TokenError.UnexpectedToken;
+        return errors.AstTokenError.UnexpectedToken;
     }
 
     const eqNode = try parseExpression(allocator, context) orelse
-        return AstError.ExpectedValueForStructProperty;
+        return errors.AstError.ExpectedValueForStructProperty;
 
     return .{
         .nameIdentId = first.identId,
@@ -2149,7 +2148,7 @@ fn parsePropertyAccessIfPossible(
     context: *Context,
     node: *AstNode,
     parseContext: ParseContextType,
-) !*AstNode {
+) (errors.AstError || errors.AstTokenError)!*AstNode {
     const next = try context.tokenUtil.peak();
 
     if (parseContext == .Expression) switch (next.type) {
@@ -2164,7 +2163,7 @@ fn parsePropertyAccessIfPossible(
         .BitOrEq,
         => {
             _ = try context.tokenUtil.take();
-            return AstError.UnexpectedToken;
+            return errors.AstTokenError.UnexpectedToken;
         },
         else => {},
     };
@@ -2195,7 +2194,7 @@ fn parsePropertyAccess(
     context: *Context,
     node: *AstNode,
     parseContext: ParseContextType,
-) (AstError || Allocator.Error)!*AstNode {
+) (errors.AstError || errors.AstTokenError)!*AstNode {
     const next = try context.tokenUtil.take();
 
     if (parseContext == .Expression) switch (next.type) {
@@ -2208,7 +2207,7 @@ fn parsePropertyAccess(
         .OrEq,
         .BitAndEq,
         .BitOrEq,
-        => return AstError.UnexpectedToken,
+        => return errors.AstTokenError.UnexpectedToken,
         else => {},
     };
 
@@ -2230,7 +2229,7 @@ fn parsePropertyAccess(
             }
 
             if (prop.type != .Identifier) {
-                return AstError.ExpectedIdentifierForPropertyAccess;
+                return errors.AstError.ExpectedIdentifierForPropertyAccess;
             }
 
             const propertyAccessVariant = AstNodeUnion{
@@ -2244,7 +2243,7 @@ fn parsePropertyAccess(
         },
         .LBracket => {
             const expr = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
 
             const indexValueVariant = AstNodeUnion{
                 .IndexValue = .{
@@ -2259,7 +2258,7 @@ fn parsePropertyAccess(
         },
         .EqSet => {
             const expr = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
 
             const valueSetVariant = AstNodeUnion{
                 .ValueSet = .{
@@ -2279,7 +2278,7 @@ fn parsePropertyAccess(
         .BitOrEq,
         => {
             const expr = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedExpression;
+                return errors.AstError.ExpectedExpression;
 
             const valueSetVariant = AstNodeUnion{
                 .VarEqOp = .{
@@ -2301,7 +2300,7 @@ fn parsePropertyAccess(
             const access = try context.pools.newNode(context, funcCallVariant.toAstNode());
             return try parsePropertyAccessIfPossible(allocator, context, access, parseContext);
         },
-        else => return AstError.UnexpectedToken,
+        else => return errors.AstTokenError.UnexpectedToken,
     }
 }
 
@@ -2343,7 +2342,7 @@ fn parseFuncDef(
         nameIdentId = next.identId;
         next = try context.tokenUtil.peak();
     } else {
-        return AstError.ExpectedIdentifierForFunctionName;
+        return errors.AstError.ExpectedIdentifierForFunctionName;
     }
 
     if (next.type == .LBracket) {
@@ -2360,7 +2359,7 @@ fn parseFuncDef(
 
     if (retNext.type == .LBracket) {
         if (structInfoOrNull != null) {
-            return AstError.StructMethodsCannotDefineCaptureGroups;
+            return errors.AstError.StructMethodsCannotDefineCaptureGroups;
         }
 
         _ = try context.tokenUtil.take();
@@ -2428,7 +2427,7 @@ fn parseFuncCaptures(allocator: Allocator, context: *Context) ![]FuncCaptures {
 
     var current = try context.tokenUtil.peak();
     if (current.type == .RBracket) {
-        return AstError.EmptyFunctionCaptures;
+        return errors.AstError.EmptyFunctionCaptures;
     }
 
     while (current.type != .RBracket) {
@@ -2448,11 +2447,11 @@ fn parseFuncCaptures(allocator: Allocator, context: *Context) ![]FuncCaptures {
             .Identifier => false,
             else => {
                 _ = try context.tokenUtil.take();
-                return AstError.UnexpectedToken;
+                return errors.AstTokenError.UnexpectedToken;
             },
         };
         if (current.type != .Identifier) {
-            return AstError.UnexpectedToken;
+            return errors.AstTokenError.UnexpectedToken;
         }
 
         try res.append(allocator, .{
@@ -2495,7 +2494,7 @@ fn parseGenerics(allocator: Allocator, context: *Context) ![]GenericType {
 fn parseGeneric(allocator: Allocator, context: *Context) !GenericType {
     const first = try context.tokenUtil.take();
     if (first.type != .Identifier) {
-        return AstError.ExpectedIdentifierForGenericType;
+        return errors.AstError.ExpectedIdentifierForGenericType;
     }
     try context.compInfo.addParsedGeneric(allocator, first.identId);
 
@@ -2563,13 +2562,13 @@ fn parseParam(
     }
 
     if (first.type != .Identifier) {
-        return AstError.ExpectedIdentifierForParameterName;
+        return errors.AstError.ExpectedIdentifierForParameterName;
     }
 
     if (first.identId == identStore.KNOWN_IDENT_IDS.self) {
         if (structInfoOrNull) |structInfo| {
             if (structInfo.isStatic) {
-                return AstError.UnexpectedSelfParamOnStaticFunction;
+                return errors.AstError.UnexpectedSelfParamOnStaticFunction;
             }
 
             const typeNode = try context.pools.newType(context, .{
@@ -2588,7 +2587,7 @@ fn parseParam(
                 .mutState = if (isConst) .Const else .Mut,
             };
         } else {
-            return AstError.SelfStructNameNotFound;
+            return errors.AstError.SelfStructNameNotFound;
         }
     }
 
@@ -2613,7 +2612,7 @@ fn parseFuncCallParams(allocator: Allocator, context: *Context) ![]*AstNode {
     var current = try context.tokenUtil.peak();
     while (current.type != .RParen) {
         const param = try parseExpression(allocator, context) orelse
-            return AstError.ExpectedExpression;
+            return errors.AstError.ExpectedExpression;
         try params.append(allocator, param);
 
         current = try context.tokenUtil.peak();
@@ -2687,7 +2686,7 @@ fn createVarDecNode(
 ) !?*AstNode {
     const name = try context.tokenUtil.take();
     if (name.type != .Identifier) {
-        return AstError.ExpectedIdentifierForVariableName;
+        return errors.AstError.ExpectedIdentifierForVariableName;
     }
 
     var annotation: ?AstTypeInfo = null;
@@ -2697,7 +2696,7 @@ fn createVarDecNode(
         annotation = try parseType(allocator, context);
         try context.tokenUtil.expectToken(.EqSet);
     } else if (next.type != .EqSet) {
-        return TokenError.UnexpectedToken;
+        return errors.AstTokenError.UnexpectedToken;
     }
 
     const setValue = try parseExpression(allocator, context) orelse return null;
@@ -2716,7 +2715,7 @@ fn createVarDecNode(
 fn parseType(
     allocator: Allocator,
     context: *Context,
-) (AstError || Allocator.Error)!AstTypeInfo {
+) (errors.AstError || errors.AstTokenError)!AstTypeInfo {
     var first = try context.tokenUtil.take();
     const mutState: scanner.MutState = if (first.type == .Mut) .Mut else .Const;
     if (mutState == .Mut) {
@@ -2782,10 +2781,10 @@ fn parseType(
 
                     if (generic) |gen| {
                         if (gen.astType.* == .Error) {
-                            return AstError.ErrorPayloadMayNotBeError;
+                            return errors.AstError.ErrorPayloadMayNotBeError;
                         }
                     } else {
-                        return AstError.ExpectedTypeExpression;
+                        return errors.AstError.ExpectedTypeExpression;
                     }
 
                     try context.tokenUtil.expectToken(.RAngle);
@@ -2800,14 +2799,14 @@ fn parseType(
             }
 
             if (!context.compInfo.hasParsedGeneric(first.identId)) {
-                return AstError.UnexpectedGeneric;
+                return errors.AstError.UnexpectedGeneric;
             }
 
             break :a .{
                 .Generic = first.identId,
             };
         },
-        else => return TokenError.UnexpectedToken,
+        else => return errors.AstTokenError.UnexpectedToken,
     };
 
     var next = try context.tokenUtil.peak();
@@ -2818,7 +2817,7 @@ fn parseType(
 
         if (next.type != .RBracket) {
             size = try parseExpression(allocator, context) orelse
-                return AstError.ExpectedSizeForArrayDec;
+                return errors.AstError.ExpectedSizeForArrayDec;
         }
 
         try context.tokenUtil.expectToken(.RBracket);
@@ -2827,7 +2826,7 @@ fn parseType(
         const newAstType = AstTypes{
             .ArrayDec = .{
                 .type = sliceType.toAllocInfo(.Recycled),
-                .size = if (size) |sizeNode| .{ .Node = sizeNode } else null,
+                .size = if (size) |sizeNode| try scanner.indexNumberFromNode(sizeNode) else null,
             },
         };
 
@@ -2835,7 +2834,7 @@ fn parseType(
     }
 
     if (astType == .Generic and mutState == .Mut) {
-        return AstError.UnexpectedMutSpecifierOnGeneric;
+        return errors.AstError.UnexpectedMutSpecifierOnGeneric;
     }
 
     const resType = try context.pools.newType(context, astType);
@@ -2852,7 +2851,7 @@ pub fn findHoistedInfo(allocator: Allocator, tokens: []tokenizer.Token) !Hoisted
     while (i < tokens.len) : (i += 1) {
         switch (tokens[i].type) {
             .Struct => {
-                if (scopeCount != 0) return AstError.StructDefinedInLowerScope;
+                if (scopeCount != 0) return errors.AstError.StructDefinedInLowerScope;
 
                 if (tokens[i + 1].type == .LBracket) {
                     while (i < tokens.len - 1 and tokens[i + 1].type != .RBracket) : (i += 1) {}
@@ -2860,25 +2859,25 @@ pub fn findHoistedInfo(allocator: Allocator, tokens: []tokenizer.Token) !Hoisted
                 }
 
                 if (tokens[i + 1].type != .Identifier) {
-                    return AstError.ExpectedNameForStruct;
+                    return errors.AstError.ExpectedNameForStruct;
                 }
 
                 try structNames.append(allocator, tokens[i + 1].identId);
             },
             .Error => {
-                if (scopeCount != 0) return AstError.ErrorDefinedInLowerScope;
+                if (scopeCount != 0) return errors.AstError.ErrorDefinedInLowerScope;
 
                 if (tokens[i + 1].type != .Identifier) {
-                    return AstError.ExpectedNameForError;
+                    return errors.AstError.ExpectedNameForError;
                 }
 
                 try errorNames.append(allocator, tokens[i + 1].identId);
             },
             .Enum => {
-                if (scopeCount != 0) return AstError.EnumDefinedInLowerScope;
+                if (scopeCount != 0) return errors.AstError.EnumDefinedInLowerScope;
 
                 if (tokens[i + 1].type != .Identifier) {
-                    return AstError.ExpectedNameForEnum;
+                    return errors.AstError.ExpectedNameForEnum;
                 }
 
                 try enumNames.append(allocator, tokens[i + 1].identId);

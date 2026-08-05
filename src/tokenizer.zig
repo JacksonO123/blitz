@@ -9,9 +9,6 @@ const utils = blitz.utils;
 const identStoreMod = blitz.identStore;
 const errors = blitz.errors;
 
-const TokenizeError = errors.TokenizeError;
-const AstTokenError = errors.AstTokenError;
-
 const INIT_TOK_CAPACITY = 1024 * 10;
 
 const TokenVariants = enum {
@@ -379,7 +376,7 @@ const CharUtil = struct {
 
     pub fn advance(self: *Self, amount: usize) !void {
         if (self.index + amount > self.chars.len) {
-            return TokenizeError.ExpectedCharacterFoundNothing;
+            return errors.TokenizeError.ExpectedCharacterFoundNothing;
         }
 
         self.index += amount;
@@ -387,7 +384,7 @@ const CharUtil = struct {
 
     pub fn take(self: *Self) !u8 {
         if (self.index == self.chars.len) {
-            return TokenizeError.ExpectedCharacterFoundNothing;
+            return errors.TokenizeError.ExpectedCharacterFoundNothing;
         }
 
         const char = self.chars[self.index];
@@ -397,7 +394,7 @@ const CharUtil = struct {
 
     pub fn peak(self: Self) !u8 {
         if (self.index >= self.chars.len) {
-            return TokenizeError.ExpectedCharacterFoundNothing;
+            return errors.TokenizeError.ExpectedCharacterFoundNothing;
         }
 
         return self.chars[self.index];
@@ -411,7 +408,7 @@ const CharUtil = struct {
         return self.chars;
     }
 
-    pub fn logError(self: *Self, err: TokenizeError) void {
+    pub fn logError(self: *Self, err: errors.TokenizeError) void {
         const writer = self.writer;
         const errStr = tokenizeErrorToString(err);
 
@@ -567,7 +564,7 @@ fn parseNextToken(chars: *CharUtil, identStore: *identStoreMod.IdentStore) !?Tok
             const next = try chars.peak();
             if (!std.ascii.isAlphabetic(next) and !isValidNameChar(next) and next != '*') {
                 _ = try chars.take();
-                return TokenizeError.UnexpectedCharacter;
+                return errors.TokenizeError.UnexpectedCharacter;
             }
 
             return Token.init(.Period, startIndex);
@@ -617,11 +614,11 @@ fn parseNextToken(chars: *CharUtil, identStore: *identStoreMod.IdentStore) !?Tok
             if (next == '\\') {
                 next = try chars.take();
             } else if (next == '\'') {
-                return TokenizeError.CharTokenTooShort;
+                return errors.TokenizeError.CharTokenTooShort;
             }
 
             const endTick = try chars.take();
-            if (endTick != '\'') return TokenizeError.CharTokenTooLong;
+            if (endTick != '\'') return errors.TokenizeError.CharTokenTooLong;
 
             return Token.initBounds(.CharToken, startIndex + 1, chars.index + 1);
         },
@@ -633,7 +630,7 @@ fn parseNextToken(chars: *CharUtil, identStore: *identStoreMod.IdentStore) !?Tok
                 current = next;
 
                 if (!chars.hasNext()) {
-                    return TokenizeError.NoClosingQuote;
+                    return errors.TokenizeError.NoClosingQuote;
                 }
                 next = try chars.take();
             }
@@ -682,7 +679,7 @@ fn parseNextToken(chars: *CharUtil, identStore: *identStoreMod.IdentStore) !?Tok
                 return Token.initBoundsId(.Identifier, startIndex, endIndex, id);
             }
 
-            return TokenizeError.UnexpectedCharacter;
+            return errors.TokenizeError.UnexpectedCharacter;
         },
     }
 }
@@ -698,14 +695,14 @@ fn parseNumber(chars: *CharUtil) !ParsedNumberInfo {
 
     var char = try chars.take();
     if (char == '.') {
-        return TokenizeError.UnexpectedCharacter;
+        return errors.TokenizeError.UnexpectedCharacter;
     }
 
     var foundPeriod = false;
     while (std.ascii.isDigit(char) or char == '.') {
         if (char == '.') {
             if (foundPeriod) {
-                return TokenizeError.NumberHasTwoPeriods;
+                return errors.TokenizeError.NumberHasTwoPeriods;
             }
 
             foundPeriod = true;
@@ -853,14 +850,14 @@ fn getTypeFromTuple(chars: []const u8, tuple: anytype) ?TokenType {
     return null;
 }
 
-fn tokenizeErrorToString(err: TokenizeError) []const u8 {
+fn tokenizeErrorToString(err: errors.TokenizeError) []const u8 {
     return switch (err) {
-        TokenizeError.CharTokenTooLong => "char token too long",
-        TokenizeError.CharTokenTooShort => "char token too short",
-        TokenizeError.ExpectedCharacterFoundNothing => "expected character found nothing",
-        TokenizeError.NoClosingQuote => "no closing quote",
-        TokenizeError.NumberHasTwoPeriods => "number has two periods",
-        TokenizeError.UnexpectedCharacter => "unexpected character",
+        errors.TokenizeError.CharTokenTooLong => "char token too long",
+        errors.TokenizeError.CharTokenTooShort => "char token too short",
+        errors.TokenizeError.ExpectedCharacterFoundNothing => "expected character found nothing",
+        errors.TokenizeError.NoClosingQuote => "no closing quote",
+        errors.TokenizeError.NumberHasTwoPeriods => "number has two periods",
+        errors.TokenizeError.UnexpectedCharacter => "unexpected character",
     };
 }
 
@@ -893,7 +890,7 @@ pub const TokenUtil = struct {
 
     pub fn takeFixed(self: *Self) !Token {
         if (self.pos >= self.tokens.len) {
-            return AstTokenError.ExpectedTokenFoundNothing;
+            return errors.AstTokenError.ExpectedTokenFoundNothing;
         }
 
         const res = self.tokens[self.pos];
@@ -904,9 +901,9 @@ pub const TokenUtil = struct {
         return res;
     }
 
-    pub fn peakFixed(self: Self) !Token {
+    pub fn peakFixed(self: Self) errors.AstTokenError!Token {
         if (self.pos >= self.tokens.len) {
-            return AstTokenError.ExpectedTokenFoundNothing;
+            return errors.AstTokenError.ExpectedTokenFoundNothing;
         }
 
         return self.tokens[self.pos];
@@ -936,7 +933,7 @@ pub const TokenUtil = struct {
     pub fn expectToken(self: *Self, tokenType: TokenType) !void {
         const token = try self.take();
         if (std.meta.activeTag(token.type) != std.meta.activeTag(tokenType)) {
-            return AstTokenError.UnexpectedToken;
+            return errors.AstTokenError.UnexpectedToken;
         }
     }
 

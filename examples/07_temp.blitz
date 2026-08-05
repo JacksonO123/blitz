@@ -1,4 +1,4 @@
 fn main() {
-    let mut arr = [4, 3, 2, 1];
+    let mut arr = [4, 3, 2, 1, 6];
     let b = arr.len;
 }

@@ -16,7 +16,6 @@ const pools = blitz.allocPools;
 const Context = blitz.context.Context;
 const identStore = blitz.identStore;
 const errors = blitz.errors;
-const ScanError = errors.ScanError;
 
 fn ScopeDeinitFn(comptime T: type) type {
     return fn (*Context, T, pools.ReleaseType) void;
@@ -436,9 +435,9 @@ pub const CompInfo = struct {
         self: *Self,
         nameIdentStr: identStore.IdentId,
         gType: scanner.TypeAndAllocInfo,
-    ) !void {
+    ) errors.CommonError!void {
         if (gType.info.astType.* == .VarInfo) {
-            return ScanError.CannotSetGenericToVarInfo;
+            return errors.CommonError.CannotSetGenericToVarInfo;
         }
 
         const genScope = self.genericScopes.getCurrentScope();
@@ -453,7 +452,7 @@ pub const CompInfo = struct {
         allocator: Allocator,
         context: *Context,
         nameIdentId: identStore.IdentId,
-    ) !?scanner.TypeAndAllocInfo {
+    ) errors.CloneError!?scanner.TypeAndAllocInfo {
         var genScope: ?*TypeScope = self.genericScopes.getCurrentScope();
         defer self.genericScopes.resetLeakIndex();
         var capture = false;
@@ -522,7 +521,7 @@ pub const CompInfo = struct {
         mutState: scanner.MutState,
     ) !void {
         if (info.info.astType.* == .VarInfo) {
-            return ScanError.NestedVarInfoDetected;
+            return errors.ScanError.NestedVarInfoDetected;
         }
 
         const scope = self.variableScopes.getCurrentScope();

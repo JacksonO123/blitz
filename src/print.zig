@@ -60,12 +60,7 @@ pub fn printType(
         .ArrayDec => |arr| {
             try writer.writeAll("ArrayDec<");
             if (arr.size) |size| {
-                switch (size) {
-                    .Node => |nodeSize| try printNode(context, nodeSize, writer),
-                    .U64 => |val| {
-                        try writer.print("{d}", .{val});
-                    },
-                }
+                try writer.print("{d}", .{size});
             } else {
                 try writer.writeAll("unknown");
             }

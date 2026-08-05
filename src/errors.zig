@@ -4,10 +4,11 @@ const Allocator = std.mem.Allocator;
 const blitz = @import("blitz.zig");
 const clone = blitz.clone;
 
-const CommonError = error{
+pub const CommonError = error{
     ExpectedU64OrU32ForArrayDecSize,
     FailedToGetCustomInstanceById,
-};
+    CannotSetGenericToVarInfo,
+} || Allocator.Error || std.fmt.ParseIntError;
 
 pub const ScanError = error{
     // misc
@@ -23,7 +24,6 @@ pub const ScanError = error{
     ElseBranchOutOfOrder,
     NestedVarInfoDetected,
     RawNumberTooBigForType,
-    CannotSetGenericToVarInfo,
     InvalidEqOperationType,
 
     // pointers
@@ -119,7 +119,7 @@ pub const ScanError = error{
 
     // enums
     EnumVariantDoesNotExist,
-} || CommonError || CloneError || Allocator.Error || std.fmt.ParseIntError;
+} || CommonError;
 
 pub const AstError = error{
     InvalidExprOperand,
@@ -160,7 +160,7 @@ pub const AstError = error{
     StructMethodsCannotDefineCaptureGroups,
     EmptyFunctionCaptures,
     ExpectedUniqueStructDecAttribute,
-} || CommonError || AstTokenError;
+} || CommonError;
 
 pub const TokenizeError = error{
     NumberHasTwoPeriods,
@@ -183,7 +183,7 @@ pub const CloneError = error{
     CannotCloneStructDec,
     CannotCloneErrorDec,
     CannotCloneEnumDec,
-};
+} || CommonError;
 
 pub const CodeGenError = error{
     RawNumberIsTooBig,
@@ -200,8 +200,4 @@ pub const CodeGenError = error{
     ResultOfAccessRegNotFound,
 };
 
-pub const GenBytecodeError = CodeGenError ||
-    Allocator.Error ||
-    std.fmt.ParseIntError ||
-    ScanError ||
-    CloneError;
+pub const GenBytecodeError = CodeGenError || CommonError;

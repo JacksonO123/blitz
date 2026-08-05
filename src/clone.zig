@@ -8,14 +8,13 @@ const scanner = blitz.scanner;
 const pools = blitz.allocPools;
 const Context = blitz.context.Context;
 const errors = blitz.errors;
-const CloneError = errors.CloneError;
 
 pub fn cloneAstTypeInfo(
     allocator: Allocator,
     context: *Context,
     info: ast.AstTypeInfo,
     withGenDef: bool,
-) (Allocator.Error || CloneError)!ast.AstTypeInfo {
+) (Allocator.Error || errors.CloneError)!ast.AstTypeInfo {
     if (info.astType.* == .Generic) {
         const generic = info.astType.Generic;
         if (withGenDef) {
@@ -30,7 +29,7 @@ pub fn cloneAstTypeInfo(
                 return clonedType;
             }
 
-            return CloneError.GenericNotFound;
+            return errors.CloneError.GenericNotFound;
         }
 
         return .{
@@ -62,7 +61,7 @@ pub fn cloneAstTypes(
     context: *Context,
     types: ast.AstTypes,
     withGenDef: bool,
-) (Allocator.Error || CloneError)!ast.AstTypes {
+) (Allocator.Error || errors.CloneError)!ast.AstTypes {
     return switch (types) {
         .Bool,
         .Void,
@@ -91,25 +90,11 @@ pub fn cloneAstTypes(
                 arr.type.info,
                 withGenDef,
             )).toAllocInfo(.Allocated);
-            var sizeClone: ?ast.NodeIndexOrU64 = null;
-            if (arr.size) |size| {
-                sizeClone = switch (size) {
-                    .Node => |nodeSize| .{
-                        .Node = try cloneAstNodePtrMut(
-                            allocator,
-                            context,
-                            nodeSize,
-                            withGenDef,
-                        ),
-                    },
-                    .U64 => |val| .{ .U64 = val },
-                };
-            }
 
             return .{
                 .ArrayDec = .{
                     .type = typeClone,
-                    .size = sizeClone,
+                    .size = arr.size,
                 },
             };
         },
@@ -181,8 +166,8 @@ pub fn cloneAstTypes(
                 .variantIdentId = err.variantIdentId,
             },
         },
-        .Generic => return CloneError.BadGenericClone,
-        .Function, .StructMethod => return CloneError.CannotCloneFunction,
+        .Generic => return errors.CloneError.BadGenericClone,
+        .Function, .StructMethod => return errors.CloneError.CannotCloneFunction,
     };
 }
 
@@ -191,7 +176,7 @@ pub fn cloneAstNodePtrMut(
     context: *Context,
     node: *const ast.AstNode,
     withGenDef: bool,
-) (Allocator.Error || CloneError)!*ast.AstNode {
+) (Allocator.Error || errors.CloneError)!*ast.AstNode {
     const clonedNode = try cloneAstNode(allocator, context, node.*, withGenDef);
     return try context.pools.newNode(context, clonedNode);
 }
@@ -545,9 +530,9 @@ pub fn cloneAstNodeUnion(
                 .ptrIdentId = init.ptrIdentId,
             },
         },
-        .StructDec => return CloneError.CannotCloneStructDec,
-        .ErrorDec => return CloneError.CannotCloneErrorDec,
-        .EnumDec => return CloneError.CannotCloneEnumDec,
+        .StructDec => return errors.CloneError.CannotCloneStructDec,
+        .ErrorDec => return errors.CloneError.CannotCloneErrorDec,
+        .EnumDec => return errors.CloneError.CannotCloneEnumDec,
     }
 }
 
@@ -658,7 +643,7 @@ pub fn replaceGenericsOnTypeInfo(
     context: *Context,
     info: scanner.TypeAndAllocInfo,
     withGenDef: bool,
-) !scanner.TypeAndAllocInfo {
+) errors.CloneError!scanner.TypeAndAllocInfo {
     if (!withGenDef) return info;
 
     return .{
