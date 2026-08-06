@@ -2641,7 +2641,15 @@ fn matchCustomTypes(
     mutMatchBehavior: MutMatchBehavior,
 ) !bool {
     if (type1.nameIdentId != type2.nameIdentId) return false;
-    if (type1.generics.len != type2.generics.len) return false;
+    switch (mutMatchBehavior) {
+        .Strict => {
+            if (type1.generics.len != type2.generics.len) return false;
+        },
+        .Assign => {
+            if (type1.generics.len == 0) return true;
+            if (type1.generics.len != type2.generics.len) return false;
+        },
+    }
 
     for (type1.generics, type2.generics) |gen1, gen2| {
         const genMatch = try matchTypesUtil(

@@ -2,8 +2,8 @@ struct Outer {
     pub m: M[];
 }
 
-struct M {
-    pub value: u32;
+struct M [T] {
+    pub value: T;
     small: u16;
 }
 
@@ -11,15 +11,15 @@ fn main() {
     {
         let outer = Outer {
             m = &[
-                M { value = 1, small = 1u16 },
-                M { value = 2, small = 2u16 },
-                M { value = 3, small = 3u16 },
-                M { value = 4, small = 4u16 },
-                M { value = 5, small = 5u16 }
+                M<u32> { value = 1, small = 1u16 },
+                M<u32> { value = 2, small = 2u16 },
+                M<u32> { value = 3, small = 3u16 },
+                M<u32> { value = 4, small = 4u16 },
+                M<u32> { value = 5, small = 5u16 }
             ]
         };
 
-        let thing = outer.m[4u64].value;
+        let thing = outer.m[3u64].value;
         let a = thing;
     }
 }
