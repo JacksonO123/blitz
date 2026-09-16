@@ -71,6 +71,8 @@ const Flags = struct {
     LT: bool = false,
     GTE: bool = false,
     LTE: bool = false,
+    OF: bool = false,
+    CF: bool = false,
 };
 
 const RuntimePtrs = struct {
@@ -114,31 +116,50 @@ const RuntimeInfo = struct {
     }
 
     pub fn writeMemDebug(self: Self, untilReg: usize, untilStack: usize, writer: *Writer) !void {
-        try writer.writeAll("##REG_START##\n");
-        var i: usize = 0;
-        while (i < vmInfo.NUM_REGISTERS) : (i += 1) {
-            if (i == untilReg) break;
-            try writer.printInt(i, 10, .lower, .{});
-            try writer.writeAll(") ");
-            try writer.printInt(self.registers[i], 10, .lower, .{});
-            try writer.writeAll("\n");
+        {
+            try writer.writeAll("##FLAGS_START##\n");
+            defer writer.writeAll("##FLAGS_END##\n") catch {};
+
+            inline for (@typeInfo(Flags).@"struct".fields) |field| {
+                var buf: [64]u8 = undefined;
+                const str = try std.fmt.bufPrint(
+                    &buf,
+                    "{s} :: {}\n",
+                    .{ field.name, @field(self.flags, field.name) },
+                );
+                try writer.writeAll(str);
+            }
         }
-        try writer.writeAll("##REG_END##\n");
 
-        try writer.writeAll("##STACK_START##\n");
+        {
+            try writer.writeAll("##REG_START##\n");
+            defer writer.writeAll("##REG_END##\n") catch {};
 
-        const stackMem = self.programData.items[self.stackStart..@min(
-            self.programData.items.len,
-            self.stackStart + untilStack,
-        )];
-        for (stackMem, 0..) |byte, index| {
-            try writer.printInt(index + self.stackStart, 10, .lower, .{});
-            try writer.writeAll(") ");
-            try writer.printInt(byte, 10, .lower, .{});
-            try writer.writeAll("\n");
+            var i: usize = 0;
+            while (i < vmInfo.NUM_REGISTERS) : (i += 1) {
+                if (i == untilReg) break;
+                try writer.printInt(i, 10, .lower, .{});
+                try writer.writeAll(") ");
+                try writer.printInt(self.registers[i], 10, .lower, .{});
+                try writer.writeAll("\n");
+            }
         }
-        try writer.writeAll("##STACK_END##\n");
 
+        {
+            try writer.writeAll("##STACK_START##\n");
+            defer writer.writeAll("##STACK_END##\n") catch {};
+
+            const stackMem = self.programData.items[self.stackStart..@min(
+                self.programData.items.len,
+                self.stackStart + untilStack,
+            )];
+            for (stackMem, 0..) |byte, index| {
+                try writer.printInt(index + self.stackStart, 10, .lower, .{});
+                try writer.writeAll(") ");
+                try writer.printInt(byte, 10, .lower, .{});
+                try writer.writeAll("\n");
+            }
+        }
         try blitz.print.printHexViewer(
             self.programData.items[vmInfo.PADDED_BYTECODE_HEADER_LEN..self.instrStart],
             writer,
@@ -225,41 +246,47 @@ fn interpretBytecode(
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
                 const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
                 const res, const overflow = @addWithOverflow(reg1Val, reg2Val);
-                // TODO - do something with overflow
-                _ = overflow;
                 runtimeInfo.registers[bytecode[current + 1]] = res;
+                runtimeInfo.flags.CF = overflow == 1;
             },
             .Sub => {
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
                 const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
                 const res, const overflow = @subWithOverflow(reg1Val, reg2Val);
-                // TODO - do something with overflow
-                _ = overflow;
                 runtimeInfo.registers[bytecode[current + 1]] = res;
+                runtimeInfo.flags.CF = overflow == 1;
             },
             .AddSigned => {
                 const reg1Val: i64 = @bitCast(runtimeInfo.registers[bytecode[current + 2]]);
                 const reg2Val: i64 = @bitCast(runtimeInfo.registers[bytecode[current + 3]]);
                 const res, const overflow = @addWithOverflow(reg1Val, reg2Val);
-                // TODO - do something with overflow
-                _ = overflow;
                 runtimeInfo.registers[bytecode[current + 1]] = @bitCast(res);
+                runtimeInfo.flags.OF = overflow == 1;
             },
             .SubSigned => {
                 const reg1Val: i64 = @bitCast(runtimeInfo.registers[bytecode[current + 2]]);
                 const reg2Val: i64 = @bitCast(runtimeInfo.registers[bytecode[current + 3]]);
                 const res, const overflow = @subWithOverflow(reg1Val, reg2Val);
-                // TODO - do something with overflow
-                _ = overflow;
                 runtimeInfo.registers[bytecode[current + 1]] = @bitCast(res);
+                runtimeInfo.flags.OF = overflow == 1;
             },
             .Add8 => {
                 const regVal = runtimeInfo.registers[bytecode[current + 2]];
-                runtimeInfo.registers[bytecode[current + 1]] = regVal + bytecode[current + 3];
+                const data: u8 = @intCast(bytecode[current + 3]);
+                const reg8: u8 = @intCast(regVal);
+                const res8, const overflow = @addWithOverflow(reg8, data);
+                runtimeInfo.registers[bytecode[current + 1]] = res8;
+                runtimeInfo.flags.CF = overflow == 1;
+                runtimeInfo.flags.OF = overflow == 1;
             },
             .Sub8 => {
                 const regVal = runtimeInfo.registers[bytecode[current + 2]];
-                runtimeInfo.registers[bytecode[current + 1]] = regVal - bytecode[current + 3];
+                const data: u8 = @intCast(bytecode[current + 3]);
+                const reg8: u8 = @intCast(regVal);
+                const res8, const overflow = @subWithOverflow(reg8, data);
+                runtimeInfo.registers[bytecode[current + 1]] = res8;
+                runtimeInfo.flags.CF = overflow == 1;
+                runtimeInfo.flags.OF = overflow == 1;
             },
             .Add16 => addConst(u16, runtimeInfo, bytecode, current),
             .Sub16 => subConst(u16, runtimeInfo, bytecode, current),
@@ -271,9 +298,9 @@ fn interpretBytecode(
                 const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
                 const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
                 const res, const overflow = @mulWithOverflow(reg1Val, reg2Val);
-                // TODO - do something with overflow
-                _ = overflow;
                 runtimeInfo.registers[bytecode[current + 1]] = res;
+                runtimeInfo.flags.CF = overflow == 1;
+                runtimeInfo.flags.OF = overflow == 1;
             },
             .Cmp => {
                 const reg1Value = runtimeInfo.registers[bytecode[current + 1]];
@@ -723,7 +750,10 @@ fn addConst(
         @ptrCast(bytecode[current + 3 .. current + 3 + immediateSize]),
         .little,
     );
-    runtimeInfo.registers[bytecode[current + 1]] = regVal + val;
+    const castVal: u64 = @intCast(val);
+    const res, const overflow = @addWithOverflow(regVal, castVal);
+    runtimeInfo.registers[bytecode[current + 1]] = res;
+    runtimeInfo.flags.CF = overflow == 1;
 }
 
 fn subConst(
@@ -740,7 +770,10 @@ fn subConst(
         @ptrCast(bytecode[current + 3 .. current + 3 + immediateSize]),
         .little,
     );
-    runtimeInfo.registers[bytecode[current + 1]] = regVal - val;
+    const castVal: u64 = @intCast(val);
+    const res, const overflow = @subWithOverflow(regVal, castVal);
+    runtimeInfo.registers[bytecode[current + 1]] = res;
+    runtimeInfo.flags.CF = overflow == 1;
 }
 
 fn storeAtRegOffset(
