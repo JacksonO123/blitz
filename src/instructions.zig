@@ -260,7 +260,7 @@ pub fn getSpIncInstructions(size: u64) struct {
     add: codegen.Instr,
     sub: codegen.Instr,
 } {
-    const spOpSize = codegen.getOpSizeFromNum(size);
+    const spOpSize = codegen.OpSizes.fromNum(size);
 
     return switch (spOpSize) {
         .U8 => .{
@@ -283,7 +283,7 @@ pub fn getSpIncInstructions(size: u64) struct {
 }
 
 pub fn addConst(outReg: vmInfo.TempRegister, opReg: vmInfo.TempRegister, data: u64) codegen.Instr {
-    const opSize = codegen.getOpSizeFromNum(data);
+    const opSize = codegen.OpSizes.fromNum(data);
 
     return switch (opSize) {
         .U8 => codegen.Instr{
@@ -318,7 +318,7 @@ pub fn addConst(outReg: vmInfo.TempRegister, opReg: vmInfo.TempRegister, data: u
 }
 
 pub fn subConst(outReg: vmInfo.TempRegister, opReg: vmInfo.TempRegister, data: u64) codegen.Instr {
-    const opSize = codegen.getOpSizeFromNum(data);
+    const opSize = codegen.OpSizes.fromNum(data);
 
     return switch (opSize) {
         .U8 => codegen.Instr{
@@ -358,7 +358,7 @@ pub fn mulRegAddReg(
     mulReg: vmInfo.TempRegister,
     data: u64,
 ) codegen.Instr {
-    const opSize = codegen.getOpSizeFromNum(data);
+    const opSize = codegen.OpSizes.fromNum(data);
 
     return switch (opSize) {
         .U8 => codegen.Instr{
@@ -396,18 +396,20 @@ pub fn mulRegAddReg(
     };
 }
 
-pub fn addFromInstrStruct(instr: codegen.TwoOpResultInstr, signed: bool) codegen.Instr {
-    if (signed) {
-        return .{ .AddSigned = instr };
-    }
-
-    return .{ .Add = instr };
+pub fn addFromInstrStruct(instr: codegen.TwoOpResultInstr, opSize: codegen.OpSizes) codegen.Instr {
+    return switch (opSize) {
+        .U8 => .{ .AddReg8 = instr },
+        .U16 => .{ .AddReg16 = instr },
+        .U32 => .{ .AddReg32 = instr },
+        .U64 => .{ .AddReg64 = instr },
+    };
 }
 
-pub fn subFromInstrStruct(instr: codegen.TwoOpResultInstr, signed: bool) codegen.Instr {
-    if (signed) {
-        return .{ .SubSigned = instr };
-    }
-
-    return .{ .Sub = instr };
+pub fn subFromInstrStruct(instr: codegen.TwoOpResultInstr, opSize: codegen.OpSizes) codegen.Instr {
+    return switch (opSize) {
+        .U8 => .{ .SubReg8 = instr },
+        .U16 => .{ .SubReg16 = instr },
+        .U32 => .{ .SubReg32 = instr },
+        .U64 => .{ .SubReg64 = instr },
+    };
 }
