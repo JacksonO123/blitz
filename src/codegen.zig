@@ -72,18 +72,45 @@ const LoopCondInfo = struct {
     isCompExpr: bool,
 };
 
-const OpSizes = enum {
+pub const OpSizes = enum {
+    const Self = @This();
+
+    pub const sizeToOpSizeTuple = .{
+        .{ std.math.maxInt(u8), OpSizes.U8 },
+        .{ std.math.maxInt(u16), OpSizes.U16 },
+        .{ std.math.maxInt(u32), OpSizes.U32 },
+        .{ std.math.maxInt(u64), OpSizes.U64 },
+    };
+
+    pub const byteCountToOpSizeTuple = .{
+        .{ 1, OpSizes.U8 },
+        .{ 2, OpSizes.U16 },
+        .{ 4, OpSizes.U32 },
+        .{ 8, OpSizes.U64 },
+    };
+
     U8,
     U16,
     U32,
     U64,
-};
 
-const sizeToOpSizeTuple = .{
-    .{ std.math.maxInt(u8), OpSizes.U8 },
-    .{ std.math.maxInt(u16), OpSizes.U16 },
-    .{ std.math.maxInt(u32), OpSizes.U32 },
-    .{ std.math.maxInt(u64), OpSizes.U64 },
+    pub fn fromNum(num: u64) Self {
+        inline for (sizeToOpSizeTuple) |tuple| {
+            if (num < tuple[0]) return tuple[1];
+        }
+
+        // TODO: handle really large numbers
+        utils.unimplemented();
+    }
+
+    pub fn fromByteCount(byteCount: u64) Self {
+        inline for (byteCountToOpSizeTuple) |tuple| {
+            if (byteCount <= tuple[0]) return tuple[1];
+        }
+
+        // TODO: handle numbers >8 bytes
+        utils.unimplemented();
+    }
 };
 
 const InstrInfo = struct {
@@ -123,12 +150,17 @@ pub const InstructionVariants = enum(u8) {
     SetRegN16, // inst, reg, 2B data
     SetRegN8, // inst, reg, 1B data
 
-    Add, // inst, out reg, reg1, reg2
-    Sub, // inst, out reg, reg1, reg2
-    Mult, // inst, out reg, reg1, reg2
+    AddReg8, // inst, out reg, reg1, reg2
+    AddReg16, // inst, out reg, reg1, reg2
+    AddReg32, // inst, out reg, reg1, reg2
+    AddReg64, // inst, out reg, reg1, reg2
 
-    AddSigned, // inst, out reg, reg1, reg2
-    SubSigned, // inst, out reg, reg1, reg2
+    SubReg8, // inst, out reg, reg1, reg2
+    SubReg16, // inst, out reg, reg1, reg2
+    SubReg32, // inst, out reg, reg1, reg2
+    SubReg64, // inst, out reg, reg1, reg2
+
+    Mult, // inst, out reg, reg1, reg2
 
     Add8, // inst, out reg, reg1, 1B data
     Sub8, // inst, out reg, reg1, 1B data
@@ -353,30 +385,50 @@ pub const InstructionVariants = enum(u8) {
                 .opCount = 1,
                 .text = "set_reg_n_8",
             },
-            .Add => .{
+            .AddReg8 => .{
                 .len = 4,
                 .opCount = 3,
-                .text = "add",
+                .text = "add_reg_8",
             },
-            .Sub => .{
+            .AddReg16 => .{
                 .len = 4,
                 .opCount = 3,
-                .text = "sub",
+                .text = "add_reg_16",
+            },
+            .AddReg32 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "add_reg_32",
+            },
+            .AddReg64 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "add_reg_64",
+            },
+            .SubReg8 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "sub_reg_8",
+            },
+            .SubReg16 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "sub_reg_16",
+            },
+            .SubReg32 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "sub_reg_32",
+            },
+            .SubReg64 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "sub_reg_64",
             },
             .Mult => .{
                 .len = 4,
                 .opCount = 3,
                 .text = "mult",
-            },
-            .AddSigned => .{
-                .len = 4,
-                .opCount = 3,
-                .text = "add_signed",
-            },
-            .SubSigned => .{
-                .len = 4,
-                .opCount = 3,
-                .text = "sub_signed",
             },
             .Add8 => .{
                 .len = 4,
@@ -967,7 +1019,7 @@ pub const InstructionVariants = enum(u8) {
 
     pub fn maxOpCount() comptime_int {
         var max = 0;
-        @setEvalBranchQuota(1024);
+        @setEvalBranchQuota(2048);
         inline for (@typeInfo(Self).@"enum".fields) |field| {
             const val: Self = @enumFromInt(field.value);
             if (val.instrIsAny()) continue;
@@ -1127,12 +1179,17 @@ pub const Instr = union(InstructionVariants) {
     SetRegN16: SetRegInstr(u16),
     SetRegN8: SetRegInstr(u8),
 
-    Add: MathInstr,
-    Sub: MathInstr,
-    Mult: MathInstr,
+    AddReg8: MathInstr,
+    AddReg16: MathInstr,
+    AddReg32: MathInstr,
+    AddReg64: MathInstr,
 
-    AddSigned: MathInstr,
-    SubSigned: MathInstr,
+    SubReg8: MathInstr,
+    SubReg16: MathInstr,
+    SubReg32: MathInstr,
+    SubReg64: MathInstr,
+
+    Mult: MathInstr,
 
     Add8: OneOpResultInstr(u8),
     Sub8: OneOpResultInstr(u8),
@@ -1922,7 +1979,16 @@ pub const GenInfo = struct {
             .SetReg32, .SetRegN32 => |inner| try func(self, allocator, inner.reg, value),
             .SetReg16, .SetRegN16 => |inner| try func(self, allocator, inner.reg, value),
             .SetReg8, .SetRegN8 => |inner| try func(self, allocator, inner.reg, value),
-            .Add, .Sub, .Mult, .AddSigned, .SubSigned => |inner| {
+            .AddReg8,
+            .AddReg16,
+            .AddReg32,
+            .AddReg64,
+            .SubReg8,
+            .SubReg16,
+            .SubReg32,
+            .SubReg64,
+            .Mult,
+            => |inner| {
                 try func(self, allocator, inner.reg1, value);
                 try func(self, allocator, inner.reg2, value);
                 try func(self, allocator, inner.dest, value);
@@ -2310,7 +2376,17 @@ fn writeChunk(instr: Instr, writer: *Writer) !void {
             try writer.writeByte(@intCast(inner.reg));
             try writeNumber(u8, inner.data, writer);
         },
-        .Add, .Sub, .Mult, .AddSigned, .SubSigned, .Xor => |inner| {
+        .AddReg8,
+        .AddReg16,
+        .AddReg32,
+        .AddReg64,
+        .SubReg8,
+        .SubReg16,
+        .SubReg32,
+        .SubReg64,
+        .Mult,
+        .Xor,
+        => |inner| {
             try writer.writeByte(@intCast(inner.dest));
             try writer.writeByte(@intCast(inner.reg1));
             try writer.writeByte(@intCast(inner.reg2));
@@ -2807,7 +2883,7 @@ fn adjustInstruction(
 }
 
 fn postPopLRNegOffsetAnyInstr(offset: u64) Instr {
-    const spOpSize = getOpSizeFromNum(offset);
+    const spOpSize = OpSizes.fromNum(offset);
 
     return switch (spOpSize) {
         .U8 => Instr{
@@ -2826,7 +2902,7 @@ fn postPopLRNegOffsetAnyInstr(offset: u64) Instr {
 }
 
 fn prePushLRNegOffsetAnyInstr(offset: u64) Instr {
-    const spOpSize = getOpSizeFromNum(offset);
+    const spOpSize = OpSizes.fromNum(offset);
 
     return switch (spOpSize) {
         .U8 => Instr{
@@ -2845,7 +2921,7 @@ fn prePushLRNegOffsetAnyInstr(offset: u64) Instr {
 }
 
 fn popRegNegOffsetAnyInstr(reg: vmInfo.TempRegister, offset: u64) Instr {
-    const spOpSize = getOpSizeFromNum(offset);
+    const spOpSize = OpSizes.fromNum(offset);
 
     return switch (spOpSize) {
         .U8 => Instr{
@@ -2876,7 +2952,7 @@ fn popRegNegOffsetAnyInstr(reg: vmInfo.TempRegister, offset: u64) Instr {
 }
 
 fn pushRegNegOffsetAnyInstr(reg: vmInfo.TempRegister, offset: u64) Instr {
-    const spOpSize = getOpSizeFromNum(offset);
+    const spOpSize = OpSizes.fromNum(offset);
 
     return switch (spOpSize) {
         .U8 => Instr{
@@ -2907,7 +2983,7 @@ fn pushRegNegOffsetAnyInstr(reg: vmInfo.TempRegister, offset: u64) Instr {
 }
 
 fn movSpNegOffset(reg: vmInfo.TempRegister, offset: u64) Instr {
-    const spOpSize = getOpSizeFromNum(offset);
+    const spOpSize = OpSizes.fromNum(offset);
 
     return switch (spOpSize) {
         .U8, .U16 => Instr{
@@ -3251,9 +3327,9 @@ pub fn genBytecodeUtil(
             }
         },
         .OpExpr => |expr| {
-            const signed = node.typeInfo.data.OpExpr.signed;
-
             var leftReg: vmInfo.TempRegister = undefined;
+
+            const exprOpSize = OpSizes.fromByteCount(expr.left.typeInfo.size);
 
             const leftDepth = ast.getExprDepth(expr.left);
             const rightDepth = ast.getExprDepth(expr.right);
@@ -3280,8 +3356,8 @@ pub fn genBytecodeUtil(
                         .reg2 = rightReg,
                     };
                     break :a switch (expr.type) {
-                        .Add => instructions.addFromInstrStruct(mathInstr, signed),
-                        .Sub => instructions.subFromInstrStruct(mathInstr, signed),
+                        .Add => instructions.addFromInstrStruct(mathInstr, exprOpSize),
+                        .Sub => instructions.subFromInstrStruct(mathInstr, exprOpSize),
                         .Mult => .{ .Mult = mathInstr },
                         else => utils.unimplemented(),
                     };
@@ -3906,23 +3982,21 @@ pub fn genBytecodeUtil(
             const valueReg = try genBytecode(allocator, context, op.value) orelse
                 return errors.CodeGenError.ReturnedRegisterNotFound;
 
+            const opSize = OpSizes.fromByteCount(op.value.typeInfo.size);
+
             const instr: Instr = switch (op.opType) {
-                .Add => .{
-                    .Add = .{
-                        .dest = destReg,
-                        .reg1 = destReg,
-                        .reg2 = valueReg,
-                    },
-                },
-                .Sub => .{
-                    .Sub = .{
-                        .dest = destReg,
-                        .reg1 = destReg,
-                        .reg2 = valueReg,
-                    },
-                },
+                .Add => instructions.addFromInstrStruct(.{
+                    .dest = destReg,
+                    .reg1 = destReg,
+                    .reg2 = valueReg,
+                }, opSize),
+                .Sub => instructions.subFromInstrStruct(.{
+                    .dest = destReg,
+                    .reg1 = destReg,
+                    .reg2 = valueReg,
+                }, opSize),
                 .Mult => .{
-                    .Sub = .{
+                    .Mult = .{
                         .dest = destReg,
                         .reg1 = destReg,
                         .reg2 = valueReg,
@@ -4454,19 +4528,6 @@ fn nodeIsPrimitive(node: *ast.AstNode) bool {
         .Pointer => if (node.typeInfo.data == .ArrDecPtr) false else true,
         else => true,
     };
-}
-
-pub fn getOpSizeFromNum(num: u64) OpSizes {
-    var res: ?OpSizes = null;
-
-    inline for (sizeToOpSizeTuple) |tuple| {
-        if (num < tuple[0]) {
-            res = tuple[1];
-            break;
-        }
-    }
-
-    return res.?;
 }
 
 /// returns register holding a pointer

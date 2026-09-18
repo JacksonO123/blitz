@@ -242,34 +242,14 @@ fn interpretBytecode(
             .SetRegN8 => {
                 runtimeInfo.registers[bytecode[current + 1]] = ~@as(u64, @intCast(bytecode[current + 2]));
             },
-            .Add => {
-                const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
-                const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
-                const res, const overflow = @addWithOverflow(reg1Val, reg2Val);
-                runtimeInfo.registers[bytecode[current + 1]] = res;
-                runtimeInfo.flags.CF = overflow == 1;
-            },
-            .Sub => {
-                const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
-                const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
-                const res, const overflow = @subWithOverflow(reg1Val, reg2Val);
-                runtimeInfo.registers[bytecode[current + 1]] = res;
-                runtimeInfo.flags.CF = overflow == 1;
-            },
-            .AddSigned => {
-                const reg1Val: i64 = @bitCast(runtimeInfo.registers[bytecode[current + 2]]);
-                const reg2Val: i64 = @bitCast(runtimeInfo.registers[bytecode[current + 3]]);
-                const res, const overflow = @addWithOverflow(reg1Val, reg2Val);
-                runtimeInfo.registers[bytecode[current + 1]] = @bitCast(res);
-                runtimeInfo.flags.OF = overflow == 1;
-            },
-            .SubSigned => {
-                const reg1Val: i64 = @bitCast(runtimeInfo.registers[bytecode[current + 2]]);
-                const reg2Val: i64 = @bitCast(runtimeInfo.registers[bytecode[current + 3]]);
-                const res, const overflow = @subWithOverflow(reg1Val, reg2Val);
-                runtimeInfo.registers[bytecode[current + 1]] = @bitCast(res);
-                runtimeInfo.flags.OF = overflow == 1;
-            },
+            .AddReg8 => addRegWithSize(u8, runtimeInfo, bytecode, current),
+            .AddReg16 => addRegWithSize(u16, runtimeInfo, bytecode, current),
+            .AddReg32 => addRegWithSize(u32, runtimeInfo, bytecode, current),
+            .AddReg64 => addRegWithSize(u64, runtimeInfo, bytecode, current),
+            .SubReg8 => subRegWithSize(u8, runtimeInfo, bytecode, current),
+            .SubReg16 => subRegWithSize(u16, runtimeInfo, bytecode, current),
+            .SubReg32 => subRegWithSize(u32, runtimeInfo, bytecode, current),
+            .SubReg64 => subRegWithSize(u64, runtimeInfo, bytecode, current),
             .Add8 => {
                 const regVal = runtimeInfo.registers[bytecode[current + 2]];
                 const data: u8 = @intCast(bytecode[current + 3]);
@@ -715,6 +695,24 @@ fn interpretBytecode(
 
         current += instLen;
     }
+}
+
+fn addRegWithSize(comptime T: type, runtimeInfo: *RuntimeInfo, bytecode: []const u8, current: u64) void {
+    const reg1Val: T = @intCast(runtimeInfo.registers[bytecode[current + 2]]);
+    const reg2Val: T = @intCast(runtimeInfo.registers[bytecode[current + 3]]);
+    const res, const overflow = @addWithOverflow(reg1Val, reg2Val);
+    runtimeInfo.registers[bytecode[current + 1]] = res;
+    runtimeInfo.flags.CF = overflow == 1;
+    runtimeInfo.flags.OF = overflow == 1;
+}
+
+fn subRegWithSize(comptime T: type, runtimeInfo: *RuntimeInfo, bytecode: []const u8, current: u64) void {
+    const reg1Val: T = @intCast(runtimeInfo.registers[bytecode[current + 2]]);
+    const reg2Val: T = @intCast(runtimeInfo.registers[bytecode[current + 3]]);
+    const res, const overflow = @subWithOverflow(reg1Val, reg2Val);
+    runtimeInfo.registers[bytecode[current + 1]] = res;
+    runtimeInfo.flags.CF = overflow == 1;
+    runtimeInfo.flags.OF = overflow == 1;
 }
 
 fn mulRegAddReg(

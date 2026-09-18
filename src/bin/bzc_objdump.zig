@@ -162,7 +162,16 @@ fn printInstrFromSliceUtil(
         .SetReg16, .SetRegN16 => try printSegments(printUtil, .{ .Reg, .Immediate16 }, writer),
         .SetReg8, .SetRegN8 => try printSegments(printUtil, .{ .Reg, .Immediate8 }, writer),
 
-        .Add, .Sub, .Mult, .AddSigned, .SubSigned => try printSegments(
+        .AddReg8,
+        .AddReg16,
+        .AddReg32,
+        .AddReg64,
+        .SubReg8,
+        .SubReg16,
+        .SubReg32,
+        .SubReg64,
+        .Mult,
+        => try printSegments(
             printUtil,
             .{ .Reg, .Reg, .Reg },
             writer,
