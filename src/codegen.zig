@@ -145,11 +145,6 @@ pub const InstructionVariants = enum(u8) {
     SetReg16, // inst, reg, 2B data
     SetReg8, // inst, reg, 1B data
 
-    SetRegN64, // inst, reg, 8B data
-    SetRegN32, // inst, reg, 4B data
-    SetRegN16, // inst, reg, 2B data
-    SetRegN8, // inst, reg, 1B data
-
     AddReg8, // inst, out reg, reg1, reg2
     AddReg16, // inst, out reg, reg1, reg2
     AddReg32, // inst, out reg, reg1, reg2
@@ -160,7 +155,20 @@ pub const InstructionVariants = enum(u8) {
     SubReg32, // inst, out reg, reg1, reg2
     SubReg64, // inst, out reg, reg1, reg2
 
-    Mult, // inst, out reg, reg1, reg2
+    MultReg8, // inst, out reg, reg1, reg2
+    MultReg16, // inst, out reg, reg1, reg2
+    MultReg32, // inst, out reg, reg1, reg2
+    MultReg64, // inst, out reg, reg1, reg2
+
+    DivReg8, // inst, out reg, reg1, reg2
+    DivReg16, // inst, out reg, reg1, reg2
+    DivReg32, // inst, out reg, reg1, reg2
+    DivReg64, // inst, out reg, reg1, reg2
+
+    DivSignedReg8, // inst, out reg
+    DivSignedReg16, // inst, out reg
+    DivSignedReg32, // inst, out reg
+    DivSignedReg64, // inst, out reg
 
     Add8, // inst, out reg, reg1, 1B data
     Sub8, // inst, out reg, reg1, 1B data
@@ -365,26 +373,6 @@ pub const InstructionVariants = enum(u8) {
                 .opCount = 1,
                 .text = "set_reg_8",
             },
-            .SetRegN64 => .{
-                .len = 10,
-                .opCount = 1,
-                .text = "set_reg_n_64",
-            },
-            .SetRegN32 => .{
-                .len = 6,
-                .opCount = 1,
-                .text = "set_reg_n_32",
-            },
-            .SetRegN16 => .{
-                .len = 4,
-                .opCount = 1,
-                .text = "set_reg_n_16",
-            },
-            .SetRegN8 => .{
-                .len = 3,
-                .opCount = 1,
-                .text = "set_reg_n_8",
-            },
             .AddReg8 => .{
                 .len = 4,
                 .opCount = 3,
@@ -425,10 +413,65 @@ pub const InstructionVariants = enum(u8) {
                 .opCount = 3,
                 .text = "sub_reg_64",
             },
-            .Mult => .{
+            .MultReg8 => .{
                 .len = 4,
                 .opCount = 3,
-                .text = "mult",
+                .text = "mult_reg_8",
+            },
+            .MultReg16 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "mult_reg16",
+            },
+            .MultReg32 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "mult_reg_32",
+            },
+            .MultReg64 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "mult_reg_64",
+            },
+            .DivReg8 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "div_reg_8",
+            },
+            .DivReg16 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "div_reg_16",
+            },
+            .DivReg32 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "div_reg_32",
+            },
+            .DivReg64 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "div_reg_64",
+            },
+            .DivSignedReg8 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "div_signed_reg_8",
+            },
+            .DivSignedReg16 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "div_signed_reg_16",
+            },
+            .DivSignedReg32 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "div_signed_reg_32",
+            },
+            .DivSignedReg64 => .{
+                .len = 4,
+                .opCount = 3,
+                .text = "div_signed_reg_64",
             },
             .Add8 => .{
                 .len = 4,
@@ -1174,11 +1217,6 @@ pub const Instr = union(InstructionVariants) {
     SetReg16: SetRegInstr(u16),
     SetReg8: SetRegInstr(u8),
 
-    SetRegN64: SetRegInstr(u64),
-    SetRegN32: SetRegInstr(u32),
-    SetRegN16: SetRegInstr(u16),
-    SetRegN8: SetRegInstr(u8),
-
     AddReg8: MathInstr,
     AddReg16: MathInstr,
     AddReg32: MathInstr,
@@ -1189,7 +1227,20 @@ pub const Instr = union(InstructionVariants) {
     SubReg32: MathInstr,
     SubReg64: MathInstr,
 
-    Mult: MathInstr,
+    MultReg8: MathInstr,
+    MultReg16: MathInstr,
+    MultReg32: MathInstr,
+    MultReg64: MathInstr,
+
+    DivReg8: MathInstr,
+    DivReg16: MathInstr,
+    DivReg32: MathInstr,
+    DivReg64: MathInstr,
+
+    DivSignedReg8: MathInstr,
+    DivSignedReg16: MathInstr,
+    DivSignedReg32: MathInstr,
+    DivSignedReg64: MathInstr,
 
     Add8: OneOpResultInstr(u8),
     Sub8: OneOpResultInstr(u8),
@@ -1975,10 +2026,10 @@ pub const GenInfo = struct {
             .PostPopLRNegOffset64,
             => {},
 
-            .SetReg64, .SetRegN64 => |inner| try func(self, allocator, inner.reg, value),
-            .SetReg32, .SetRegN32 => |inner| try func(self, allocator, inner.reg, value),
-            .SetReg16, .SetRegN16 => |inner| try func(self, allocator, inner.reg, value),
-            .SetReg8, .SetRegN8 => |inner| try func(self, allocator, inner.reg, value),
+            .SetReg64 => |inner| try func(self, allocator, inner.reg, value),
+            .SetReg32 => |inner| try func(self, allocator, inner.reg, value),
+            .SetReg16 => |inner| try func(self, allocator, inner.reg, value),
+            .SetReg8 => |inner| try func(self, allocator, inner.reg, value),
             .AddReg8,
             .AddReg16,
             .AddReg32,
@@ -1987,7 +2038,18 @@ pub const GenInfo = struct {
             .SubReg16,
             .SubReg32,
             .SubReg64,
-            .Mult,
+            .MultReg8,
+            .MultReg16,
+            .MultReg32,
+            .MultReg64,
+            .DivReg8,
+            .DivReg16,
+            .DivReg32,
+            .DivReg64,
+            .DivSignedReg8,
+            .DivSignedReg16,
+            .DivSignedReg32,
+            .DivSignedReg64,
             => |inner| {
                 try func(self, allocator, inner.reg1, value);
                 try func(self, allocator, inner.reg2, value);
@@ -2360,19 +2422,19 @@ fn writeChunk(instr: Instr, writer: *Writer) !void {
     switch (instr) {
         .Label, .NoOp => unreachable,
         .Ret, .End => {},
-        .SetReg64, .SetRegN64 => |inner| {
+        .SetReg64 => |inner| {
             try writer.writeByte(@intCast(inner.reg));
             try writeNumber(u64, inner.data, writer);
         },
-        .SetReg32, .SetRegN32 => |inner| {
+        .SetReg32 => |inner| {
             try writer.writeByte(@intCast(inner.reg));
             try writeNumber(u32, inner.data, writer);
         },
-        .SetReg16, .SetRegN16 => |inner| {
+        .SetReg16 => |inner| {
             try writer.writeByte(@intCast(inner.reg));
             try writeNumber(u16, inner.data, writer);
         },
-        .SetReg8, .SetRegN8 => |inner| {
+        .SetReg8 => |inner| {
             try writer.writeByte(@intCast(inner.reg));
             try writeNumber(u8, inner.data, writer);
         },
@@ -2384,7 +2446,18 @@ fn writeChunk(instr: Instr, writer: *Writer) !void {
         .SubReg16,
         .SubReg32,
         .SubReg64,
-        .Mult,
+        .MultReg8,
+        .MultReg16,
+        .MultReg32,
+        .MultReg64,
+        .DivReg8,
+        .DivReg16,
+        .DivReg32,
+        .DivReg64,
+        .DivSignedReg8,
+        .DivSignedReg16,
+        .DivSignedReg32,
+        .DivSignedReg64,
         .Xor,
         => |inner| {
             try writer.writeByte(@intCast(inner.dest));
@@ -3157,7 +3230,7 @@ pub fn genBytecodeUtil(
                         .I32 => a: {
                             const val = try std.fmt.parseInt(i32, num.digits, 10);
                             break :a Instr{
-                                .SetRegN32 = .{
+                                .SetReg32 = .{
                                     .reg = reg,
                                     .data = @bitCast(val),
                                 },
@@ -3347,8 +3420,10 @@ pub fn genBytecodeUtil(
 
             var outReg: ?vmInfo.TempRegister = null;
 
+            const signed = node.typeInfo.data.OpExpr.signed;
+
             const buf: Instr = switch (expr.type) {
-                .Add, .Sub, .Mult => a: {
+                .Add, .Sub, .Mult, .Div => a: {
                     outReg = try context.genInfo.getNextRegister(allocator);
                     const mathInstr = MathInstr{
                         .dest = outReg.?,
@@ -3358,8 +3433,9 @@ pub fn genBytecodeUtil(
                     break :a switch (expr.type) {
                         .Add => instructions.addFromInstrStruct(mathInstr, exprOpSize),
                         .Sub => instructions.subFromInstrStruct(mathInstr, exprOpSize),
-                        .Mult => .{ .Mult = mathInstr },
-                        else => utils.unimplemented(),
+                        .Mult => instructions.multFromInstrStruct(mathInstr, exprOpSize),
+                        .Div => instructions.divFromInstrStruct(mathInstr, exprOpSize, signed),
+                        else => unreachable,
                     };
                 },
                 .LessThan,
@@ -3465,7 +3541,6 @@ pub fn genBytecodeUtil(
                         .reg2 = rightReg,
                     },
                 },
-                .Div => utils.unimplemented(),
             };
 
             try context.genInfo.appendChunk(allocator, buf);
@@ -3983,25 +4058,16 @@ pub fn genBytecodeUtil(
                 return errors.CodeGenError.ReturnedRegisterNotFound;
 
             const opSize = OpSizes.fromByteCount(op.value.typeInfo.size);
+            const mathInstr: TwoOpResultInstr = .{
+                .dest = destReg,
+                .reg1 = destReg,
+                .reg2 = valueReg,
+            };
 
             const instr: Instr = switch (op.opType) {
-                .Add => instructions.addFromInstrStruct(.{
-                    .dest = destReg,
-                    .reg1 = destReg,
-                    .reg2 = valueReg,
-                }, opSize),
-                .Sub => instructions.subFromInstrStruct(.{
-                    .dest = destReg,
-                    .reg1 = destReg,
-                    .reg2 = valueReg,
-                }, opSize),
-                .Mult => .{
-                    .Mult = .{
-                        .dest = destReg,
-                        .reg1 = destReg,
-                        .reg2 = valueReg,
-                    },
-                },
+                .Add => instructions.addFromInstrStruct(mathInstr, opSize),
+                .Sub => instructions.subFromInstrStruct(mathInstr, opSize),
+                .Mult => instructions.multFromInstrStruct(mathInstr, opSize),
                 else => utils.unimplemented(),
             };
 

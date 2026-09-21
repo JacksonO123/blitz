@@ -218,30 +218,6 @@ fn interpretBytecode(
             .SetReg8 => {
                 runtimeInfo.registers[bytecode[current + 1]] = bytecode[current + 2];
             },
-            .SetRegN64 => {
-                runtimeInfo.registers[bytecode[current + 1]] = ~std.mem.readInt(
-                    u64,
-                    @ptrCast(bytecode[current + 2 .. current + 10]),
-                    .little,
-                );
-            },
-            .SetRegN32 => {
-                runtimeInfo.registers[bytecode[current + 1]] = ~@as(u64, @intCast(std.mem.readInt(
-                    u32,
-                    @ptrCast(bytecode[current + 2 .. current + 6]),
-                    .little,
-                )));
-            },
-            .SetRegN16 => {
-                runtimeInfo.registers[bytecode[current + 1]] = ~@as(u64, @intCast(std.mem.readInt(
-                    u16,
-                    @ptrCast(bytecode[current + 2 .. current + 4]),
-                    .little,
-                )));
-            },
-            .SetRegN8 => {
-                runtimeInfo.registers[bytecode[current + 1]] = ~@as(u64, @intCast(bytecode[current + 2]));
-            },
             .AddReg8 => addRegWithSize(u8, runtimeInfo, bytecode, current),
             .AddReg16 => addRegWithSize(u16, runtimeInfo, bytecode, current),
             .AddReg32 => addRegWithSize(u32, runtimeInfo, bytecode, current),
@@ -274,14 +250,18 @@ fn interpretBytecode(
             .Sub32 => subConst(u32, runtimeInfo, bytecode, current),
             .Add64 => addConst(u64, runtimeInfo, bytecode, current),
             .Sub64 => subConst(u64, runtimeInfo, bytecode, current),
-            .Mult => {
-                const reg1Val = runtimeInfo.registers[bytecode[current + 2]];
-                const reg2Val = runtimeInfo.registers[bytecode[current + 3]];
-                const res, const overflow = @mulWithOverflow(reg1Val, reg2Val);
-                runtimeInfo.registers[bytecode[current + 1]] = res;
-                runtimeInfo.flags.CF = overflow == 1;
-                runtimeInfo.flags.OF = overflow == 1;
-            },
+            .MultReg8 => multRegWithSize(u8, runtimeInfo, bytecode, current),
+            .MultReg16 => multRegWithSize(u8, runtimeInfo, bytecode, current),
+            .MultReg32 => multRegWithSize(u8, runtimeInfo, bytecode, current),
+            .MultReg64 => multRegWithSize(u8, runtimeInfo, bytecode, current),
+            .DivReg8 => divRegWithSize(u8, runtimeInfo, bytecode, current),
+            .DivReg16 => divRegWithSize(u16, runtimeInfo, bytecode, current),
+            .DivReg32 => divRegWithSize(u32, runtimeInfo, bytecode, current),
+            .DivReg64 => divRegWithSize(u64, runtimeInfo, bytecode, current),
+            .DivSignedReg8 => divRegWithSize(i8, runtimeInfo, bytecode, current),
+            .DivSignedReg16 => divRegWithSize(i16, runtimeInfo, bytecode, current),
+            .DivSignedReg32 => divRegWithSize(i32, runtimeInfo, bytecode, current),
+            .DivSignedReg64 => divRegWithSize(i64, runtimeInfo, bytecode, current),
             .Cmp => {
                 const reg1Value = runtimeInfo.registers[bytecode[current + 1]];
                 const reg2Value = runtimeInfo.registers[bytecode[current + 2]];
@@ -673,28 +653,38 @@ fn interpretBytecode(
                 );
                 runtimeInfo.ptrs.lr = temp;
             },
-            .PrePushLRNegOffset16 => {
-                prePushLRNegOffset(u16, runtimeInfo, bytecode, current);
-            },
-            .PostPopLRNegOffset16 => {
-                postPopLRNegOffset(u16, runtimeInfo, bytecode, current);
-            },
-            .PrePushLRNegOffset32 => {
-                prePushLRNegOffset(u32, runtimeInfo, bytecode, current);
-            },
-            .PostPopLRNegOffset32 => {
-                postPopLRNegOffset(u32, runtimeInfo, bytecode, current);
-            },
-            .PrePushLRNegOffset64 => {
-                prePushLRNegOffset(u64, runtimeInfo, bytecode, current);
-            },
-            .PostPopLRNegOffset64 => {
-                postPopLRNegOffset(u64, runtimeInfo, bytecode, current);
-            },
+            .PrePushLRNegOffset16 => prePushLRNegOffset(u16, runtimeInfo, bytecode, current),
+            .PostPopLRNegOffset16 => postPopLRNegOffset(u16, runtimeInfo, bytecode, current),
+            .PrePushLRNegOffset32 => prePushLRNegOffset(u32, runtimeInfo, bytecode, current),
+            .PostPopLRNegOffset32 => postPopLRNegOffset(u32, runtimeInfo, bytecode, current),
+            .PrePushLRNegOffset64 => prePushLRNegOffset(u64, runtimeInfo, bytecode, current),
+            .PostPopLRNegOffset64 => postPopLRNegOffset(u64, runtimeInfo, bytecode, current),
         }
 
         current += instLen;
     }
+}
+
+fn multRegWithSize(comptime T: type, runtimeInfo: *RuntimeInfo, bytecode: []const u8, current: u64) void {
+    const reg1Val: T = @intCast(runtimeInfo.registers[bytecode[current + 2]]);
+    const reg2Val: T = @intCast(runtimeInfo.registers[bytecode[current + 3]]);
+    const res, const overflow = @mulWithOverflow(reg1Val, reg2Val);
+    runtimeInfo.registers[bytecode[current + 1]] = @intCast(res);
+    runtimeInfo.flags.CF = overflow == 1;
+    runtimeInfo.flags.OF = overflow == 1;
+}
+
+fn divRegWithSize(
+    comptime T: type,
+    runtimeInfo: *RuntimeInfo,
+    bytecode: []const u8,
+    current: u64,
+) void {
+    const unsignedInt = std.meta.Int(.unsigned, @typeInfo(T).int.bits);
+    const reg1Val: T = @bitCast(@as(unsignedInt, @intCast(runtimeInfo.registers[bytecode[current + 2]])));
+    const reg2Val: T = @bitCast(@as(unsignedInt, @intCast(runtimeInfo.registers[bytecode[current + 3]])));
+    const res = @divTrunc(reg1Val, reg2Val);
+    runtimeInfo.registers[bytecode[current + 1]] = @as(unsignedInt, @bitCast(res));
 }
 
 fn addRegWithSize(comptime T: type, runtimeInfo: *RuntimeInfo, bytecode: []const u8, current: u64) void {

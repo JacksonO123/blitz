@@ -1,5 +1,5 @@
 fn main() {
-    let a: u16 = 255;
-    let b: u16 = 1;
-    let c: u16 = a + b;
+    let a = -6;
+    let b = 2;
+    let c = a / b;
 }

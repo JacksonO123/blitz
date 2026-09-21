@@ -130,7 +130,7 @@ fn remapInstr(
 
         .DbgReg => |*inner| try remapReg(allocator, context, inner, baseIndex, instrIndex, sp),
 
-        .SetReg64, .SetRegN64 => |*inner| try remapReg(
+        .SetReg64 => |*inner| try remapReg(
             allocator,
             context,
             &inner.reg,
@@ -138,7 +138,7 @@ fn remapInstr(
             instrIndex,
             sp,
         ),
-        .SetReg32, .SetRegN32 => |*inner| try remapReg(
+        .SetReg32 => |*inner| try remapReg(
             allocator,
             context,
             &inner.reg,
@@ -146,7 +146,7 @@ fn remapInstr(
             instrIndex,
             sp,
         ),
-        .SetReg16, .SetRegN16 => |*inner| try remapReg(
+        .SetReg16 => |*inner| try remapReg(
             allocator,
             context,
             &inner.reg,
@@ -154,7 +154,7 @@ fn remapInstr(
             instrIndex,
             sp,
         ),
-        .SetReg8, .SetRegN8 => |*inner| try remapReg(
+        .SetReg8 => |*inner| try remapReg(
             allocator,
             context,
             &inner.reg,
@@ -170,7 +170,18 @@ fn remapInstr(
         .SubReg16,
         .SubReg32,
         .SubReg64,
-        .Mult,
+        .MultReg8,
+        .MultReg16,
+        .MultReg32,
+        .MultReg64,
+        .DivReg8,
+        .DivReg16,
+        .DivReg32,
+        .DivReg64,
+        .DivSignedReg8,
+        .DivSignedReg16,
+        .DivSignedReg32,
+        .DivSignedReg64,
         => |*inner| {
             try remapReg(allocator, context, &inner.reg1, baseIndex, instrIndex, sp);
             try remapReg(allocator, context, &inner.reg2, baseIndex, instrIndex, sp);
@@ -926,10 +937,10 @@ fn recordInstrRegUsages(context: *Context, instrIndex: usize, limits: codegen.Re
         .PostPopRegNegOffsetAny,
         => {},
 
-        .SetReg64, .SetRegN64 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
-        .SetReg32, .SetRegN32 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
-        .SetReg16, .SetRegN16 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
-        .SetReg8, .SetRegN8 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
+        .SetReg64 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
+        .SetReg32 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
+        .SetReg16 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
+        .SetReg8 => |*inner| recordNextUsage(context, inner.reg, instrIndex, limits),
         .AddReg8,
         .AddReg16,
         .AddReg32,
@@ -938,7 +949,18 @@ fn recordInstrRegUsages(context: *Context, instrIndex: usize, limits: codegen.Re
         .SubReg16,
         .SubReg32,
         .SubReg64,
-        .Mult,
+        .MultReg8,
+        .MultReg16,
+        .MultReg32,
+        .MultReg64,
+        .DivReg8,
+        .DivReg16,
+        .DivReg32,
+        .DivReg64,
+        .DivSignedReg8,
+        .DivSignedReg16,
+        .DivSignedReg32,
+        .DivSignedReg64,
         => |*inner| {
             recordNextUsage(context, inner.reg1, instrIndex, limits);
             recordNextUsage(context, inner.reg2, instrIndex, limits);

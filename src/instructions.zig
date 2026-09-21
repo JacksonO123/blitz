@@ -413,3 +413,32 @@ pub fn subFromInstrStruct(instr: codegen.TwoOpResultInstr, opSize: codegen.OpSiz
         .U64 => .{ .SubReg64 = instr },
     };
 }
+
+pub fn divFromInstrStruct(
+    instr: codegen.TwoOpResultInstr,
+    opSize: codegen.OpSizes,
+    signed: bool,
+) codegen.Instr {
+    if (signed) return switch (opSize) {
+        .U8 => .{ .DivSignedReg8 = instr },
+        .U16 => .{ .DivSignedReg16 = instr },
+        .U32 => .{ .DivSignedReg32 = instr },
+        .U64 => .{ .DivSignedReg64 = instr },
+    };
+
+    return switch (opSize) {
+        .U8 => .{ .DivReg8 = instr },
+        .U16 => .{ .DivReg16 = instr },
+        .U32 => .{ .DivReg32 = instr },
+        .U64 => .{ .DivReg64 = instr },
+    };
+}
+
+pub fn multFromInstrStruct(instr: codegen.TwoOpResultInstr, opSize: codegen.OpSizes) codegen.Instr {
+    return switch (opSize) {
+        .U8 => .{ .MultReg8 = instr },
+        .U16 => .{ .MultReg16 = instr },
+        .U32 => .{ .MultReg32 = instr },
+        .U64 => .{ .MultReg64 = instr },
+    };
+}
