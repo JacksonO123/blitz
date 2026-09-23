@@ -1171,6 +1171,12 @@ pub fn scanNode(
                 func.returnType.info.toAllocInfo(.Recycled),
                 withGenDef,
             );
+            const dec2 = context.compInfo.getStructDec(resType.info.astType.Custom.nameIdentId);
+            std.debug.print(":: {}\n", .{dec2.?});
+            for (dec2.?.generics) |gen| {
+                const hasSet = try context.compInfo.getGeneric(allocator, context, gen.nameIdentId);
+                std.debug.print("|--  {}\n", .{hasSet.?});
+            }
             node.typeInfo.size = try resType.info.astType.getSize(allocator, context);
             node.typeInfo.alignment = try resType.info.astType.getAlignment(allocator, context);
             return resType;
