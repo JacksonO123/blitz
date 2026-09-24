@@ -340,8 +340,8 @@ pub const AstTypes = union(Types) {
                 return 8;
             },
             .StaticStructInstance => 8,
-            .Generic => |name| {
-                const genType = try context.compInfo.getGeneric(allocator, context, name) orelse
+            .Generic => |identId| {
+                const genType = try context.compInfo.getGeneric(allocator, context, identId) orelse
                     return 0;
 
                 // generic loop detection, if generic loops become indirect, this
@@ -421,7 +421,7 @@ fn getCustomTypeSize(
     context: *Context,
     custom: *const CustomType,
 ) (errors.CommonError || errors.CloneError)!u64 {
-    try context.compInfo.pushGenScope(allocator, false);
+    try context.compInfo.pushGenScope(allocator, true);
     defer context.compInfo.popGenScope(context);
 
     const dec = context.compInfo.getStructDec(custom.nameIdentId).?;
@@ -442,11 +442,11 @@ fn getCustomTypeSize(
             allocator,
             context,
         );
-        var prePadding = if (itemAlignment == 0)
-            0
-        else
-            itemAlignment - (size % itemAlignment);
-        if (prePadding == itemAlignment) prePadding = 0;
+        var prePadding = if (itemAlignment == 0) 0 else itemAlignment - (size % itemAlignment);
+
+        if (prePadding == itemAlignment) {
+            prePadding = 0;
+        }
 
         const memberSize = try member.attr.Member.astType.getSize(allocator, context);
         size += prePadding + memberSize;

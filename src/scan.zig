@@ -102,7 +102,7 @@ pub fn scanNode(
                 allocator,
                 context,
                 cast.toType.toAllocInfo(.Recycled),
-                withGenDef,
+                .{ .withGenDef = withGenDef },
             );
 
             if (cast.node.variant == .Value and cast.node.variant.Value == .RawNumber) {
@@ -229,7 +229,7 @@ pub fn scanNode(
                 allocator,
                 context,
                 arr.type,
-                withGenDef,
+                .{ .withGenDef = withGenDef },
             );
             node.typeInfo.size = try resType.info.astType.getSize(allocator, context);
             node.typeInfo.alignment = try resType.info.astType.getAlignment(allocator, context);
@@ -273,7 +273,7 @@ pub fn scanNode(
                         allocator,
                         context,
                         left,
-                        withGenDef,
+                        .{ .withGenDef = withGenDef },
                     );
                     node.typeInfo.size = try resType.info.astType.getSize(allocator, context);
                     node.typeInfo.alignment = try resType.info.astType.getAlignment(
@@ -314,7 +314,7 @@ pub fn scanNode(
                                 allocator,
                                 context,
                                 right,
-                                withGenDef,
+                                .{ .withGenDef = withGenDef },
                             );
                             res.info.mutState = .Mut;
                             node.typeInfo.size = try res.info.astType.getSize(allocator, context);
@@ -344,7 +344,7 @@ pub fn scanNode(
                                 allocator,
                                 context,
                                 left,
-                                withGenDef,
+                                .{ .withGenDef = withGenDef },
                             );
                             node.typeInfo.size = try resType.info.astType.getSize(
                                 allocator,
@@ -444,7 +444,7 @@ pub fn scanNode(
                 allocator,
                 context,
                 valType.info,
-                withGenDef,
+                .{ .withGenDef = withGenDef },
             );
             const retType = retTypeInfo.toAllocInfo(.Allocated);
 
@@ -540,7 +540,7 @@ pub fn scanNode(
                                 allocator,
                                 context,
                                 nestedInstance.instanceAstType.info,
-                                withGenDef,
+                                .{ .withGenDef = withGenDef },
                             );
                             node.typeInfo.data = .{
                                 .PropertyAccess = .{
@@ -592,7 +592,7 @@ pub fn scanNode(
                                 allocator,
                                 context,
                                 restriction.toAllocInfo(.Recycled),
-                                false,
+                                .{ .withGenDef = false },
                             );
                             try context.compInfo.setGeneric(gen.nameIdentId, typeClone);
                         }
@@ -695,7 +695,7 @@ pub fn scanNode(
                     allocator,
                     context,
                     annotation.toAllocInfo(.Recycled),
-                    withGenDef,
+                    .{ .withGenDef = withGenDef },
                 );
             }
 
@@ -815,7 +815,7 @@ pub fn scanNode(
                 allocator,
                 context,
                 varInfo,
-                withGenDef,
+                .{ .withGenDef = withGenDef },
             );
             node.typeInfo.size = try varInfo.info.astType.getSize(allocator, context);
             node.typeInfo.alignment = try varInfo.info.astType.getAlignment(allocator, context);
@@ -1074,7 +1074,7 @@ pub fn scanNode(
                             allocator,
                             context,
                             callGenType,
-                            withGenDef,
+                            .{ .withGenDef = withGenDef },
                         );
                         try context.compInfo.setGeneric(
                             decGen.nameIdentId,
@@ -1126,7 +1126,7 @@ pub fn scanNode(
                         allocator,
                         context,
                         param.type.toAllocInfo(.Recycled),
-                        withGenDef,
+                        .{ .withGenDef = withGenDef },
                     );
 
                     try context.compInfo.setVariableType(
@@ -1169,14 +1169,8 @@ pub fn scanNode(
                 allocator,
                 context,
                 func.returnType.info.toAllocInfo(.Recycled),
-                withGenDef,
+                .{ .withGenDef = withGenDef, .setAttrSizes = true },
             );
-            const dec2 = context.compInfo.getStructDec(resType.info.astType.Custom.nameIdentId);
-            std.debug.print(":: {}\n", .{dec2.?});
-            for (dec2.?.generics) |gen| {
-                const hasSet = try context.compInfo.getGeneric(allocator, context, gen.nameIdentId);
-                std.debug.print("|--  {}\n", .{hasSet.?});
-            }
             node.typeInfo.size = try resType.info.astType.getSize(allocator, context);
             node.typeInfo.alignment = try resType.info.astType.getAlignment(allocator, context);
             return resType;
@@ -1238,7 +1232,7 @@ pub fn scanNode(
                         allocator,
                         context,
                         nestedInstance.info,
-                        withGenDef,
+                        .{ .withGenDef = withGenDef },
                     );
                     try nestedInstances.append(allocator, .{
                         .identId = attr.nameIdentId,
@@ -1271,7 +1265,12 @@ pub fn scanNode(
             const generics = try allocator.alloc(ast.AstTypeInfo, init.generics.len);
             try context.deferCleanup.typeInfoSlices.append(allocator, generics);
             for (init.generics, 0..) |gen, index| {
-                generics[index] = try clone.cloneAstTypeInfo(allocator, context, gen, withGenDef);
+                generics[index] = try clone.cloneAstTypeInfo(
+                    allocator,
+                    context,
+                    gen,
+                    .{ .withGenDef = withGenDef },
+                );
             }
 
             const customType = ast.CustomType{
@@ -1391,7 +1390,7 @@ pub fn scanNode(
                 allocator,
                 context,
                 exprType,
-                withGenDef,
+                .{ .withGenDef = withGenDef },
             );
 
             const ptrType = try context.pools.newType(context, .{
@@ -1451,7 +1450,7 @@ pub fn scanNode(
                 allocator,
                 context,
                 init.initType.toAllocInfo(.Recycled),
-                withGenDef,
+                .{ .withGenDef = withGenDef },
             );
 
             const valueVariant: ast.AstNodeUnion = .{
@@ -1527,7 +1526,7 @@ fn isValidPropertyOfCustom(
             allocator,
             context,
             customGen.toAllocInfo(.Recycled),
-            withGenDef,
+            .{ .withGenDef = withGenDef },
         );
         try context.compInfo.setGeneric(genDef.nameIdentId, clonedGenType);
     }
@@ -1759,7 +1758,7 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
                     allocator,
                     context,
                     item.value_ptr.*,
-                    toScanItem.withGenDef,
+                    .{ .withGenDef = toScanItem.withGenDef },
                 );
                 clonedType.allocState = .Recycled;
                 try context.compInfo.setGeneric(item.key_ptr.*, clonedType);
@@ -1773,7 +1772,12 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
         }
 
         for (toScanItem.genTypes) |rel| {
-            const typeClone = try clone.cloneAstTypeInfo(allocator, context, rel.info, false);
+            const typeClone = try clone.cloneAstTypeInfo(
+                allocator,
+                context,
+                rel.info,
+                .{ .withGenDef = false },
+            );
             try context.compInfo.setGeneric(rel.identId, typeClone.toAllocInfo(.Allocated));
         }
 
@@ -1785,7 +1789,12 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
         );
 
         if (func.genericState == .Generic or func.onGenericStruct(context)) {
-            const cloned = try clone.cloneAstNodePtrMut(allocator, context, func.body, true);
+            const cloned = try clone.cloneAstNodePtrMut(
+                allocator,
+                context,
+                func.body,
+                .{ .withGenDef = true },
+            );
             try func.genericState.Generic.genericInstances.append(
                 allocator,
                 .{
@@ -1854,7 +1863,7 @@ fn setGenTypesAndMatchTypesFromParams(
                     allocator,
                     context,
                     callParamType.info,
-                    withGenDef,
+                    .{ .withGenDef = withGenDef },
                 );
 
                 try context.compInfo.setGeneric(generic, typePtr.toAllocInfo(.Allocated));
@@ -1909,7 +1918,7 @@ fn genScopeToRels(
             allocator,
             context,
             entry.value_ptr.info,
-            withGenDef,
+            .{ .withGenDef = withGenDef },
         );
         slice[i] = .{
             .identId = entry.key_ptr.*,
@@ -2009,7 +2018,7 @@ fn setInitGenerics(
             allocator,
             context,
             t.toAllocInfo(.Recycled),
-            withGenDef,
+            .{ .withGenDef = withGenDef },
         );
         try context.compInfo.setGeneric(decGen.nameIdentId, typeClone);
     }
@@ -2036,7 +2045,7 @@ fn matchParamGenericTypes(
                             allocator,
                             context,
                             paramGen.toAllocInfo(.Recycled),
-                            false,
+                            .{ .withGenDef = false },
                         );
 
                         const genType = try context.compInfo.getGeneric(
@@ -2096,7 +2105,7 @@ fn scanFuncBodyAndReturn(
             allocator,
             context,
             param.type,
-            withGenDef,
+            .{ .withGenDef = withGenDef },
         );
 
         try context.compInfo.setVariableType(
@@ -2173,7 +2182,7 @@ fn scanFuncBodyAndReturn(
         allocator,
         context,
         func.returnType.info,
-        withGenDef,
+        .{ .withGenDef = withGenDef },
     );
     defer allocPools.recursiveReleaseType(context, retType.astType);
 
@@ -2193,7 +2202,12 @@ fn validateStaticStructProps(
         if (!attr.static) return errors.ScanError.NonStaticAccessFromStaticStructReference;
         if (attr.visibility != .Public) return errors.ScanError.RestrictedPropertyAccess;
 
-        return try clone.cloneStructAttributeUnionType(allocator, context, attr.attr, false);
+        return try clone.cloneStructAttributeUnionType(
+            allocator,
+            context,
+            attr.attr,
+            .{ .withGenDef = false },
+        );
     }
 
     return errors.ScanError.InvalidProperty;
@@ -2220,7 +2234,7 @@ fn validateCustomProps(
                     allocator,
                     context,
                     attr.attr,
-                    withGenDef,
+                    .{ .withGenDef = withGenDef },
                 );
                 return res.toAllocInfo(.Allocated);
             }
@@ -2840,7 +2854,7 @@ fn nonPrimitiveTypeToInstance(
     context: *Context,
     inputType: TypeAndAllocInfo,
 ) errors.ScanError!?TypeAndAllocInfo {
-    const instance: TypeAndAllocInfo = switch (inputType.info.astType.*) {
+    return switch (inputType.info.astType.*) {
         .Pointer => |inner| a: {
             if (inner.info.astType.* != .ArrayDec) {
                 return null;
@@ -2874,12 +2888,8 @@ fn nonPrimitiveTypeToInstance(
             const customInstancePtr = try context.pools.newType(context, customInstance);
             break :a customInstancePtr.toAllocInfo(inputType.info.mutState, .Allocated);
         },
-        else => {
-            return null;
-        },
+        else => return null,
     };
-
-    return instance;
 }
 
 fn arrDecToArrInstance(context: *Context, arrDec: ast.AstArrayDecType) !*ast.AstTypes {

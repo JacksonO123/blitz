@@ -472,7 +472,7 @@ pub const CompInfo = struct {
                         allocator,
                         context,
                         copy.info,
-                        true,
+                        .{ .withGenDef = true },
                     );
                     try capScope.put(nameIdentId, clonedType.toAllocInfo(.Recycled));
                 }
