@@ -2749,13 +2749,17 @@ fn parseType(
             };
         },
         .Identifier => a: {
-            if (context.compInfo.hasStruct(first.identId)) {
+            if (context.compInfo.getStructDec(first.identId)) |dec| {
                 const next = try context.tokenUtil.peak();
                 var generics: []AstTypeInfo = &.{};
 
                 if (next.type == .LAngle) {
                     _ = try context.tokenUtil.take();
                     generics = try parseInitGenerics(allocator, context);
+                }
+
+                if (dec.generics.len != generics.len) {
+                    return errors.AstError.StructGenericCountMismatch;
                 }
 
                 break :a .{

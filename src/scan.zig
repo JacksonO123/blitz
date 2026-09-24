@@ -1183,7 +1183,7 @@ pub fn scanNode(
                 return errors.ScanError.StructDoesNotExist;
 
             if (init.generics.len != structDec.generics.len) {
-                return errors.ScanError.GenericCountMismatch;
+                return errors.ScanError.StructGenericCountMismatch;
             }
 
             try setInitGenerics(
@@ -1517,7 +1517,7 @@ fn isValidPropertyOfCustom(
     defer context.compInfo.popGenScope(context);
 
     if (structDec.generics.len < custom.generics.len) {
-        return errors.ScanError.GenericCountMismatch;
+        return errors.ScanError.StructGenericCountMismatch;
     }
 
     const defGenerics = structDec.generics[0..custom.generics.len];
