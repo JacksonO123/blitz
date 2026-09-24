@@ -123,19 +123,17 @@ pub fn cloneAstTypes(
                 cloneConfig,
             );
 
-            const clonedNestedInstances = try cloneNestedInstances(
-                allocator,
-                context,
-                custom.nestedInstances,
-                cloneConfig,
-            );
-
-            const attrSizes = if (custom.attrSizes.len > 0)
-                custom.attrSizes
-            else if (cloneConfig.setAttrSizes)
-                attrSizesFromCustom(custom)
+            const attrSizes, const clonedNestedInstances = if (custom.attrSizes.len == 0 and cloneConfig.setAttrSizes)
+                try attrSizesFromCustom(allocator, context, custom, cloneConfig)
             else
-                custom.attrSizes;
+                .{
+                    custom.attrSizes, try cloneNestedInstances(
+                        allocator,
+                        context,
+                        custom.nestedInstances,
+                        cloneConfig,
+                    ),
+                };
 
             return .{
                 .Custom = .{
@@ -183,9 +181,46 @@ pub fn cloneAstTypes(
     };
 }
 
-pub fn attrSizesFromCustom(customType: ast.CustomType) []ast.IdentSizeRelation {
-    _ = customType;
-    return &.{};
+pub fn attrSizesFromCustom(
+    allocator: Allocator,
+    context: *Context,
+    customType: ast.CustomType,
+    cloneConfig: CloneConfig,
+) (Allocator.Error || errors.CloneError)!struct { []ast.IdentSizeRelation, []ast.InstanceRelation } {
+    var attrSizes: std.ArrayList(ast.IdentSizeRelation) = .empty;
+    var nestedInstances: std.ArrayList(ast.InstanceRelation) = .empty;
+    const dec = context.compInfo.getStructDec(customType.nameIdentId).?;
+
+    for (dec.totalMemberList) |item| {
+        const size = try item.attr.Member.astType.getSize(allocator, context);
+        const alignment = try item.attr.Member.astType.getAlignment(allocator, context);
+
+        const attrType = (try cloneAstTypeInfo(allocator, context, item.attr.Member, cloneConfig))
+            .toAllocInfo(.Allocated);
+
+        const nestedInstanceOrNull = try scanner.nonPrimitiveTypeToInstance(context, attrType);
+        if (nestedInstanceOrNull) |nestedInstance| {
+            // TODO - possibly remove this clone
+            const cloned = try cloneAstTypeInfo(
+                allocator,
+                context,
+                nestedInstance.info,
+                cloneConfig,
+            );
+            try nestedInstances.append(allocator, .{
+                .identId = item.nameIdentId,
+                .instanceAstType = cloned.toAllocInfo(.Recycled),
+            });
+        }
+
+        try attrSizes.append(allocator, .{
+            .identId = item.nameIdentId,
+            .size = size,
+            .alignment = alignment,
+        });
+    }
+
+    return .{ attrSizes.items, nestedInstances.items };
 }
 
 pub fn cloneAstNodePtrMut(

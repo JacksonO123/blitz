@@ -1228,6 +1228,7 @@ pub fn scanNode(
 
                 const nestedInstanceOrNull = try nonPrimitiveTypeToInstance(context, attrType);
                 if (nestedInstanceOrNull) |nestedInstance| {
+                    // TODO - possibly remove this clone
                     const cloned = try clone.cloneAstTypeInfo(
                         allocator,
                         context,
@@ -2850,10 +2851,10 @@ pub fn releaseIfAllocated(context: *Context, result: TypeAndAllocInfo) void {
     }
 }
 
-fn nonPrimitiveTypeToInstance(
+pub fn nonPrimitiveTypeToInstance(
     context: *Context,
     inputType: TypeAndAllocInfo,
-) errors.ScanError!?TypeAndAllocInfo {
+) Allocator.Error!?TypeAndAllocInfo {
     return switch (inputType.info.astType.*) {
         .Pointer => |inner| a: {
             if (inner.info.astType.* != .ArrayDec) {
