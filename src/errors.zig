@@ -79,7 +79,7 @@ pub const ScanError = error{
     CaptureVariableConstMismatch,
 
     // structs
-    GenericCountMismatch,
+    StructGenericCountMismatch,
     StructInitAttributeCountMismatch,
     StructInitMemberTypeMismatch,
     StructInitAttributeNotFound,
@@ -160,6 +160,7 @@ pub const AstError = error{
     StructMethodsCannotDefineCaptureGroups,
     EmptyFunctionCaptures,
     ExpectedUniqueStructDecAttribute,
+    StructGenericCountMismatch,
 } || CommonError;
 
 pub const TokenizeError = error{

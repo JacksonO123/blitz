@@ -9,22 +9,27 @@ const pools = blitz.allocPools;
 const Context = blitz.context.Context;
 const errors = blitz.errors;
 
+const CloneConfig = struct {
+    withGenDef: bool,
+    setAttrSizes: bool = false,
+};
+
 pub fn cloneAstTypeInfo(
     allocator: Allocator,
     context: *Context,
     info: ast.AstTypeInfo,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) (Allocator.Error || errors.CloneError)!ast.AstTypeInfo {
     if (info.astType.* == .Generic) {
         const generic = info.astType.Generic;
-        if (withGenDef) {
+        if (cloneConfig.withGenDef) {
             const genType = try context.compInfo.getGeneric(allocator, context, generic);
             if (genType) |gType| {
                 const clonedType = try cloneAstTypeInfo(
                     allocator,
                     context,
                     gType.info,
-                    withGenDef,
+                    cloneConfig,
                 );
                 return clonedType;
             }
@@ -41,7 +46,7 @@ pub fn cloneAstTypeInfo(
     }
 
     return .{
-        .astType = try cloneAstTypesPtrMut(allocator, context, info.astType, withGenDef),
+        .astType = try cloneAstTypesPtrMut(allocator, context, info.astType, cloneConfig),
         .mutState = info.mutState,
     };
 }
@@ -50,9 +55,9 @@ pub fn cloneAstTypesPtrMut(
     allocator: Allocator,
     context: *Context,
     astType: *ast.AstTypes,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) !*ast.AstTypes {
-    const clonedType = try cloneAstTypes(allocator, context, astType.*, withGenDef);
+    const clonedType = try cloneAstTypes(allocator, context, astType.*, cloneConfig);
     return try context.pools.newType(context, clonedType);
 }
 
@@ -60,7 +65,7 @@ pub fn cloneAstTypes(
     allocator: Allocator,
     context: *Context,
     types: ast.AstTypes,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) (Allocator.Error || errors.CloneError)!ast.AstTypes {
     return switch (types) {
         .Bool,
@@ -77,7 +82,7 @@ pub fn cloneAstTypes(
                 allocator,
                 context,
                 info.info,
-                withGenDef,
+                cloneConfig,
             );
             return .{
                 .VarInfo = varInfo.toAllocInfo(.Allocated),
@@ -88,7 +93,7 @@ pub fn cloneAstTypes(
                 allocator,
                 context,
                 arr.type.info,
-                withGenDef,
+                cloneConfig,
             )).toAllocInfo(.Allocated);
 
             return .{
@@ -104,33 +109,38 @@ pub fn cloneAstTypes(
                 allocator,
                 context,
                 ptr.info,
-                withGenDef,
+                cloneConfig,
             )).toAllocInfo(.Allocated),
         },
         .Nullable => |t| .{
-            .Nullable = try cloneAstTypeInfo(allocator, context, t, withGenDef),
+            .Nullable = try cloneAstTypeInfo(allocator, context, t, cloneConfig),
         },
         .Custom => |custom| {
             const genericsSlice = try cloneCustomGenerics(
                 allocator,
                 context,
                 custom.generics,
-                withGenDef,
+                cloneConfig,
             );
 
-            const clonedNestedInstances = try cloneNestedInstances(
-                allocator,
-                context,
-                custom.nestedInstances,
-                withGenDef,
-            );
+            const attrSizes, const clonedNestedInstances = if (custom.attrSizes.len == 0 and cloneConfig.setAttrSizes)
+                try attrSizesFromCustom(allocator, context, custom, cloneConfig)
+            else
+                .{
+                    custom.attrSizes, try cloneNestedInstances(
+                        allocator,
+                        context,
+                        custom.nestedInstances,
+                        cloneConfig,
+                    ),
+                };
 
             return .{
                 .Custom = .{
                     .nameIdentId = custom.nameIdentId,
                     .generics = genericsSlice,
                     .allowPrivateReads = custom.allowPrivateReads,
-                    .attrSizes = custom.attrSizes,
+                    .attrSizes = attrSizes,
                     .nestedInstances = clonedNestedInstances,
                 },
             };
@@ -144,7 +154,7 @@ pub fn cloneAstTypes(
             var payload: ?ast.AstTypeInfo = null;
 
             if (err.payload) |errPayload| {
-                payload = try cloneAstTypeInfo(allocator, context, errPayload, withGenDef);
+                payload = try cloneAstTypeInfo(allocator, context, errPayload, cloneConfig);
             }
 
             return .{
@@ -171,13 +181,55 @@ pub fn cloneAstTypes(
     };
 }
 
+pub fn attrSizesFromCustom(
+    allocator: Allocator,
+    context: *Context,
+    customType: ast.CustomType,
+    cloneConfig: CloneConfig,
+) (Allocator.Error || errors.CloneError)!struct { []ast.IdentSizeRelation, []ast.InstanceRelation } {
+    var attrSizes: std.ArrayList(ast.IdentSizeRelation) = .empty;
+    var nestedInstances: std.ArrayList(ast.InstanceRelation) = .empty;
+    const dec = context.compInfo.getStructDec(customType.nameIdentId).?;
+
+    for (dec.totalMemberList) |item| {
+        const size = try item.attr.Member.astType.getSize(allocator, context);
+        const alignment = try item.attr.Member.astType.getAlignment(allocator, context);
+
+        const attrType = (try cloneAstTypeInfo(allocator, context, item.attr.Member, cloneConfig))
+            .toAllocInfo(.Allocated);
+
+        const nestedInstanceOrNull = try scanner.nonPrimitiveTypeToInstance(context, attrType);
+        if (nestedInstanceOrNull) |nestedInstance| {
+            // TODO - possibly remove this clone
+            const cloned = try cloneAstTypeInfo(
+                allocator,
+                context,
+                nestedInstance.info,
+                cloneConfig,
+            );
+            try nestedInstances.append(allocator, .{
+                .identId = item.nameIdentId,
+                .instanceAstType = cloned.toAllocInfo(.Recycled),
+            });
+        }
+
+        try attrSizes.append(allocator, .{
+            .identId = item.nameIdentId,
+            .size = size,
+            .alignment = alignment,
+        });
+    }
+
+    return .{ attrSizes.items, nestedInstances.items };
+}
+
 pub fn cloneAstNodePtrMut(
     allocator: Allocator,
     context: *Context,
     node: *const ast.AstNode,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) (Allocator.Error || errors.CloneError)!*ast.AstNode {
-    const clonedNode = try cloneAstNode(allocator, context, node.*, withGenDef);
+    const clonedNode = try cloneAstNode(allocator, context, node.*, cloneConfig);
     return try context.pools.newNode(context, clonedNode);
 }
 
@@ -185,14 +237,14 @@ pub fn cloneAstNodeUnion(
     allocator: Allocator,
     context: *Context,
     node: ast.AstNodeUnion,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) !ast.AstNodeUnion {
     switch (node) {
         .NoOp, .StructPlaceholder, .Break, .Continue, .UndefValue, .Enum => return node,
         .IndexValue => |index| return .{
             .IndexValue = .{
-                .index = try cloneAstNodePtrMut(allocator, context, index.index, withGenDef),
-                .target = try cloneAstNodePtrMut(allocator, context, index.target, withGenDef),
+                .index = try cloneAstNodePtrMut(allocator, context, index.index, cloneConfig),
+                .target = try cloneAstNodePtrMut(allocator, context, index.target, cloneConfig),
             },
         },
         .OpExpr => |op| {
@@ -201,20 +253,20 @@ pub fn cloneAstNodeUnion(
             return .{
                 .OpExpr = .{
                     .type = opType,
-                    .left = try cloneAstNodePtrMut(allocator, context, op.left, withGenDef),
-                    .right = try cloneAstNodePtrMut(allocator, context, op.right, withGenDef),
+                    .left = try cloneAstNodePtrMut(allocator, context, op.left, cloneConfig),
+                    .right = try cloneAstNodePtrMut(allocator, context, op.right, cloneConfig),
                     .depth = op.depth,
                 },
             };
         },
         .IncOne => |val| {
             return .{
-                .IncOne = try cloneAstNodePtrMut(allocator, context, val, withGenDef),
+                .IncOne = try cloneAstNodePtrMut(allocator, context, val, cloneConfig),
             };
         },
         .DecOne => |val| {
             return .{
-                .DecOne = try cloneAstNodePtrMut(allocator, context, val, withGenDef),
+                .DecOne = try cloneAstNodePtrMut(allocator, context, val, cloneConfig),
             };
         },
         .FuncReference => |ref| {
@@ -231,7 +283,7 @@ pub fn cloneAstNodeUnion(
                     allocator,
                     context,
                     seqNode,
-                    withGenDef,
+                    cloneConfig,
                 );
             }
 
@@ -261,7 +313,7 @@ pub fn cloneAstNodeUnion(
                             allocator,
                             context,
                             arr,
-                            withGenDef,
+                            cloneConfig,
                         ),
                     },
                 },
@@ -272,12 +324,12 @@ pub fn cloneAstNodeUnion(
                 allocator,
                 context,
                 dec.setNode,
-                withGenDef,
+                cloneConfig,
             );
             var clonedType: ?ast.AstTypeInfo = null;
 
             if (dec.annotation) |annotation| {
-                clonedType = try cloneAstTypeInfo(allocator, context, annotation, withGenDef);
+                clonedType = try cloneAstTypeInfo(allocator, context, annotation, cloneConfig);
             }
 
             return .{
@@ -291,25 +343,25 @@ pub fn cloneAstNodeUnion(
         },
         .ValueSet => |set| return .{
             .ValueSet = .{
-                .value = try cloneAstNodePtrMut(allocator, context, set.value, withGenDef),
+                .value = try cloneAstNodePtrMut(allocator, context, set.value, cloneConfig),
                 .setNode = try cloneAstNodePtrMut(
                     allocator,
                     context,
                     set.setNode,
-                    withGenDef,
+                    cloneConfig,
                 ),
             },
         },
         .VarEqOp => |op| return .{
             .VarEqOp = .{
                 .variable = op.variable,
-                .value = try cloneAstNodePtrMut(allocator, context, op.value, withGenDef),
+                .value = try cloneAstNodePtrMut(allocator, context, op.value, cloneConfig),
                 .opType = op.opType,
             },
         },
         .Cast => |cast| {
-            const nodePtr = try cloneAstNodePtrMut(allocator, context, cast.node, withGenDef);
-            const typePtr = try cloneAstTypeInfo(allocator, context, cast.toType, withGenDef);
+            const nodePtr = try cloneAstNodePtrMut(allocator, context, cast.node, cloneConfig);
+            const typePtr = try cloneAstTypeInfo(allocator, context, cast.toType, cloneConfig);
 
             return .{
                 .Cast = .{
@@ -323,12 +375,12 @@ pub fn cloneAstNodeUnion(
         },
         .Pointer => |ptr| return .{
             .Pointer = .{
-                .node = try cloneAstNodePtrMut(allocator, context, ptr.node, withGenDef),
+                .node = try cloneAstNodePtrMut(allocator, context, ptr.node, cloneConfig),
                 .mutState = ptr.mutState,
             },
         },
         .Dereference => |deref| return .{
-            .Dereference = try cloneAstNodePtrMut(allocator, context, deref, withGenDef),
+            .Dereference = try cloneAstNodePtrMut(allocator, context, deref, cloneConfig),
         },
         .HeapAlloc => |alloc| {
             return .{
@@ -337,7 +389,7 @@ pub fn cloneAstNodeUnion(
                         allocator,
                         context,
                         alloc.node,
-                        withGenDef,
+                        cloneConfig,
                     ),
                 },
             };
@@ -347,7 +399,7 @@ pub fn cloneAstNodeUnion(
                 allocator,
                 context,
                 toFree,
-                withGenDef,
+                cloneConfig,
             ),
         },
         .IfStatement => |statement| {
@@ -355,13 +407,13 @@ pub fn cloneAstNodeUnion(
                 allocator,
                 context,
                 statement.body,
-                withGenDef,
+                cloneConfig,
             );
             const conditionPtr = try cloneAstNodePtrMut(
                 allocator,
                 context,
                 statement.condition,
-                withGenDef,
+                cloneConfig,
             );
 
             var newFallback: ?ast.FallbackInfo = null;
@@ -371,7 +423,7 @@ pub fn cloneAstNodeUnion(
                         allocator,
                         context,
                         fallback.node,
-                        withGenDef,
+                        cloneConfig,
                     ),
                     .hasCondition = fallback.hasCondition,
                 };
@@ -389,7 +441,7 @@ pub fn cloneAstNodeUnion(
             var newInitNode: ?*ast.AstNode = null;
 
             if (loop.initNode) |init| {
-                newInitNode = try cloneAstNodePtrMut(allocator, context, init, withGenDef);
+                newInitNode = try cloneAstNodePtrMut(allocator, context, init, cloneConfig);
             }
 
             return .{
@@ -399,15 +451,15 @@ pub fn cloneAstNodeUnion(
                         allocator,
                         context,
                         loop.condition,
-                        withGenDef,
+                        cloneConfig,
                     ),
                     .incNode = try cloneAstNodePtrMut(
                         allocator,
                         context,
                         loop.incNode,
-                        withGenDef,
+                        cloneConfig,
                     ),
-                    .body = try cloneAstNodePtrMut(allocator, context, loop.body, withGenDef),
+                    .body = try cloneAstNodePtrMut(allocator, context, loop.body, cloneConfig),
                 },
             };
         },
@@ -418,9 +470,9 @@ pub fn cloneAstNodeUnion(
                         allocator,
                         context,
                         loop.condition,
-                        withGenDef,
+                        cloneConfig,
                     ),
-                    .body = try cloneAstNodePtrMut(allocator, context, loop.body, withGenDef),
+                    .body = try cloneAstNodePtrMut(allocator, context, loop.body, cloneConfig),
                 },
             };
         },
@@ -432,13 +484,13 @@ pub fn cloneAstNodeUnion(
                 allocator,
                 context,
                 call.func,
-                withGenDef,
+                cloneConfig,
             );
             const newParams = try cloneNodeArrMut(
                 allocator,
                 context,
                 call.params,
-                withGenDef,
+                cloneConfig,
             );
 
             return .{
@@ -449,12 +501,12 @@ pub fn cloneAstNodeUnion(
             };
         },
         .ReturnNode => |ret| return .{
-            .ReturnNode = try cloneAstNodePtrMut(allocator, context, ret, withGenDef),
+            .ReturnNode = try cloneAstNodePtrMut(allocator, context, ret, cloneConfig),
         },
         .StructInit => |init| {
             const generics = try allocator.alloc(ast.AstTypeInfo, init.generics.len);
             for (init.generics, generics) |generic, *to| {
-                to.* = try cloneAstTypeInfo(allocator, context, generic, withGenDef);
+                to.* = try cloneAstTypeInfo(allocator, context, generic, cloneConfig);
             }
             try context.deferCleanup.typeInfoSlices.append(allocator, generics);
 
@@ -463,7 +515,7 @@ pub fn cloneAstNodeUnion(
                 allocator,
                 context,
                 init.attributes,
-                withGenDef,
+                cloneConfig,
             );
 
             const clonedAttrSizes = try allocator.dupe(ast.IdentSizeRelation, init.attrSizes);
@@ -478,14 +530,14 @@ pub fn cloneAstNodeUnion(
             };
         },
         .Bang => |bangNode| return .{
-            .Bang = try cloneAstNodePtrMut(allocator, context, bangNode, withGenDef),
+            .Bang = try cloneAstNodePtrMut(allocator, context, bangNode, cloneConfig),
         },
         .PropertyAccess => |access| {
             const value = try cloneAstNodePtrMut(
                 allocator,
                 context,
                 access.value,
-                withGenDef,
+                cloneConfig,
             );
             const prop = access.property;
 
@@ -506,10 +558,10 @@ pub fn cloneAstNodeUnion(
             .InferEnumVariant = err,
         },
         .Group => |group| return .{
-            .Group = try cloneAstNodePtrMut(allocator, context, group, withGenDef),
+            .Group = try cloneAstNodePtrMut(allocator, context, group, cloneConfig),
         },
         .Scope => |scope| return .{
-            .Scope = try cloneAstNodePtrMut(allocator, context, scope, withGenDef),
+            .Scope = try cloneAstNodePtrMut(allocator, context, scope, cloneConfig),
         },
         .ArrayInit => |init| return .{
             .ArrayInit = .{
@@ -518,13 +570,13 @@ pub fn cloneAstNodeUnion(
                     allocator,
                     context,
                     init.initType,
-                    withGenDef,
+                    cloneConfig,
                 ),
                 .initNode = try cloneAstNodePtrMut(
                     allocator,
                     context,
                     init.initNode,
-                    withGenDef,
+                    cloneConfig,
                 ),
                 .indexIdentId = init.indexIdentId,
                 .ptrIdentId = init.ptrIdentId,
@@ -540,9 +592,9 @@ pub fn cloneAstNode(
     allocator: Allocator,
     context: *Context,
     node: ast.AstNode,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) !ast.AstNode {
-    const clonedUnion = try cloneAstNodeUnion(allocator, context, node.variant, withGenDef);
+    const clonedUnion = try cloneAstNodeUnion(allocator, context, node.variant, cloneConfig);
     return .{
         .variant = clonedUnion,
         .typeInfo = node.typeInfo,
@@ -553,13 +605,13 @@ pub fn cloneCustomGenerics(
     allocator: Allocator,
     context: *Context,
     generics: []ast.AstTypeInfo,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) ![]ast.AstTypeInfo {
     const genericsSlice = try allocator.alloc(ast.AstTypeInfo, generics.len);
     try context.deferCleanup.typeInfoSlices.append(allocator, genericsSlice);
 
     for (generics, 0..) |gen, index| {
-        genericsSlice[index] = try cloneAstTypeInfo(allocator, context, gen, withGenDef);
+        genericsSlice[index] = try cloneAstTypeInfo(allocator, context, gen, cloneConfig);
     }
 
     return genericsSlice;
@@ -569,13 +621,13 @@ fn cloneNodeArrMut(
     allocator: Allocator,
     context: *Context,
     nodes: []*ast.AstNode,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) ![]*ast.AstNode {
     var newNodes = try allocator.alloc(*ast.AstNode, nodes.len);
     try context.deferCleanup.nodeSlices.append(allocator, newNodes);
 
     for (nodes, 0..) |node, index| {
-        const nodePtr = try cloneAstNodePtrMut(allocator, context, node, withGenDef);
+        const nodePtr = try cloneAstNodePtrMut(allocator, context, node, cloneConfig);
         newNodes[index] = nodePtr;
     }
 
@@ -586,12 +638,12 @@ fn cloneGeneric(
     allocator: Allocator,
     context: *Context,
     generic: ast.GenericType,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) !ast.GenericType {
     var restriction: ?ast.AstTypeInfo = null;
 
     if (generic.restriction) |rest| {
-        restriction = try cloneAstTypeInfo(allocator, context, rest, withGenDef);
+        restriction = try cloneAstTypeInfo(allocator, context, rest, cloneConfig);
     }
 
     return .{
@@ -604,7 +656,7 @@ pub fn cloneStructAttributeUnionType(
     allocator: Allocator,
     context: *Context,
     structAttrUnion: ast.StructAttributeUnion,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) !ast.AstTypeInfo {
     return switch (structAttrUnion) {
         .Function => |func| {
@@ -613,7 +665,7 @@ pub fn cloneStructAttributeUnionType(
             });
             return res.toTypeInfo(.Const);
         },
-        .Member => |member| try cloneAstTypeInfo(allocator, context, member, withGenDef),
+        .Member => |member| try cloneAstTypeInfo(allocator, context, member, cloneConfig),
     };
 }
 
@@ -621,7 +673,7 @@ fn cloneAttrDef(
     allocator: Allocator,
     context: *Context,
     attrs: []ast.AttributeDefinition,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) ![]ast.AttributeDefinition {
     var attributes = try allocator.alloc(ast.AttributeDefinition, attrs.len);
     try context.deferCleanup.attrDefSlices.append(allocator, attributes);
@@ -629,7 +681,7 @@ fn cloneAttrDef(
     for (attrs, 0..) |attr, index| {
         const newAttr = ast.AttributeDefinition{
             .nameIdentId = attr.nameIdentId,
-            .value = try cloneAstNodePtrMut(allocator, context, attr.value, withGenDef),
+            .value = try cloneAstNodePtrMut(allocator, context, attr.value, cloneConfig),
         };
 
         attributes[index] = newAttr;
@@ -642,12 +694,12 @@ pub fn replaceGenericsOnTypeInfo(
     allocator: Allocator,
     context: *Context,
     info: scanner.TypeAndAllocInfo,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) errors.CloneError!scanner.TypeAndAllocInfo {
-    if (!withGenDef) return info;
+    if (!cloneConfig.withGenDef) return info;
 
     return .{
-        .info = try cloneAstTypeInfo(allocator, context, info.info, withGenDef),
+        .info = try cloneAstTypeInfo(allocator, context, info.info, cloneConfig),
         .allocState = .Allocated,
     };
 }
@@ -656,12 +708,12 @@ pub fn replaceGenericsOnTypeInfoAndRelease(
     allocator: Allocator,
     context: *Context,
     info: scanner.TypeAndAllocInfo,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) !scanner.TypeAndAllocInfo {
-    if (!withGenDef) return info;
+    if (!cloneConfig.withGenDef) return info;
 
     const res = scanner.TypeAndAllocInfo{
-        .info = try cloneAstTypeInfo(allocator, context, info.info, withGenDef),
+        .info = try cloneAstTypeInfo(allocator, context, info.info, cloneConfig),
         .allocState = .Allocated,
     };
 
@@ -676,7 +728,7 @@ fn cloneNestedInstances(
     allocator: Allocator,
     context: *Context,
     nestedInstances: []ast.InstanceRelation,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) ![]ast.InstanceRelation {
     var relations = try allocator.alloc(ast.InstanceRelation, nestedInstances.len);
 
@@ -685,7 +737,7 @@ fn cloneNestedInstances(
             allocator,
             context,
             instance.instanceAstType.info,
-            withGenDef,
+            cloneConfig,
         );
         relations[index] = .{
             .identId = instance.identId,

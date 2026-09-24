@@ -1,4 +1,17 @@
+struct Wrapper [T] {
+    data: T;
+    pub offset: u16;
+}
+
+fn thing[T](data: T) Wrapper<T> {
+    return Wrapper<T> {
+        data,
+        offset = 1,
+    };
+}
+
 fn main() {
     let mut arr = [4, 3, 2, 1, 6];
-    let b = arr.len;
+    let b = thing(arr.len);
+    let c = b.offset;
 }
