@@ -9,22 +9,27 @@ const pools = blitz.allocPools;
 const Context = blitz.context.Context;
 const errors = blitz.errors;
 
+const CloneConfig = struct {
+    withGenDef: bool,
+    setAttrSizes: bool = false,
+};
+
 pub fn cloneAstTypeInfo(
     allocator: Allocator,
     context: *Context,
     info: ast.AstTypeInfo,
-    withGenDef: bool,
+    cloneConfig: CloneConfig,
 ) (Allocator.Error || errors.CloneError)!ast.AstTypeInfo {
     if (info.astType.* == .Generic) {
         const generic = info.astType.Generic;
-        if (withGenDef) {
+        if (cloneConfig.withGenDef) {
             const genType = try context.compInfo.getGeneric(allocator, context, generic);
             if (genType) |gType| {
                 const clonedType = try cloneAstTypeInfo(
                     allocator,
                     context,
                     gType.info,
-                    withGenDef,
+                    cloneConfig,
                 );
                 return clonedType;
             }
