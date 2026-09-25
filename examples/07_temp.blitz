@@ -6,7 +6,7 @@ struct Wrapper [T] {
 fn thing[T](data: T) Wrapper<T> {
     return Wrapper<T> {
         data,
-        offset = 1,
+        offset = 1u16,
     };
 }
 
