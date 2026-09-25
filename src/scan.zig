@@ -1283,7 +1283,7 @@ pub fn scanNode(
             };
             const customTypeRef = try context.instanceStore.appendInstanceGetRefType(customType);
             const customTypeRefType = try context.pools.newType(context, customTypeRef);
-            return customTypeRefType.toAllocInfo(.Mut, .Recycled);
+            return customTypeRefType.toAllocInfo(.Mut, .Allocated);
         },
         .Bang => |bang| {
             const origBangType = try scanNode(allocator, context, bang, withGenDef);

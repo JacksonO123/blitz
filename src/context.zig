@@ -33,6 +33,9 @@ const ContextSettings = struct {
 
         allocateRegisters: bool = true,
         // allocateRegisters: bool = false,
+
+        storeTypeAllocStackFrames: bool = true,
+        storeNodeAllocStackFrames: bool = true,
     } = .{},
 };
 
@@ -103,6 +106,7 @@ pub const Context = struct {
     /// call to free unused pool mem
     pub fn clearPoolMem(self: *Self) void {
         self.compInfo.clearPoolMem(self);
+        self.instanceStore.clearInstances(self);
     }
 
     pub fn getTokString(self: Self, tok: tokenizer.Token) []const u8 {

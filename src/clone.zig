@@ -200,16 +200,9 @@ pub fn attrSizesFromCustom(
 
         const nestedInstanceOrNull = try scanner.nonPrimitiveTypeToInstance(context, attrType);
         if (nestedInstanceOrNull) |nestedInstance| {
-            // TODO - possibly remove this clone
-            const cloned = try cloneAstTypeInfo(
-                allocator,
-                context,
-                nestedInstance.info,
-                cloneConfig,
-            );
             try nestedInstances.append(allocator, .{
                 .identId = item.nameIdentId,
-                .instanceAstType = cloned.toAllocInfo(.Recycled),
+                .instanceAstType = nestedInstance,
             });
         }
 
