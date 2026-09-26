@@ -44,5 +44,7 @@ pub const InstanceStore = struct {
                 allocPools.recursiveReleaseTypeAll(context, nestedInstance.instanceAstType.info.astType);
             }
         }
+
+        self.instances.list.clearRetainingCapacity();
     }
 };
