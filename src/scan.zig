@@ -2893,19 +2893,9 @@ pub fn nonPrimitiveTypeToInstance(
     };
 }
 
-fn arrDecToArrInstance(
-    allocator: Allocator,
-    context: *Context,
-    arrDec: ast.AstArrayDecType,
-    cloneConfig: clone.CloneConfig,
-) !*ast.AstTypes {
+fn arrDecToArrInstance(context: *Context, arrDec: ast.AstArrayDecType) !*ast.AstTypes {
     const instanceOrNull = try nonPrimitiveTypeToInstance(context, arrDec.type);
-    const arrAstType = if (instanceOrNull) |instance| instance else try clone.cloneAstTypeInfo(
-        allocator,
-        context,
-        arrDec.type.info,
-        cloneConfig,
-    );
+    const arrAstType = if (instanceOrNull) |instance| instance else arrDec.type;
     const resType = ast.AstTypes{
         .ArrayDec = .{
             .type = arrAstType,
