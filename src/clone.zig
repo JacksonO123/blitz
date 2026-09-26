@@ -9,7 +9,7 @@ const pools = blitz.allocPools;
 const Context = blitz.context.Context;
 const errors = blitz.errors;
 
-const CloneConfig = struct {
+pub const CloneConfig = struct {
     withGenDef: bool,
     setAttrSizes: bool = false,
 };
@@ -195,21 +195,16 @@ pub fn attrSizesFromCustom(
         const size = try item.attr.Member.astType.getSize(allocator, context);
         const alignment = try item.attr.Member.astType.getAlignment(allocator, context);
 
-        const attrType = (try cloneAstTypeInfo(allocator, context, item.attr.Member, cloneConfig))
-            .toAllocInfo(.Allocated);
-
-        const nestedInstanceOrNull = try scanner.nonPrimitiveTypeToInstance(context, attrType);
+        const nestedInstanceOrNull = try scanner.nonPrimitiveTypeToInstance(
+            allocator,
+            context,
+            item.attr.Member.toAllocInfo(.Recycled),
+            cloneConfig,
+        );
         if (nestedInstanceOrNull) |nestedInstance| {
-            // TODO - possibly remove this clone
-            const cloned = try cloneAstTypeInfo(
-                allocator,
-                context,
-                nestedInstance.info,
-                cloneConfig,
-            );
             try nestedInstances.append(allocator, .{
                 .identId = item.nameIdentId,
-                .instanceAstType = cloned.toAllocInfo(.Recycled),
+                .instanceAstType = nestedInstance,
             });
         }
 

@@ -119,6 +119,34 @@ pub fn searchFlagMap(
     return null;
 }
 
+pub fn getStackFrame(allocator: Allocator) ?[]const u8 {
+    var addrs: [32]usize = undefined;
+    var trace = std.builtin.StackTrace{
+        .instruction_addresses = &addrs,
+        .index = 0,
+    };
+
+    std.debug.captureStackTrace(@returnAddress(), &trace);
+
+    var count: u32 = 0;
+    while (count < trace.index and
+        trace.instruction_addresses[count] != 0) : (count += 1)
+    {}
+    trace.index = count;
+
+    var str: std.ArrayList(u8) = .empty;
+    const oldWriter = str.writer(allocator);
+    var writerApi = oldWriter.adaptToNewApi(&.{});
+    const writer = &writerApi.new_interface;
+
+    const debugInfo = std.debug.getSelfDebugInfo() catch return null;
+    std.debug.writeStackTrace(trace, writer, debugInfo, .no_color) catch {};
+
+    writer.flush() catch {};
+
+    return str.items;
+}
+
 pub fn StaticBufferList(comptime T: type, comptime size: comptime_int) type {
     return struct {
         const Self = @This();

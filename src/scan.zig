@@ -1226,7 +1226,12 @@ pub fn scanNode(
                     return errors.ScanError.StructInitMemberTypeMismatch;
                 }
 
-                const nestedInstanceOrNull = try nonPrimitiveTypeToInstance(context, attrType);
+                const nestedInstanceOrNull = try nonPrimitiveTypeToInstance(
+                    allocator,
+                    context,
+                    attrType,
+                    .{ .withGenDef = withGenDef },
+                );
                 if (nestedInstanceOrNull) |nestedInstance| {
                     // TODO - possibly remove this clone
                     const cloned = try clone.cloneAstTypeInfo(
@@ -1283,7 +1288,7 @@ pub fn scanNode(
             };
             const customTypeRef = try context.instanceStore.appendInstanceGetRefType(customType);
             const customTypeRefType = try context.pools.newType(context, customTypeRef);
-            return customTypeRefType.toAllocInfo(.Mut, .Recycled);
+            return customTypeRefType.toAllocInfo(.Mut, .Allocated);
         },
         .Bang => |bang| {
             const origBangType = try scanNode(allocator, context, bang, withGenDef);
@@ -2852,17 +2857,21 @@ pub fn releaseIfAllocated(context: *Context, result: TypeAndAllocInfo) void {
 }
 
 pub fn nonPrimitiveTypeToInstance(
+    allocator: Allocator,
     context: *Context,
     inputType: TypeAndAllocInfo,
-) Allocator.Error!?TypeAndAllocInfo {
+    cloneConfig: clone.CloneConfig,
+) errors.CloneError!?TypeAndAllocInfo {
     return switch (inputType.info.astType.*) {
         .Pointer => |inner| a: {
             if (inner.info.astType.* != .ArrayDec) {
                 return null;
             }
             const arrDecInstanceHandle = try arrDecToArrInstance(
+                allocator,
                 context,
                 inner.info.astType.ArrayDec,
+                cloneConfig,
             );
             const arrDecInstanceInfo = arrDecInstanceHandle.toAllocInfo(
                 inner.info.mutState,
@@ -2873,7 +2882,7 @@ pub fn nonPrimitiveTypeToInstance(
             break :a slicePtr.toAllocInfo(inputType.info.mutState, .Allocated);
         },
         .ArrayDec => |dec| a: {
-            const arrInstance = try arrDecToArrInstance(context, dec);
+            const arrInstance = try arrDecToArrInstance(allocator, context, dec, cloneConfig);
             break :a arrInstance.toAllocInfo(
                 inputType.info.mutState,
                 .Allocated,
@@ -2893,9 +2902,19 @@ pub fn nonPrimitiveTypeToInstance(
     };
 }
 
-fn arrDecToArrInstance(context: *Context, arrDec: ast.AstArrayDecType) !*ast.AstTypes {
-    const instanceOrNull = try nonPrimitiveTypeToInstance(context, arrDec.type);
-    const arrAstType = if (instanceOrNull) |instance| instance else arrDec.type;
+fn arrDecToArrInstance(
+    allocator: Allocator,
+    context: *Context,
+    arrDec: ast.AstArrayDecType,
+    cloneConfig: clone.CloneConfig,
+) !*ast.AstTypes {
+    const instanceOrNull = try nonPrimitiveTypeToInstance(allocator, context, arrDec.type, cloneConfig);
+    const arrAstType = if (instanceOrNull) |instance| instance else (try clone.cloneAstTypeInfo(
+        allocator,
+        context,
+        arrDec.type.info,
+        cloneConfig,
+    )).toAllocInfo(.Allocated);
     const resType = ast.AstTypes{
         .ArrayDec = .{
             .type = arrAstType,

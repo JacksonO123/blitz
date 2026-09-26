@@ -3,6 +3,8 @@ const std = @import("std");
 const blitz = @import("blitz.zig");
 const ast = blitz.ast;
 const utils = blitz.utils;
+const Context = blitz.context.Context;
+const allocPools = blitz.allocPools;
 
 pub const InstanceStore = struct {
     const Self = @This();
@@ -30,5 +32,19 @@ pub const InstanceStore = struct {
         }
 
         return null;
+    }
+
+    pub fn clearInstances(self: *Self, context: *Context) void {
+        for (self.instances.list.items) |custom| {
+            for (custom.generics) |generic| {
+                allocPools.recursiveReleaseTypeAll(context, generic.astType);
+            }
+
+            for (custom.nestedInstances) |nestedInstance| {
+                allocPools.recursiveReleaseTypeAll(context, nestedInstance.instanceAstType.info.astType);
+            }
+        }
+
+        self.instances.list.clearRetainingCapacity();
     }
 };

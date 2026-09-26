@@ -19,32 +19,58 @@ const TypePool = MemPool(ast.AstTypes);
 pub const Pools = struct {
     const Self = @This();
 
+    traceArena: std.heap.ArenaAllocator,
     nodes: NodePool,
     types: TypePool,
+    traceMap: std.AutoHashMapUnmanaged(*anyopaque, []const u8),
 
     pub inline fn init(allocator: Allocator) !Self {
         const nodePool = try NodePool.initPreheated(allocator, POOL_SIZE);
         const typePool = try TypePool.initPreheated(allocator, POOL_SIZE);
 
         return .{
+            .traceArena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
             .nodes = nodePool,
             .types = typePool,
+            .traceMap = std.AutoHashMapUnmanaged(*anyopaque, []const u8).empty,
         };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.traceArena.deinit();
     }
 
     pub fn newType(self: *Self, context: *Context, data: ast.AstTypes) !*ast.AstTypes {
         const ptr = try self.newTypeUntracked(data);
+
         if (context.settings.debug.trackPoolMem) {
             try context.utils.reserveTypeAddress(ptr);
         }
+
+        if (context.settings.debug.storeTypeAllocStackFrames) {
+            const allocator = self.traceArena.allocator();
+            if (utils.getStackFrame(allocator)) |str| {
+                try self.traceMap.put(allocator, @ptrCast(ptr), str);
+            }
+        }
+
         return ptr;
     }
 
     pub fn newNode(self: *Self, context: *Context, data: ast.AstNode) !*ast.AstNode {
         const ptr = try self.newNodeUntracked(data);
+
         if (context.settings.debug.trackPoolMem) {
             try context.utils.reserveNodeAddress(ptr);
         }
+
+        if (context.settings.debug.storeTypeAllocStackFrames) {
+            const allocator = self.traceArena.allocator();
+            if (utils.getStackFrame(allocator)) |str| {
+                try self.traceMap.put(allocator, @ptrCast(ptr), str);
+            }
+        }
+
         return ptr;
     }
 
@@ -111,6 +137,9 @@ pub const Pools = struct {
                 try writer.print(" (0x{x}) ", .{@intFromPtr(item.*)});
                 try print.printType(context, item.*, writer);
                 try writer.writeAll("\n");
+                if (self.traceMap.get(@ptrCast(item.*))) |str| {
+                    try writer.writeAll(str);
+                }
             }
         }
 
@@ -416,6 +445,12 @@ pub fn recursiveReleaseTypeUtil(
         .Custom => |custom| {
             for (custom.generics) |generic| {
                 recursiveReleaseType(context, generic.astType);
+            }
+
+            for (custom.nestedInstances) |nestedInstance| {
+                if (nestedInstance.instanceAstType.allocState == .Allocated or releaseType == .All) {
+                    recursiveReleaseType(context, nestedInstance.instanceAstType.info.astType);
+                }
             }
         },
         .Error => |err| {
