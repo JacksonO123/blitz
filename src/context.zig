@@ -101,6 +101,7 @@ pub const Context = struct {
 
     pub fn deinit(self: *Self) void {
         self.genInfo.deinit();
+        self.pools.deinit();
     }
 
     /// call to free unused pool mem

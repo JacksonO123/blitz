@@ -36,6 +36,10 @@ pub const Pools = struct {
         };
     }
 
+    pub fn deinit(self: *Self) void {
+        self.traceArena.deinit();
+    }
+
     pub fn newType(self: *Self, context: *Context, data: ast.AstTypes) !*ast.AstTypes {
         const ptr = try self.newTypeUntracked(data);
 
