@@ -1799,7 +1799,7 @@ fn scanFunctionCalls(allocator: Allocator, context: *Context) !void {
                 allocator,
                 context,
                 func.body,
-                .{ .withGenDef = true },
+                .{ .withGenDef = toScanItem.withGenDef },
             );
             try func.genericState.Generic.genericInstances.append(
                 allocator,
@@ -1838,8 +1838,8 @@ fn setGenTypesAndMatchTypesFromParams(
 ) !bool {
     var includesGenerics = false;
 
-    for (decParams, 0..) |decParam, paramIndex| {
-        const origCallParam = try scanNode(allocator, context, callParams[paramIndex], withGenDef);
+    for (decParams, callParams) |decParam, callParam| {
+        const origCallParam = try scanNode(allocator, context, callParam, withGenDef);
         const callParamType = try escapeVarInfoAndRelease(context, origCallParam);
         defer releaseIfAllocated(context, callParamType);
         var isGeneric = false;
@@ -1875,7 +1875,7 @@ fn setGenTypesAndMatchTypesFromParams(
                 try context.compInfo.setGeneric(generic, typePtr.toAllocInfo(.Allocated));
                 isGeneric = true;
             },
-            .Custom => |custom| {
+            .Custom => |*custom| {
                 isGeneric = try matchParamGenericTypes(
                     allocator,
                     context,
@@ -2030,64 +2030,80 @@ fn setInitGenerics(
     }
 }
 
+fn matchParamGenericTypesCustomImpl(
+    allocator: Allocator,
+    context: *Context,
+    custom: *const ast.CustomType,
+    paramCustom: *const ast.CustomType,
+) (errors.ScanError || errors.CloneError)!bool {
+    if (custom.nameIdentId != paramCustom.nameIdentId) {
+        return errors.ScanError.FunctionCallParamTypeMismatch;
+    }
+
+    var hasGeneric = false;
+
+    for (custom.generics, paramCustom.generics) |gen, paramGen| {
+        switch (gen.astType.*) {
+            .Generic => |generic| {
+                const typeClone = try clone.replaceGenericsOnTypeInfo(
+                    allocator,
+                    context,
+                    paramGen.toAllocInfo(.Recycled),
+                    .{ .withGenDef = false },
+                );
+
+                const genType = try context.compInfo.getGeneric(
+                    allocator,
+                    context,
+                    generic,
+                );
+                if (genType) |t| {
+                    const matches = try matchTypes(
+                        allocator,
+                        context,
+                        t.info,
+                        typeClone.info,
+                        true,
+                    );
+                    if (!matches) {
+                        return errors.ScanError.ConflictingGenericParameters;
+                    }
+                }
+
+                try context.compInfo.setGeneric(generic, typeClone);
+                hasGeneric = true;
+            },
+            .Custom => |*newCustom| {
+                hasGeneric = try matchParamGenericTypes(
+                    allocator,
+                    context,
+                    newCustom,
+                    paramGen.astType,
+                );
+            },
+            else => {},
+        }
+    }
+
+    return hasGeneric;
+}
+
 fn matchParamGenericTypes(
     allocator: Allocator,
     context: *Context,
-    custom: ast.CustomType,
+    custom: *const ast.CustomType,
     paramType: *const ast.AstTypes,
-) !bool {
+) (errors.ScanError || errors.CloneError)!bool {
     switch (paramType.*) {
-        .Custom => |paramCustom| {
-            if (custom.nameIdentId != paramCustom.nameIdentId) {
-                return errors.ScanError.FunctionCallParamTypeMismatch;
-            }
-
-            var hasGeneric = false;
-
-            for (custom.generics, paramCustom.generics) |gen, paramGen| {
-                switch (gen.astType.*) {
-                    .Generic => |generic| {
-                        const typeClone = try clone.replaceGenericsOnTypeInfo(
-                            allocator,
-                            context,
-                            paramGen.toAllocInfo(.Recycled),
-                            .{ .withGenDef = false },
-                        );
-
-                        const genType = try context.compInfo.getGeneric(
-                            allocator,
-                            context,
-                            generic,
-                        );
-                        if (genType) |t| {
-                            const matches = try matchTypes(
-                                allocator,
-                                context,
-                                t.info,
-                                typeClone.info,
-                                true,
-                            );
-                            if (!matches) {
-                                return errors.ScanError.ConflictingGenericParameters;
-                            }
-                        }
-
-                        try context.compInfo.setGeneric(generic, typeClone);
-                        hasGeneric = true;
-                    },
-                    .Custom => |newCustom| {
-                        hasGeneric = try matchParamGenericTypes(
-                            allocator,
-                            context,
-                            newCustom,
-                            paramGen.astType,
-                        );
-                    },
-                    else => {},
-                }
-            }
-
-            return hasGeneric;
+        .Custom => |*paramCustom| return try matchParamGenericTypesCustomImpl(
+            allocator,
+            context,
+            custom,
+            paramCustom,
+        ),
+        .CustomInstance => |instanceId| {
+            const customInstance = context.instanceStore.getInstanceById(instanceId).?;
+            return matchParamGenericTypesCustomImpl(allocator, context, custom, customInstance);
         },
         else => return errors.ScanError.FunctionCallParamTypeMismatch,
     }
