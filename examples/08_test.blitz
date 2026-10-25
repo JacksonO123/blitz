@@ -1,17 +1,12 @@
-struct Wrapper [T] {
-    data: T;
-    pub offset: u16;
+struct Data [T] {
+    pub value: T;
 }
 
-fn thing[T](data: T) Wrapper<T> {
-    return Wrapper<T> {
-        data,
-        offset = 3u16,
-    };
+fn thing [T] (data: Data<T>) T {
+    return data.value;
 }
 
 fn main() {
-    let arr = [1, 2, 3, 4];
-    let a = thing(arr.len);
-    let b = a.offset;
+    let data = Data<u32> { value = 2 };
+    let res = thing(data);
 }

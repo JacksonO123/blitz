@@ -515,7 +515,7 @@ pub fn scanNode(
                     return try getArrayDecPropType(allocator, context, node, access.property);
                 },
                 .Custom => |custom| a: {
-                    const isValid, const info = try isValidPropertyOfCustom(
+                    const isValid, const info = try checkValidPropOfCustomSetNodeInfo(
                         allocator,
                         context,
                         node,
@@ -548,14 +548,16 @@ pub fn scanNode(
                                     .attrSizes = instance.attrSizes,
                                 },
                             };
-                            if (clonedType.astType.* == .Pointer and clonedType.astType.Pointer.info.astType.* == .ArrayDec) {
+                            if (clonedType.astType.* == .Pointer and
+                                clonedType.astType.Pointer.info.astType.* == .ArrayDec)
+                            {
                                 node.typeInfo.nodeType = .Slice;
                             }
                             return clonedType.toAllocInfo(.Allocated);
                         }
                     }
 
-                    const isValid, const info = try isValidPropertyOfCustom(
+                    const isValid, const info = try checkValidPropOfCustomSetNodeInfo(
                         allocator,
                         context,
                         node,
@@ -1002,24 +1004,7 @@ pub fn scanNode(
             try context.compInfo.pushGenScope(allocator, true);
             defer context.compInfo.popGenScope(context);
 
-            var forceGeneric = false;
-            const func = switch (dec.info.astType.*) {
-                .Function => |func| func,
-                .StructMethod => |method| a: {
-                    forceGeneric = true;
-                    const nameIdentId = method.customSrc.nameIdentId;
-                    const structDec = context.compInfo.getStructDec(nameIdentId).?;
-                    for (structDec.generics, method.customSrc.generics) |decGen, customGen| {
-                        try context.compInfo.setGeneric(
-                            decGen.nameIdentId,
-                            customGen.toAllocInfo(.Recycled),
-                        );
-                    }
-
-                    break :a method.func;
-                },
-                else => return errors.ScanError.CannotCallNonFunctionNode,
-            };
+            const func, const forceGeneric = try shouldForceGenericFuncAndSetStructGenerics(context, dec);
             node.typeInfo.data.Others.resolvesToFunc = func;
 
             if (call.callGenerics) |callGenerics| {
@@ -1126,7 +1111,7 @@ pub fn scanNode(
                         allocator,
                         context,
                         param.type.toAllocInfo(.Recycled),
-                        .{ .withGenDef = withGenDef },
+                        .{ .withGenDef = withGenDef, .setAttrSizes = true },
                     );
 
                     try context.compInfo.setVariableType(
@@ -1500,7 +1485,32 @@ pub fn scanNode(
     }
 }
 
-fn isValidPropertyOfCustom(
+fn shouldForceGenericFuncAndSetStructGenerics(
+    context: *Context,
+    dec: TypeAndAllocInfo,
+) !struct { *ast.FuncDecNode, bool } {
+    var forceGeneric = false;
+    const func = switch (dec.info.astType.*) {
+        .Function => |func| func,
+        .StructMethod => |method| a: {
+            const nameIdentId = method.customSrc.nameIdentId;
+            const structDec = context.compInfo.getStructDec(nameIdentId).?;
+            forceGeneric = structDec.generics.len > 0;
+            for (structDec.generics, method.customSrc.generics) |decGen, customGen| {
+                try context.compInfo.setGeneric(
+                    decGen.nameIdentId,
+                    customGen.toAllocInfo(.Recycled),
+                );
+            }
+
+            break :a method.func;
+        },
+        else => return errors.ScanError.CannotCallNonFunctionNode,
+    };
+    return .{ func, forceGeneric };
+}
+
+fn checkValidPropOfCustomSetNodeInfo(
     allocator: Allocator,
     context: *Context,
     node: *ast.AstNode,
@@ -2127,7 +2137,7 @@ fn scanFuncBodyAndReturn(
             allocator,
             context,
             param.type,
-            .{ .withGenDef = withGenDef },
+            .{ .withGenDef = withGenDef, .setAttrSizes = true },
         );
 
         try context.compInfo.setVariableType(

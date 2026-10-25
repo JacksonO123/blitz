@@ -4490,8 +4490,10 @@ fn getPropLocation(
 
     return if (isFunction)
         .{ @as(u64, 0), isFunction }
-    else
-        .{ (try dec.getMemberLocation(propIdentId, accessInfo.attrSizes)).?, isFunction };
+    else a: {
+        const memberLocation = try dec.getMemberLocation(propIdentId, accessInfo.attrSizes);
+        break :a .{ memberLocation.?, isFunction };
+    };
 }
 
 fn codegenFunctions(

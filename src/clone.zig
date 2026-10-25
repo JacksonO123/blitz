@@ -123,7 +123,8 @@ pub fn cloneAstTypes(
                 cloneConfig,
             );
 
-            const attrSizes, const clonedNestedInstances = if (custom.attrSizes.len == 0 and cloneConfig.setAttrSizes)
+            const attrSizes, const clonedNestedInstances = if (custom.attrSizes.len == 0 and
+                cloneConfig.setAttrSizes)
                 try attrSizesFromCustom(allocator, context, custom, cloneConfig)
             else
                 .{
